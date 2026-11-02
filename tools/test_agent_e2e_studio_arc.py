@@ -331,3 +331,26 @@ def test_studio_arc_contract_is_in_runner_digest_and_does_not_replace_p08():
     assert not any(r.role.startswith('seeded:') for r in load_roles('P08', 'studio-arc'))
     for variant in ('A', 'B'):
         assert 'studioArcContent' in load_projections('P08', variant, 'studio-arc')['source-content.unchanged']['spec']
+
+
+def test_slot_provision_keeps_the_packages_compose_files():
+    """Studio DEV shakeout 11-02: "-f compose.yaml -f studio-customer.yaml" dropped the package's executor overlay
+    (AllowedHosts admitting Console's calls to honua) and image override; the slot's COMPOSE_FILE is kept."""
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import provision_local_server
+
+    class Slot:
+        remote_dir = '/home/eval/arc-owned'
+        project = 'arc-12345678'
+
+        def compose(self, *args):
+            return 'docker compose ' + ' '.join(args)
+
+        def ssh(self, script, timeout):
+            self.script = script
+            return SimpleNamespace(returncode=0)
+    slot = Slot()
+    provision_local_server(slot, 'x' * 48)
+    assert 'sed -n "s/^COMPOSE_FILE=//p" .env' in slot.script
+    assert 'export COMPOSE_FILE="$files:studio-customer.yaml"' in slot.script
+    assert 'docker compose -f' not in slot.script and 'up -d --no-deps --wait --wait-timeout 240 honua' in slot.script

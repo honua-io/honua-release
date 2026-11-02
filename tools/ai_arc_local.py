@@ -258,6 +258,20 @@ def honua_server_file(revision: str, path: str = 'docker-compose.yml') -> bytes:
     return done.stdout
 
 
+def slot_compose_files(override: str) -> str:
+    """Shell lines (run in the slot directory) exporting COMPOSE_FILE as the slot's own compose files plus
+    ``override``, for compose commands given no -f. The shipped package's .env names its files in COMPOSE_FILE
+    (compose.yaml, compose.executor.yaml, compose.executor.image.yaml); without it, compose.yaml plus
+    compose.executor.yaml when present. An explicit -f list would drop the package's overrides and change honua."""
+    if not re.fullmatch(r'[a-z][a-z0-9.-]{0,63}\.yaml', override):
+        raise ValueError('invalid compose override name')
+    return ('files="$(sed -n "s/^COMPOSE_FILE=//p" .env 2>/dev/null | tail -n 1)"\n'
+            'files="${files#\\"}"; files="${files%\\"}"\n'
+            'if [ -z "$files" ]; then files=compose.yaml; '
+            'if [ -f compose.executor.yaml ]; then files="$files:compose.executor.yaml"; fi; fi\n'
+            f'export COMPOSE_FILE="$files:{override}" COMPOSE_PATH_SEPARATOR=:\n')
+
+
 def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, expected: dict,
                   source_at=honua_server_file) -> dict:
     """Add Console to the slot the way honua-server's own compose does (its 'console' profile service),
@@ -299,11 +313,7 @@ def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, exp
     # container before and after (the harness never changes the candidate deployment it is about to score).
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
               + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
-              + 'files="$(sed -n "s/^COMPOSE_FILE=//p" .env 2>/dev/null | tail -n 1)"\n'
-              + 'files="${files#\\"}"; files="${files%\\"}"\n'
-              + 'if [ -z "$files" ]; then files=compose.yaml; '
-                'if [ -f compose.executor.yaml ]; then files="$files:compose.executor.yaml"; fi; fi\n'
-              + 'export COMPOSE_FILE="$files:console.yaml" COMPOSE_PATH_SEPARATOR=:\n'
+              + slot_compose_files('console.yaml')
               + 'before="$(' + slot.compose('ps', '-q', 'honua') + ')"\n'
               + slot.compose('up', '-d', '--no-deps', '--wait', '--wait-timeout', '240', 'console') + '\n'
               + 'after="$(' + slot.compose('ps', '-q', 'honua') + ')"\n'

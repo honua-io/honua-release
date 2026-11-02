@@ -469,6 +469,7 @@ def provision_local_server(slot, signing_key):
     import secrets
     import shlex
     import yaml
+    from ai_arc_local import slot_compose_files
 
     remote = Path(slot.remote_dir)
     if not remote.is_absolute() or '..' in remote.parts or remote == Path('/tmp') or Path('/tmp') in remote.parents:
@@ -486,14 +487,16 @@ def provision_local_server(slot, signing_key):
                                                         'environment': env}}}, sort_keys=True)
     fence = 'HONUA_STUDIO_' + secrets.token_hex(12)
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(str(remote)) + '\n'
-              + 'server_id=$(' + slot.compose('-f', 'compose.yaml', 'ps', '-q', 'honua') + ')\n'
+              # The slot's own compose files (the package's COMPOSE_FILE) plus this override: an explicit
+              # "-f compose.yaml" dropped the executor overlay (its AllowedHosts admit Console's calls to honua).
+              + slot_compose_files('studio-customer.yaml')
+              + 'server_id=$(' + slot.compose('ps', '-q', 'honua') + ')\n'
               + '[ -n "$server_id" ]\n'
               + 'HONUA_STUDIO_ACTIVE_IMAGE=$(docker inspect --format "{{.Image}}" "$server_id")\n'
               + 'case "$HONUA_STUDIO_ACTIVE_IMAGE" in sha256:*) ;; *) exit 1 ;; esac\n'
               + 'export HONUA_STUDIO_ACTIVE_IMAGE\n'
               + f"cat > studio-customer.yaml <<'{fence}'\n{override}{fence}\n"
-              + slot.compose('-f', 'compose.yaml', '-f', 'studio-customer.yaml', 'up', '-d', '--no-deps',
-                             '--wait', '--wait-timeout', '240', 'honua') + '\n')
+              + slot.compose('up', '-d', '--no-deps', '--wait', '--wait-timeout', '240', 'honua') + '\n')
     if slot.ssh(script, timeout=300).returncode:
         raise RuntimeError('could not configure the local Studio server')
     return {'studioAiProxy': 'disabled'}
