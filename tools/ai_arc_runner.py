@@ -2557,6 +2557,10 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                     result = run_stage(ctx, modules[stage], session, goal, previous_answer)
                 except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
                     result = harness_error_stage(ctx, modules[stage], exc)
+                # Release session 2026-11-02 (A16): a recorded tool result whose data one CLI arm cannot see makes
+                # the run inadmissible (verify_run) and holds the campaign; counted per stage, files named.
+                gaps = mcp_channel_gaps(private / stage)
+                result['mcpChannelGaps'], result['mcpChannelGapExamples'] = len(gaps), gaps[:3]
                 receipt['stages'].append(result)
                 outcomes[stage] = result['outcome']
                 if stage == 'services':
@@ -2836,6 +2840,49 @@ def on_shipped_package(receipt: dict, package: dict | None = None) -> bool:
     return True
 
 
+def mcp_result_visible_in_text(result) -> bool:
+    """Both pinned CLIs see this MCP tool result's data. Claude Code 2.1.316 shows the model only structuredContent;
+    Codex 0.166.0 only the text content (release session 2026-11-02, record/mcp-fairness). A result with structured
+    data is visible to both only if its text content carries the same data: the serialized JSON itself, or (the
+    Studio browser tools) exactly the structured 'text' beside a screenshot digest. Errors and results without
+    structured data are not judged."""
+    if not isinstance(result, dict) or result.get('isError') is True or 'structuredContent' not in result:
+        return True
+    structured = result.get('structuredContent')
+    blocks = result.get('content') if isinstance(result.get('content'), list) else []
+    text = ''.join(b.get('text', '') for b in blocks if isinstance(b, dict) and b.get('type') == 'text')
+    try:
+        if json.loads(text) == structured:
+            return True
+    except ValueError:
+        pass
+    return (isinstance(structured, dict) and set(structured) <= {'text', 'screenshotSha256'}
+            and structured.get('text') == text)
+
+
+def mcp_channel_gaps(root: Path) -> list[str]:
+    """Recorded tool responses (action-*.response) under a stage's private directory whose data one CLI arm could
+    not see (mcp_result_visible_in_text). A no-model check on the candidate's real server traffic."""
+    gaps = []
+    for path in sorted(Path(root).rglob('action-*.response')) if Path(root).is_dir() else []:
+        raw = path.read_bytes().decode('utf-8', 'replace')
+        bodies = [line[5:].strip() for line in raw.splitlines() if line.startswith('data:')] or [raw]
+        for body in bodies:
+            try:
+                message = json.loads(body)
+            except ValueError:
+                continue
+            if isinstance(message, dict) and not mcp_result_visible_in_text(message.get('result')):
+                gaps.append(str(path.relative_to(root)))
+                break
+    return gaps
+
+
+def mcp_channel_gap_stages(receipt: dict) -> list[str]:
+    return [str(s.get('stage')) for s in (receipt.get('stages') or [])
+            if isinstance(s, dict) and int(s.get('mcpChannelGaps') or 0) > 0]
+
+
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
                row: dict, goal_sets: dict, evidence: Path | None, package: dict | None = None) -> dict:
     """Re-derive a run's outcome from its retained evidence; reject anything contradictory or misbound."""
@@ -2867,6 +2914,10 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         if not isinstance(quickstart, dict) or quickstart.get('pageSha256') != arc['quickstart']['sha256'] \
                 or quickstart.get('revision') != arc['quickstart']['revision']:
             raise ValueError('run receipt does not bind the pinned quickstart')
+    channel_gaps = mcp_channel_gap_stages(receipt)
+    if channel_gaps:
+        raise ValueError('a CLI arm could not see recorded tool results (MCP result channels differ): '
+                         + ', '.join(channel_gaps))
     install = arc['versionPair']['install']
     if receipt.get('phases', {}).get('install') != {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                                     'imageDigest': install['imageDigest']}:

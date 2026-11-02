@@ -2783,3 +2783,40 @@ def test_the_arc_workflow_installs_the_pinned_studio_browser():
     assert 'install --quiet -r tools/requirements-agent-browser.txt' in text
     assert '-m playwright install chromium' in text and '"$RUNNER_TEMP/arc-venv/bin" >> "$GITHUB_PATH"' in text
     assert text.index('Install the Studio browser') < text.index('python3 tools/ai_arc_campaign.py')
+
+
+def _sse(result):
+    return ('event: message\ndata: ' + json.dumps({'jsonrpc': '2.0', 'id': '1', 'result': result}) + '\n\n').encode()
+
+
+ELIDED = {'content': [{'type': 'text', 'text': 'Structured result (1,093 chars) returned in structuredContent; text '
+                       'summary elided to conserve context.'}], 'isError': False, 'structuredContent': {'layers': [1]}}
+SUMMARY = {'content': [{'type': 'text', 'text': 'Matched 5 feature(s) in svc-publish-kestrel/1.'}], 'isError': False,
+           'structuredContent': {'features': [{'id': 1}]}}
+FULL = {'content': [{'type': 'text', 'text': json.dumps({'layers': [1]})}], 'isError': False,
+        'structuredContent': {'layers': [1]}}
+BROWSER = {'content': [{'type': 'text', 'text': '- heading "Studio"'}], 'isError': False,
+           'structuredContent': {'text': '- heading "Studio"', 'screenshotSha256': 'a' * 64}}
+ERROR = {'content': [{'type': 'text', 'text': 'denied'}], 'isError': True, 'structuredContent': {'error': {'kind': 'x'}}}
+
+
+@pytest.mark.parametrize('result,visible', [(ELIDED, False), (SUMMARY, False), (FULL, True), (BROWSER, True),
+                                            (ERROR, True), ({'content': [{'type': 'text', 'text': 'ok'}]}, True)])
+def test_a_tool_result_is_visible_to_both_cli_arms_only_if_its_text_carries_the_data(result, visible):
+    """A16: Claude Code shows the model structuredContent, Codex the text content (record/mcp-fairness)."""
+    assert R.mcp_result_visible_in_text(result) is visible
+
+
+def test_recorded_responses_with_hidden_data_are_counted_per_stage(tmp_path):
+    session = tmp_path / 'services' / 'cases' / 'case-1' / 'session-1'
+    session.mkdir(parents=True)
+    (session / 'action-0001.response').write_bytes(_sse(FULL))
+    (session / 'action-0002.response').write_bytes(_sse(ELIDED))
+    (session / 'action-0003.response').write_bytes(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': SUMMARY}).encode())
+    gaps = R.mcp_channel_gaps(tmp_path / 'services')
+    assert gaps == ['cases/case-1/session-1/action-0002.response', 'cases/case-1/session-1/action-0003.response']
+    assert R.mcp_channel_gaps(tmp_path / 'absent') == []
+    receipt = {'stages': [{'stage': 'services', 'mcpChannelGaps': 2}, {'stage': 'studio', 'mcpChannelGaps': 0}]}
+    assert R.mcp_channel_gap_stages(receipt) == ['services']
+    import inspect
+    assert 'mcp_channel_gap_stages(receipt)' in inspect.getsource(R.verify_run)

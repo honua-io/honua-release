@@ -215,6 +215,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                 results.append({'runId': row['runId'], 'status': (receipt or {}).get('status', 'missing'),
                                 'receipt': str(path) if receipt else None})
                 if receipt is None or receipt['status'] == 'undetermined' or suspected_harness_fault(receipt) \
+                        or arc_runner.mcp_channel_gap_stages(receipt) \
                         or (out / 'holds' / (row['runId'].replace(':', '-') + '.hold')).is_file() \
                         or receipt.get('falseSuccessFlags') or arc_runner.stage_gaps(receipt.get('stages') or []):
                     # Adjudication barrier (Astra S3): any suspected harness defect stops the campaign before the
@@ -288,6 +289,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
             if not adjudicate_false_success(run_id, flagged):
                 return False
         if flagged is not None and flagged.get('status') != 'undetermined' and not suspected_harness_fault(flagged) \
+                and not arc_runner.mcp_channel_gap_stages(flagged) \
                 and not (out / 'holds' / (run_id.replace(':', '-') + '.hold')).is_file():
             return True       # paused only for its false-success flags, now adjudicated
         path = out / 'adjudications' / (run_id.replace(':', '-') + '.json')
