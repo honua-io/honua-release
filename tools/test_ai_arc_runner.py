@@ -2742,7 +2742,10 @@ def test_a_trial_on_an_eval_host_points_stage_fours_case_console_at_it(monkeypat
     import types
     import ai_arc_local
     import agent_browser_studio
-    monkeypatch.delenv('DOCKER_HOST', raising=False)
+    # Sol console7: build_slot writes os.environ directly; setenv first so monkeypatch restores the prior state
+    # (absent or set) after the test, then remove it for the test itself.
+    monkeypatch.setenv('DOCKER_HOST', 'placeholder')
+    monkeypatch.delenv('DOCKER_HOST')
     monkeypatch.setattr(ai_arc_local, 'resolve_alias', lambda alias: '10.0.0.4')
     args = types.SimpleNamespace(docker_host='ssh://' + host, ssh_user='ubuntu', ssh_identity='/k', known_hosts='/kh',
                                  slot_index=0)
