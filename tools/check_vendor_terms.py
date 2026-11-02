@@ -64,12 +64,12 @@ def _text_from_codepoints(*points: int) -> str:
 _MARK_A = _text_from_codepoints(69, 115, 114, 105)
 _MARK_B = _text_from_codepoints(65, 114, 99, 71, 73, 83)
 _SCRIPTING = _text_from_codepoints(65, 114, 99, 112, 121)
-_LIVING_ATLAS = _text_from_codepoints(76, 105, 118, 105, 110, 103, 32, 65, 116, 108, 97, 115)
-_ARC_MAP = _text_from_codepoints(65, 114, 99, 77, 97, 112)
-_ARC_CATALOG = _text_from_codepoints(65, 114, 99, 67, 97, 116, 97, 108, 111, 103)
-_ARC_OBJECTS = _text_from_codepoints(65, 114, 99, 79, 98, 106, 101, 99, 116, 115)
-_ARC_SDE = _text_from_codepoints(65, 114, 99, 83, 68, 69)
-_ARC_IMS = _text_from_codepoints(65, 114, 99, 73, 77, 83)
+_ATLAS_NAME = _text_from_codepoints(76, 105, 118, 105, 110, 103, 32, 65, 116, 108, 97, 115)
+_MAP_DESKTOP_NAME = _text_from_codepoints(65, 114, 99, 77, 97, 112)
+_CATALOG_DESKTOP_NAME = _text_from_codepoints(65, 114, 99, 67, 97, 116, 97, 108, 111, 103)
+_OBJECT_API_NAME = _text_from_codepoints(65, 114, 99, 79, 98, 106, 101, 99, 116, 115)
+_SDE_EXTENSION_NAME = _text_from_codepoints(65, 114, 99, 83, 68, 69)
+_IMS_SERVICE_NAME = _text_from_codepoints(65, 114, 99, 73, 77, 83)
 _MARK_A_LOWER = _MARK_A.lower()
 _MARK_B_LOWER = _MARK_B.lower()
 
@@ -95,7 +95,7 @@ DESKTOP_CLIENT_NAME = _MARK_B + " " + "Pro"
 PRODUCT_NAMES = (
     _MARK_B + " Maps SDK for JavaScript", _MARK_B + " API for JavaScript", _MARK_B + " Maps SDK for .NET",
     _MARK_B + " Maps SDK for Qt", _MARK_B + " Maps SDK for Swift", _MARK_B + " Maps SDK for Kotlin",
-    _MARK_B + " Runtime SDK", _MARK_B + " " + _LIVING_ATLAS, _MARK_B + " Maps SDK", _MARK_B + " JS API",
+    _MARK_B + " Runtime SDK", _MARK_B + " " + _ATLAS_NAME, _MARK_B + " Maps SDK", _MARK_B + " JS API",
     DESKTOP_CLIENT_NAME, _MARK_B + " Online", _MARK_B + " Enterprise", "Portal for " + _MARK_B,
     _MARK_B + " Server", _MARK_B + " Desktop", _MARK_B + " Experience Builder", _MARK_B + " Dashboards",
     _MARK_B + " Field Maps", _MARK_B + " Survey123", _MARK_B + " StoryMaps", _MARK_B + " Hub",
@@ -104,7 +104,8 @@ PRODUCT_NAMES = (
 PRODUCT = re.compile("|".join(re.escape(name).replace(r"\ ", r"\s+") for name in PRODUCT_NAMES),
                      re.IGNORECASE)
 # Product names without either core mark are included in the same whole-word check.
-STANDALONE_NAMES = (_LIVING_ATLAS, _ARC_MAP, _ARC_CATALOG, _SCRIPTING, _ARC_OBJECTS, _ARC_SDE, _ARC_IMS)
+STANDALONE_NAMES = (_ATLAS_NAME, _MAP_DESKTOP_NAME, _CATALOG_DESKTOP_NAME, _SCRIPTING,
+                    _OBJECT_API_NAME, _SDE_EXTENSION_NAME, _IMS_SERVICE_NAME)
 STANDALONE = re.compile(r"\b" + _alternation((*STANDALONE_NAMES, "model" + "builder"), flexible_spaces=True) + r"\b",
                         re.IGNORECASE)
 WORKFLOW_PRODUCT = re.compile("model" + "builder", re.IGNORECASE)
