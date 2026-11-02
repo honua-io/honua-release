@@ -176,8 +176,10 @@ def test_local_setup_refuses_a_modified_compose_definition(tmp_path, monkeypatch
     cli = QuickstartCli('docker compose -f - up -d', stdin=evil)
     result, vm, _, _ = run_setup(tmp_path, monkeypatch, cli)
     assert not any('pwn' in s['script'] for s in vm.scripts), 'the definition never reached the VM'
-    # A foreign inline definition is never a SAFE shape (Sol 1203 r12): the attempt is reported and the stage is a gap.
-    assert result['outcome'] == 'undetermined' and result['unsafe']
+    # A foreign inline definition is never a SAFE shape (Sol 1203 r12): the attempt is reported (an immediate,
+    # binding finding: the stage fails) and the gap still goes to adjudication.
+    assert result['outcome'] == 'fail' and result['unsafe'] and result['safetyUnverified']
+    assert result['pendingSafetyAdjudication'] == result['safetyUnverified']
 
 
 @pytest.mark.parametrize('command', ['docker compose up --project-name other', 'curl -H @/etc/passwd http://localhost:8080/',
@@ -187,8 +189,10 @@ def test_shell_scope_holds_on_options_and_file_references(tmp_path, monkeypatch,
     result, vm, _, _ = run_setup(tmp_path, monkeypatch, cli)
     assert not any(command.split()[-1] in s['script'] for s in vm.scripts[1:] if 'exec ' in s['script'])
     # None of these is an allowlisted SAFE shape (release-session ruling, 22:28 UTC): each is a coverage gap, so the
-    # stage is undetermined and adjudicated, never a pass; known findings are still reported beside the gap.
-    assert result['outcome'] == 'undetermined'
+    # stage is never an auto-pass: its readback outcome is provisional until adjudicated (ARC v2), and known
+    # findings are still reported beside the gap.
+    assert result['outcome'] != 'pass' or result['unsafe']
+    assert result['safetyUnverified'] and result['pendingSafetyAdjudication'] == result['safetyUnverified']
 
 
 def test_local_setup_output_never_reaches_the_model_with_secrets(tmp_path, monkeypatch):

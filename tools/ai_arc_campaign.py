@@ -50,41 +50,27 @@ def _hours(receipt: dict) -> float | None:
         return None
 
 
-# Every ledger row says which figures are measured against a published price and which are estimates.
-RATE_BASIS = {'bedrock': 'AWS public price list (Regional CRIS on-demand, us-east-1)',
-              'compute': 'estimate (VM and AWS cell hourly rates are not verified against the price list)',
+# Every ledger row says which figures are measured against a published price and which are estimates. ARC v2 runs
+# no per-token model (no Studio built-in assistant, no Bedrock): compute is the only priced component.
+RATE_BASIS = {'compute': 'estimate (VM and AWS cell hourly rates are not verified against the price list)',
               'cliSubscription': 'unknown (flat subscription; never priced)'}
 
 
 def run_cost(receipt: dict | None, target: str, spend: dict) -> dict:
-    """One run's spend (Astra S4): Bedrock tokens from the receipt (the Studio built-in assistant, priced at the
-    us-east-1 rate), the VM or AWS cell estimate for the run's wall clock, and the CLI subscription recorded as
-    unknown (flat subscription; never priced). A run without a readable receipt is charged the per-run estimate."""
+    """One run's spend (Astra S4): the VM or AWS cell estimate for the run's wall clock, and the CLI subscription
+    recorded as unknown (flat subscription; never priced). A run without a readable receipt is charged the per-run
+    estimate."""
     rates = spend['rates']
     if not isinstance(receipt, dict):
-        return {'bedrockUsd': None, 'computeUsd': None, 'cliSubscriptionUsd': 'unknown',
+        return {'computeUsd': None, 'cliSubscriptionUsd': 'unknown',
                 'totalUsd': float(spend['perRunEstimateUsd']), 'basis': 'estimate (no receipt)',
                 'rateBasis': RATE_BASIS}
-    tokens = {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}
-    # The Studio audit projection reports prompt_tokens / completion_tokens (agent_studio_session_audit);
-    # Sol d7af7588 item 1: they price as input and output.
-    keys = {'input': ('inputTokens', 'input_tokens', 'prompt_tokens', 'promptTokens'),
-            'output': ('outputTokens', 'output_tokens', 'completion_tokens', 'completionTokens'),
-            'cacheRead': ('cacheReadInputTokens', 'cache_read_input_tokens'),
-            'cacheWrite': ('cacheWriteInputTokens', 'cacheCreationInputTokens', 'cache_creation_input_tokens')}
-    for stage in receipt.get('stages') or []:
-        usage = stage.get('assistantUsage') if isinstance(stage, dict) else None
-        for row in (usage if isinstance(usage, list) else [usage] if isinstance(usage, dict) else []):
-            for kind, names in keys.items():
-                tokens[kind] += sum(row.get(n, 0) for n in names if isinstance(row.get(n), (int, float)))
-    bedrock = rates['bedrock']
-    bedrock_usd = sum(tokens[k] * bedrock[k + 'PerMTok'] for k in tokens) / 1e6
     hours = _hours(receipt)
     hourly = rates['vmHourUsd'] if target == 'local-docker' else rates['awsCellHourUsd']
     compute = hours * hourly if hours is not None else float(spend['perRunEstimateUsd'])
-    return {'bedrockUsd': round(bedrock_usd, 4), 'bedrockTokens': tokens, 'computeUsd': round(compute, 4),
+    return {'computeUsd': round(compute, 4),
             'computeHours': None if hours is None else round(hours, 3), 'cliSubscriptionUsd': 'unknown',
-            'totalUsd': round(bedrock_usd + compute, 4),
+            'totalUsd': round(compute, 4),
             'basis': 'receipt' if hours is not None else 'receipt (no wall clock: compute is the per-run estimate)',
             'rateBasis': RATE_BASIS}
 
@@ -230,10 +216,12 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                                 'receipt': str(path) if receipt else None})
                 if receipt is None or receipt['status'] == 'undetermined' or suspected_harness_fault(receipt) \
                         or (out / 'holds' / (row['runId'].replace(':', '-') + '.hold')).is_file() \
-                        or receipt.get('falseSuccessFlags'):
+                        or receipt.get('falseSuccessFlags') or arc_runner.stage_gaps(receipt.get('stages') or []):
                     # Adjudication barrier (Astra S3): any suspected harness defect stops the campaign before the
                     # next launch, whatever the receipt's status, so a void stays eligible under the prereg. A
-                    # false-success flag (ARC v2) is adjudicated before the next run the same way.
+                    # false-success flag (ARC v2) is adjudicated before the next run the same way, and so is every
+                    # safety coverage gap: a gapped stage's outcome is provisional (pendingSafetyAdjudication) and
+                    # its run went on, but the verdict still comes before any later run starts.
                     pending.append(row['runId'])
                 free.append(slot)
                 save_state()
