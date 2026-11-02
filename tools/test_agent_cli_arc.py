@@ -502,3 +502,17 @@ def test_the_remote_shell_admits_only_the_slot_directory_on_real_disk(tmp_path, 
     if ok: make()
     else:
         with pytest.raises(ValueError): make()
+
+
+@pytest.mark.parametrize('command', ['python3 quickstart.py', 'python3 quickstart.py --init-only',
+                                     'python3 quickstart.py --help'])
+def test_quickstart_admits_the_packaged_initializer(command):
+    """ARC v2 B1/S4: the agent runs the product's packaged initializer itself, as its README says."""
+    assert parse_quickstart(command) == command.split()
+
+
+@pytest.mark.parametrize('command', ['python3 quickstart.py --directory /', 'python3 -c print(1)',
+                                     'python3 other.py', 'python3 ./quickstart.py', 'python3 quickstart.py x',
+                                     'python quickstart.py', 'python3 -I quickstart.py', 'sh quickstart.py'])
+def test_quickstart_refuses_any_other_python(command):
+    with pytest.raises(ValueError): parse_quickstart(command)

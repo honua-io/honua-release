@@ -16,16 +16,16 @@ on:
         required: true
         type: string
       lock_artifact:
-        description: 'Artifact containing platform-lock.json'
+        description: 'release-train artifact holding platform-lock.json and the attested manifest and matrix'
         required: false
-        default: platform-lock
+        default: candidate-manifest
         type: string
   workflow_call:
     inputs:
       platform_lock_digest: { required: true, type: string }
       candidate_ref: { required: false, type: string, default: '' }
       lock_run_id: { required: true, type: string }
-      lock_artifact: { required: false, type: string, default: 'platform-lock' }
+      lock_artifact: { required: false, type: string, default: 'candidate-manifest' }
     secrets:
       RELEASE_GH_TOKEN: { required: true }
     outputs:
@@ -60,18 +60,34 @@ jobs:
           path: candidate-lock
           run-id: ${{ inputs.lock_run_id }}
           github-token: ${{ github.token }}
-      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
-      - name: Verify candidate lock schema and attestation
+      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23' 'cryptography>=45.0'
+      # The qualification lock (release-train freeze_only) is unsigned by design; its manifest and
+      # matrix are attested. Verify those exact input bytes, re-derive the lock from them and require
+      # the artifact's lock to be byte-identical and to carry the dispatched digest. No fallback.
+      - name: Verify attested candidate inputs and re-derive the qualification lock
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
         run: |
-          python tools/validate_platform_lock.py candidate-lock/platform-lock.json
-          gh attestation verify candidate-lock/platform-lock.json --repo "${{ github.repository }}"
+          set -euo pipefail
+          [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::platform_lock_digest must be sha256:<64 hex>"; exit 1; }
+          for input in platform-manifest.yaml compatibility-matrix.yaml; do
+            test -f "candidate-lock/$input"
+            gh attestation verify "candidate-lock/$input" --repo "${{ github.repository }}" \
+              --signer-workflow "${{ github.repository }}/.github/workflows/release-train.yml"
+          done
+          label="$(python -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["platformRelease"])' candidate-lock/platform-manifest.yaml)"
+          python tools/platform_lock_bundle.py candidate-lock/platform-lock.json \
+            --manifest candidate-lock/platform-manifest.yaml --matrix candidate-lock/compatibility-matrix.yaml \
+            --label "$label" --out-dir "$RUNNER_TEMP/rederived-lock" --qualification
+          cmp candidate-lock/platform-lock.json "$RUNNER_TEMP/rederived-lock/platform-lock.json"
+          actual="sha256:$(sha256sum candidate-lock/platform-lock.json | cut -d' ' -f1)"
+          [ "$actual" = "$LOCK_DIGEST" ] || { echo "::error::platform lock digest $actual is not the dispatched $LOCK_DIGEST"; exit 1; }
       - name: Dispatch pinned Console and server images and validate evidence
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           PLATFORM_LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
-        run: python tools/studio_customer_gate.py --platform-lock "$PLATFORM_LOCK_DIGEST" --lock-file candidate-lock/platform-lock.json
+        run: python tools/studio_customer_gate.py --manifest candidate-lock/platform-manifest.yaml --platform-lock "$PLATFORM_LOCK_DIGEST" --lock-file candidate-lock/platform-lock.json
       - name: Read fail-closed verdict
         id: verdict
         if: always()

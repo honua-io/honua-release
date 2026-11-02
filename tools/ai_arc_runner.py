@@ -562,17 +562,44 @@ class LocalSetup(StageModule):
         self.compose = ai_arc_local.quickstart_compose(page)
         ctx.slot.facts['quickstart'] = {'pageSha256': sha256(page), 'composeSha256': sha256(self.compose),
                                         'revision': pin['revision']}
+        self.package = None
+        if ctx.options.get('quickstart_package_source'):
+            # ARC v2 B1/S4: the product's shipped quickstart package, built by the product's packager at the pin
+            # from the candidate release lock. The harness only downloads it and writes the customer's choices;
+            # the agent generates the secrets and key ring and starts the stack itself (python3 quickstart.py).
+            package_pin = ctx.arc['quickstartPackage']
+            self.package = ai_arc_local.build_quickstart_package(
+                Path(ctx.options['quickstart_package_source']), package_pin, ctx.private_dir / 'setup' / 'package-build',
+                **package_lock(ctx))
+            if self.package['compose.yaml'].decode('utf-8') != self.compose:
+                raise ValueError('the package compose is not the pinned guide\'s compose definition')
+            ctx.slot.facts['vm'] = ctx.slot.vm.stage_package(ctx.install, self.package, package_pin['priorMaxSchema'])
+            ctx.slot.facts['quickstart']['packageSha256'] = ctx.slot.facts['vm']['packageSha256']
+            return
         ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install, self.compose)
         ctx.slot.harness_secrets.extend(ctx.slot.vm.secrets.values())
         ctx.slot.controller['admin_key'] = ctx.slot.vm.secrets['HONUA_ADMIN_PASSWORD']
 
+    def adopt_install(self, ctx):
+        """After the agent ran the package's initializer: the harness reads the generated credentials itself."""
+        if self.package is None or ctx.slot.controller.get('admin_key'):
+            return
+        installed = ctx.slot.vm.read_installed_secrets()
+        ctx.slot.harness_secrets.extend(v for v in installed.values() if v not in ctx.slot.harness_secrets)
+        ctx.slot.controller['admin_key'] = installed['HONUA_ADMIN_PASSWORD']
+        ctx.slot.controller['manager_admin_key'] = installed['HONUA_MANAGER_ADMIN_PASSWORD']
+
     def notes(self, ctx):
-        notes = ctx.arc['targets'][ctx.target]['customerNotes']['setup']
+        notes = ctx.arc['targets'][ctx.target]['customerNotes'][
+            'setupPackage' if getattr(self, 'package', None) else 'setup']
         return (notes.replace('{release}', ctx.install['release'])
                 .replace('{image}', ctx.install['image'] + '@' + ctx.install['imageDigest'])
                 .replace('{port}', str(ctx.slot.vm.http_port)))
 
     def attachment(self, ctx):
+        if getattr(self, 'package', None):
+            return ('Honua getting-started guide', self.page + '\n\n---\n\nREADME.md from the downloaded package:\n\n'
+                    + self.package['README.md'].decode('utf-8'))
         return ('Honua getting-started guide', self.page)
 
     def backends(self, ctx):
@@ -581,6 +608,13 @@ class LocalSetup(StageModule):
 
     def observe(self, ctx, row):
         import ai_arc_local
+        try:
+            self.adopt_install(ctx)
+        except (RuntimeError, ValueError, OSError) as exc:
+            # No generated administrator credential: the agent's install did not complete.
+            evidence = {'reason': str(exc)[:160]}
+            return [assert_row('install.identity', False, evidence), assert_row('deployment.ready', False, evidence),
+                    assert_row('authentication.required', False, evidence)]
         tunnel = ctx.slot.controller.get('tunnel')
         if tunnel is None:
             tunnel = ai_arc_local.tunnel_for(ctx.slot.vm)
@@ -614,35 +648,97 @@ class LocalSetup(StageModule):
         return ('localhost', '127.0.0.1', '::1')
 
 
+def package_lock(ctx: StageContext) -> dict:
+    """The candidate release lock the quickstart package carries: serving and worker image (one artifact, as the
+    ops stage declares it), the product executor image built from the same source, and the release version."""
+    return package_lock_for(ctx.arc, ctx.candidate)
+
+
+def expected_package(arc: dict, candidate: dict, source: Path) -> dict:
+    """Sol 477d0d28 item 3: the package a run on this candidate must have installed, rebuilt independently of
+    any receipt by the product's packager from the pinned sources and the candidate lock. The aggregate checks
+    every receipt against it, and records it so rc admission checks every trial against the same binding."""
+    import tempfile
+    import ai_arc_local
+    lock = package_lock_for(arc, candidate)
+    with tempfile.TemporaryDirectory(prefix='arc-package-') as tmp:
+        files = ai_arc_local.build_quickstart_package(Path(source), arc['quickstartPackage'], Path(tmp), **lock)
+    return {'revision': arc['quickstartPackage']['revision'], 'declaredRelease': lock['server'],
+            'sha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(files.items())}}
+
+
+def package_lock_for(arc: dict, cand: dict) -> dict:
+    server = cand['imageDigest'] if cand.get('development') else f"{cand['image']}@{cand['imageDigest']}"
+    executor = cand.get('executorImage')
+    if not isinstance(executor, str) or not re.fullmatch(r'(?:[a-z0-9./:_-]+@)?sha256:[0-9a-f]{64}', executor):
+        raise ValueError('the candidate lock names no immutable compose executor image')
+    return {'server': server, 'executor': executor, 'worker': server,
+            'version': arc['versionPair']['candidate']['release']}
+
+
 def observe_local_handoff(ctx: StageContext, answer: str | None) -> dict | None:
-    """Fetch each loopback URL on the slot's port that the answer gives the customer (anonymous GET)."""
+    """Fetch each loopback URL on the slot's ports that the answer gives the customer (anonymous GET): the serving
+    port, and for the shipped quickstart package also its management port (B1/S4: the package exposes the
+    manager's API and MCP endpoint, which a correct answer names). The management port is read through its own
+    runner-owned tunnel, opened only when the answer names it."""
     from urllib.parse import urlsplit
     from agent_e2e_handoff import URL, _url
     base, http = ctx.slot.controller.get('base_url'), ctx.options.get('http')
     if not base or http is None or not isinstance(answer, str):
         return None
-    port = str(ctx.slot.vm.http_port) if ctx.slot.vm else None
+    vm = ctx.slot.vm
+    bases = {str(vm.http_port): base} if vm else {}
+    manager = str(vm.manager_port) if vm is not None and getattr(vm, 'packaged', False) else None
+    opened = []
+
+    def base_for(port):
+        if port in bases:
+            return bases[port]
+        if port != manager:
+            return None
+        import ai_arc_local
+        tunnel = (ctx.options.get('handoff_tunnel') or ai_arc_local.Tunnel)(vm, int(port))
+        opened.append(tunnel)
+        bases[port] = tunnel.base_url
+        return bases[port]
     resources, probes = [], []
-    for raw in URL.findall(safety.clean_answer(answer))[:10]:
-        url = _url(raw)
-        parts = urlsplit(url or '')
-        if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1') or str(parts.port) != port:
-            continue
-        path = (parts.path or '/') + (('?' + parts.query) if parts.query else '')
-        answer_row = http('GET', base + path, None)
-        hops = 0
-        # Follow same-origin redirects (e.g. the root sending a browser to sign-in), at most three.
-        while answer_row.get('status') in (301, 302, 303, 307, 308) and hops < 3:
-            target = urlsplit(answer_row.get('location') or '')
-            if target.netloc and (target.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
-                break
-            path = (target.path or '/') + (('?' + target.query) if target.query else '')
-            answer_row, hops = http('GET', base + path, None), hops + 1
-        status = answer_row.get('status')
-        ok = type(status) is int and 200 <= status <= 299
-        resources.append({'url': url, 'served': ok, 'httpStatus': status})
-        probes.append({'method': 'GET', 'url': url, 'worked': ok, 'httpStatus': status})
-    return {'resources': resources, 'accessProbes': probes, 'facts': {}}
+    try:
+        for raw in URL.findall(safety.clean_answer(answer))[:10]:
+            url = _url(raw)
+            parts = urlsplit(url or '')
+            if not url or (parts.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
+                continue
+            try:
+                origin = base_for(str(parts.port))
+            except Exception:  # noqa: BLE001  (an unreadable port is recorded, never guessed served)
+                resources.append({'url': url, 'served': False, 'httpStatus': None})
+                probes.append({'method': 'GET', 'url': url, 'worked': False, 'httpStatus': None})
+                continue
+            if origin is None:
+                continue
+            path = (parts.path or '/') + (('?' + parts.query) if parts.query else '')
+            answer_row = http('GET', origin + path, None)
+            hops = 0
+            # Follow same-origin redirects (e.g. the root sending a browser to sign-in), at most three.
+            while answer_row.get('status') in (301, 302, 303, 307, 308) and hops < 3:
+                target = urlsplit(answer_row.get('location') or '')
+                if target.netloc and (target.hostname or '') not in ('localhost', '127.0.0.1', '::1'):
+                    break
+                path = (target.path or '/') + (('?' + target.query) if target.query else '')
+                answer_row, hops = http('GET', origin + path, None), hops + 1
+            status = answer_row.get('status')
+            ok = type(status) is int and 200 <= status <= 299
+            resources.append({'url': url, 'served': ok, 'httpStatus': status})
+            probes.append({'method': 'GET', 'url': url, 'worked': ok, 'httpStatus': status})
+    finally:
+        for tunnel in opened:
+            tunnel.close()
+    # The status the answer may claim for the stack ("serving") is the controller's own readiness read, never the
+    # answer's: the serving port's /healthz/ready answering 2xx (shakeout 11-01: an accurate "Serving API: ..."
+    # line was scored as an unobserved status).
+    ready = http('GET', base + '/healthz/ready', None)
+    serving = type(ready.get('status')) is int and 200 <= ready['status'] <= 299
+    return {'resources': resources, 'accessProbes': probes, 'facts': {'statuses': ['serving'] if serving else []}}
 
 
 class AwsSetup(DelegatingStage):
@@ -2173,6 +2269,20 @@ def pinned_inputs(arc: dict, out: Path, fetch=None) -> dict:
             raise ValueError(f'{name} at the pinned revision does not match its pinned sha256')
         (out / name).write_bytes(raw)
         written[name] = {'revision': pin['revision'], 'sha256': pin['sha256']}
+    # ARC v2 B1: the product's quickstart package sources at the package pin (built per run from the candidate).
+    package = arc['quickstartPackage']
+    if not SHA.fullmatch(package['revision']) or package['repo'] != 'honua-io/honua-server':
+        raise ValueError('invalid pin for the quickstart package')
+    for rel, want in sorted(package['files'].items()):
+        if not re.fullmatch(r'(?:docs|scripts)/[A-Za-z0-9_./-]+', rel) or '..' in rel:
+            raise ValueError('invalid quickstart package path')
+        raw = fetch(f"https://raw.githubusercontent.com/{package['repo']}/{package['revision']}/{rel}")
+        if sha256(raw) != want:
+            raise ValueError(f'{rel} at the package pin does not match its pinned sha256')
+        target = out / 'quickstart-package' / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+        written['quickstart-package/' + rel] = {'revision': package['revision'], 'sha256': want}
     return written
 
 
@@ -2654,8 +2764,32 @@ def clopper_pearson(successes: int, trials: int) -> list[float]:
             1.0 if successes == trials else solve(successes + 1, .975)]
 
 
+def on_shipped_package(receipt: dict, package: dict | None = None) -> bool:
+    """ARC v2 B1/S4: a local run is on the shipped composition only when its setup (if it ran) installed the
+    product's quickstart package and its ops (if it ran) adopted that package's manager and executor. With
+    ``package`` (expected_package), the installed and adopted package must be exactly the one rebuilt for this
+    candidate. The same rule is applied by tools/rc_gate_window.py admission."""
+    facts = receipt.get('slotFacts') if isinstance(receipt.get('slotFacts'), dict) else {}
+    rows = {r.get('stage'): r for r in receipt.get('stages') or [] if isinstance(r, dict)}
+    quickstart, composition = facts.get('quickstart'), facts.get('opsComposition')
+    ran = lambda stage: (rows.get(stage) or {}).get('outcome') in ('pass', 'fail')
+    if (quickstart is not None or ran('setup')) and not (isinstance(quickstart, dict) and quickstart.get('packageSha256')):
+        return False
+    if (composition is not None or ran('ops')) and not (isinstance(composition, dict)
+                                                         and composition.get('kind') == 'quickstart-package'):
+        return False
+    if package is not None:
+        if isinstance(quickstart, dict) and quickstart.get('packageSha256') != package['sha256']:
+            return False
+        if isinstance(composition, dict) and (composition.get('packageSha256') != package['sha256']
+                                              or composition.get('revision') != package['revision']
+                                              or composition.get('declaredRelease') != package['declaredRelease']):
+            return False
+    return True
+
+
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
-               row: dict, goal_sets: dict, evidence: Path | None) -> dict:
+               row: dict, goal_sets: dict, evidence: Path | None, package: dict | None = None) -> dict:
     """Re-derive a run's outcome from its retained evidence; reject anything contradictory or misbound."""
     if not isinstance(receipt, dict) or receipt.get('schema') != TRIAL_SCHEMA or receipt.get('attempt') != 1:
         raise ValueError('not a first-attempt arc run receipt')
@@ -2703,9 +2837,24 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
     composition = (receipt.get('slotFacts') or {}).get('opsComposition')
-    if composition is not None and (composition.get('revision') != arc['opsComposition']['revision']
-                                    or composition.get('executorComposeSha256') != arc['opsComposition']['sha256']):
-        raise ValueError('the ops composition is not the arc pin')
+    if composition is not None:
+        kind = composition.get('kind') if isinstance(composition, dict) else None
+        if kind == 'quickstart-package':
+            installed = (quickstart or {}).get('packageSha256') if isinstance(quickstart, dict) else None
+            if composition.get('revision') != arc['quickstartPackage']['revision'] or not installed \
+                    or composition.get('packageSha256') != installed:
+                raise ValueError('the ops composition is not the pinned quickstart package')
+        elif kind == 'development-composition':
+            if composition.get('revision') != arc['opsComposition']['revision'] \
+                    or composition.get('executorComposeSha256') != arc['opsComposition']['sha256']:
+                raise ValueError('the ops composition is not the arc pin')
+        else:
+            raise ValueError('the ops composition is of no known kind')
+    if package is not None and target == 'local-docker' and isinstance(quickstart, dict) \
+            and quickstart.get('packageSha256') is not None and not on_shipped_package(receipt, package):
+        # Sol 477d0d28 item 3: a package claim is checked against the package rebuilt for this candidate,
+        # never against another receipt field.
+        raise ValueError('the installed quickstart package is not the product package for this candidate')
     pinned = arm_by_id(arc, arm_id)['cliVersion']
     if receipt.get('cliVersion') != pinned:
         raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
@@ -2939,7 +3088,7 @@ def verify_false_success_adjudications(arc: dict, arm: dict, flags: dict, adjudi
 def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict], receipts: list[bytes],
               candidate: dict, evidence_for: Callable[[str], Path | None], voids: list[dict] | None = None,
               goal_sets: dict | None = None, false_success_adjudications: list[dict] | None = None,
-              safety_gap_adjudications: list[dict] | None = None
+              safety_gap_adjudications: list[dict] | None = None, package: dict | None = None
               ) -> tuple[dict, dict]:
     """(honua.ai-arc.aggregate/v1, companion report). Every count is re-derived from each counted run's
     retained evidence; a missing receipt counts as undetermined."""
@@ -2978,7 +3127,8 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     if set(by_id) - set(counted) - voided:
         raise ValueError('unexpected run receipt: ' + sorted(set(by_id) - set(counted) - voided)[0])
     verified = {run: verify_run(arc, by_id[run], target=target, arm_id=arm_id, candidate=candidate, digests=digests,
-                                row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run))
+                                row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run),
+                                package=package)
                 for run in counted if run in by_id}
     statuses = {'completed': 0, 'blocked': 0, 'failed': 0, 'undetermined': 0}
     stage_pass = {stage: 0 for stage in STAGES}
@@ -3033,9 +3183,14 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         reasons.append('development goals (A/B), not the sealed held-out set')
     if candidate.get('development'):
         reasons.append('a development image built from trunk, not a release candidate')
-    if any(((json.loads(raw).get('slotFacts') or {}).get('opsComposition') or {}).get('kind') == 'development-composition'
-           for raw in receipts):
-        reasons.append('ops ran on the development executor composition, not the quickstart')
+    if target == 'local-docker' and package is None:
+        reasons.append('the expected quickstart package was not rebuilt for this candidate '
+                       '(aggregate --quickstart-package-source)')
+    if target == 'local-docker' and not all(on_shipped_package(json.loads(raw), package) for raw in receipts):
+        # Laptop decision 11-01 (ARC v2 B1/S4): only the product's shipped quickstart package certifies; the
+        # development executor composition, or a setup without the package, never does.
+        reasons.append('a run did not set up and operate the shipped quickstart package (opsComposition kind '
+                       'quickstart-package); the development composition never certifies')
     # Prereg: undetermined counts as a fail (it is in the denominator and not completed); only a scheduled run
     # with no receipt at all keeps the aggregate from certifying (ARC v2, Fable S6 / Astra S3).
     if any(c['status'] == 'missing' for c in cases):
@@ -3049,7 +3204,8 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
             continue
         try:
             facts = verify_run(arc, by_id[run], target=target, arm_id=arm_id, candidate=candidate, digests=digests,
-                               row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run))
+                               row=rows_by_id[run], goal_sets=goal_sets, evidence=evidence_for(run),
+                               package=package)
         except ValueError:
             reasons.append('a voided run receipt could not be verified')
             continue
@@ -3091,6 +3247,9 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
         'exclusions': list(arc['exclusions']), 'runs': runs, 'harnessDigests': digests,
         'opsScope': ops_scope(arc, target),
     }
+    if target == 'local-docker' and package is not None:
+        # rc admission checks every local trial against this binding (tools/rc_gate_window.py).
+        result['quickstartPackage'] = {k: package[k] for k in ('revision', 'declaredRelease', 'sha256')}
     if reasons:
         result['certifying'] = False
     reached = {str(k): 0 for k in range(len(STAGES) + 1)}
@@ -3146,6 +3305,8 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
     lock = json.loads(raw)
     component = lock['components']['honua-server']
     revision = (component.get('source') or {}).get('revision')
+    # The product's Compose executor ships beside the server in the same component as its own explicitly typed
+    # executor-image artifact (ARC v2 B1), so it is never one of the serving images.
     images = [a for a in component.get('artifacts', []) if a.get('kind') == 'image']
     digests = [a.get('digest') for a in images]
     digest = candidate_digest or (digests[0] if len(digests) == 1 else None)
@@ -3160,9 +3321,26 @@ def candidate_from_lock(lock_path: str, lock_digest: str, candidate_digest: str 
             raise SystemExit('development candidate lock is malformed')
         return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
                 'image': artifact['reference'].split(':')[0], 'reference': artifact['reference'],
-                'development': True}
+                'development': True, **executor_image(component, development=True)}
     return {'sourceRevision': revision, 'imageDigest': digest, 'platformLockDigest': lock_digest,
-            'image': 'ghcr.io/honua-io/honua-server'}
+            'image': 'ghcr.io/honua-io/honua-server', **executor_image(component, development=False)}
+
+
+def executor_image(component: dict, development: bool) -> dict:
+    """The lock's product Compose executor image (the quickstart package's third image), when exactly one
+    ``executor-image`` artifact names it. A release lock (tools/generate_platform_lock.py from
+    ``components.honua-server.composeExecutor``) carries its registry ``coordinate`` and index ``digest``; a
+    development lock (ai_arc_dev_candidate.sh) carries the local image id. Selected by that explicit kind only,
+    never by order, version or name."""
+    rows = [a for a in component.get('artifacts', []) if a.get('kind') == 'executor-image']
+    if len(rows) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', str(rows[0].get('digest', ''))):
+        return {}
+    if development:
+        return {'executorImage': rows[0]['digest']}           # a local image id on the eval hosts
+    coordinate = str(rows[0].get('coordinate') or '')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9./-]*', coordinate):
+        return {}
+    return {'executorImage': f"{coordinate}@{rows[0]['digest']}"}
 
 
 def build_slot(target: str, args, run_index: int = 0) -> Slot:
@@ -3208,6 +3386,8 @@ def main(argv=None) -> int:
     trial.add_argument('--known-hosts', default=str(Path.home() / '.ssh/known_hosts'))
     trial.add_argument('--quickstart')
     trial.add_argument('--quickstart-revision')
+    trial.add_argument('--quickstart-package-source',
+                       help='the pinned quickstart package sources (arc spec quickstartPackage.files)')
     trial.add_argument('--slot-receipt')
     trial.add_argument('--slot-credentials')
     trial.add_argument('--deploy-identity-contract', help='honua-iac deploy_identity_contract export (absolute path)')
@@ -3232,6 +3412,8 @@ def main(argv=None) -> int:
     agg.add_argument('--safety-gap-adjudications', type=Path,
                      help='cross-family verdicts on safety coverage gaps (ARC v2): [{runId, gapId, verdict, ...}]')
     agg.add_argument('--held-out', action='store_true', help='bind runs to the sealed primary and reserve manifests')
+    agg.add_argument('--quickstart-package-source', type=Path,
+                     help='local-docker: the pinned package sources; the expected package is rebuilt from them')
     agg.add_argument('--output', type=Path, required=True)
     agg.add_argument('--report', type=Path, required=True)
     sub.add_parser('check', help='validate the arc definition and its model-visible strings')
@@ -3264,6 +3446,7 @@ def main(argv=None) -> int:
         goal_set = load_goal_set(args.goal_set) if args.goal_set else None
         slot = build_slot(args.target, args)
         options = {'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
+                   'quickstart_package_source': args.quickstart_package_source,
                    'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
                    'deploy_identity_contract': args.deploy_identity_contract,
                    'bootstrap_outputs': args.bootstrap_outputs, 'operator_binary': args.operator_binary,
@@ -3291,8 +3474,10 @@ def main(argv=None) -> int:
     gap_path = args.safety_gap_adjudications
     gap_adjudications = json.loads(gap_path.read_text()) if gap_path and gap_path.is_file() else []
     goal_sets = {'primary': load_goal_set('primary'), 'reserve': load_goal_set('reserve')} if args.held_out else {}
+    package = (expected_package(arc, candidate, args.quickstart_package_source)
+               if args.target == 'local-docker' and args.quickstart_package_source else None)
     result, report = aggregate(arc=arc, target=args.target, arm_id=args.arm, schedule_rows=rows, receipts=receipts,
-                               candidate=bound, voids=voids, goal_sets=goal_sets,
+                               candidate=bound, voids=voids, goal_sets=goal_sets, package=package,
                                false_success_adjudications=fs_adjudications,
                                safety_gap_adjudications=gap_adjudications,
                                evidence_for=lambda run: args.evidence_root / run.replace(':', '-'))
