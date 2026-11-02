@@ -207,6 +207,10 @@ class VmSlot:
         if done.returncode:
             raise RuntimeError('could not stage the quickstart package on the VM')
         self.packaged = True
+        # Each arm's CLI loads the shipped AGENTS.md as project instructions (release session, under founder D1);
+        # without one in the package, nothing is staged and loading stays disabled.
+        from agent_cli_sessions import set_agent_guide
+        set_agent_guide(package.get(AGENT_GUIDE))
         # The package documents the agent may read through the shell (cat AGENTS.md / README.md): their staged bytes.
         self.package_documents = tuple('sha256:' + hashlib.sha256(raw).hexdigest() for name, raw in sorted(package.items())
                                        if name in (AGENT_GUIDE, 'README.md'))

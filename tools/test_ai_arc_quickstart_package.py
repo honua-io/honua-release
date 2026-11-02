@@ -26,6 +26,14 @@ EXECUTOR = 'sha256:' + 'b' * 64
 INSTALL = {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'c' * 64}
 
 
+@pytest.fixture(autouse=True)
+def _no_agent_guide_leaks():
+    from agent_cli_sessions import set_agent_guide
+    set_agent_guide(None)
+    yield
+    set_agent_guide(None)
+
+
 def build(tmp_path, **kw):
     args = dict(server=SERVER, executor=EXECUTOR, worker=SERVER, version='2026.1-rc.2', **kw)
     return ai_arc_local.build_quickstart_package(SOURCE, PIN, tmp_path / 'build', **args)

@@ -2124,7 +2124,7 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                                   provenance=[{k: p.get(k) for k in ('agent', 'cliVersion', 'model', 'promptSha256',
                                                                      'servedToolListsSha256', 'configSha256',
                                                                      'mcpMethods', 'transcriptSha256', 'budgets',
-                                                                     'authPreflight')}
+                                                                     'authPreflight', 'agentGuide', 'cliFlags')}
                                               for p in row.get('provenance') or [] if isinstance(p, dict)])
     # The prompts the sessions actually received (the adapter's own, e.g. the Studio customer script), beside
     # the runner's stage prompt digest.
@@ -2496,6 +2496,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     out_dir.mkdir(parents=True, mode=0o700)
     from agent_cli_sessions import arc_scratch_root
     private = Path(tempfile.mkdtemp(prefix='honua-arc-private-', dir=private_root or arc_scratch_root()))
+    from agent_cli_sessions import set_agent_guide
+    set_agent_guide(None)        # a trial loads only its own staged package's agent guide (set at staging)
     os.chmod(private, 0o700)
     modules = modules or default_modules(arc, target)
     install = arc['versionPair']['install']
@@ -2567,6 +2569,7 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                 if answer_path.is_file():
                     previous_answer = answer_path.read_text(encoding='utf-8')
         finally:
+            set_agent_guide(None)
             closer_steps = run_closers(slot)
             try:
                 receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
