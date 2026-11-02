@@ -182,25 +182,36 @@ jobs:
               if prefix == "iac":
                   # The customer distribution the manifest pins: the exact source archive of the pinned
                   # commit, bound by its sha256 (no release tarball asset exists). Empty when absent.
+                  # A declared archive whose binding is wrong fails resolution: it never silently drops to
+                  # the release-asset or source-build fallbacks. Only an undeclared archive leaves it empty.
                   artifact = str(component.get("artifact") or "")
                   archive_sha = str(component.get("artifactSha256") or "")
-                  url = artifact.removeprefix("archive:") if artifact.startswith("archive:") else ""
-                  bound = (url == f"https://github.com/honua-io/honua-iac/archive/{sha}.tar.gz"
-                           and str(component.get("artifactSourceRevision") or "") == sha
-                           and re.fullmatch(r"sha256:[0-9a-f]{64}", archive_sha))
-                  values["iac_archive_url"] = url if bound else ""
-                  values["iac_archive_sha256"] = archive_sha if bound else ""
+                  url = ""
+                  if artifact.startswith("archive:"):
+                      url = artifact.removeprefix("archive:")
+                      if (url != f"https://github.com/honua-io/honua-iac/archive/{sha}.tar.gz"
+                              or str(component.get("artifactSourceRevision") or "") != sha
+                              or not re.fullmatch(r"sha256:[0-9a-f]{64}", archive_sha)):
+                          raise SystemExit("honua-iac declares an archive artifact that is not bound to its pinned sha "
+                                           "(archive URL, artifactSourceRevision and artifactSha256 must all match)")
+                  values["iac_archive_url"] = url
+                  values["iac_archive_sha256"] = archive_sha if url else ""
               if prefix == "grpc":
                   # The shipped generated client the manifest pins: the nuget.org package (repository-signed
                   # nupkg) bound by artifactSha256. It carries the proto/ sources codegen consumes.
+                  # As for honua-iac: a declared nuget artifact with a wrong binding fails resolution.
                   artifact = str(component.get("artifact") or "")
                   package_sha = str(component.get("artifactSha256") or "")
-                  package_id = artifact.removeprefix("nuget:") if artifact.startswith("nuget:") else ""
-                  bound = (re.fullmatch(r"[A-Za-z0-9_.-]+", package_id)
-                           and str(component.get("artifactSourceRevision") or "") == sha
-                           and re.fullmatch(r"sha256:[0-9a-f]{64}", package_sha))
-                  values["grpc_nupkg_id"] = package_id if bound else ""
-                  values["grpc_nupkg_sha256"] = package_sha if bound else ""
+                  package_id = ""
+                  if artifact.startswith("nuget:"):
+                      package_id = artifact.removeprefix("nuget:")
+                      if (not re.fullmatch(r"[A-Za-z0-9_.-]+", package_id)
+                              or str(component.get("artifactSourceRevision") or "") != sha
+                              or not re.fullmatch(r"sha256:[0-9a-f]{64}", package_sha)):
+                          raise SystemExit("geospatial-grpc declares a nuget artifact that is not bound to its pinned sha "
+                                           "(package id, artifactSourceRevision and artifactSha256 must all match)")
+                  values["grpc_nupkg_id"] = package_id
+                  values["grpc_nupkg_sha256"] = package_sha if package_id else ""
 
           clients = manifest.get("clientArtifacts") or {}
           client_specs = {
@@ -735,22 +746,24 @@ jobs:
           set -uo pipefail
           GATE=terraform; SOURCE=blocked; STATUS=blocked; WHY=""
           WORK="$RUNNER_TEMP/tf-consume"; mkdir -p "$WORK"; cd "$WORK"
-          STRIP=0
+          STRIP=0; TARBALL=""
 
           # The manifest's pinned customer distribution: the honua-iac source archive of the pinned
           # commit, fetched anonymously exactly as a customer would and bound by artifactSha256.
           # A digest mismatch is a FAIL, never a fallback.
           if [ -n "$IAC_ARCHIVE_URL" ]; then
             echo "::group::Try PUBLISHED (manifest-pinned honua-iac archive)"
-            if curl -fsSL --retry 3 -o "$WORK/honua-iac-archive.tar.gz" "$IAC_ARCHIVE_URL" >/tmp/tf-staging.log 2>&1; then
-              ACTUAL="sha256:$(sha256sum "$WORK/honua-iac-archive.tar.gz" | cut -d' ' -f1)"
+            if curl -fsSL --retry 3 -o "$WORK/pinned-archive.tgz" "$IAC_ARCHIVE_URL" >/tmp/tf-staging.log 2>&1; then
+              ACTUAL="sha256:$(sha256sum "$WORK/pinned-archive.tgz" | cut -d' ' -f1)"
               if [ "$ACTUAL" = "$IAC_ARCHIVE_SHA256" ]; then
-                SOURCE=published; STATUS=have-tarball; STRIP=1
+                SOURCE=published; STATUS=have-tarball; TARBALL="$WORK/pinned-archive.tgz"; STRIP=1
               else
-                rm -f "$WORK/honua-iac-archive.tar.gz"
+                rm -f "$WORK/pinned-archive.tgz"
                 STATUS=fail; WHY="pinned honua-iac archive digest $ACTUAL is not the manifest's $IAC_ARCHIVE_SHA256"
               fi
             else
+              # A partial download must not be mistaken for a tarball by a later source.
+              rm -f "$WORK/pinned-archive.tgz"
               echo "pinned archive download failed:"; tail -n 5 /tmp/tf-staging.log || true
             fi
             echo "::endgroup::"
@@ -804,11 +817,18 @@ jobs:
 
           if [ "$STATUS" = "have-tarball" ]; then
             echo "::group::Extract + terraform init -backend=false"
-            # One tarball exists (pinned archive, release asset or local build); ls exits 2 on the other
-            # names, which -e plus pipefail would turn into a crash.
-            TARBALL="$(ls -1 "$WORK"/honua-iac-*.tar.gz 2>/dev/null | head -n1 || true)"
-            # The GitHub source archive has one top-level honua-iac-<sha>/ directory.
-            mkdir -p "$WORK/extract" && tar xzf "$TARBALL" -C "$WORK/extract" --strip-components="$STRIP"
+            # The verified pinned archive is named explicitly (pinned-archive.tgz, which no other source's
+            # honua-iac-*.tar.gz glob can match); a release asset or local build is the single
+            # honua-iac-*.tar.gz. `|| true`: ls exits 2 on no match, which -e plus pipefail would crash.
+            [ -n "$TARBALL" ] || TARBALL="$(ls -1 "$WORK"/honua-iac-*.tar.gz 2>/dev/null | head -n1 || true)"
+            # The GitHub source archive has one top-level honua-iac-<sha>/ directory (STRIP=1).
+            mkdir -p "$WORK/extract"
+            if [ -z "$TARBALL" ] || ! tar xzf "$TARBALL" -C "$WORK/extract" --strip-components="$STRIP" >/tmp/tf-extract.log 2>&1; then
+              STATUS=fail; WHY="the ${SOURCE} honua-iac tarball could not be extracted"; tail -n 5 /tmp/tf-extract.log 2>/dev/null || true
+            fi
+          fi
+
+          if [ "$STATUS" = "have-tarball" ]; then
             # The customer's first command is `terraform init`. backend=false avoids needing real
             # cloud creds; it still resolves every module + provider, which is what iac#81 broke.
             # The GA customer quickstart root (examples/aws, ECS) when the tarball has the customer
