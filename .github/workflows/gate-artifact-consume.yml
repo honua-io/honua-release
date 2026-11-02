@@ -804,7 +804,9 @@ jobs:
 
           if [ "$STATUS" = "have-tarball" ]; then
             echo "::group::Extract + terraform init -backend=false"
-            TARBALL="$(ls -1 "$WORK"/honua-iac-*.tar.gz "$WORK"/honua-iac-local.tar.gz 2>/dev/null | head -n1)"
+            # One tarball exists (pinned archive, release asset or local build); ls exits 2 on the other
+            # names, which -e plus pipefail would turn into a crash.
+            TARBALL="$(ls -1 "$WORK"/honua-iac-*.tar.gz 2>/dev/null | head -n1 || true)"
             # The GitHub source archive has one top-level honua-iac-<sha>/ directory.
             mkdir -p "$WORK/extract" && tar xzf "$TARBALL" -C "$WORK/extract" --strip-components="$STRIP"
             # The customer's first command is `terraform init`. backend=false avoids needing real
