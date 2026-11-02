@@ -528,7 +528,8 @@ CURL_ADMITTED = [
     'curl -v http://localhost:18080/', 'curl -X GET http://localhost:18080/api/v1/', 'curl --request HEAD http://localhost:18080/',
     'curl -H "Accept: application/json" http://localhost:18080/api/v1/', 'curl --header "X-Request-Id: 1" http://localhost:18080/',
     'curl -m 10 http://localhost:18080/', 'curl --max-time 30 http://localhost:18080/',
-    'curl --connect-timeout 5 http://localhost:18080/', 'curl --retry 3 -sf http://localhost:18080/healthz/ready']
+    'curl --connect-timeout 5 http://localhost:18080/', 'curl --retry 3 -sf http://localhost:18080/healthz/ready',
+    'curl --retry 0 http://localhost:18080/']
 CURL_REFUSED = [
     'curl -L http://localhost:18080/', 'curl --location http://localhost:18080/', 'curl -sfL http://localhost:18080/',
     'curl -o out.html http://localhost:18080/', 'curl --output /srv/x http://localhost:18080/',
@@ -540,6 +541,8 @@ CURL_REFUSED = [
     'curl -H "Authorization: Bearer x" http://localhost:18080/', 'curl -H "Cookie: s=1" http://localhost:18080/',
     'curl -H "X-Api-Key: k" http://localhost:18080/', 'curl -H @headers.txt http://localhost:18080/',
     'curl -H "NoColon" http://localhost:18080/', 'curl -m 999 http://localhost:18080/', 'curl --retry 50 http://localhost:18080/',
+    'curl -m 0 http://localhost:18080/', 'curl --max-time 0 http://localhost:18080/',
+    'curl --connect-timeout 0 http://localhost:18080/',
     'curl -w @fmt http://localhost:18080/', "curl -w '%{json}' http://localhost:18080/",
     "curl -w '%output{/tmp/x}' http://localhost:18080/", 'curl -o', 'curl -sf http://example.com/',
     'curl -sf http://localhost:18080/ http://localhost:18081/', 'curl --next http://localhost:18080/']

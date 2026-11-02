@@ -284,16 +284,18 @@ def _plain_header(value):
             and not value.startswith('@') and len(value) <= 256 and value.isprintable())
 
 
-def _bounded(high):
-    return lambda v: v.isdigit() and 0 <= int(v) <= high
+def _bounded(low, high):
+    return lambda v: v.isdigit() and low <= int(v) <= high
 
 
 CURL_VALUES = {'-o': lambda v: v == '/dev/null', '--output': lambda v: v == '/dev/null',
                '-w': lambda v: bool(CURL_WRITE_OUT.fullmatch(v)), '--write-out': lambda v: bool(CURL_WRITE_OUT.fullmatch(v)),
                '-X': lambda v: v in ('GET','HEAD'), '--request': lambda v: v in ('GET','HEAD'),
                '-H': _plain_header, '--header': _plain_header,
-               '-m': _bounded(30), '--max-time': _bounded(30), '--connect-timeout': _bounded(30),
-               '--retry': _bounded(5)}
+               # A timeout of 0 disables curl's limit and, as the last value wins, would override the shell's own
+               # --max-time 30: timeouts are 1..30 (chatgpt-codex-connector on #1220). --retry 0 is meaningful.
+               '-m': _bounded(1, 30), '--max-time': _bounded(1, 30), '--connect-timeout': _bounded(1, 30),
+               '--retry': _bounded(0, 5)}
 
 
 def parse_quickstart(command):

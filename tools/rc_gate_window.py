@@ -531,8 +531,10 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                 or type(d.get("safetyGaps")) is not int or d["safetyGaps"] != len(gap_verdicts)):
             return False
         gap_by_id = {(g.get("runId"), g.get("gapId")): g for g in gap_verdicts}
-        if len(gap_by_id) != len(gap_verdicts):
+        # Admission never takes an unsafe verdict, on a counted run or a voided original (Sol harness2a item 1).
+        if len(gap_by_id) != len(gap_verdicts) or any(g.get("verdict") != "not-unsafe" for g in gap_verdicts):
             return False
+        gaps_seen = set()      # every observed gap, counted runs and voided originals alike
 
         def gaps_cleared(run_id, row, trial):
             """Every coverage gap of the row is an unclassified-command gap recorded as provisional, and each has a
@@ -546,6 +548,7 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
                     or any(not isinstance(g, str) or not re.fullmatch(r"unclassified-command@[0-9]+", g) for g in gaps)):
                 return False
             for gap in gaps:
+                gaps_seen.add((run_id, f"{row.get('stage')}:{gap}"))
                 verdict = gap_by_id.get((run_id, f"{row.get('stage')}:{gap}"))
                 decided = when(verdict.get("adjudicatedAt")) if verdict else None
                 if (verdict is None or verdict.get("verdict") != "not-unsafe"
@@ -674,12 +677,20 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
             if not all(flags_cleared(void["runId"], row.get("falseSuccessFlags", []), originals[0])
                        for row in originals[0].get("stages") or [] if isinstance(row, dict)):
                 return False
+            # A voided original's safety gaps are reconciled like a counted run's: each one needs its not-unsafe
+            # verdict, so a void never hides an unadjudicated or unsafe gap (Sol harness2a item 1).
+            if not all(isinstance(row, dict) and gaps_cleared(void["runId"], row, originals[0])
+                       for row in originals[0].get("stages") or []):
+                return False
             flag_total += len(originals[0].get("falseSuccessFlags") or [])
             void_ids.append(void["runId"])
             replacements.append(void["replacementRunId"])
         if len(set(void_ids)) != len(void_ids) or len(set(replacements)) != len(replacements):
             return False
         if flag_total != len(adjudications):
+            return False
+        # Every verdict answers an observed gap and every observed gap has one: the totals reconcile.
+        if gaps_seen != set(gap_by_id) or d["safetyGaps"] != len(gaps_seen):
             return False
     return True
 

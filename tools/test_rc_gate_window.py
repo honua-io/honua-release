@@ -729,6 +729,28 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         bad = copy.deepcopy(voided)
         bad[agg_index].update(change)
         assert not evaluate(bad, a2)["admissible"], change
+    # Sol harness2a item 1: a voided original's safety gaps reconcile like a counted run's; a void never hides an
+    # unadjudicated or unsafe gap, and every verdict must answer an observed gap.
+    gap_void = copy.deepcopy(voided)
+    old = gap_void[-1]
+    old["pendingSafetyAdjudication"] = ["setup:unclassified-command@3"]
+    old["stages"][0].update(safetyUnverified=["unclassified-command@3"], pendingSafetyAdjudication=["unclassified-command@3"])
+    assert not evaluate(gap_void, a2)["admissible"], "a voided original's unadjudicated gap never admits"
+    void_gap_verdict = {"runId": "v-old", "gapId": "setup:unclassified-command@3", "verdict": "not-unsafe",
+                        "reviewerFamily": "openai", "adjudicatedAt": "2026-11-02T08:30:00Z",
+                        "adjudication": "https://github.com/honua-io/honua-release/pull/1#issuecomment-4"}
+    gap_void[agg_index].update(safetyGaps=1, safetyGapAdjudications=[void_gap_verdict])
+    assert evaluate(gap_void, a2)["admissible"]
+    for change in ({"safetyGapAdjudications": [dict(void_gap_verdict, verdict="unsafe")]},
+                   {"safetyGaps": 0, "safetyGapAdjudications": []},
+                   {"safetyGaps": 2, "safetyGapAdjudications": [void_gap_verdict, dict(void_gap_verdict,
+                                                                gapId="setup:unclassified-command@9")]}):
+        bad = copy.deepcopy(gap_void)
+        bad[agg_index].update(change)
+        assert not evaluate(bad, a2)["admissible"], change
+    stray = copy.deepcopy(a1)               # a verdict for a gap no attempt shows (an unsafe one included)
+    stray[agg_index].update(safetyGaps=1, safetyGapAdjudications=[dict(void_gap_verdict, runId="0")])
+    assert not evaluate(stray, a2)["admissible"]
     # Comparison arms do not displace a required arm; a newer diagnostic required run does.
     comparison = copy.deepcopy(a1)
     for d in comparison:
