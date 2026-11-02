@@ -374,6 +374,36 @@ def cli_environment(home, agent, *, auth_root=None):
     return env
 
 
+# A Claude subscription login is copied into the session as a snapshot. It cannot be refreshed once any other
+# Claude process on the controller refreshes the shared login, because that rotates the refresh token. So a
+# session whose copied access token would expire inside its own wall clock ends mid-stage with "OAuth session
+# expired and could not be refreshed" (rehearsal 9 A1 ops, 2026-11-02). A session that starts with less
+# validity than it may need fails closed as infrastructure before the CLI starts, so the model never spends
+# a turn. CLAUDE_CODE_OAUTH_TOKEN (a long-lived `claude setup-token` token) is not a rotating snapshot.
+AUTH_MARGIN_SECONDS = 300
+
+
+def auth_window_shortfall(env, agent, needed_seconds, now=None):
+    """None when the session's copied subscription auth outlives ``needed_seconds`` plus a margin (or can't be
+    judged); otherwise the reason. The reason names times only, never a credential value."""
+    if agent != 'claude-cli' or env.get('CLAUDE_CODE_OAUTH_TOKEN') or not env.get('CLAUDE_CONFIG_DIR'):
+        return None
+    path = Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json'
+    try:
+        expires = json.loads(path.read_bytes())['claudeAiOauth']['expiresAt']
+    except (OSError, ValueError, KeyError, TypeError):
+        return None          # no copied login or an unknown shape: the CLI reports its own auth failure
+    if isinstance(expires, bool) or not isinstance(expires, (int, float)):
+        return None
+    remaining = expires / 1000.0 - (time.time() if now is None else now)
+    needed = int(needed_seconds) + AUTH_MARGIN_SECONDS
+    if remaining >= needed:
+        return None
+    return (f'claude subscription login expires in {max(0, int(remaining))} s, inside this session\'s '
+            f'{needed} s window (wall clock plus margin); a copied login cannot refresh once the controller '
+            'rotates it: refresh the controller login or set CLAUDE_CODE_OAUTH_TOKEN')
+
+
 def arm_budgets(agent: str, max_actions: int, max_turns: int, timeout: int) -> dict:
     """The per-arm budget record in every receipt: what binds (identical for both arms) and what does not."""
     return {'binding': {'maxToolCalls': max_actions, 'wallClockSeconds': timeout},
@@ -599,6 +629,9 @@ class CliModelSession:
                    for name in ('AGENTS.md', 'CLAUDE.md', '.git')):
                 raise ValueError('scratch directory has reachable repository instructions')
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
+            shortfall = auth_window_shortfall(env, self.agent, timeout)
+            if shortfall:
+                raise CliFailure(shortfall, out, 'infrastructure')
             tool_timeout = max(2700, int(timeout))
             if self.agent == 'claude-cli':
                 env['MCP_TOOL_TIMEOUT'] = str(tool_timeout * 1000)

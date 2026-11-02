@@ -361,3 +361,46 @@ def test_both_arms_keep_their_cli_default_instructions_and_share_one_budget_rule
     claude, codex = CS.arm_budgets('claude-cli', 80, 40, 600), CS.arm_budgets('codex-cli', 80, 40, 600)
     assert claude['binding'] == codex['binding'] == {'maxToolCalls': 80, 'wallClockSeconds': 600}
     assert codex['cliTurnCeiling'] is None and claude['cliTurnCeiling'] == CS.turn_ceiling(40)
+
+
+def _claude_login(root, expires_in):
+    import time as _time
+    folder = root / '.claude'; folder.mkdir(parents=True, exist_ok=True)
+    (folder / '.credentials.json').write_text(json.dumps({'claudeAiOauth': {
+        'accessToken': 'subscription-token', 'refreshToken': 'rotating-refresh',
+        'expiresAt': int((_time.time() + expires_in) * 1000)}}))
+
+
+def test_claude_login_expiring_inside_the_session_fails_closed_before_the_cli(tmp_path, monkeypatch):
+    # Rehearsal 9 A1 ops: the copied login expired mid-stage after the controller rotated the shared login.
+    monkeypatch.delenv('CLAUDE_CODE_OAUTH_TOKEN', raising=False)
+    marker = tmp_path / 'cli-started'
+    binary = tmp_path / 'claude'
+    binary.write_text(f'#!/bin/sh\ntouch {marker}\necho fake-cli 1.0\n'); binary.chmod(0o755)
+    _claude_login(tmp_path, 600)
+    cli = CliModelSession('claude-cli', 'claude-opus-5-5', binary=str(binary), auth_root=tmp_path)
+    with pytest.raises(CliFailure, match='login expires') as failure:
+        cli.run(prompt='Customer goal only', tool_view=TOOLS, execute=lambda *_: None, log_dir=tmp_path / 'log',
+                timeout=2700)
+    assert failure.value.category == 'infrastructure'
+    assert failure.value.progress['actions'] == []
+    assert not marker.exists()                       # not even `--version`: no CLI process started
+    assert 'subscription-token' not in str(failure.value) and 'rotating-refresh' not in str(failure.value)
+
+
+def test_auth_window_shortfall_judges_only_a_rotating_claude_snapshot(tmp_path, monkeypatch):
+    from agent_cli_sessions import AUTH_MARGIN_SECONDS, auth_window_shortfall
+    monkeypatch.delenv('CLAUDE_CODE_OAUTH_TOKEN', raising=False)
+    home = tmp_path / 'home'; home.mkdir()
+    _claude_login(tmp_path, 8 * 3600)
+    env = cli_environment(home, 'claude-cli', auth_root=tmp_path)
+    assert auth_window_shortfall(env, 'claude-cli', 2700) is None
+    assert auth_window_shortfall(env, 'claude-cli', 8 * 3600) is not None          # margin included
+    assert auth_window_shortfall(env, 'claude-cli', 8 * 3600 - AUTH_MARGIN_SECONDS - 60) is None
+    assert auth_window_shortfall(dict(env, CLAUDE_CODE_OAUTH_TOKEN='long-lived'), 'claude-cli', 10 ** 6) is None
+    assert auth_window_shortfall(env, 'codex-cli', 10 ** 6) is None
+    # Unknown shapes are not judged here (the CLI reports its own auth failure).
+    (Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json').write_text('{"tokens":{"access_token":"x"}}')
+    assert auth_window_shortfall(env, 'claude-cli', 10 ** 6) is None
+    (Path(env['CLAUDE_CONFIG_DIR']) / '.credentials.json').write_text('{"claudeAiOauth":{"expiresAt":true}}')
+    assert auth_window_shortfall(env, 'claude-cli', 10 ** 6) is None
