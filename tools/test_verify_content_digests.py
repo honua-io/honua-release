@@ -109,7 +109,7 @@ def test_repository_manifest_declares_verified_content_digests():
         "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c")
     assert declared["geospatialMcp"][1] == {
         "repository": "https://github.com/honua-io/geospatial-mcp",
-        "revision": "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd",
+        "revision": "d2642222c4e4cee2f9a3ee11b2b5044bd07804c6",
         "path": "spec/schemas/index.json",
     }
 

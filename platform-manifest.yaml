@@ -1214,21 +1214,27 @@ components:
     repository: "https://github.com/honua-io/geospatial-mcp"
     lifecycleStatus: Experimental
     version: "pre-release"             # draft spec; artifact identity uses SPEC_VERSION plus commit
-    artifactVersion: "1.0.0+3c5388a8" # SPEC_VERSION 1.0 normalized to SemVer plus pinned commit
-    artifact: "spec:https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json"
-    artifactSourceRevision: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"
+    artifactVersion: "1.0.0+d2642222" # SPEC_VERSION 1.0 normalized to SemVer plus pinned commit
+    artifact: "spec:https://github.com/honua-io/geospatial-mcp/blob/d2642222c4e4cee2f9a3ee11b2b5044bd07804c6/spec/schemas/index.json"
+    artifactSourceRevision: "d2642222c4e4cee2f9a3ee11b2b5044bd07804c6"
     artifactSha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
     # RC.2: geospatial-mcp#161 attests each trunk commit's index bytes. Both SLSA provenance
     # and CycloneDX SBOM are verified at this exact source revision (run 41105115258).
     # The old d5a09d13 pin predates the publisher and cannot be attested retroactively (#1004).
-    sha: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"   # attested trunk merge of geospatial-mcp#161
-    # Version maps: release/component-versions.json at the pinned 3c5388a8.
+    # 2026-11-03 RC2 REDO: re-pinned 3c5388a8 -> d2642222 (trunk merge of geospatial-mcp#173, which
+    # re-pins the certification judges to honua-release 925e2b5e and the rc.2 server 86286687) so the
+    # build-test gate reads a pinned SHA whose certify is green. spec/, conformance/ and release/ are
+    # byte-identical to 3c5388a8 (same Git trees), so artifactSha256, the version maps and the
+    # capability baseline are unchanged. Both SLSA provenance and CycloneDX SBOM are verified at this
+    # exact source revision (Attest Spec Index run 41683693948).
+    sha: "d2642222c4e4cee2f9a3ee11b2b5044bd07804c6"   # attested trunk merge of geospatial-mcp#173
+    # Version maps: release/component-versions.json at the pinned d2642222.
     contractVersions:
       geospatial-mcp: "1.0"
     schemaVersions:
       geospatial-mcp-schemas: "1.0"
     # serverCompatibility: read with tools/resolve_trunk_candidate.py sdk_capability_baseline() from
-    # release/sdk-capability-baseline.json at every published source revision (3c5388a8).
+    # release/sdk-capability-baseline.json at every published source revision (d2642222).
     # Content and byte digests are SDK-owned and independent of the server candidate; the
     # required capabilities were checked against honua-server capability-keys.v1.json at f880a4b4.
     # The cut re-checks them at the candidate (CUT-PLAN step L2).
@@ -1237,7 +1243,7 @@ components:
       manifests:
       - source:
           repository: https://github.com/honua-io/geospatial-mcp
-          revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+          revision: d2642222c4e4cee2f9a3ee11b2b5044bd07804c6
           path: release/sdk-capability-baseline.json
         sha256: sha256:6b28e7e6997f8eb69ec1e4e2f0e5c874697a0ea7ba9ea2ef3c29f5bb2888c825
         content:
@@ -1264,7 +1270,7 @@ components:
         - ai.mcp-discovery
         - discovery.capability-manifest
       declarations:
-      - revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+      - revision: d2642222c4e4cee2f9a3ee11b2b5044bd07804c6
         path: release/sdk-capability-baseline.json
         sha256: sha256:bd286450cb67d429eaf122eaf81aef5b5f015207bebeb4666194b5112b0311b9
         minimumServerVersion: first-release
@@ -1884,7 +1890,7 @@ platformLockEvidence:
     # bytes back `components.geospatial-mcp.artifactSha256`.
     geospatialMcp:
       repository: "https://github.com/honua-io/geospatial-mcp"
-      revision: "3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd"
+      revision: "d2642222c4e4cee2f9a3ee11b2b5044bd07804c6"
       path: "spec/schemas/index.json"
       sha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
     # Pre-cut (until 2026-11-02):
