@@ -20,12 +20,18 @@ on:
         required: false
         default: candidate-manifest
         type: string
+      console_suite_sha:
+        description: 'Optional Console suite commit: a descendant of the pinned Console sha changing only e2e/** (the gate verifies it); empty = the pinned sha'
+        required: false
+        default: ''
+        type: string
   workflow_call:
     inputs:
       platform_lock_digest: { required: true, type: string }
       candidate_ref: { required: false, type: string, default: '' }
       lock_run_id: { required: true, type: string }
       lock_artifact: { required: false, type: string, default: 'candidate-manifest' }
+      console_suite_sha: { required: false, type: string, default: '' }
     secrets:
       RELEASE_GH_TOKEN: { required: true }
     outputs:
@@ -87,7 +93,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
           PLATFORM_LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
-        run: python tools/studio_customer_gate.py --manifest candidate-lock/platform-manifest.yaml --platform-lock "$PLATFORM_LOCK_DIGEST" --lock-file candidate-lock/platform-lock.json
+          CONSOLE_SUITE_SHA: ${{ inputs.console_suite_sha }}
+        run: python tools/studio_customer_gate.py --manifest candidate-lock/platform-manifest.yaml --platform-lock "$PLATFORM_LOCK_DIGEST" --lock-file candidate-lock/platform-lock.json --suite-sha "$CONSOLE_SUITE_SHA"
       - name: Read fail-closed verdict
         id: verdict
         if: always()

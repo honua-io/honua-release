@@ -194,3 +194,90 @@ def test_dispatch_rejects_tag_pointing_to_another_commit(monkeypatch):
     monkeypatch.setattr(g, 'gh', fake_gh)
     with pytest.raises(ValueError, match='tag'):
         g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test')
+
+
+# Release-session ruling 2026-11-03: harness-only suite exception (e2e/** descendants of the pinned Console sha).
+PINNED, SUITE = "a" * 40, "b" * 40
+
+
+def compare(files, *, status="ahead", behind=0, base=PINNED, merge_base=PINNED, last=SUITE, ahead=1):
+    return {"status": status, "ahead_by": ahead, "behind_by": behind, "total_commits": ahead,
+            "base_commit": {"sha": base}, "merge_base_commit": {"sha": merge_base},
+            "commits": [{"sha": last}], "files": [{"filename": name} for name in files]}
+
+
+def test_suite_exception_admits_an_e2e_only_descendant_and_records_its_paths():
+    changed = g.suite_exception(PINNED, SUITE, compare(["e2e/agent-reflection/run-quickstart.py",
+                                                        "e2e/agent-reflection/test_secrets.py"]))
+    assert changed == ["e2e/agent-reflection/run-quickstart.py", "e2e/agent-reflection/test_secrets.py"]
+
+
+@pytest.mark.parametrize("files", [
+    ["e2e/agent-reflection/run-quickstart.py", "src/Honua.Console.Web/Program.cs"],
+    ["Dockerfile"], [".github/workflows/console-live-journey.yml"], ["e2e-tools/x.py"], ["e2e/../src/x"], []])
+def test_suite_exception_refuses_any_path_outside_e2e(files):
+    with pytest.raises(ValueError):
+        g.suite_exception(PINNED, SUITE, compare(files))
+
+
+def test_suite_exception_refuses_a_rename_out_of_or_into_e2e():
+    value = compare(["e2e/moved.py"])
+    value["files"][0]["previous_filename"] = "src/moved.py"
+    with pytest.raises(ValueError, match="outside e2e"):
+        g.suite_exception(PINNED, SUITE, value)
+
+
+@pytest.mark.parametrize("kwargs", [dict(status="diverged"), dict(behind=1), dict(base="c" * 40),
+                                    dict(merge_base="c" * 40), dict(last="c" * 40), dict(ahead=0)])
+def test_suite_exception_refuses_a_non_descendant_or_mismatched_compare(kwargs):
+    with pytest.raises(ValueError):
+        g.suite_exception(PINNED, SUITE, compare(["e2e/x.py"], **kwargs))
+
+
+def test_suite_exception_refuses_truncated_lists_and_non_sha_inputs():
+    with pytest.raises(ValueError, match="truncated"):
+        g.suite_exception(PINNED, SUITE, compare([f"e2e/f{i}.py" for i in range(300)]))
+    for pinned, suite in ((PINNED, PINNED), ("a" * 39, SUITE), (PINNED, "main")):
+        with pytest.raises(ValueError):
+            g.suite_exception(pinned, suite, compare(["e2e/x.py"]))
+
+
+def test_evidence_binds_the_approved_suite_while_the_image_stays_the_pinned_one():
+    values = evidence()
+    pinned = values[0]["console"]["sha"]
+    values[1]["suiteSourceRevision"] = "c" * 40
+    g.validate_evidence(*values, suite_sha="c" * 40)
+    with pytest.raises(ValueError):
+        g.validate_evidence(*values)                       # without the exception the equality rule holds
+    values[1]["console"]["sourceRevision"] = "c" * 40      # the image itself must stay the pinned source
+    with pytest.raises(ValueError, match="console runtime"):
+        g.validate_evidence(*values, suite_sha="c" * 40)
+    assert pinned != "c" * 40
+
+
+def test_dispatch_tags_the_suite_commit_when_the_exception_applies(monkeypatch):
+    refs = {}
+    def fake_gh(*args, json_output=False):
+        if args[:2] == ('api', '--method'):
+            refs[next(x[4:] for x in args if x.startswith('ref='))] = next(x[4:] for x in args if x.startswith('sha='))
+            return ''
+        if args[0] == 'api':
+            return {'object': {'type': 'commit', 'sha': refs['refs/' + args[1].split('/git/ref/', 1)[1]]}}
+        if args[:2] == ('workflow', 'run'):
+            assert refs[args[args.index('--ref') + 1]] == SUITE
+            assert any(x == f'console_image={g.resolve_pins({"components": pins()})["console"]["image"]}' for x in args)
+            return ''
+        raise AssertionError(args)
+    monkeypatch.setattr(g, 'gh', fake_gh)
+    g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test', SUITE)
+
+
+def test_workflow_passes_the_optional_suite_sha_and_studio_job_is_advisory_for_build_test():
+    workflow = _workflow()
+    for trigger in ('workflow_dispatch', 'workflow_call'):
+        assert workflow[True][trigger]['inputs']['console_suite_sha']['default'] == ''
+    step = next(s for s in workflow['jobs']['customer']['steps'] if 'studio_customer_gate.py' in s.get('run', ''))
+    assert '--suite-sha "$CONSOLE_SUITE_SHA"' in step['run']
+    assert step['env']['CONSOLE_SUITE_SHA'] == '${{ inputs.console_suite_sha }}'
+    advisory = yaml.safe_load(Path('certification/advisory-checks.yaml').read_text())
+    assert "Studio customer journey on real images" in [item['name'] for item in advisory['honua-console']]

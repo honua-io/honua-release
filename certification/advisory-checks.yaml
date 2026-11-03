@@ -193,3 +193,15 @@ geospatial-grpc:
       Validate Protobuf, Validate Protocol Schemas, Build Once and Smoke, Prove Clean Public
       Consumption, the code generation and pack lanes). Re-evaluate whenever geospatial-grpc is
       re-pinned.
+
+honua-console:
+  - name: "Studio customer journey on real images"
+    why: >-
+      The release gate's own dispatched job (`.github/workflows/console-live-journey.yml`, suite
+      `studio-customer`). honua-release `gate-studio-customer-journey.yml` dispatches it at the pinned
+      Console commit (or an approved e2e-only suite descendant) and judges its evidence itself
+      (tools/studio_customer_gate.py: images, stages, zero skips). GitHub files the run's check on the
+      Console commit it ran at, so a red Studio run would otherwise be counted twice and a run in
+      progress would hold build-test pending. The verdict belongs to the Studio gate; the Console's own
+      build, unit, Playwright smoke and pinned-image lanes stay core. Release-session ruling 2026-11-03
+      (rc.2 redo); honua-release#482.
