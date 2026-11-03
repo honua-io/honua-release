@@ -31,6 +31,12 @@ updates:
       time: "16:00"
       timezone: Pacific/Honolulu
     open-pull-requests-limit: 3
+    # certification/executable-docs/compiler_bootstrap.py pins the parser's exact version, tarball
+    # and SRI (and reads lib/typescript.js); a major TypeScript bump has to move those with it.
+    # #1010 bumped only the lock (5.9.3 -> 7.0.2) and every executable-docs run failed after it.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: chore
       include: scope
