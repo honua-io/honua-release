@@ -444,6 +444,11 @@
       "tokens": [
         "esri"
       ],
+      "identifiers": [
+        "esri-drawing-info",
+        "esri-drawing-info.",
+        "application/vnd.esri.drawinginfo"
+      ],
       "reason": "Verbatim honua-server 8628668794df9f0c22a490e59cedaee409cc1bdd honua_get_style observations retained from geospatial-mcp certify run 41680771276 for the #6901 replay control. Every use is the encoding identifier esri-drawing-info or the media type application/vnd.esri.drawinginfo+json advertised by GetStyleTool.SupportedEncodings, including inside the serialized JSON text block and the server's own unsupported-encoding refusal message; editing them would falsify the replayed evidence. No prose is covered.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#705"
