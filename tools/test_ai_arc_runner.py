@@ -2811,6 +2811,30 @@ def test_a_tool_result_is_visible_to_both_cli_arms_only_if_its_text_carries_the_
     assert R.mcp_result_visible_in_text(result) is visible
 
 
+# A22 (rehearsal of record 41699972562): honua-server 86286687 (#6901) sends a summary block, then the JSON block.
+STRUCTURED = {'evidencePosture': {'status': 'complete'}, 'releases': [{'id': 'rc.2'}]}
+SUMMARY_THEN_JSON = {'content': [{'type': 'text', 'text': 'Platform-release status returned in structuredContent.'},
+                                 {'type': 'text', 'text': json.dumps(STRUCTURED)}],
+                     'isError': False, 'structuredContent': STRUCTURED}
+SUMMARY_ONLY_TWO_BLOCKS = {'content': [{'type': 'text', 'text': 'Platform-release status returned.'},
+                                       {'type': 'text', 'text': 'See structuredContent.'}],
+                           'isError': False, 'structuredContent': STRUCTURED}
+SUMMARY_THEN_OTHER_JSON = {'content': [{'type': 'text', 'text': 'Platform-release status returned.'},
+                                       {'type': 'text', 'text': json.dumps({'evidencePosture': {'status': 'partial'}})}],
+                           'isError': False, 'structuredContent': STRUCTURED}
+SUMMARY_THEN_TRUNCATED_JSON = {'content': [{'type': 'text', 'text': 'Status.'},
+                                           {'type': 'text', 'text': json.dumps(STRUCTURED)[:-5]}],
+                               'isError': False, 'structuredContent': STRUCTURED}
+
+
+@pytest.mark.parametrize('result,visible', [(SUMMARY_THEN_JSON, True), (SUMMARY_ONLY_TWO_BLOCKS, False),
+                                            (SUMMARY_THEN_OTHER_JSON, False), (SUMMARY_THEN_TRUNCATED_JSON, False)])
+def test_a_json_block_beside_a_summary_carries_the_data_and_nothing_less_does(result, visible):
+    """A22: visible when one text block is exactly the structured result; a summary alone, different JSON or a
+    truncated block is still a channel gap (A16's intent)."""
+    assert R.mcp_result_visible_in_text(result) is visible
+
+
 def test_recorded_responses_with_hidden_data_are_counted_per_stage(tmp_path):
     session = tmp_path / 'services' / 'cases' / 'case-1' / 'session-1'
     session.mkdir(parents=True)

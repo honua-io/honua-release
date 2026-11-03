@@ -2905,12 +2905,18 @@ def mcp_result_visible_in_text(result) -> bool:
         return True
     structured = result.get('structuredContent')
     blocks = result.get('content') if isinstance(result.get('content'), list) else []
-    text = ''.join(b.get('text', '') for b in blocks if isinstance(b, dict) and b.get('type') == 'text')
-    try:
-        if json.loads(text) == structured:
-            return True
-    except ValueError:
-        pass
+    texts = [b.get('text', '') for b in blocks if isinstance(b, dict) and b.get('type') == 'text'
+             and isinstance(b.get('text', ''), str)]
+    text = ''.join(texts)
+    # PREREG A22 (rehearsal of record, run 41699972562): honua-server #6901 returns a one-line summary block and then
+    # the serialized result as its own text block. The data is visible when any single text block (or, as before,
+    # the whole text) is exactly the structured result; a summary alone, or JSON that differs, is still a gap.
+    for candidate in [*texts, text]:
+        try:
+            if json.loads(candidate) == structured:
+                return True
+        except ValueError:
+            continue
     return (isinstance(structured, dict) and set(structured) <= {'text', 'screenshotSha256'}
             and structured.get('text') == text)
 
