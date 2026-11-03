@@ -209,8 +209,10 @@ jobs:
       - name: Run seam scenarios
         working-directory: e2e
         env:
-          # require_real comes from the trigger; defaults to false for honest per-PR runs.
-          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real) && '1' || '' }}
+          # require_real comes from the trigger; defaults to false for honest per-PR runs. Only the typed
+          # `inputs` boolean: on workflow_dispatch `github.event.inputs.require_real` is the STRING "false",
+          # which is truthy, so every dispatch silently ran require_real (rc.2 run 41683730172).
+          E2E_REQUIRE_REAL: ${{ inputs.require_real == true && '1' || '' }}
         run: python run.py
 
       - name: Upload gate-report.json
@@ -415,7 +417,8 @@ jobs:
           # nightly (schedule) hardens the gate by promoting SCENARIO-level BLOCKED to FAIL; PRs run
           # honest (a scenario blocked on a missing dep is tolerated). A stack that never boots
           # fails on every trigger regardless of this input - see lib/report.sh.
-          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+          # Typed input only (see the seam job). Schedule and workflow_dispatch stay strict, as they were.
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real == true || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
           # Left EMPTY when the checkout failed, so the driver reports its own honest BLOCKED
           # instead of pointing at a directory that is not a console checkout.
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
@@ -510,7 +513,8 @@ jobs:
       - name: Run Slice-1 harness on the Redis-off topology
         env:
           E2E_REDIS: "off"
-          E2E_REQUIRE_REAL: ${{ (inputs.require_real || github.event.inputs.require_real || github.event_name == 'schedule') && '1' || '' }}
+          # Typed input only (see the seam job). Schedule and workflow_dispatch stay strict, as they were.
+          E2E_REQUIRE_REAL: ${{ (inputs.require_real == true || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '1' || '' }}
         run: bash e2e/harness/run_all.sh run
 
       - name: Redis-off scenario summary
