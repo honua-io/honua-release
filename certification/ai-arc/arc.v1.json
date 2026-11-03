@@ -528,8 +528,8 @@
   "opsComposition": {
     "executorCompose": "docs/get-started/compose.executor.yaml",
     "repo": "honua-io/honua-server",
-    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
-    "sha256": "sha256:e43ec48faa83b5bfa4ce18b9120586a5d3efa85f084cbaf15a9aa8d2e3683c97",
+    "revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
+    "sha256": "sha256:1060f1becdcf4197f24499e076608fab39babecbe19f9bad08757165395e41b9",
     "kind": "development-composition",
     "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
   },
@@ -538,7 +538,7 @@
     "revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
     "priorMaxSchema": 140,
     "certifyingRule": "ARC v2 B1/S4: only local runs whose setup installed this package and whose ops adopted its own manager and executor (slotFacts.opsComposition.kind quickstart-package) certify. The aggregate and tools/rc_gate_window.py admission both enforce it; the development composition (opsComposition) never certifies.",
-    "note": "The product's customer package (scripts/docker/package_quickstart.py, #6846) built at the final rc.2 candidate's revision (86286687: #6885 agent guide packaged as AGENTS.md, #6888 secrets in files, #6899 Console healthcheck, #6901 full JSON in MCP text content, #6903 propose_finding candidateId documented; the five pinned package files are byte-identical to 645ea3c0) from the candidate release lock; the harness stages it and the customer's .env choices only. priorMaxSchema is the install release's (rc.1) exact migration, never guessed.",
+    "note": "The product's customer package (scripts/docker/package_quickstart.py, #6846) built at the final rc.2 candidate's revision (86286687: #6885 agent guide packaged as AGENTS.md, #6888 secrets in files, #6899 Console healthcheck, #6901 full JSON in MCP text content, #6903 propose_finding candidateId documented; the five pinned package files are byte-identical to the redo candidate's) from the candidate release lock; the harness stages it and the customer's .env choices only. priorMaxSchema is the install release's (rc.1) exact migration, never guessed.",
     "files": {
       "docs/get-started/quickstart.md": "sha256:7b228f6aaccce301897905fc9f77dad02453639c4752bf905d2b8aa8804f6c77",
       "docs/get-started/compose.executor.yaml": "sha256:1060f1becdcf4197f24499e076608fab39babecbe19f9bad08757165395e41b9",
