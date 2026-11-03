@@ -1157,10 +1157,11 @@ def test_teardown_is_dirty_when_the_volume_listing_fails(tmp_path):
 
 
 def test_only_the_studio_action_bound_was_raised_and_it_binds_both_arms():
-    """PREREG A18: stage four's tool-call bound is 100 (DEV 12a: the browser-driven Maputnik path needed more
-    than 60); every other bound is the frozen v1 value, and the limits are per stage, never per arm."""
+    """PREREG A18 (revised): stage four's tool-call bound is 150 (DEV 12a ran out at 60; DEV 13b needed 96 actions
+    to reach both saves and ran out at 100 before its final answer); every other bound is the frozen v1 value, and
+    the limits are per stage, never per arm."""
     limits = ARC['limits']
-    assert limits['studio']['maxToolCalls'] == 100
+    assert limits['studio']['maxToolCalls'] == 150
     for stage in ('setup', 'ops', 'services'):
         assert limits[stage]['maxToolCalls'] == 60
     for stage, row in limits.items():
