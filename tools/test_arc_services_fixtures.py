@@ -353,6 +353,54 @@ def test_missing_services_module_is_harness_error(monkeypatch, tmp_path, module)
     assert_harness_undetermined(row)
 
 
+@pytest.mark.parametrize('corpus_status', ['pass', 'fail'])
+def test_a_p10_evidence_export_failure_is_never_a_publication_and_stops_the_stage(monkeypatch, tmp_path,
+                                                                                  corpus_status):
+    """Sol p10gate P1, through the caller: an otherwise passing P10 (or one failed by its answer check alone) whose
+    evidence export refuses a case credential in model-visible bytes neither hands its publication to P15 nor lets
+    the services stage pass: the stage is undetermined (harness error) and the export failure is a scored row."""
+    import ai_arc_services
+    from ai_arc_campaign import suspected_harness_fault
+    class FakeRuntime:
+        def __init__(self, **kwargs):
+            self._secrets, self.extra_secrets, self.workdirs, self.answers = [], [], [], {}
+            self.withheld = self.catalog_redactions = 0
+            self.shared_service = None
+    monkeypatch.setattr(ai_arc_services, 'runtime_class', lambda: FakeRuntime)
+    monkeypatch.setattr(ai_arc_services, 'private_actions', lambda _: [{'tool': 'honua_publish_service'}])
+    def export(case_dir, *_):
+        raise ValueError('a case credential reached model-visible bytes')
+    monkeypatch.setattr(runner, 'export_case_evidence', export)
+    ran = []
+    def execute_case(*, scenario, runtime, **kwargs):
+        ran.append(scenario.id)
+        case_dir = tmp_path / ('actions-' + scenario.id)
+        case_dir.mkdir()
+        runtime.workdirs.append(str(case_dir))
+        return {'status': corpus_status, 'infrastructure': [], 'sessions': [{'actions': [{'status': 'pass'}]}],
+                'assertions': [{'assertion': 'filter.exact', 'status': 'pass'}],
+                'finalAnswerCheck': {'status': corpus_status},
+                'roles': {'created:service:shelters': 'service', 'child:layer:shelters': 2},
+                'faultEvents': [{'kind': 'http_503_once', 'id': 'arc-p10-query-503'}], 'nudges': 0}
+    monkeypatch.setattr(runner, 'execute_case', execute_case)
+    row, cases = ai_arc_services.run_fixture_services(
+        goal='Synthetic request', fixture_id='town-A', fault='http_503_once',
+        candidate_digest='sha256:' + 'a' * 64, base_url='http://127.0.0.1:1', admin_key='unused',
+        project='arc-test', arm={'agent': 'codex-cli', 'model': 'fake'},
+        limits={'maxTurns': 10, 'maxToolCalls': 10, 'maxSeconds': 60},
+        out_dir=tmp_path / 'retained', private_root=tmp_path / 'private', cli=object(), vm=object())
+    p10 = cases[0]['receipt']
+    assert p10['exportFailure'] == 'a case credential reached model-visible bytes'
+    assert not ai_arc_services.publication_proven(p10)
+    assert ran == ['P10']                                   # P15 never ran on the unproven publication
+    assert row['failure']['category'] == 'harness-error' and 'evidence export failed' in row['failure']['reason']
+    assert_harness_undetermined(row)
+    rows = ai_arc_services.case_assertions(cases)
+    export_row = next(r for r in rows if r['assertion'] == 'P10:evidence.export')
+    assert export_row['status'] == 'fail' and export_row['harnessFault'] is True
+    assert suspected_harness_fault({'stages': [{'stage': 'services', 'outcome': 'fail', 'assertions': rows}]})
+
+
 def assert_harness_undetermined(row):
     from ai_arc_runner import stage_verdict
     arc = {'stages': [{'id': 'services', 'required': {'local-docker': []}}], 'exclusions': []}

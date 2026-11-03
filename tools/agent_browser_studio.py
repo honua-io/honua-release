@@ -28,6 +28,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from agent_e2e_local_recorder import ProjectionError
+from agent_e2e_local_projections import publication_audit_prefix, publication_handle_identity
 
 ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / 'certification/agent-e2e/corpus'
@@ -1928,16 +1929,24 @@ def stage3_layers(recorder, handoff, variant):
         require(isinstance(event, dict) and event.get('resourceId') == item['operationInstanceId']
                 and event.get('resourceType') == 'operation_instance' and event.get('action') == 'operation.completed'
                 and event.get('actor') == handoff['principal'] and event.get('outcome') == 'Success'
-                and event.get('details', '').split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                and publication_audit_prefix(event)
                 and start <= instant(event.get('timestamp')) <= end, 'stage-three publish audit does not match')
         answer = recorder.json('publish-' + slug + '-submit', 'GET',
                                '/api/v1/operations/handles/' + item['operationInstanceId'])['observation']
         data = answer.get('body', {}).get('data', {})
-        resources = data.get('resourceIds', {}) if isinstance(data, dict) else {}
-        require(answer.get('httpStatus') == 200 and data.get('operationInstanceId') == item['operationInstanceId']
-                and data.get('operationId') == 'service.publish' and data.get('status') == 'Completed'
-                and resources.get('serviceName') == item['service']
-                and str(resources.get('layerId')) == str(item['layerId']), 'stage-three publish handle differs')
+        try:
+            # service.publish, or admin.layer.publish through its embedded admin response (#6895)
+            identity = publication_handle_identity(data)
+        except ProjectionError:
+            identity = None
+        require(answer.get('httpStatus') == 200 and isinstance(data, dict)
+                and data.get('operationInstanceId') == item['operationInstanceId'] and identity is not None
+                and str(event.get('details', '')).split(';')[0] == 'operationId=' + identity['operationId']
+                and identity['service'] == item['service'] and identity['layerId'] == item['layerId']
+                and (identity['table'] is None
+                     or (identity['schema'], identity['table']) == (handoff['tables'][name]['schema'],
+                                                                    handoff['tables'][name]['table'])),
+                'stage-three publish handle differs')
         layers[name] = {'service': item['service'], 'layerId': item['layerId']}
     require(len({(v['service'], v['layerId']) for v in layers.values()}) == len(layers),
             'stage-three layer identities collide')

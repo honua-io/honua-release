@@ -56,3 +56,14 @@ def _never_hash_the_real_sealed_held_out_set(monkeypatch, tmp_path_factory):
             return
     missing = tmp_path_factory.getbasetemp() / 'no-sealed-set'
     monkeypatch.setattr(module, 'SEALED', {'primary': missing / 'primary.sealed', 'reserve': missing / 'reserve.sealed'})
+
+
+@pytest.fixture(autouse=True)
+def _no_agent_guide_state_leaks():
+    """Sol guide4: staging a package sets process-wide agent-guide state (the guide bytes and the requirement);
+    every test starts and ends without it, so no test can poison a later CLI session test."""
+    yield
+    module = sys.modules.get('agent_cli_sessions')
+    if module is not None and hasattr(module, 'require_agent_guide'):
+        module.set_agent_guide(None)
+        module.require_agent_guide(None)

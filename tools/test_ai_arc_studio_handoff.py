@@ -69,7 +69,10 @@ def ctx_for(tmp_path, http, variant='A'):
 
 
 def cases(roles=None, status='pass', principal=KEY):
-    return [{'scenario': 'P10', 'receipt': {'status': status, 'roles': dict(ROLES if roles is None else roles)},
+    verdict = 'pass' if status == 'pass' else 'fail'
+    return [{'scenario': 'P10', 'receipt': {'status': status, 'roles': dict(ROLES if roles is None else roles),
+                                            'assertions': [{'assertion': 'filter.exact', 'status': verdict},
+                                                           {'assertion': 'source-content.unchanged', 'status': verdict}]},
              'agentPrincipal': principal},
             {'scenario': 'P15', 'receipt': {'status': 'pass', 'roles': {}}, 'agentPrincipal': 'k-agent-2'}]
 
@@ -308,3 +311,194 @@ def test_a_readback_that_succeeds_after_its_timeout_never_turns_the_failure_into
     assert receipt['stages'][2]['outcome'] == 'undetermined' and studio.seen == 'unset'
     assert services.studio_handoff['status'] == 'failed'
 
+
+
+# Release session 2026-11-02 (bug 4, harness-only for rc.2; honua-server #6895 for GA): P10 credits a completed
+# honua_admin_layer_publish (PREREG A8), whose admin.layer.publish handle has empty resourceIds; the handoff reads the
+# service and layer from the embedded admin REST response and verifies them independently (audit event and actor,
+# layer metadata, table binding), never from the response alone.
+ADMIN_DETAILS = 'operationId=admin.layer.publish;status=Completed;x=1'
+
+
+def admin_response(service='kestrel-shelters', layer=0, table='arc10_x_shelters', schema='honua_data', **extra):
+    data = {'layerId': layer, 'layerName': 'Kestrel Shelters', 'schema': schema, 'table': table, 'enabled': True,
+            'serviceName': service, 'storageMode': 'source', **extra}
+    return json.dumps({'success': True, 'data': data, 'message': None})
+
+
+def admin_controller(events, response, *, operation_id='admin.layer.publish', resource_ids=None):
+    inner, calls = controller(events)
+
+    def http(method, url, key):
+        path = url.split('http://c', 1)[1]
+        if path.startswith('/api/v1/operations/handles/'):
+            op = path.rsplit('/', 1)[1]
+            calls.append(url)
+            if op != 'op-1':
+                return {'status': 404, 'json': {}}
+            return {'status': 200, 'json': {'data': {
+                'operationInstanceId': op, 'operationId': operation_id, 'status': 'Completed',
+                'resourceIds': resource_ids or {}, 'result': {'summary': 'Publish layer completed.',
+                                                              'details': {'response': response}}}}}
+        return inner(method, url, key)
+    return http, calls
+
+
+def test_an_admin_layer_publication_reaches_stage_four_with_the_same_checks(tmp_path):
+    http, _ = admin_controller([event(details=ADMIN_DETAILS)], admin_response())
+    handoff = R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+    assert handoff['layers']['shelters']['service'] == 'kestrel-shelters'
+    assert handoff['layers']['shelters']['layerId'] == 0 and handoff['layers']['shelters']['operationInstanceId'] == 'op-1'
+
+
+@pytest.mark.parametrize('response,events,why', [
+    (admin_response(service='elsewhere'), None, 'no unique completed agent publication'),         # tampered service
+    (admin_response(layer=3), None, 'no unique completed agent publication'),                    # tampered layer
+    (admin_response(table='arc10_x_parcels'), None, 'another table'),                            # tampered table
+    (admin_response(isValid=True), None, 'no unique completed agent publication'),               # a validation
+    (json.dumps({'success': False, 'data': None}), None, 'no unique completed agent publication'),
+    ('not json', None, 'no unique completed agent publication'),
+    (admin_response(), [event(actor='api-key:someone-else', details=ADMIN_DETAILS)],
+     'no unique completed agent publication'),                                                   # another actor
+    (admin_response(), [event(details='operationId=service.publish;status=Completed')],
+     'no unique completed agent publication'),                                                   # audit op differs
+    (admin_response(), [event(details=ADMIN_DETAILS, ts='2026-11-01T21:10:00Z')],
+     'no unique completed agent publication')])                                                  # outside the window
+def test_an_admin_publication_fails_closed(tmp_path, response, events, why):
+    http, _ = admin_controller(events or [event(details=ADMIN_DETAILS)], response)
+    with pytest.raises(ValueError, match=why):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+def test_an_admin_publication_still_needs_the_layer_metadata(tmp_path):
+    inner, _ = admin_controller([event(details=ADMIN_DETAILS)], admin_response())
+
+    def http(method, url, key):
+        if '/rest/services/' in url:
+            return {'status': 200, 'json': {'error': {'code': 404}}}
+        return inner(method, url, key)
+    with pytest.raises(ValueError, match='layer fields or geometry type'):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+def test_the_publication_handle_identity_for_both_routes():
+    from agent_e2e_local_projections import publication_handle_identity
+    from agent_e2e_local_recorder import ProjectionError
+    assert publication_handle_identity({'operationId': 'service.publish', 'status': 'Completed',
+                                        'resourceIds': {'serviceName': 'kestrel', 'layerId': '1'}}) == {
+        'operationId': 'service.publish', 'service': 'kestrel', 'layerId': 1, 'schema': None, 'table': None}
+    admin = {'operationId': 'admin.layer.publish', 'status': 'Completed', 'resourceIds': {},
+             'result': {'details': {'response': admin_response(service='kestrel', layer=1)}}}
+    assert publication_handle_identity(admin) == {'operationId': 'admin.layer.publish', 'service': 'kestrel',
+                                                  'layerId': 1, 'schema': 'honua_data', 'table': 'arc10_x_shelters'}
+    for bad in ({**admin, 'status': 'Failed'}, {**admin, 'operationId': 'admin.layer.delete'},
+                {**admin, 'result': {'details': {}}}, {**admin, 'result': {'details': {'response': '{}'}}},
+                {**admin, 'result': {'details': {'response': admin_response(layer='1')}}},
+                {**admin, 'result': {'details': {'response': admin_response(service='a b')}}},
+                {'operationId': 'service.publish', 'status': 'Completed', 'resourceIds': {}}):
+        with pytest.raises(ProjectionError):
+            publication_handle_identity(bad)
+
+
+# Release session 2026-11-02: a correct agent produces the list and THEN role-restricts the service, as P10 asks;
+# the data plane then refuses the harness too, so the handoff reads the layer from the admin catalog (the P10
+# restricted path's authority) and fails closed on anything else.
+DENIED_META = {'status': 200, 'json': {'error': {'code': 403, 'message': 'Forbidden'}}}
+
+
+def restricted_controller(events, *, policy=None, rows=None):
+    inner, calls = controller(events, meta=DENIED_META)
+    policy = policy if policy is not None else {'allowAnonymous': False, 'allowedRoles': ['operators']}
+    rows = rows if rows is not None else [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data',
+                                           'table': 'arc10_x_shelters', 'enabled': True, 'geometryType': 'Point'}]
+
+    def http(method, url, key):
+        path = url.split('http://c', 1)[1]
+        if path == '/api/v1/admin/services/kestrel-shelters/settings':
+            calls.append(url)
+            return {'status': 200, 'json': {'success': True, 'data': {'serviceName': 'kestrel-shelters',
+                                                                      'accessPolicy': policy}}}
+        if path == '/api/v1/admin/connections/conn-1/layers?serviceName=kestrel-shelters':
+            calls.append(url)
+            return {'status': 200, 'json': {'success': True, 'data': rows}}
+        return inner(method, url, key)
+    return http, calls
+
+
+def test_a_service_restricted_after_the_list_reaches_stage_four_through_the_admin_catalog(tmp_path):
+    http, calls = restricted_controller([event()])
+    handoff = R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+    layer = handoff['layers']['shelters']
+    assert layer['service'] == 'kestrel-shelters' and layer['layerId'] == 0 and layer['geometryType'] == 'Point'
+    assert layer['readThrough'].startswith('admin-catalog') and layer['operationInstanceId'] == 'op-1'
+    assert any('/settings' in c for c in calls) and any('/layers?serviceName=' in c for c in calls)
+
+
+@pytest.mark.parametrize('policy,rows,why', [
+    ({'allowAnonymous': True, 'allowedRoles': []}, None, 'not role-restricted'),             # denied, not by roles
+    ({'allowAnonymous': False, 'allowedRoles': []}, None, 'not role-restricted'),
+    (None, [], 'does not bind'),                                                              # absent from catalog
+    (None, [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data', 'table': 'arc10_x_parcels',
+             'enabled': True, 'geometryType': 'Point'}], 'does not bind'),                    # another table
+    (None, [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data', 'table': 'arc10_x_shelters',
+             'enabled': False, 'geometryType': 'Point'}], 'does not bind'),                   # disabled
+    (None, [{'layerId': 0, 'serviceName': 'kestrel-shelters', 'schema': 'honua_data', 'table': 'arc10_x_shelters',
+             'enabled': True, 'geometryType': 'Point'}] * 2, 'does not bind')])               # ambiguous
+def test_a_refused_layer_fails_closed_unless_the_catalog_binds_it(tmp_path, policy, rows, why):
+    http, _ = restricted_controller([event()], policy=policy, rows=rows)
+    with pytest.raises(ValueError, match=why):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+def test_a_refused_layer_without_a_completed_agent_publication_still_fails(tmp_path):
+    # The catalog never substitutes for the audited agent publication (restricted before publishing: P10 fails, and
+    # the handoff has nothing to bind).
+    http, _ = restricted_controller([event(actor='api-key:someone-else')])
+    with pytest.raises(ValueError, match='no unique completed agent publication'):
+        R.studio_services_handoff(ctx_for(tmp_path, http), cases(), 'town-A', START, END)
+
+
+
+def test_a_passing_p10_publication_hands_off_even_when_the_corpus_answer_check_failed(tmp_path):
+    """Studio DEV shakeout run 11b: every P10 projection passed, but the corpus answer checker (kept for reference
+    only by the arc) failed the composite services answer; P15 and Studio never ran."""
+    import ai_arc_services as S
+    http, _ = controller([event()])
+    run_cases = cases()
+    run_cases[0]['receipt']['status'] = 'fail'                    # the corpus verdict alone
+    run_cases[0]['receipt']['finalAnswerCheck'] = {'status': 'fail', 'false_success': True}
+    handoff = R.studio_services_handoff(ctx_for(tmp_path, http), run_cases, 'town-A', START, END)
+    assert handoff['layers']['shelters']['service'] == 'kestrel-shelters'
+    assert S.publication_proven(answer_only())
+    for receipt in ({'status': 'fail', 'assertions': [{'assertion': 'filter.exact', 'status': 'fail'}]},
+                    {'status': 'infrastructure', 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {'status': 'excluded', 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {'status': 'fail', 'failure': {'category': 'model'}, 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {'status': 'fail', 'assertions': []},
+                    # status fail with every assertion passing is not enough: the answer check must be the cause
+                    {'status': 'fail', 'failure': None, 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {**answer_only(), 'finalAnswerCheck': {'status': 'pass'}}):
+        assert not S.publication_proven(receipt)
+
+
+def answer_only(**extra):
+    """Run 11b's P10 receipt shape: every assertion passed; the corpus answer check alone failed."""
+    return {'caseId': 'P10:A:local-docker', 'status': 'fail', 'infrastructure': [], 'sessions': [], 'roles': {},
+            'assertions': [{'assertion': 'filter.exact', 'status': 'pass'}],
+            'finalAnswerCheck': {'status': 'fail', 'false_success': True, 'undetermined': False}, **extra}
+
+
+@pytest.mark.parametrize('marker', [
+    {'exportFailure': 'a case credential reached model-visible bytes'},           # Sol p10gate P1
+    {'evidenceExport': [{'status': 'fail', 'reason': 'export failed'}]},
+    {'handoffError': 'synthetic handoff error'},
+    {'failure': {'category': 'model', 'reason': 'x'}},
+    {'infrastructure': [{'phase': 'stack-teardown'}]},
+    {'someFutureMarker': True}])                                                   # whitelist, not blacklist
+def test_only_an_answer_check_only_failure_proves_a_publication(marker):
+    import ai_arc_services as S
+    assert S.publication_proven(answer_only())
+    assert not S.publication_proven(answer_only(**marker))
+    if 'export' in next(iter(marker)).lower():
+        # An export failure also outweighs a corpus pass.
+        assert not S.publication_proven({**answer_only(**marker), 'status': 'pass'})

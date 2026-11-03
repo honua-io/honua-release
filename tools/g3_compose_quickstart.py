@@ -42,11 +42,18 @@ COMPOSE_VERSION = re.compile(r"v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
 COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 RUN_NUMBER = re.compile(r"\d+\Z")
 STARTED = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+# Every secret the quickstart generates (scripts/docker/compose_quickstart.py SECRET_KEYS + AUDIT_KEYS; the test
+# reads the pinned package's generator and fails if one is missing here).
 SECRET_KEYS = (
     "POSTGRES_PASSWORD",
     "HONUA_ADMIN_PASSWORD",
     "HONUA_MASTER_KEY",
     "HONUA_KEYRING_PASSWORD",
+    "HONUA_AUDIT_CHAIN_KEY",
+    "HONUA_MANAGER_AUDIT_CHAIN_KEY",
+    "HONUA_MANAGER_ADMIN_PASSWORD",
+    "HONUA_MANAGER_POSTGRES_PASSWORD",
+    "HONUA_MANAGER_MASTER_KEY",
 )
 QUERY_WORDS = ("west", "east")
 MIN_COMPOSE = (2, 23, 1)
@@ -356,16 +363,23 @@ def default_runner(argv: list[str], cwd: Path, timeout: int) -> tuple[int, str]:
 
 
 def secret_values(run_dir: Path) -> list[str]:
-    env_path = run_dir / ".env"
-    if not env_path.is_file():
-        return []
     values: list[str] = []
-    for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        if key in SECRET_KEYS and len(value) >= 6:
-            values.append(value)
+    env_path = run_dir / ".env"
+    if env_path.is_file():
+        for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key in SECRET_KEYS and len(value) >= 6:
+                values.append(value)
+    # honua-server #6888: secrets also live as files, secrets/<lower-case key> (the key ring itself is binary).
+    secrets_dir = run_dir / "secrets"
+    if secrets_dir.is_dir():
+        for path in sorted(secrets_dir.iterdir()):
+            if path.is_file() and path.suffix not in (".pfx", ".pem", ".crt", ".key") and not path.name.startswith("."):
+                value = path.read_text(encoding="utf-8", errors="replace").strip()
+                if len(value) >= 6:
+                    values.append(value)
     return values
 
 

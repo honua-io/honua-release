@@ -974,6 +974,8 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
     stage-three outcome as undetermined (a harness readback failure, never the arm's) and stage four is not run
     with a partial handoff."""
     from agent_e2e_local_expectations import fixture_scenarios
+    from agent_e2e_local_projections import publication_audit_prefix, publication_handle_identity
+    from agent_e2e_local_recorder import ProjectionError
     from urllib.parse import quote
     http, base = ctx.options.get('http'), (ctx.slot.controller or {}).get('base_url')
     admin = (ctx.slot.controller or {}).get('admin_key')
@@ -989,7 +991,8 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
         return got['json']
 
     first = next((c for c in cases if c.get('scenario') == 'P10'), None)
-    if first is None or (first.get('receipt') or {}).get('status') != 'pass':
+    from ai_arc_services import publication_proven
+    if first is None or not publication_proven(first.get('receipt') or {}):
         raise ValueError('the publishing case did not pass')
     roles = first['receipt'].get('roles') or {}
     key = first.get('agentPrincipal')
@@ -1031,23 +1034,63 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
                   if e.get('actor') in principals and e.get('outcome') == 'Success'
                   and e.get('action') in (None, 'operation.completed')
                   and e.get('resourceType') in (None, 'operation_instance')
-                  and str(e.get('details', '')).split(';')[:2] == ['operationId=service.publish', 'status=Completed']
+                  and publication_audit_prefix(e)
                   and type(e.get('auditId')) is int and isinstance(e.get('resourceId'), str)
                   and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', e['resourceId'])
                   and start <= instant(e.get('timestamp')) <= end]
-    handles = {}
+    handles, identities = {}, {}
     for event in candidates:
         data = read('/api/v1/operations/handles/' + quote(event['resourceId'], safe='')).get('data') or {}
-        resources = data.get('resourceIds') if isinstance(data, dict) else None
-        if (isinstance(resources, dict) and data.get('operationInstanceId') == event['resourceId']
-                and data.get('operationId') == 'service.publish' and data.get('status') == 'Completed'):
-            handles.setdefault((resources.get('serviceName'), str(resources.get('layerId'))), []).append(event)
+        if not isinstance(data, dict) or data.get('operationInstanceId') != event['resourceId']:
+            continue
+        try:
+            # service.publish (resourceIds) or admin.layer.publish (the embedded admin response; #6895); the audit
+            # event's operation must be the handle's.
+            identity = publication_handle_identity(data)
+        except ProjectionError:
+            continue
+        if str(event.get('details', '')).split(';')[0] != 'operationId=' + identity['operationId']:
+            continue
+        identities[event['resourceId']] = identity
+        handles.setdefault((identity['service'], str(identity['layerId'])), []).append(event)
+    records = ctx.private_dir / 'services' / 'corpus' / 'P10' / 'export' / 'controller-records'
+    tables = {name: imported_table(records, name) for name in STUDIO_LAYERS}
+    connection = roles.get('seeded:connection:shelters')
     layers = {}
     for name, (service, layer) in published.items():
         matched = handles.get((service, str(layer))) or []
         if len(matched) != 1:
             raise ValueError(f'{name}: no unique completed agent publication in the stage window')
         meta = read('/rest/services/' + quote(service, safe='') + '/FeatureServer/' + str(layer) + '?f=json')
+        denied = isinstance(meta.get('error'), dict) and meta['error'].get('code') == 403
+        if denied:
+            # The agent produced the list and THEN restricted the service, as P10 asks (release session 2026-11-02):
+            # the data plane refuses every principal, the harness's admin key included. The layer is read, like the
+            # P10 restricted path, from the admin catalog: the service's own role-restricted access policy, and
+            # exactly one enabled catalog layer of that service, with that id, bound to the imported fixture table.
+            # Any other denial, or any mismatch, fails closed.
+            settings = read('/api/v1/admin/services/' + quote(service, safe='') + '/settings')
+            data = settings.get('data') if isinstance(settings.get('data'), dict) else settings
+            policy = data.get('accessPolicy') if isinstance(data, dict) else None
+            allowed = policy.get('allowedRoles') if isinstance(policy, dict) else None
+            if not (isinstance(policy, dict) and policy.get('allowAnonymous') is False and isinstance(allowed, list)
+                    and allowed and all(isinstance(r, str) and r.strip() for r in allowed)):
+                raise ValueError(name + ': the layer is refused but the service is not role-restricted')
+            if not isinstance(connection, str) or not connection:
+                raise ValueError('the fixture connection is unknown')
+            catalog = read('/api/v1/admin/connections/' + quote(connection, safe='') + '/layers?serviceName='
+                           + quote(service, safe=''))
+            rows = [r for r in (catalog.get('data') if isinstance(catalog.get('data'), list) else [])
+                    if isinstance(r, dict) and r.get('serviceName') == service and r.get('layerId') == layer]
+            row = rows[0] if len(rows) == 1 else None
+            if (row is None or row.get('enabled') is not True or not isinstance(row.get('geometryType'), str)
+                    or (row.get('schema'), row.get('table')) != (tables[name]['schema'], tables[name]['table'])):
+                raise ValueError(name + ': the admin catalog does not bind the restricted layer to the imported table')
+            layers[name] = {'service': service, 'layerId': layer,
+                            'operationInstanceId': matched[0]['resourceId'], 'auditId': matched[0]['auditId'],
+                            'geometryType': row['geometryType'], 'fields': None,
+                            'readThrough': 'admin-catalog (role-restricted service)'}
+            continue
         fields = meta.get('fields')
         if (not isinstance(fields, list) or not fields or not isinstance(meta.get('geometryType'), str)
                 or any(not isinstance(f, dict) or not isinstance(f.get('name'), str)
@@ -1062,13 +1105,14 @@ def studio_services_handoff(ctx, cases: list[dict], fixture_id: str, started_at:
     if len(actors) != 1:
         raise ValueError('stage-three publications name more than one principal')
     principal = actors.pop()
-    records = ctx.private_dir / 'services' / 'corpus' / 'P10' / 'export' / 'controller-records'
-    tables = {name: imported_table(records, name) for name in STUDIO_LAYERS}
     for name in layers:
         if (roles.get('seeded:table:' + name), roles.get('seeded:schema:' + name)) != \
                 (tables[name]['table'], tables[name]['schema']):
             raise ValueError(name + ': published table differs from the imported fixture table')
-    connection = roles.get('seeded:connection:shelters')
+        identity = identities[layers[name]['operationInstanceId']]
+        if identity['operationId'] == 'admin.layer.publish' and \
+                (identity['table'], identity['schema']) != (tables[name]['table'], tables[name]['schema']):
+            raise ValueError(name + ': the admin publication names another table than the imported fixture table')
     if not isinstance(connection, str) or not connection:
         raise ValueError('the fixture connection is unknown')
     return {'schema': STUDIO_HANDOFF_SCHEMA, 'variant': variant, 'fixtureId': fixture_id, 'principal': principal,
@@ -2128,7 +2172,7 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                                   provenance=[{k: p.get(k) for k in ('agent', 'cliVersion', 'model', 'promptSha256',
                                                                      'servedToolListsSha256', 'configSha256',
                                                                      'mcpMethods', 'transcriptSha256', 'budgets',
-                                                                     'authPreflight')}
+                                                                     'authPreflight', 'agentGuide', 'cliFlags')}
                                               for p in row.get('provenance') or [] if isinstance(p, dict)])
     # The prompts the sessions actually received (the adapter's own, e.g. the Studio customer script), beside
     # the runner's stage prompt digest.
@@ -2500,6 +2544,9 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     out_dir.mkdir(parents=True, mode=0o700)
     from agent_cli_sessions import arc_scratch_root
     private = Path(tempfile.mkdtemp(prefix='honua-arc-private-', dir=private_root or arc_scratch_root()))
+    from agent_cli_sessions import require_agent_guide, set_agent_guide
+    set_agent_guide(None)        # a trial loads only its own staged package's agent guide (set at staging)
+    require_agent_guide(None)
     os.chmod(private, 0o700)
     modules = modules or default_modules(arc, target)
     install = arc['versionPair']['install']
@@ -2575,6 +2622,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                 if answer_path.is_file():
                     previous_answer = answer_path.read_text(encoding='utf-8')
         finally:
+            set_agent_guide(None)
+            require_agent_guide(None)
             closer_steps = run_closers(slot)
             try:
                 receipt['teardown'] = slot.vm.teardown() if slot.vm else {'status': 'clean', 'steps': []}
@@ -2886,6 +2935,24 @@ def mcp_channel_gaps(root: Path, coverage: bool = True) -> list[str]:
                 continue
             if isinstance(message, dict) and not mcp_result_visible_in_text(message.get('result')):
                 gaps.append(str(path.relative_to(root)))
+    return gaps
+
+
+def agent_guide_gaps(receipt: dict) -> list[str]:
+    """Stages with a CLI session that did not load the package's shipped AGENTS.md (release session 2026-11-02): when
+    the installed package carries one, every CLI session's provenance must show {"sha256": its digest, "loaded": true}
+    and no --restricted flag. Empty when the package ships none."""
+    quickstart = (receipt.get('slotFacts') or {}).get('quickstart') if isinstance(receipt, dict) else None
+    shipped = ((quickstart or {}).get('packageSha256') or {}).get('AGENTS.md') if isinstance(quickstart, dict) else None
+    if not shipped:
+        return []
+    gaps = []
+    for stage in receipt.get('stages') or []:
+        for item in ((stage.get('modelVisible') or {}).get('provenance') or []) if isinstance(stage, dict) else []:
+            if not isinstance(item, dict) or 'cliVersion' not in item:
+                continue
+            if item.get('agentGuide') != {'sha256': shipped, 'loaded': True} or '--restricted' in (item.get('cliFlags') or []):
+                gaps.append(str(stage.get('stage')))
                 break
     return gaps
 
@@ -2946,6 +3013,9 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         if not isinstance(quickstart, dict) or quickstart.get('pageSha256') != arc['quickstart']['sha256'] \
                 or quickstart.get('revision') != arc['quickstart']['revision']:
             raise ValueError('run receipt does not bind the pinned quickstart')
+    guide_gaps = agent_guide_gaps(receipt)
+    if guide_gaps:
+        raise ValueError('the package ships AGENTS.md, but a session ran without it: ' + ', '.join(guide_gaps))
     install = arc['versionPair']['install']
     if receipt.get('phases', {}).get('install') != {'release': install['release'], 'sourceSha': install['sourceRevision'],
                                                     'imageDigest': install['imageDigest']}:

@@ -110,7 +110,7 @@ def test_the_auth_preflight_reaches_the_receipt_provenance():
     import ai_arc_runner as R
     import inspect
     src = inspect.getsource(R)
-    assert "'mcpMethods', 'transcriptSha256', 'budgets',\n" in src and "'authPreflight')}" in src
+    assert "'mcpMethods', 'transcriptSha256', 'budgets',\n" in src and "'authPreflight'" in src
 
 
 def test_an_agent_restricted_unobservable_service_counts_against_the_arm():
