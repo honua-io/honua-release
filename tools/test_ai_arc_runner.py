@@ -994,6 +994,8 @@ def test_availability_exits_are_finalized(tmp_path, monkeypatch, how):
     ({'status': 200, 'json': {'version': '1'}}, True, None),
 ])
 def test_studio_requires_a_healthy_console_and_a_real_sign_in(tmp_path, monkeypatch, health, signin, expected):
+    # The sign-in check runs only where the Studio browser is installed (CI validate has no Playwright).
+    monkeypatch.setattr(R, 'playwright_installed', lambda: True)
     import types
 
     class Adapter(R.StageModule):
@@ -2701,6 +2703,8 @@ def test_the_arc_spec_names_no_assistant_sonnet_or_bedrock():
 
 
 def test_a_failed_sign_in_names_its_error_in_the_stage_cause(tmp_path, monkeypatch):
+    # The sign-in check runs only where the Studio browser is installed (CI validate has no Playwright).
+    monkeypatch.setattr(R, 'playwright_installed', lambda: True)
     """Studio DEV shakeout 7a/7b: the probe returned only {'ok': False}; the failing step's error is now the cause."""
     import types
 

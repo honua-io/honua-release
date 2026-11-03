@@ -1160,8 +1160,7 @@ class StudioStage(DelegatingStage):
         if reason:
             return reason
         # The arm drives Studio through Playwright; without it the sign-in can never run (a harness cause, named).
-        import importlib.util
-        if importlib.util.find_spec('playwright') is None:
+        if not playwright_installed():
             return ('the Studio browser (Playwright, tools/requirements-agent-browser.txt) is not installed for the '
                     "runner's Python")
         # The customer principal must actually sign in to this Console before the stage can run.
@@ -1975,6 +1974,12 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         return _run_stage(ctx, module, session, goal, previous_answer, sink)
     finally:
         close_sink(sink)
+
+
+def playwright_installed() -> bool:
+    """The Studio browser's driver is importable by this Python (ai-arc.yml installs it for the arm's runner)."""
+    import importlib.util
+    return importlib.util.find_spec('playwright') is not None
 
 
 def slot_ports_for_safety(slot) -> list[int]:
