@@ -240,7 +240,7 @@ class HttpMcpBackend:
     def close(self): pass
 
 
-SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed command on the isolated quickstart host: python3 quickstart.py, Docker Compose, or localhost curl.',
+SHELL_TOOL = {'name':'run_quickstart', 'description':'Run an allowed command on the isolated quickstart host: python3 quickstart.py, Docker Compose, localhost curl, or cat of the package\'s AGENTS.md or README.md.',
               'inputSchema':{'type':'object','properties':{'command':{'type':'string','maxLength':2048},
                   'stdin':{'type':'string','maxLength':65536}},
                              'required':['command'],'additionalProperties':False}}
@@ -366,7 +366,11 @@ def parse_quickstart(command):
         if (url.scheme not in ('http','https') or url.hostname not in ('localhost','127.0.0.1','::1')
                 or url.username or url.password or url.fragment): raise ValueError('curl is restricted to localhost')
         return ['curl','--max-time','30','--proto','=http,https',*opts,urls[0]]
-    raise ValueError('only docker compose, python3 quickstart.py and localhost curl are admitted')
+    if parts in (['cat', 'AGENTS.md'], ['cat', 'README.md']):
+        # The package's own documents in the install directory (redo plan D1: the agent guide), exactly these two
+        # names and nothing else; the shell returns their bytes only when they are the staged package files.
+        return parts
+    raise ValueError('only docker compose, python3 quickstart.py, localhost curl and cat AGENTS.md/README.md are admitted')
 
 
 class RemoteQuickstartShell:
@@ -441,7 +445,7 @@ class RemoteQuickstartShell:
         # A local quickstart can generate secrets in .env; compose config/logs and
         # arbitrary HTTP responses must not turn those into model-visible bytes.
         raw = result.stdout[:MAX_RESPONSE]
-        if command[0] == 'curl' and digest(raw) in self.visible_document_sha256 and len(raw) <= 65536:
+        if command[0] in ('curl', 'cat') and digest(raw) in self.visible_document_sha256 and len(raw) <= 65536:
             visible = raw.decode('utf-8')
         elif command[0] == 'curl' and raw.strip() in (b'Ready',b'Healthy',b'OK',b'Unhealthy'):
             visible = raw.decode('utf-8')

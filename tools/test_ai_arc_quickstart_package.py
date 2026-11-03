@@ -26,6 +26,16 @@ EXECUTOR = 'sha256:' + 'b' * 64
 INSTALL = {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'c' * 64}
 
 
+@pytest.fixture(autouse=True)
+def _no_agent_guide_leaks():
+    from agent_cli_sessions import require_agent_guide, set_agent_guide
+    set_agent_guide(None)
+    require_agent_guide(None)
+    yield
+    set_agent_guide(None)
+    require_agent_guide(None)      # Sol guide4: staging sets the requirement too; never leak it into later tests
+
+
 def build(tmp_path, **kw):
     args = dict(server=SERVER, executor=EXECUTOR, worker=SERVER, version='2026.1-rc.2', **kw)
     return ai_arc_local.build_quickstart_package(SOURCE, PIN, tmp_path / 'build', **args)
@@ -312,3 +322,37 @@ def test_admission_accepts_the_package_binding_with_or_without_the_guide():
         assert G._arc_package_binding(agg, 'r') is not None
     agg = {'quickstartPackage': {'revision': 'r', 'declaredRelease': 'x', 'sha256': dict(base, **{'X.md': digest})}}
     assert G._arc_package_binding(agg, 'r') is None
+
+
+def test_the_shell_lets_the_agent_read_the_staged_agent_guide_and_readme_only(tmp_path):
+    """r5 shakeout: the arm's only channel is the quickstart shell, which refused `cat AGENTS.md`, so the shipped guide
+    was unreadable. The shell admits exactly `cat AGENTS.md` / `cat README.md` and returns the bytes only when they are
+    the staged package files; every other cat stays refused."""
+    from agent_cli_backends import parse_quickstart
+    import ai_arc_safety as S
+    source, pin = guide_source(tmp_path)
+    files = ai_arc_local.build_quickstart_package(source, pin, tmp_path / 'build', server=SERVER, executor=EXECUTOR,
+                                                  worker=SERVER, version='2026.1-rc.2')
+    outputs = {}
+
+    def run(command, input=None, **kw):
+        script = input.decode() if input else ''
+        for name in ('AGENTS.md', 'README.md'):
+            if script.rstrip().endswith('exec cat ' + name):
+                return subprocess.CompletedProcess(command, 0, outputs.get(name, files[name]), b'')
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    slot = vm(tmp_path, run)
+    slot.stage_package(INSTALL, files, PIN['priorMaxSchema'])
+    shell = slot.quickstart_shell(files['compose.yaml'].decode())
+    for name in ('AGENTS.md', 'README.md'):
+        assert parse_quickstart('cat ' + name) == ['cat', name] and S.shell_shape('cat ' + name)
+        assert S.classify_command('cat ' + name) == []
+        text = shell.execute('shell_command', {'tool': 'run_quickstart', 'arguments': {'command': 'cat ' + name}})
+        assert text['result']['content'][0]['text'] == files[name].decode()
+    outputs['AGENTS.md'] = b'not the staged guide'                       # changed bytes are never shown
+    text = shell.execute('shell_command', {'tool': 'run_quickstart', 'arguments': {'command': 'cat AGENTS.md'}})
+    assert 'output withheld' in text['result']['content'][0]['text']
+    for command in ('cat .env', 'cat secrets/honua_admin_password', 'cat AGENTS.md README.md', 'cat ./AGENTS.md',
+                    'cat /etc/passwd'):
+        with pytest.raises(ValueError):
+            parse_quickstart(command)

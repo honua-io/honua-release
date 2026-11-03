@@ -349,6 +349,183 @@ class RecordingProxy:
             for item in value: self._collect(item)
 
 
+# The product's shipped agent guide (release-session decision 2026-11-02, under founder approval D1): each arm's CLI
+# loads the package's AGENTS.md as project instructions, as it would when run in the install directory, and nothing
+# else. The arc sets it once the package is staged (ai_arc_local.VmSlot.stage_package); None leaves every session as
+# before (no file, project-instruction loading disabled).
+_AGENT_GUIDE = {'raw': None, 'required': None}
+# Every file either pinned CLI loads as project instructions from a directory or its ancestors (Claude Code loads an
+# ancestor's .claude/CLAUDE.md as project memory; both treat .git as a project root marker).
+INSTRUCTION_NAMES = ('AGENTS.md', 'AGENTS.override.md', 'CLAUDE.md', 'CLAUDE.local.md', '.claude', '.mcp.json', '.git',
+                     '.codex')
+
+
+def effective_flags(args, contract) -> list[str]:
+    out = []
+    for arg in args[1:]:
+        if arg == contract:
+            out.append('<contract ' + digest(contract.encode()) + '>')
+        elif isinstance(arg, str) and arg.startswith('/'):
+            out.append('<path ' + Path(arg).name + '>')
+        elif isinstance(arg, str) and arg.startswith('developer_instructions='):
+            out.append('developer_instructions=<contract ' + digest(contract.encode()) + '>')
+        elif isinstance(arg, str) and '=' in arg and arg.split('=', 1)[1].startswith('"/'):
+            out.append(arg.split('=', 1)[0] + '=<path>')
+        else:
+            out.append(arg)
+    return out
+
+
+GUIDE_SCRATCH_FILESYSTEMS = ('ext4', 'ext3', 'xfs', 'btrfs', 'zfs')
+GUIDE_SCRATCH_REFUSED = ('/tmp', '/var/tmp', '/dev/shm', '/run', '/home', '/root', '/Users')
+# User and global instruction sources a CLI reads from its own configuration directory (Claude Code: CLAUDE.md,
+# CLAUDE.local.md and rules/; Codex: AGENTS.md, AGENTS.override.md and the legacy instructions.md).
+CONFIG_INSTRUCTION_NAMES = ('CLAUDE.md', 'CLAUDE.local.md', 'rules', 'AGENTS.md', 'AGENTS.override.md',
+                            'instructions.md')
+
+
+def _mount_fstype(path: Path, mountinfo: str | None = None) -> str:
+    """The filesystem type of the mount holding ``path`` (longest mount-point prefix in /proc/self/mountinfo)."""
+    text = mountinfo if mountinfo is not None else Path('/proc/self/mountinfo').read_text()
+    best, fstype = '', None
+    for line in text.splitlines():
+        left, sep, right = line.partition(' - ')
+        fields = left.split()
+        if not sep or len(fields) < 5 or not right.split():
+            continue
+        point = re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1), 8)), fields[4])
+        inside = str(path) == point or point == '/' or str(path).startswith(point.rstrip('/') + '/')
+        if inside and len(point) >= len(best):
+            best, fstype = point, right.split()[0]
+    if fstype is None:
+        raise ValueError('cannot determine the filesystem of ' + str(path))
+    return fstype
+
+
+def _home_directories() -> set[str]:
+    """Every account's home directory (passwd), plus this process's HOME; "/" and /nonexistent are not homes."""
+    import pwd
+    homes = {e.pw_dir for e in pwd.getpwall()} | {os.environ.get('HOME') or '', str(Path.home())}
+    return {os.path.realpath(h) for h in homes if h and h not in ('/', '/nonexistent')}
+
+
+def guide_scratch_root(*, mountinfo: str | None = None, homes: set[str] | None = None) -> Path:
+    """Where a session that loads the shipped agent guide runs: a real-disk directory OUTSIDE every home directory
+    (an operator's ~/.claude/CLAUDE.md would otherwise be an ancestor project memory). HONUA_ARC_GUIDE_SCRATCH,
+    default /var/lib/honua-arc-cli; it must already exist, be owned by this user and be private (fail closed).
+    "Real disk" is checked on the mount (ext4, ext3, xfs, btrfs or zfs; tmpfs such as /run/user/<uid> is refused),
+    and "outside every home" against every passwd home directory, not a fixed list of prefixes."""
+    root = Path(os.environ.get('HONUA_ARC_GUIDE_SCRATCH') or '/var/lib/honua-arc-cli').resolve()
+    if any(str(root) == t or str(root).startswith(t + '/') for t in GUIDE_SCRATCH_REFUSED):
+        raise ValueError('the agent-guide scratch root must be on real disk outside any home directory: ' + str(root))
+    for home in (_home_directories() if homes is None else homes):
+        if str(root) == home or str(root).startswith(home.rstrip('/') + '/') or home.startswith(str(root) + '/'):
+            raise ValueError('the agent-guide scratch root overlaps a home directory: ' + str(root) + ' / ' + home)
+    info = root.stat() if root.is_dir() else None
+    if info is None or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise ValueError('the agent-guide scratch root is missing, foreign or not private: ' + str(root) + ' (create it '
+                         'on the machine that runs the arm CLIs: sudo install -d -m 700 -o "$USER" -g "$USER" ' + str(root)
+                         + '; the ai-arc workflow does this on the honua-arc controller runner)')
+    fstype = _mount_fstype(root, mountinfo)
+    if fstype not in GUIDE_SCRATCH_FILESYSTEMS:
+        raise ValueError('the agent-guide scratch root must be on a real-disk filesystem, not ' + fstype + ': ' + str(root))
+    return root
+
+
+def set_agent_guide(raw):
+    if raw is not None and (not isinstance(raw, bytes) or not raw):
+        raise ValueError('the agent guide must be the package file bytes')
+    _AGENT_GUIDE['raw'] = raw
+
+
+def agent_guide():
+    return _AGENT_GUIDE['raw']
+
+
+def require_agent_guide(sha256):
+    """The staged package ships AGENTS.md with this digest (None: it ships none). Release session 2026-11-02: when it
+    does, a session that would not load exactly that guide refuses to start (fail closed), so a run without the guide
+    is impossible, not only visible in its receipt."""
+    if sha256 is not None and (not isinstance(sha256, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', sha256)):
+        raise ValueError('the required agent guide digest is malformed')
+    _AGENT_GUIDE['required'] = sha256
+
+
+def required_agent_guide():
+    return _AGENT_GUIDE['required']
+
+
+def verify_guide_flags(agent: str, args: list, guide) -> None:
+    """The launch flags load the guide exactly when one is staged (checked immediately before the CLI starts)."""
+    if agent == 'claude-cli':
+        sources = args[args.index('--setting-sources') + 1] if '--setting-sources' in args else None
+        loads = '--restricted' not in args and sources == 'project'
+        disabled = '--restricted' in args and sources == ''
+    else:
+        values = [a.split('=', 1)[1] for a in args if isinstance(a, str) and a.startswith('project_doc_max_bytes=')]
+        size = json.loads(values[0]) if len(values) == 1 else None
+        loads = guide is not None and size == len(guide)
+        disabled = size == 0
+    if (guide is not None and not loads) or (guide is None and not disabled):
+        raise ValueError('the CLI flags do not match the staged agent guide (loaded exactly when staged)')
+
+
+def stage_agent_guide(scratch: Path, guide: bytes, agent: str, env: dict) -> Path:
+    """The CLI's working directory: scratch/install holding only the package's AGENTS.md (byte-identical), a sibling of
+    the CLI's HOME (scratch/home) so no config directory sits in its ancestry. Refuses if any other instruction source
+    is reachable (verify_guide_isolation); the same check runs again immediately before the CLI starts."""
+    work = scratch / 'install'
+    work.mkdir(mode=0o700)
+    write_private(work / 'AGENTS.md', guide)
+    verify_guide_isolation(work, guide, agent, env)
+    return work
+
+
+def _physical(path: Path) -> Path:
+    """``path`` made absolute, refusing any symlinked component: a substituted directory would move the CLI's real
+    ancestry (and its cwd discovery) somewhere the lexical checks never looked."""
+    absolute = Path(os.path.abspath(path))
+    if Path(os.path.realpath(absolute)) != absolute:
+        raise ValueError('a symlinked directory is in the agent-guide path: ' + str(path))
+    return absolute
+
+
+def _present(directory: Path, names) -> bool:
+    """Any of ``names`` in ``directory``, counting dangling or looping symlinks (lexists, not exists)."""
+    return any(os.path.lexists(directory / name) for name in names)
+
+
+def verify_guide_isolation(work: Path, guide: bytes, agent: str, env: dict):
+    """Release session 2026-11-02 (condition a), checked at staging AND at launch: the working directory is a real
+    (non-symlinked) directory under the private scratch root holding exactly the guide; nothing in it or any physical
+    ancestor carries instructions, settings, hooks, commands, agents, skills or MCP configuration (.claude/ in any
+    form, .mcp.json, CLAUDE.md variants, another AGENTS.md, .git, .codex); and the CLI's configuration directory
+    (CLAUDE_CONFIG_DIR, or CODEX_HOME, whose global AGENTS.md Codex loads even with --ignore-user-config) is a real
+    directory with no user or global instruction file in it."""
+    root = guide_scratch_root()
+    work = _physical(work)
+    if root not in work.parents:
+        raise ValueError('the agent-guide working directory is outside the scratch root')
+    verify_agent_guide_dir(work, guide)
+    if any(_present(p, INSTRUCTION_NAMES) for p in work.parents):
+        raise ValueError('an instruction source other than the shipped agent guide is reachable')
+    config = _physical(Path(env['CLAUDE_CONFIG_DIR'] if agent == 'claude-cli' else env['CODEX_HOME']))
+    if _present(config, CONFIG_INSTRUCTION_NAMES):
+        raise ValueError('a user or global instruction file is present in the CLI configuration directory')
+
+
+def verify_agent_guide_dir(work: Path, guide: bytes):
+    """Exactly one entry, AGENTS.md, a regular file (not a symlink) byte-identical to the package's."""
+    import stat
+    entry = work / 'AGENTS.md'
+    if sorted(p.name for p in work.iterdir()) != ['AGENTS.md'] or not stat.S_ISREG(entry.lstat().st_mode):
+        raise ValueError('the staged agent guide is not the package file, or the directory holds anything else')
+    fd = os.open(entry, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'rb') as handle:
+        if digest(handle.read()) != digest(guide):
+            raise ValueError('the staged agent guide is not the package file, or the directory holds anything else')
+
+
 def cli_environment(home, agent, *, auth_root=None):
     """Allowlist environment; copy only provider subscription auth, never config."""
     source = Path(auth_root or Path.home())
@@ -488,16 +665,23 @@ def turn_ceiling(max_turns: int) -> int:
     return 4 * max_turns + 20
 
 
-def _commands(agent, model, binary, home, servers, max_turns, env, contract, tool_timeout, debug_path, version):
+def _commands(agent, model, binary, home, servers, max_turns, env, contract, tool_timeout, debug_path, version,
+              guide=None):
     if agent == 'claude-cli':
         config = {'mcpServers': {name: {'type': 'http', 'url': item['url']} for name, item in servers.items()}}
         path = home / 'mcp.json'
         write_private(path, encoded(config))
         args = [binary, '-p', '--model', model, '--output-format', 'stream-json', '--verbose',
-                '--debug', 'mcp', '--debug-file', str(debug_path), '--restricted', '--tools', '', '--allowedTools', ','.join(
+                # --restricted also drops project instructions (Claude Code 2.1.316), so a session that loads the shipped
+                # agent guide runs without it. What it adds is already held by these flags: --tools '' (no built-in
+                # tool at all, so no command, code, web or file tool), --setting-sources (only the guide's project
+                # directory, which holds nothing else), --strict-mcp-config, and dontAsk (never bypassPermissions).
+                '--debug', 'mcp', '--debug-file', str(debug_path), *([] if guide else ['--restricted']), '--tools', '', '--allowedTools', ','.join(
                     'mcp__' + name + '__' + tool for name, item in servers.items() for tool in item['names']),
                 '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
-                '--strict-mcp-config', '--mcp-config', str(path), '--setting-sources', '',
+                # Project instructions only when the shipped agent guide is staged: 'project' loads the working
+                # directory's AGENTS.md (no CLAUDE.md exists anywhere it looks) and never user or local settings.
+                '--strict-mcp-config', '--mcp-config', str(path), '--setting-sources', 'project' if guide else '',
                 '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
                 # Arm parity (ARC v2 S7/S13): like Codex's developer_instructions, the contract is appended to the
                 # CLI's own default instructions, never a replacement; --max-turns is a ceiling the shared budgets
@@ -517,8 +701,9 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     catalog['models'] = [selected]
     path = home / 'models.json'
     write_private(path, encoded(catalog))
+    # Project docs only for the staged shipped agent guide, sized to load all of it (AGENTS.md is Codex's own name).
     overrides = {'approval_policy': 'never', 'web_search': 'disabled',
-                 'project_doc_max_bytes': 0, 'project_doc_fallback_filenames': [],
+                 'project_doc_max_bytes': len(guide) if guide else 0, 'project_doc_fallback_filenames': [],
                  'model_catalog_json': str(path),
                  'shell_environment_policy.inherit': 'none',
                  'tools.update_plan.enabled': 'update_plan' in INTERNAL_TOOLS.get(agent, {}).get(version, ()),
@@ -692,13 +877,24 @@ class CliModelSession:
                'messageIds': [f'S{session}-customer'], 'finalAnswer': None,
                'toolViewSha256': digest(encoded(primary_view)), 'systemContractSha256': digest(contract.encode())}
         self._progress = out
-        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir=arc_scratch_root()) as scratch:
+        scratch_parent = guide_scratch_root() if agent_guide() is not None else arc_scratch_root()
+        with tempfile.TemporaryDirectory(prefix='honua-cli-', dir=scratch_parent) as scratch:
             home = Path(scratch)
             # No repository or ancestor instructions may be reachable through cwd discovery.
             if any((p / name).exists() for p in (home, *home.parents)
                    for name in ('AGENTS.md', 'CLAUDE.md', '.git')):
                 raise ValueError('scratch directory has reachable repository instructions')
+            guide = agent_guide()
+            required = required_agent_guide()
+            if required is not None and (guide is None or digest(guide) != required):
+                # Release session 2026-11-02 (Studio DEV shakeout runs 4-6 ran without the guide): fail closed.
+                raise ValueError('the staged package ships AGENTS.md, but this session would not load it')
+            scratch_root = home
+            if guide is not None:
+                home = scratch_root / 'home'          # the CLI's HOME and config, a sibling of its working directory
+                home.mkdir(mode=0o700)
             env = cli_environment(home, self.agent, auth_root=self.auth_root)
+            work = stage_agent_guide(scratch_root, guide, self.agent, env) if guide is not None else home
             shortfall, out['authPreflight'] = auth_window_check(env, self.agent, timeout)
             if shortfall:
                 raise CliFailure(shortfall, out, 'infrastructure')
@@ -726,7 +922,8 @@ class CliModelSession:
                 out['actions'] = ledger['actions']
                 configs = {name: {'url': proxy.url, 'names': sorted(proxy.names)} for name, proxy in proxies.items()}
                 debug_path = log_dir / 'claude-mcp-debug.log'
-                args, inputs = _commands(self.agent, self.model, self.binary, home, configs, max_turns, env, contract, tool_timeout, debug_path, version)
+                args, inputs = _commands(self.agent, self.model, self.binary, home, configs, max_turns, env, contract, tool_timeout, debug_path, version,
+                                         guide=guide)
                 metadata = {'agent': self.agent, 'cliVersion': version, 'model': self.model,
                             'temperature': None, 'temperaturePolicy': 'CLI default', 'cost': None,
                             'metering': 'subscription', 'promptSha256': digest(prompt.encode()),
@@ -740,6 +937,11 @@ class CliModelSession:
                 # #1219's preflight (durations and booleans only: longLivedToken, expiryUnknown) is retained with
                 # the session, so a receipt shows which kind of login the arm ran on.
                 metadata['authPreflight'] = out.get('authPreflight')
+                # The shipped agent guide the CLI loaded natively as project instructions (audit record).
+                metadata['agentGuide'] = {'sha256': digest(guide), 'loaded': True} if guide is not None else None
+                # The effective CLI flag set (condition c), for the audit of guide mode's --restricted difference:
+                # flags verbatim; the appended contract text and private paths as digests or names only.
+                metadata['cliFlags'] = effective_flags(args, contract)
                 out['provenance'] = [metadata]
                 held = any(text in prompt for text in _WITHHELD)
                 write_private(log_dir / 'cli-inputs.json', encoded({
@@ -751,9 +953,13 @@ class CliModelSession:
                 with os.fdopen(os.open(stdout_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600), 'w+b') as stdout, \
                      os.fdopen(os.open(stderr_path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600), 'w+b') as stderr:
                     if self.agent == 'claude-cli': write_private(debug_path, b'')
+                    if guide is not None:
+                        # Checked again at launch: exactly the shipped guide, and nothing else reachable.
+                        verify_guide_isolation(work, guide, self.agent, env)
+                    verify_guide_flags(self.agent, args, guide)
                     started = time.monotonic()
                     process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
-                                               cwd=home, env=env, start_new_session=True)
+                                               cwd=work, env=env, start_new_session=True)
                     process.stdin.write(prompt.encode())
                     process.stdin.close()
                     deadline = time.monotonic() + timeout

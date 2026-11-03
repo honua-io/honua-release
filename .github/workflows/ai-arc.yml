@@ -109,6 +109,13 @@ jobs:
           path: candidate-lock
           run-id: ${{ inputs.lock_run_id }}
           github-token: ${{ github.token }}
+      - name: Prepare the agent-guide scratch root (arm CLIs load the shipped AGENTS.md from outside any home dir)
+        run: |
+          set -euo pipefail
+          root=/var/lib/honua-arc-cli
+          # Real disk, outside every home directory, private to the user that runs the arm CLIs (this runner).
+          if [ ! -d "$root" ]; then sudo -n install -d -m 700 -o "$(id -un)" -g "$(id -gn)" "$root"; fi
+          [ "$(stat -c '%U %a' "$root")" = "$(id -un) 700" ] || { echo "::error::$root must be owned by $(id -un), mode 700"; exit 1; }
       - name: Fetch the quickstart and the Console compose at the arc spec's pins (never a free input)
         run: |
           set -euo pipefail
