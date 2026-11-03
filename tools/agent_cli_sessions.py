@@ -544,6 +544,22 @@ def _commands(agent, model, binary, home, servers, max_turns, env, contract, too
     return args, {'modelCatalog': digest(path.read_bytes()), 'overrides': digest(encoded(overrides))}
 
 
+def codex_resource_listing(item, allowed, internal_tools) -> bool:
+    """Codex 0.166's built-in resource listing (list_mcp_resources / list_mcp_resource_templates). Called with no
+    server it is reported as server "codex"; called with server="honua" it is reported under that configured
+    server (rehearsal 9 run 12c, A2 ops). Either way it reaches the recording proxy as resources/list, so it is
+    bookkeeping. Anything else under those names (another server, other arguments) is not."""
+    tool, server, arguments = item.get('tool'), item.get('server'), item.get('arguments')
+    if not (isinstance(tool, str) and tool.startswith('list_mcp_resource') and tool in internal_tools):
+        return False
+    if arguments in (None, {}):
+        return server == 'codex'
+    if not isinstance(arguments, dict) or set(arguments) - {'server', 'cursor'}:
+        return False
+    target = arguments.get('server')
+    return target in allowed and server in ('codex', target)
+
+
 def parse_transcript(agent, raw, names, version=None):
     """Integrity/answer/usage only. Never reconstruct actions from transcript events."""
     final, usage, turns, forbidden = None, [], 0, False
@@ -568,8 +584,7 @@ def parse_transcript(agent, raw, names, version=None):
                 item = event.get('item', {})
                 kind = item.get('type')
                 if kind == 'mcp_tool_call':
-                    internal = (item.get('server') == 'codex' and item.get('tool', '').startswith('list_mcp_resource')
-                                and item.get('tool') in INTERNAL_TOOLS.get(agent, {}).get(version, ()))
+                    internal = codex_resource_listing(item, allowed, INTERNAL_TOOLS.get(agent, {}).get(version, ()))
                     if not internal and item.get('tool') not in allowed.get(item.get('server'), ()): forbidden = True
                 elif kind == 'todo_list':
                     if 'update_plan' not in INTERNAL_TOOLS.get(agent, {}).get(version, ()): forbidden = True

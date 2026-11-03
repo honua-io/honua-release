@@ -340,6 +340,24 @@ def test_codex_0166_resource_listing_is_bookkeeping_but_other_builtins_are_not()
     assert codex_forbidden_diagnostics(diag.replace(b'list_mcp_resources', b'exec_command'), names, v)
 
 
+@pytest.mark.parametrize('server, arguments, forbidden', [
+    ('honua', {'server': 'honua'}, False),          # rehearsal 9 run 12c (A2 ops): reported under the named server
+    ('codex', {'server': 'honua'}, False),
+    ('codex', {}, False),
+    ('honua', {}, True),                             # a tool the honua server does not offer
+    ('honua', {'server': 'other'}, True),            # not a configured server
+    ('other', {'server': 'other'}, True),
+    ('honua', {'server': 'honua', 'uri': 'x'}, True)])
+def test_codex_0166_resource_listing_names_a_configured_server(server, arguments, forbidden):
+    names = {'honua': {'honua_ops_health'}}
+    for tool in ('list_mcp_resources', 'list_mcp_resource_templates'):
+        listing = encoded({'type': 'item.completed', 'item': {'id': 'i', 'type': 'mcp_tool_call', 'server': server,
+                                                               'tool': tool, 'arguments': arguments,
+                                                               'status': 'completed'}})
+        assert parse_transcript('codex-cli', listing, names, 'codex-cli 0.166.0')[-1] is forbidden
+        assert parse_transcript('codex-cli', listing, names, 'codex-cli 0.165.0')[-1]
+
+
 @pytest.mark.parametrize('agent, model', [('claude-cli', 'claude-opus-5-5'), ('codex-cli', 'gpt-6.1-sol')])
 def test_a_cli_other_than_the_pinned_version_refuses_before_any_dispatch(tmp_path, agent, model):
     """Astra #1177 re-review item 2: the installed CLI ('fake-cli 1.0') is not the pinned one."""
