@@ -111,7 +111,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-demo-deploy)"
     why: >-
@@ -122,7 +122,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-drift-plan)"
     why: >-
@@ -133,7 +133,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-ecs)"
     why: >-
@@ -144,7 +144,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-eks)"
     why: >-
@@ -155,7 +155,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-eval-docker-hosts)"
     why: >-
@@ -166,7 +166,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-exec-identity)"
     why: >-
@@ -177,7 +177,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-release-cells)"
     why: >-
@@ -188,7 +188,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-serverless)"
     why: >-
@@ -199,7 +199,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-support-access)"
     why: >-
@@ -210,7 +210,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-terraform-oidc)"
     why: >-
@@ -221,7 +221,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-tfstate)"
     why: >-
@@ -232,7 +232,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-update-rollback-controller)"
     why: >-
@@ -243,7 +243,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (aws-validation-reaper)"
     why: >-
@@ -254,7 +254,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (azure-aca)"
     why: >-
@@ -265,7 +265,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (azure-aks)"
     why: >-
@@ -276,7 +276,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (azure-functions)"
     why: >-
@@ -287,7 +287,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Drift plan (azure-support-access)"
     why: >-
@@ -298,7 +298,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
   - name: "Open, update or close the drift issue"
     why: >-
@@ -309,7 +309,7 @@ honua-iac:
       #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
       as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
       and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
-      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+      the pinned 0bf1c290 (drift-roots.json, unchanged from fa76b1dd); release-session ruling 2026-11-03; honua-release#482.
 
 honua-server:
   - name: "geometry-buffer"

@@ -619,7 +619,12 @@ components:
     # mirrors the new Lambda child and records the ECR digest here.
     # 2026-11-03 RC2 REDO to 8628668: stays at the sentinel. No mirror of the daf56db child was ever
     # recorded; the first e2e-cloud-aws run on this pin mirrors the 8628668 Lambda child and records it.
-    awsLambdaEcrDigest: "pending-ecr-mirror"
+    # 2026-11-03 RC2 REDO 8628668: the ECR mirror of the 8628668 Lambda child, observed by e2e-cloud-aws
+    # run 41699309540 (target=aws-serverless): crane copied nightly-lambda-aot-8628668-amd64@sha256:1fc4ac0a...
+    # to us-east-1 ECR rc-2026.1-rc.2-lambda-aot-8628668-x86_64, pushing config blob sha256:ec0db2a9... (the
+    # GHCR manifest's config digest), and ECR returned sha256:1fc4ac0a.... ECR preserved the source config, so
+    # the mirror digest equals awsLambdaDigest.
+    awsLambdaEcrDigest: "sha256:1fc4ac0a32fb0566574cd84494446c4c521ccf2a44a198ff90b2d14948fdc9e7"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
@@ -1443,13 +1448,18 @@ components:
     # aws-ecs task health check uses the server image's bash /dev/tcp probe, because honua-server #6798
     # (in the daf56db2 candidate) dropped wget from the runtime image. Annotated tag object 8322d291;
     # commit archive attested (1 attestation, attest-source-archive.yml push run 41406038001 at fa76b1dd).
-    version: "0.6.3"                   # annotated v0.6.3; Git-source distribution
-    sha: "fa76b1dd050e068547b312004ea7008a9379c9a7"   # v0.6.3^{}
-    artifact: "archive:https://github.com/honua-io/honua-iac/archive/fa76b1dd050e068547b312004ea7008a9379c9a7.tar.gz"
-    artifactSourceRevision: "fa76b1dd050e068547b312004ea7008a9379c9a7"   # the tarball's pax comment (git get-tar-commit-id)
-    artifactSha256: "sha256:13dea5f4ca0a6d94292997f77f8f495e899264ca0b6d6a4a7e7d16c1cb0f4858"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
+    # 2026-11-03 RC2 REDO: RELEASE v0.6.3 -> v0.6.4 at trunk 0bf1c290 (honua-iac#381 merge commit): optional
+    # layer_publishing_materialization_timeout_seconds for the AWS example roots, the disclosed workaround for
+    # honua-server#6917; null renders nothing, so default plans are unchanged. Annotated tag object 7a34b335;
+    # commit archive attested (attest-source-archive.yml push run 41710128852 at 0bf1c290).
+    version: "0.6.4"                   # annotated v0.6.4; Git-source distribution
+    sha: "0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88"   # v0.6.4^{}
+    artifact: "archive:https://github.com/honua-io/honua-iac/archive/0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88.tar.gz"
+    artifactSourceRevision: "0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88"   # the tarball's pax comment (git get-tar-commit-id)
+    artifactSha256: "sha256:888fadf53618e234bb512bfbade5213b33337bd5a249d54c793b2b437cd97a75"   # two anonymous downloads, identical bytes; attested by honua-iac attest-source-archive.yml
     # Version maps: release/component-versions.json at v0.6.2 (2ea185dc; unchanged from v0.6.1).
     # 2026-11-02 RC2 CUT: release/component-versions.json at v0.6.3 (fa76b1dd) is unchanged from v0.6.2.
+    # 2026-11-03 RC2 REDO: release/component-versions.json at v0.6.4 (0bf1c290) is unchanged from v0.6.3.
     contractVersions:
       operator-contract: "honua.operator-contract/v2"
       runtime-binding: "honua.runtime-binding/v1"
