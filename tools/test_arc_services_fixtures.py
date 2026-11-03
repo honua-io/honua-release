@@ -260,7 +260,10 @@ def test_adopted_database_identity_matches_quickstart_fixture():
     compose = yaml.safe_load(quickstart_compose(page.read_text()))
     assert 'postgres' in compose['services']
     env = compose['services']['honua']['environment']
-    assert 'Host=postgres;Database=honua;Username=honua;' in env['ConnectionStrings__DefaultConnection']
+    # 86286687 (#6888): the password is a secret file, not part of the connection string.
+    parts = env['ConnectionStrings__DefaultConnection'].split(';')
+    assert parts[:3] == ['Host=postgres', 'Database=honua', 'Username=honua']
+    assert not any(part.lower().startswith('password=') for part in parts)
 
 
 def test_raw_p10_seed_infrastructure_is_not_charged_to_agent(monkeypatch, tmp_path):
