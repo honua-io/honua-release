@@ -469,3 +469,24 @@ def test_the_sign_in_probe_fails_on_any_other_page(page):
     with pytest.raises(ValueError, match='did not load'):
         studio_workspace_ready(invoke=lambda name, args: page if name == 'studio_snapshot' else 'ok', deadline=30,
                                clock=lambda: next(clock), sleep=lambda _: None)
+
+
+def test_studio_ui_on_an_unfinished_session_reports_the_real_cause_and_never_raises(tmp_path):
+    """Rehearsal 9 run 13b: the Studio-UI evidence read on a session that did not finish raised a recorder-phase
+    error ("action results are registered after the session") that hid the real cause."""
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import studio_ui_assertion
+
+    class Recorder:
+        records = {}
+
+        def actions(self):
+            raise ValueError('action results are registered after the session')
+    stack = SimpleNamespace(workdir=str(tmp_path), extra={'recorder': Recorder()})
+    failed = {'failure': {'category': 'model', 'reason': 'action bound reached'}, 'sessions': []}
+    assert studio_ui_assertion(failed, stack) == {
+        'assertion': 'goal.studio-ui', 'status': 'fail', 'reason': 'session did not finish: action bound reached'}
+    assert studio_ui_assertion({'sessions': []}, None)['reason'] == 'session did not finish'
+    # A finished session whose evidence cannot be read still fails closed, with the evidence reason, and never raises.
+    row = studio_ui_assertion({'sessions': []}, stack)
+    assert row['status'] == 'fail' and 'registered after the session' in row['reason']

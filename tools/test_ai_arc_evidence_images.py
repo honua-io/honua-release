@@ -190,3 +190,14 @@ def test_a_partial_write_leaves_nothing_and_is_never_exported(sink, tmp_path, mo
     exported = sorted(p.name for p in (out / sink.directory.name).iterdir())
     assert exported == ['001-render-good.png', 'manifest.json']
     assert (out / sink.directory.name / '001-render-good.png').read_bytes() == good
+
+
+def test_the_cap_covers_one_screenshot_per_allowed_tool_call_and_the_renders(tmp_path):
+    """Rehearsal 9 run 13b: a fixed cap of 80 under a 100-call stage bound dropped 13 screenshots, the saves and
+    the final state among them. The cap is the stage's tool-call bound plus render headroom, never below 80."""
+    assert E.images_for(150) == 150 + E.RENDER_HEADROOM
+    assert E.images_for(40) == E.images_for(None) == E.images_for(True) == E.MAX_IMAGES
+    s = E.open_sink(tmp_path / 'shots', owner='run-1', max_images=E.images_for(100))
+    kept = [s.retain('step', f'{i:04d}', png(salt=i)) for i in range(125)]
+    assert sum(k is not None for k in kept) == 120 and kept[119] is not None and kept[120] is None
+    assert manifest(s)['maxImages'] == 120 and manifest(s)['dropped']['cap'] == 5

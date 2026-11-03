@@ -64,8 +64,9 @@ class CorpusCliSession:
         except CliFailure as exc:
             row = exc.progress
             failure = {'category': exc.category, 'reason': str(exc)}
-        if row['tokens'] + context.token_budget_used > context.limits.max_tokens:
-            failure = {'category': 'model', 'reason': 'token bound exceeded'}
+        # PREREG A19: the CLI arms have no token bound. Their binding budgets are tool calls (proxy-enforced) and wall
+        # clock (agent_cli_sessions.arm_budgets); tokens are reported data only. A post-hoc token check here once
+        # replaced the session's real failure reason and discarded a finished case (rehearsal 9 run 13b).
         if hasattr(self.runtime, 'cli_records'): self.runtime.cli_records.extend(row['provenance'])
         return SessionResult(agent_type=self.agent_type, model_id=self.runtime.model,
             final_answer=row.get('finalAnswer'), temperature=None, temperature_policy='CLI default',
