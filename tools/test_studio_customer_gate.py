@@ -279,5 +279,6 @@ def test_workflow_passes_the_optional_suite_sha_and_studio_job_is_advisory_for_b
     step = next(s for s in workflow['jobs']['customer']['steps'] if 'studio_customer_gate.py' in s.get('run', ''))
     assert '--suite-sha "$CONSOLE_SUITE_SHA"' in step['run']
     assert step['env']['CONSOLE_SUITE_SHA'] == '${{ inputs.console_suite_sha }}'
-    advisory = yaml.safe_load(Path('certification/advisory-checks.yaml').read_text())
-    assert "Studio customer journey on real images" in [item['name'] for item in advisory['honua-console']]
+    advisory = yaml.safe_load(Path('certification/advisory-checks.yaml').read_text()) or {}
+    # Not a name-wide exclusion: only the gate's own replays are dropped (certification/check_build_test.py).
+    assert "Studio customer journey on real images" not in [item['name'] for item in advisory.get('honua-console', [])]

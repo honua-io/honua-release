@@ -437,3 +437,63 @@ if __name__ == "__main__":
                 traceback.print_exc()
     print(f"\n{'OK' if not failures else 'FAILED'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
+
+
+def _studio_check(check_id, conclusion, *, event, title, branch, path=".github/workflows/console-live-journey.yml"):
+    run = {"id": check_id, "name": "Studio customer journey on real images", "status": "completed",
+           "conclusion": conclusion, "started_at": f"2026-11-03T{check_id:02d}:00:00Z",
+           "app": {"slug": "github-actions"},
+           "details_url": f"https://github.com/honua-io/honua-console/actions/runs/{1000 + check_id}/job/{check_id}"}
+    workflow = {"id": 1000 + check_id, "workflow_id": 77, "path": path, "event": event,
+                "display_title": title, "head_branch": branch}
+    return run, workflow
+
+
+def _console_payload(*studio):
+    core = {"id": 1, "name": "Validate Console", "status": "completed", "conclusion": "success",
+            "started_at": "2026-11-03T00:00:00Z", "app": {"slug": "github-actions"},
+            "details_url": "https://github.com/honua-io/honua-console/actions/runs/900/job/1"}
+    runs = [core] + [run for run, _ in studio]
+    workflows = [{"id": 900, "workflow_id": 1, "path": ".github/workflows/ci.yml", "event": "push",
+                  "display_title": "ci", "head_branch": "trunk"}] + [wf for _, wf in studio]
+    return bt._enrich_action_workflow_ids({"check_runs": runs}, {"workflow_runs": workflows})
+
+
+GATE_ID = "release-" + "ab" * 16
+
+
+def test_release_gate_replays_are_not_counted_but_independent_studio_ci_stays_core():
+    """Ruling 2026-11-03: the Studio gate's own dispatched replays are judged by that gate; a scheduled or
+    PR run of the same job on the pinned Console commit stays core and is never superseded by a replay."""
+    replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
+                           branch=f"studio-customer-gate/{GATE_ID}")
+    status, why = bt.classify(_console_payload(replay))
+    assert status == "pass" and "release-gate replay" in why
+    scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
+    green_replay = _studio_check(9, "success", event="workflow_dispatch",
+                                 title=f"Console live studio-customer {GATE_ID}", branch=f"studio-customer-gate/{GATE_ID}")
+    status, _ = bt.classify(_console_payload(scheduled, green_replay))
+    assert status == "fail"        # a later green replay cannot hide the scheduled source-building failure
+
+
+import pytest as _pytest
+
+
+@_pytest.mark.parametrize("change", [
+    dict(event="schedule"), dict(title="Console live studio-customer manual-1"), dict(branch="trunk"),
+    dict(branch="studio-customer-gate/release-" + "cd" * 16), dict(path=".github/workflows/ci.yml")])
+def test_anything_short_of_the_exact_replay_shape_stays_core(change):
+    shape = dict(event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
+                 branch=f"studio-customer-gate/{GATE_ID}")
+    path = change.pop("path", ".github/workflows/console-live-journey.yml")
+    shape.update(change)
+    status, _ = bt.classify(_console_payload(_studio_check(5, "failure", path=path, **shape)))
+    assert status == "fail"
+
+
+def test_unenriched_replay_stays_core():
+    run, _ = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
+                           branch=f"studio-customer-gate/{GATE_ID}")
+    core = {"id": 1, "name": "Validate Console", "status": "completed", "conclusion": "success",
+            "started_at": "2026-11-03T00:00:00Z", "app": {"slug": "github-actions"}}
+    assert bt.classify({"check_runs": [core, run]})[0] == "fail"

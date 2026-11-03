@@ -185,6 +185,31 @@ def load_full_matrix(path=FULL_MATRIX_PATH) -> dict[str, dict]:
     return policies
 
 
+# Release-gate replays (release-session ruling 2026-11-03, rc.2 redo). honua-release's Studio customer gate
+# (tools/studio_customer_gate.py) dispatches honua-console's console-live-journey.yml with suite
+# studio-customer and a `release-<uuid hex>` dispatch id from a fresh `studio-customer-gate/<id>` tag, and
+# judges that run itself. GitHub files the run's checks on the Console commit, so without this they would
+# count twice in build-test. Only that exact replay shape is dropped, and BEFORE latest-run selection, so a
+# replay can neither hide nor supersede the commit's own schedule, push or pull-request runs of the same
+# job. Missing enrichment keeps the check (core).
+_RELEASE_GATE_REPLAYS = (
+    (".github/workflows/console-live-journey.yml",
+     re.compile(r"Console live studio-customer (release-[0-9a-f]{32})")),
+)
+
+
+def _is_release_gate_replay(run: dict) -> bool:
+    actions = run.get("_workflow_run")
+    if not isinstance(actions, dict) or actions.get("event") != "workflow_dispatch":
+        return False
+    for path, title in _RELEASE_GATE_REPLAYS:
+        match = title.fullmatch(actions.get("title", ""))
+        if (run.get("_workflow_path") == path and match
+                and actions.get("branch") == f"studio-customer-gate/{match.group(1)}"):
+            return True
+    return False
+
+
 def _latest_named_runs(runs: list[dict]) -> list[dict]:
     """Keep the latest check-run attempt for each named app lane.
 
@@ -254,7 +279,10 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
-    runs = _latest_named_runs(runs)
+    replayed = [r for r in runs if _is_release_gate_replay(r)]
+    runs = _latest_named_runs([r for r in runs if not _is_release_gate_replay(r)])
+    if not runs:
+        return "blocked", "only release-gate replay check-runs on the pinned sha"
 
     def _advisory(run: dict) -> bool:
         # A workflow exclusion applies only when enrichment recorded the path. Without
@@ -296,7 +324,9 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     advisory_note = (f"; {len(advisory_nongreen)} advisory check(s) excluded "
                      f"({sorted({str(r.get('name')) for r in advisory_nongreen})}) — not a verdict on this sha"
                      if advisory_nongreen else "")
-    env_note = env_note + rollup_note + security_note + governance_note + advisory_note
+    replay_note = (f"; {len(replayed)} release-gate replay check(s) excluded (judged by their own gate)"
+                   if replayed else "")
+    env_note = env_note + rollup_note + security_note + governance_note + advisory_note + replay_note
 
     if not core:
         # Only excluded lanes ran → no core build/test signal to certify on. Never pass.
@@ -399,6 +429,7 @@ def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
     """Attach stable workflow IDs to Actions check-runs so same-named jobs stay independent."""
     workflows = {}
     paths = {}
+    replays = {}
     for run in (workflow_payload.get("workflow_runs") or []):
         if run.get("id") is None:
             continue
@@ -406,6 +437,8 @@ def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
         workflows[run_id] = str(run.get("workflow_id") or run.get("path") or "")
         if run.get("path"):
             paths[run_id] = str(run.get("path"))
+        replays[run_id] = {"event": str(run.get("event") or ""), "title": str(run.get("display_title") or ""),
+                           "branch": str(run.get("head_branch") or "")}
     for run in payload.get("check_runs") or []:
         app = run.get("app") or {}
         if not isinstance(app, dict) or app.get("slug") != "github-actions":
@@ -420,6 +453,8 @@ def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
         path = paths.get(actions_run_id)
         if path:
             run["_workflow_path"] = path
+        if actions_run_id in replays:
+            run["_workflow_run"] = replays[actions_run_id]
     return payload
 
 
