@@ -113,6 +113,7 @@ INSTANCE_HEADER = "Honua-Instance"
 # Everything a receipt may carry. Anything else the server returns (including the job document's
 # sourceUrl, which is the presigned URL) is dropped.
 RECEIPT_FIELDS = ("scenario", "topology", "variant", "fixture", "fixtureSha256", "features", "bytes",
+                  "disclosedDeviations",
                   "thresholdBytes", "maxMemoryBytes", "stagingCapBytes", "source", "sourceUrlHost",
                   "uploadStatus", "jobId", "queuedAt", "completedAt", "durationSeconds", "durationMs",
                   "transitions", "jobStatus", "featuresProcessed", "layerId", "service", "rowCount",
@@ -516,6 +517,13 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
     fields: dict = {"topology": topology, "variant": record.get("variant"), "fixture": record.get("fixture"),
                     "fixtureSha256": record.get("fixtureSha256"), "features": record.get("features"),
                     "bytes": record.get("bytes"), "instances": []}
+    if record.get("disclosedDeviations"):
+        # Recorded as provisioned, never inferred: a disclosed operator deviation from the product default.
+        fields["disclosedDeviations"] = record["disclosedDeviations"]
+        # A raised publish budget widens the post-504 convergence read the same way (budget plus a minute).
+        for deviation in record["disclosedDeviations"]:
+            if deviation.get("setting") == "LayerPublishing__MaterializationTimeoutSeconds":
+                publish_converge = max(publish_converge, float(deviation.get("value") or 0) + 60)
     if record.get("staged"):
         fields["source"] = source_label(record)
     if source_url:

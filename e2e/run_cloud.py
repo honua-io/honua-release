@@ -255,6 +255,10 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
             except Exception as e:
                 state["s10"] = {"scenario": large_import.SCENARIO, "staged": False,
                                 "why": f"staging the S10 fixture raised {type(e).__name__} ({large_import.ISSUE})"}
+            # Disclosed operator deviations this cell was provisioned with (e.g. the rc.2 publish budget).
+            deviations = getattr(target, "disclosed_deviations", lambda: [])()
+            if deviations and isinstance(state.get("s10"), dict):
+                state["s10"]["disclosedDeviations"] = deviations
         # The owned 1.1-candidate-image check needs the image ECS reports running.
         if target_name == "aws-ecs":
             # Every RUNNING task must report the candidate; the detail names any that disagrees.
