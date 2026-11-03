@@ -8,7 +8,9 @@ from uuid import UUID
 
 from agent_e2e_local_recorder import ProjectionError
 from agent_e2e_mcp import McpError
-from agent_e2e_local_projections import Context, evaluate, require, require_address
+from agent_e2e_local_projections import (Context, admin_layer_publication, admin_validation_handle, evaluate,
+                                         publication_audit_prefix, publication_handle_identity, require,
+                                         require_address)
 
 NAMES = ('parcels', 'flood_zones', 'shelters')
 
@@ -122,7 +124,8 @@ def complete_sources(stack, seeded, body):
     require(len(mapped) == 3, 'arc map source is absent or ambiguous in catalog')
     publications = {}
     for index, action in enumerate(rec.actions()):
-        if action.kind != 'tool_call' or action.tool != 'honua_publish_service' or action.status != 'pass':
+        if action.kind != 'tool_call' or action.tool not in ('honua_publish_service', 'honua_admin_layer_publish') \
+                or action.status != 'pass':
             continue
         try:
             response = rec.action_result('arc-publish-request-' + str(index), action)
@@ -145,17 +148,31 @@ def complete_sources(stack, seeded, body):
         require(isinstance(value, dict),
                 'malformed stage-four publish response: structuredContent is not an object')
         operation = value.get('operationInstanceId')
+        if action.tool == 'honua_admin_layer_publish':
+            # admin.layer.publish (#6895): a completed, non-dry-run publication; its service and layer come from the
+            # embedded admin response and are bound below to the audited handle, the catalog and the table content.
+            service = admin_layer_publication({'kind': action.kind, 'status': action.status,
+                                               'arguments': action.arguments, 'json': response_body})
+            try:
+                identity = publication_handle_identity({**value, 'result': {'details': value.get('details')}})
+            except ProjectionError:
+                identity = None
+            if service is not None and identity is not None and identity['service'] == service \
+                    and isinstance(operation, str):
+                publications.setdefault(operation, []).append(
+                    (action, {'serviceName': identity['service'], 'layerId': identity['layerId'],
+                              'operationId': 'admin.layer.publish'}))
+            continue
         if (result.get('isError', False) is False
                 and value.get('status') == 'Completed' and value.get('operationId') == 'service.publish'
                 and isinstance(operation, str)):
             publications.setdefault(operation, []).append((action, value))
-    candidates, examined = [], 0
+    candidates, examined, admin_tables = [], 0, {}
     for audit_id, event in after.items():
         if audit_id in before or event.get('actor') not in actors:
             continue
         if (event.get('resourceType') != 'operation_instance' or event.get('action') != 'operation.completed'
-                or event.get('outcome') != 'Success' or event.get('details', '').split(';')[:2] !=
-                ['operationId=service.publish', 'status=Completed']):
+                or event.get('outcome') != 'Success' or not publication_audit_prefix(event)):
             continue
         require(start <= _instant(event.get('timestamp')) <= end, 'stage-four publish outside customer session')
         examined += 1
@@ -164,13 +181,24 @@ def complete_sources(stack, seeded, body):
         require(isinstance(operation, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', operation), 'invalid publish handle')
         answer = rec.json('arc-publish-candidate-' + str(examined), 'GET', '/api/v1/operations/handles/' + operation)['observation']
         handle = answer.get('body', {}).get('data', {})
-        ids = handle.get('resourceIds', {})
-        require(answer.get('httpStatus') == 200 and handle.get('operationInstanceId') == operation
-                and handle.get('operationId') == 'service.publish' and handle.get('status') == 'Completed'
-                and isinstance(ids.get('serviceName'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', ids['serviceName'])
-                and re.fullmatch(r'0|[1-9][0-9]*', str(ids.get('layerId'))), 'stage-four publish handle differs')
-        if (ids['serviceName'], int(ids['layerId'])) in mapped:
-            candidates.append(({'service': ids['serviceName'], 'layerId': int(ids['layerId'])}, event))
+        try:
+            identity = publication_handle_identity(handle)
+        except ProjectionError:
+            identity = None
+        if (identity is None and answer.get('httpStatus') == 200 and admin_validation_handle(handle, operation)
+                and str(event.get('details', '')).split(';')[0] == 'operationId=admin.layer.publish'):
+            # A completed dry run (validation only) published nothing: not a source candidate. Only when the audit
+            # event names the same operation (Sol dryrun: a service.publish audit with an admin validation handle
+            # still fails as inconsistent evidence).
+            continue
+        require(answer.get('httpStatus') == 200 and isinstance(handle, dict)
+                and handle.get('operationInstanceId') == operation and identity is not None
+                and str(event.get('details', '')).split(';')[0] == 'operationId=' + identity['operationId'],
+                'stage-four publish handle differs')
+        if (identity['service'], identity['layerId']) in mapped:
+            candidates.append(({'service': identity['service'], 'layerId': identity['layerId']}, event))
+            if identity['operationId'] == 'admin.layer.publish':
+                admin_tables[operation] = (identity['schema'], identity['table'])
     require(len(candidates) <= 30, 'too many source publications')
     layers = dict(seeded.state['layers'])
     lineage = {name: {**handoff['layers'][name], 'stage': 3, 'actor': handoff['principal'],
@@ -186,7 +214,10 @@ def complete_sources(stack, seeded, body):
                     and all(action.arguments.get(k) == handoff['tables'][name][k] for k in ('schema', 'table'))
                     and same_connection_guid(action.arguments.get('connectionId'), handoff['connectionId'])
                     and result.get('serviceName') == binding['service']
-                    and str(result.get('layerId')) == str(binding['layerId'])]
+                    and str(result.get('layerId')) == str(binding['layerId'])
+                    and admin_tables.get(event['resourceId'], (handoff['tables'][name]['schema'],
+                                                               handoff['tables'][name]['table'])) ==
+                    (handoff['tables'][name]['schema'], handoff['tables'][name]['table'])]
                 if len(requests) != 1:
                     continue
                 prefix = 'arc-candidate-' + str(index)

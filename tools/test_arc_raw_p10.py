@@ -112,7 +112,10 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
                  'geometryPrecision': -1}
     full_result = {'jsonrpc': '2.0', 'id': 2, 'result': {'structuredContent': {
         'serviceId': 'agent-service', 'layerId': 2, 'exceededTransferLimit': False, 'resultOffset': 0,
-        'returnedCount': len(rows), 'geojson': {'type': 'FeatureCollection', 'features': rows}}}}
+        'returnedCount': len(rows), 'geojson': {'type': 'FeatureCollection', 'features': [
+            # Published features carry no crs (the stored rows' EPSG:3857 crs is the SQL snapshot's own).
+            {'geometry': {k: v for k, v in r['geometry'].items() if k != 'crs'}, 'properties': dict(r['properties'])}
+            for r in rows]}}}}
     records = {
         'import-shelters': record('import-shelters', 'seed', 'http', 'POST', '/api/v1/admin/import/upload',
                                   {'physicalTableName': 'arc_shelters', 'schema': 'honua_data'}),
@@ -132,6 +135,18 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
         'arc-p10-published-full': record('arc-p10-published-full', 'observe', 'mcp', 'POST', '/mcp#tools/call',
                                         full_result, args={'tool': 'honua_query_features', 'arguments': full_args}),
     }
+    # arc_p10.observe also reads the admin catalog and binds the agent's own final query response on every run
+    # (founder decision 2026-11-02); on this unrestricted run they are recorded and the live replay still decides.
+    records['arc-p10-service-settings'] = record('arc-p10-service-settings', 'observe', 'http', 'GET',
+        '/api/v1/admin/services/agent-service/settings', {'data': {'serviceName': 'agent-service', 'accessPolicy': None}})
+    records['arc-p10-catalog-layers'] = record('arc-p10-catalog-layers', 'observe', 'http', 'GET',
+        '/api/v1/admin/connections/conn/layers?serviceName=agent-service', {'data': [{'layerId': 2, 'serviceName': 'agent-service',
+                                                            'schema': 'honua_data', 'table': 'arc_shelters',
+                                                            'enabled': True}]})
+    final_raw = json.dumps(query_result, separators=(',', ':')).encode()
+    records['arc-p10-final-query'] = Record('arc-p10-final-query', 'observe', 'mcp', 'agent', 'agent-id', 'POST',
+        '/mcp#tools/call', 200, final_raw, 'sha256:' + hashlib.sha256(final_raw).hexdigest(), 'occ',
+        action_bytes({'tool': 'honua_query_features', 'arguments': query_args}), origin='session-result')
     publication = {'kind': 'tool_call', 'tool': 'honua_publish_service', 'status': 'pass',
                    'arguments': {'table': 'arc_shelters', 'schema': 'honua_data', 'connectionId': 'conn'},
                    'json': {'result': {'structuredContent': {

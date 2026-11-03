@@ -82,8 +82,9 @@ def test_the_executor_flows_from_manifest_through_lock_and_bundle_into_the_packa
     assert lock['server'] == 'ghcr.io/honua-io/honua-server@' + SERVER_INDEX
     assert lock['executor'] == cand['executorImage'] and lock['worker'] == lock['server']
     package = R.expected_package(arc, cand, SOURCE)
+    # 86286687 (#6885): the package also ships the agent guide as AGENTS.md.
     assert set(package['sha256']) == {'compose.yaml', 'compose.executor.yaml', 'quickstart.py', 'images.json',
-                                      'README.md'} and package['declaredRelease'] == lock['server']
+                                      'README.md', 'AGENTS.md'} and package['declaredRelease'] == lock['server']
 
 
 @pytest.mark.parametrize('declared,reason', [

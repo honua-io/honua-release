@@ -191,6 +191,30 @@ def test_env_gated_name_not_matching_a_component_still_fails():
     assert bt.classify(payload, LIVE)[0] == "fail"
 
 
+def _iac_payload(*runs):
+    return {"check_runs": [{"id": n, "name": name, "status": "completed", "conclusion": conclusion,
+                            "started_at": f"2026-11-02T19:{n:02d}:00Z"} for n, (name, conclusion) in enumerate(runs, 1)]}
+
+
+def test_iac_live_drift_plans_are_env_gated_but_core_iac_checks_still_decide():
+    """Ruling 2026-11-03: honua-iac's scheduled Bootstrap Drift Plan jobs plan against live AWS (honua-iac#338)."""
+    gated = bt.load_env_gated()["honua-iac"]
+    drift = [name for name in gated if name.startswith("Drift plan (")]
+    assert len(drift) == 18 and "Open, update or close the drift issue" in gated
+    assert not {"Terraform Validate", "Root coverage"} & gated      # static IaC checks stay core
+    status, why = bt.classify(_iac_payload(("Terraform Validate", "success"), ("Root coverage", "success"),
+                                           ("Drift plan (aws-demo-deploy)", "failure"),
+                                           ("Drift plan (aws-update-rollback-controller)", "failure"),
+                                           ("Open, update or close the drift issue", "failure")), gated)
+    assert status == "pass" and "env-gated" in why
+    status, _ = bt.classify(_iac_payload(("Terraform Validate", "failure"),
+                                         ("Drift plan (aws-demo-deploy)", "failure")), gated)
+    assert status == "fail"                                         # a core IaC red still fails
+    status, _ = bt.classify(_iac_payload(("Terraform Validate", "success"),
+                                         ("Drift plan (aws-new-root)", "failure")), gated)
+    assert status == "fail"                                         # exact names only, no pattern
+
+
 def test_env_gated_lane_green_is_ignored_and_core_decides():
     # Env-gated lane happening to be green is simply excluded; core decides (here: pass).
     payload = _named(("Build", "success"), ("Live Integration (Testcontainers)", "success"))

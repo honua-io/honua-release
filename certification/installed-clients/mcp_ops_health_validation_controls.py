@@ -44,7 +44,7 @@ def payload(seconds, active=True):
     aggregate.update(observedAt=timestamp(seconds-1), lastSuccessfulAt=timestamp(seconds-1), validUntil=timestamp(seconds+119))
     aggregate["coverage"] = {"expectedComponentIds": sorted(item["sourceId"] for item in components),
         "includedComponentIds": sorted(item["sourceId"] for item in components)}
-    return {"generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
+    return {"managedTargets": [], "generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
         "entries": [{"name": name, "status": "Healthy", "description": "Controlled actual-dependency shape", "durationMs": 1}
                     for name in REAL_CHECK_NAMES]},
         "geoprocessing": {"available": True, "totalActive": 1 if active else 0,
@@ -176,6 +176,9 @@ class OpsHealthControls(unittest.TestCase):
             lambda b: b["health"].update(entries=[]),
             lambda b: b["health"]["entries"][0].update(status="Unhealthy"),
             lambda b: b.update(overallStatus="Unhealthy"),
+            lambda b: b.pop("managedTargets"),
+            lambda b: b.update(managedTargets=None),
+            lambda b: b.update(managedTargets=[{"targetId": "unobserved", "status": "Healthy"}]),
             lambda b: b["servingLatency"]["protocols"][0].update(errorRate=1),
             lambda b: b["database"].update(hasConnectionPoolData=False),
             lambda b: b["deploy"].update(status="blocked")]

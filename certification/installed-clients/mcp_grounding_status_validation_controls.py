@@ -328,6 +328,25 @@ class GroundingStatusControls(unittest.TestCase):
             changed = copy.deepcopy(projection); change(changed)
             with self.assertRaises(ValueError): declared_status(changed, {"platformRelease": changed}, declaration)
 
+    def test_nullable_projection_fields_follow_server_when_writing_null_contract(self):
+        declaration, projection, serving, alternate = self.reviewed_skew()
+        projection["serving"][0].pop("runtimeProfile")
+        projection["execution"] = [
+            {"id": "geoprocessing-local", "projectedFromRelease": False, "skewed": False},
+            {"id": "managed-gp", "runtimeProfile": "Managed", "effectiveArtifactReference": serving,
+             "projectedFromRelease": True, "skewed": False}]
+        self.assertEqual(declared_status(projection, {"platformRelease": projection}, declaration)["skewedIds"],
+                         ["cert-ops-skew"])
+        for change in (lambda p: p["serving"][0].pop("effectiveArtifactReference"),
+                       lambda p: p["serving"][0].pop("projectedFromRelease"),
+                       lambda p: p["execution"][0].pop("id"),
+                       lambda p: p["execution"][0].pop("skewed"),
+                       lambda p: p["execution"][0].update(unreviewed=None),
+                       lambda p: p["execution"][1].pop("effectiveArtifactReference"),
+                       lambda p: p["execution"][1].pop("runtimeProfile")):
+            changed = copy.deepcopy(projection); change(changed)
+            with self.assertRaises(ValueError): declared_status(changed, {"platformRelease": changed}, declaration)
+
     def test_reviewed_declaration_must_co_version_the_governed_managed_worker(self):
         declaration, projection, serving, alternate = self.reviewed_skew()
         environment = declaration["environment"]

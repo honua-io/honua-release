@@ -121,6 +121,49 @@ def test_feature_proof_compares_ordinates_ids_and_count():
         oracles.prove_features(value, expected)
 
 
+def _imported(layout, value=4, document_value=None):
+    properties = {"columns": {"journey_id": value},
+                  "jsonb": {"properties": {"journey_id": value}, "id": 1},
+                  "both": {"journey_id": value, "properties": {"journey_id": value if document_value is None else document_value}},
+                  "neither": {"name": "x", "properties": {"name": "x"}}}[layout]
+    return {"type": "FeatureCollection",
+            "features": [{"type": "Feature", "properties": properties, "geometry": {"type": "Point", "coordinates": [2, 3]}}]}
+
+
+@pytest.mark.parametrize("layout, reported", [("columns", "columns"), ("jsonb", "import-jsonb-properties"),
+                                              ("both", "columns+import-jsonb-properties")])
+def test_feature_proof_accepts_the_column_jsonb_and_typed_promotion_layouts(layout, reported):
+    """honua-server #6815 promotes typed import attributes to columns and keeps the jsonb document complete."""
+    expected = [{"properties": {"journey_id": 4}, "geometry": {"type": "Point", "coordinates": [2, 3]}}]
+    assert oracles.prove_features(_imported(layout), expected)["attributeLayout"] == reported
+
+
+@pytest.mark.parametrize("document_value", [5, "4", 4.5, None, True])
+def test_feature_proof_refuses_a_column_that_differs_from_the_import_document(document_value):
+    expected = [{"properties": {"journey_id": 4}, "geometry": {"type": "Point", "coordinates": [2, 3]}}]
+    value = _imported("both")
+    value["features"][0]["properties"]["properties"]["journey_id"] = document_value
+    with pytest.raises(oracles.ProofError, match="column differs from its import properties value"):
+        oracles.prove_features(value, expected)
+
+
+def test_feature_proof_refuses_a_feature_with_no_journey_id():
+    expected = [{"properties": {"journey_id": 4}, "geometry": {"type": "Point", "coordinates": [2, 3]}}]
+    with pytest.raises(oracles.ProofError, match="carries no journey_id"):
+        oracles.prove_features(_imported("neither"), expected)
+
+
+def test_feature_proof_still_refuses_mixed_layouts_and_wrong_ids_in_the_promoted_layout():
+    expected = [{"properties": {"journey_id": n}, "geometry": {"type": "Point", "coordinates": [2, 3]}} for n in (4, 5)]
+    both, columns = _imported("both", 4), _imported("columns", 5)
+    mixed = {"type": "FeatureCollection", "features": both["features"] + columns["features"]}
+    with pytest.raises(oracles.ProofError, match="mix attribute layouts"):
+        oracles.prove_features(mixed, expected)
+    wrong = {"type": "FeatureCollection", "features": both["features"] + _imported("both", 6)["features"]}
+    with pytest.raises(oracles.ProofError, match="IDs or ordinates differ"):
+        oracles.prove_features(wrong, expected)
+
+
 @pytest.mark.parametrize("field", ["body", "versionId", "itemId", "family", "contentHash"])
 def test_final_map_rejects_wrong_actual_content_even_with_an_expected_server_hash(field):
     body = {"layers": [{"sourceId": "journey"}], "view": {"center": [2, 3], "zoom": 4}}
@@ -586,7 +629,7 @@ def test_terminal_bridge_describes_grammar_and_argument_sources_without_resolvin
     engine.transport.tool.assert_not_called()
 
 
-@pytest.mark.parametrize("layout", ["columns", "import-jsonb-properties"])
+@pytest.mark.parametrize("layout", ["columns", "import-jsonb-properties", "columns+import-jsonb-properties"])
 def test_completed_service_publish_supplies_stage_3_operation_ids_and_feature_proof(layout):
     engine = upload_engine(operator="private-operator")
     engine.resources.update(importTable="imported_journey_source", importSchema="public")
@@ -598,6 +641,9 @@ def test_completed_service_publish_supplies_stage_3_operation_ids_and_feature_pr
     if layout == "import-jsonb-properties":
         for feature in features:
             feature["properties"] = {"properties": feature["properties"], "created_at": "2026-10-08T00:00:00Z"}
+    elif layout == "columns+import-jsonb-properties":
+        for feature in features:
+            feature["properties"] = {**feature["properties"], "properties": dict(feature["properties"])}
     engine.transport.get_json.return_value = {"type": "FeatureCollection", "features": features}
     engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
     assert engine.transport.tool.call_args.args[3] == "operator"

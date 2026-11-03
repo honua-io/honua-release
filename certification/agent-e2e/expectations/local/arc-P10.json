@@ -44,7 +44,12 @@
           }
         ],
         "allowFaultKind": "response_lost_after_commit",
-        "alsoTool": {"tool": "honua_admin_layer_publish", "operationId": "admin.layer.publish", "response": "/result/structuredContent/details/response", "pointer": "/data/serviceName"}
+        "alsoTool": {
+          "tool": "honua_admin_layer_publish",
+          "operationId": "admin.layer.publish",
+          "response": "/result/structuredContent/details/response",
+          "pointer": "/data/serviceName"
+        }
       }
     },
     {
@@ -57,6 +62,13 @@
           "pathSegment": 2
         },
         "pointer": "/serviceName"
+      },
+      "alternative": {
+        "step": "arc-p10-catalog-layers",
+        "settings": "arc-p10-service-settings",
+        "connectionRole": "seeded:connection:shelters",
+        "schemaRole": "seeded:schema:shelters",
+        "tableRole": "seeded:table:shelters"
       }
     }
   ],
@@ -73,7 +85,12 @@
               "role": "child:layer:shelters"
             },
             "fullPublished": "arc-p10-published-full",
-            "sourceRows": "arc-p10-source-after"
+            "sourceRows": "arc-p10-source-after",
+            "restricted": {
+              "finalQuery": "arc-p10-final-query",
+              "settings": "arc-p10-service-settings",
+              "catalog": "arc-p10-catalog-layers"
+            }
           }
         }
       },
@@ -121,6 +138,43 @@
             }
           ],
           "phase": "observe"
+        },
+        "arc-p10-final-query": {
+          "kind": "mcp",
+          "method": "POST",
+          "path": "/mcp#tools/call",
+          "principal": "agent",
+          "phase": "observe",
+          "origin": "session-result",
+          "replayOfModelAction": true
+        },
+        "arc-p10-service-settings": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/services/[A-Za-z0-9_-]{1,80}/settings",
+          "principal": "controller",
+          "phase": "observe"
+        },
+        "arc-p10-catalog-layers": {
+          "kind": "http",
+          "method": "GET",
+          "path": "/api/v1/admin/connections/[A-Za-z0-9_-]{1,80}/layers\\?serviceName=[A-Za-z0-9_-]{1,80}",
+          "principal": "controller",
+          "phase": "observe",
+          "addresses": [
+            {
+              "role": "seeded:connection:shelters",
+              "at": {
+                "pathSegment": 4
+              }
+            },
+            {
+              "role": "created:service:shelters",
+              "at": {
+                "query": "serviceName"
+              }
+            }
+          ]
         }
       }
     },
@@ -206,13 +260,20 @@
                     "coordinates": [
                       -18800,
                       -4700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 120,
                     "is_open": false,
                     "name": "Kestrel Central",
-                    "source_id": "s2"
+                    "source_id": "s2",
+                    "id": "s2"
                   }
                 },
                 {
@@ -221,13 +282,20 @@
                     "coordinates": [
                       -19100,
                       -4700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 80,
                     "is_open": true,
-                    "name": "H\u0101lau, \"North\" refuge",
-                    "source_id": "s3"
+                    "name": "Hālau, \"North\" refuge",
+                    "source_id": "s3",
+                    "id": "s3"
                   }
                 },
                 {
@@ -236,13 +304,20 @@
                     "coordinates": [
                       -19400,
                       -4700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": null,
                     "is_open": true,
                     "name": "Kestrel Central",
-                    "source_id": "s1"
+                    "source_id": "s1",
+                    "id": "s1"
                   }
                 },
                 {
@@ -251,13 +326,20 @@
                     "coordinates": [
                       -19700,
                       -4700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d\u2019accueil",
-                    "source_id": "s4"
+                    "name": "Centre d’accueil",
+                    "source_id": "s4",
+                    "id": "s4"
                   }
                 },
                 {
@@ -266,13 +348,20 @@
                     "coordinates": [
                       -20000,
                       -4700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 50,
                     "is_open": true,
-                    "name": "M\u0101lama refuge",
-                    "source_id": "s5"
+                    "name": "Mālama refuge",
+                    "source_id": "s5",
+                    "id": "s5"
                   }
                 }
               ]
@@ -300,13 +389,20 @@
                     "coordinates": [
                       13000,
                       -7700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": null,
                     "is_open": true,
-                    "name": "M\u0101lama refuge",
-                    "source_id": "s105"
+                    "name": "Mālama refuge",
+                    "source_id": "s105",
+                    "id": "s105"
                   }
                 },
                 {
@@ -315,13 +411,20 @@
                     "coordinates": [
                       13300,
                       -7700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 50,
                     "is_open": true,
                     "name": "Willow Central",
-                    "source_id": "s101"
+                    "source_id": "s101",
+                    "id": "s101"
                   }
                 },
                 {
@@ -330,13 +433,20 @@
                     "coordinates": [
                       13600,
                       -7700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 120,
                     "is_open": false,
-                    "name": "H\u0101lau, \"North\" refuge",
-                    "source_id": "s103"
+                    "name": "Hālau, \"North\" refuge",
+                    "source_id": "s103",
+                    "id": "s103"
                   }
                 },
                 {
@@ -345,13 +455,20 @@
                     "coordinates": [
                       13900,
                       -7700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 75,
                     "is_open": true,
-                    "name": "Centre d\u2019accueil",
-                    "source_id": "s104"
+                    "name": "Centre d’accueil",
+                    "source_id": "s104",
+                    "id": "s104"
                   }
                 },
                 {
@@ -360,13 +477,20 @@
                     "coordinates": [
                       14200,
                       -7700
-                    ]
+                    ],
+                    "crs": {
+                      "type": "name",
+                      "properties": {
+                        "name": "EPSG:3857"
+                      }
+                    }
                   },
                   "properties": {
                     "capacity": 80,
                     "is_open": true,
                     "name": "Willow Central",
-                    "source_id": "s102"
+                    "source_id": "s102",
+                    "id": "s102"
                   }
                 }
               ]

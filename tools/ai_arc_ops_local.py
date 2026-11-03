@@ -54,7 +54,7 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_REVISION = '22c06af0dc9a0aec12f4084948f6390c373cb013'
+DEFAULT_REVISION = '8628668794df9f0c22a490e59cedaee409cc1bdd'
 EXECUTOR_COMPOSE = 'docs/get-started/compose.executor.yaml'
 MARKER = 'public.arc_ops_marker'
 # The product's ops surface: read-only ops, alert, operate-event, release-status, deploy-operation and

@@ -192,6 +192,8 @@ class RoleBinding:
     owner_format: str | None = None # created: how the server renders the agent principal in ``owner``:
                                     # "{id}" (default) or "api-key:{id}" (reviewed formats only)
     owner_any_of: list[str] | None = None  # reviewed user/key templates, bound only through runner custody
+    alternative: dict | None = None  # child: the one reviewed admin-catalog binding (agent_e2e_local_projections
+                                     # ARC_P10_LAYER_ALTERNATIVE), used only when the agent role-restricted the service
 
 
 @dataclass(frozen=True)

@@ -365,7 +365,8 @@ def arc_partial_case(tmp_path, monkeypatch):
     sources = {n: {'service': 'svc_' + n, 'layerId': i} for i, n in enumerate(names)}
     now = datetime.now(timezone.utc)
     stamp = lambda offset: (now + timedelta(seconds=offset)).isoformat()
-    state = {'published': set(names), 'wrong_actor': False, 'wrong_handle': False, 'map_sources': {n: dict(v) for n, v in sources.items()}}
+    state = {'published': set(names), 'wrong_actor': False, 'wrong_handle': False, 'map_sources': {n: dict(v) for n, v in sources.items()},
+             'admin': set()}   # layers published through honua_admin_layer_publish (admin.layer.publish; #6895)
     handoff = {'schema': 'honua.ai-arc.studio-services/v1', 'variant': 'A', 'fixtureId': 'town-A',
                'connectionId': 'abcdef01-2345-6789-abcd-ef0123456789',
                'principal': 'api-key:stage3', 'agentKeyId': 'stage3',
@@ -377,7 +378,12 @@ def arc_partial_case(tmp_path, monkeypatch):
                 'action': 'operation.completed', 'outcome': 'Success',
                 'actor': 'api-key:stage3' if stage == 3 else ('foreign' if state['wrong_actor'] else 'api-key:stage4'),
                 'timestamp': stamp(-20) if stage == 3 else datetime.now(timezone.utc).isoformat(),
-                'details': 'operationId=service.publish;status=Completed'}
+                'details': ('operationId=admin.layer.publish;status=Completed' if n in state['admin']
+                            else 'operationId=service.publish;status=Completed')}
+    def admin_response(n):
+        return json.dumps({'success': True, 'data': {
+            'layerId': sources[n]['layerId'], 'serviceName': 'wrong' if state['wrong_handle'] else sources[n]['service'],
+            'schema': 'honua_data', 'table': state.get('admin_table', {}).get(n, 'import_' + n), 'enabled': True}})
     def factory(rec, principal, method, path, body, headers):
         assert method == 'GET', 'harness must never publish a service or create a map'
         if '/connections/' in path:
@@ -391,6 +397,15 @@ def arc_partial_case(tmp_path, monkeypatch):
             value = {'data': {'operationInstanceId': op, 'operationId': 'service.publish', 'status': 'Completed',
                               'resourceIds': {'serviceName': ('wrong' if state['wrong_handle'] else binding['service']),
                                               'layerId': str(binding['layerId'])}}}
+            if name in state['admin']:
+                value = {'data': {'operationInstanceId': op, 'operationId': 'admin.layer.publish', 'status': 'Completed',
+                                  'resourceIds': {}, 'result': {'summary': 'Publish layer completed.',
+                                                                'details': {'response': admin_response(name)}}}}
+            if stage == '9':   # a completed dry run of honua_admin_layer_publish: a validation, nothing published
+                value = {'data': {'operationInstanceId': op, 'operationId': 'admin.layer.publish', 'status': 'Completed',
+                                  'resourceIds': {}, 'result': {'summary': 'Validated.', 'details': {'response': json.dumps(
+                                      {'success': True, 'data': {'isValid': True, 'status': 'valid',
+                                                                 'serviceName': sources[name]['service']}})}}}}
         elif '/FeatureServer/' in path:
             name = path.split('/')[3].removeprefix('svc_')
             query = parse_qs(urlsplit(path).query)
@@ -445,7 +460,7 @@ def arc_partial_case(tmp_path, monkeypatch):
         assert not stack.extra['arcLineageVerified']
         rec.json('studio-audit-before-0', 'GET', '/api/v1/admin/observability/audit?pageSize=200')
         from agent_e2e_local_runner import ActionLog
-        log = ActionLog(tmp_path / 'session-1', 1, {'honua_publish_service'}, 30)
+        log = ActionLog(tmp_path / 'session-1', 1, {'honua_publish_service', 'honua_admin_layer_publish'}, 30)
         rec.set_phase('session')
         for n in names[count:]:
             if n not in state['published']:
@@ -454,16 +469,24 @@ def arc_partial_case(tmp_path, monkeypatch):
             args.update(state.get('request_override', {}))
             value = {'operationInstanceId': 'op_4_' + n, 'operationId': 'service.publish', 'status': 'Completed',
                      'serviceName': sources[n]['service'], 'layerId': sources[n]['layerId']}
+            tool = 'honua_publish_service'
+            if n in state['admin']:
+                tool = 'honua_admin_layer_publish'
+                value = {'operationInstanceId': 'op_4_' + n, 'operationId': 'admin.layer.publish', 'status': 'Completed',
+                         'resourceIds': {}, 'details': {'response': admin_response(n)}}
             response = state.get('publish_response', {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': value}})
             attempts = [*state.get('prior_publish_responses', []), (state.get('publish_status', 200), response)]
             for status, response in attempts:
                 raw = state['publish_raw'] if 'publish_raw' in state else json.dumps(response).encode()
-                log.dispatch('tool_call', {'kind': 'tool_call', 'tool': 'honua_publish_service', 'arguments': args},
+                log.dispatch('tool_call', {'kind': 'tool_call', 'tool': tool, 'arguments': args},
                              lambda kind, action, raw=raw, status=status: {'status': 'ok', '_rawResponse': (status, raw)})
         vault.append_actions(1, log.rows)
         rec.set_phase('observe')
         old = [event(n, 3) for n in names[:count]]
         new = [event(n, 4) for n in names[count:] if n in state['published']]
+        new += [dict(event(n, 4), auditId=90 + names.index(n), resourceId=f'op_9_{n}',
+                     details=state.get('dry_run_details', 'operationId=admin.layer.publish;status=Completed'))
+                for n in state.get('dry_runs', ())]
         # Audit snapshot retains real raw bytes in the recorder/vault.
         original_factory = rec._http_factory
         def with_audit(recorder, principal, method, path, body, headers):
@@ -610,3 +633,65 @@ def test_arc_unparseable_publish_bytes_fail_with_named_harness_error(arc_partial
     state['publish_raw'] = raw
     with pytest.raises(ProjectionError, match='malformed stage-four publish response'):
         run(0)
+
+
+@pytest.mark.parametrize('count', [0, 1, 3])
+def test_admin_layer_publications_reach_frozen_source_scoring(arc_partial_case, count):
+    """Bug 4 (release session 2026-11-02; honua-server #6895): a completed admin.layer.publish, in stage three or
+    four, binds through the embedded admin response and is verified like service.publish."""
+    from agent_e2e_local_expectations import load_roles, load_projections, load_expected
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_runner import score_assertions
+    from agent_e2e_local_api import Observation
+    run, state = arc_partial_case
+    state['admin'] = {'shelters', 'parcels'}
+    stack, seeded, rec = run(count)
+    assert stack.extra['arcLineageVerified']
+    roles = resolve_roles(load_roles('P08', 'studio-arc'), rec.records, agent_principal='stage4',
+                          custody={'agentKeyId': 'stage4', 'agentUserId': 'customer', 'agentKeyOwnerUserId': 'customer'})
+    assert roles['arc:service:shelters'] == 'svc_shelters' and str(roles['arc:layer:shelters']) == '2'
+    name = 'source-content.unchanged'
+    scores = score_assertions([name], [Observation(name, None, {'projection': 'extract/v1'})],
+        {name: load_expected('P08', 'A')[name]}, records=rec.records, roles=roles,
+        frozen=load_projections('P08', 'A', 'studio-arc'))
+    assert scores[0]['status'] == 'pass', scores
+
+
+@pytest.mark.parametrize('fault', ['wrong_handle', 'other_table'])
+def test_a_tampered_admin_publication_is_refused_in_stage_four(arc_partial_case, fault):
+    run, state = arc_partial_case
+    state['admin'] = {'shelters', 'parcels', 'flood_zones'}
+    if fault == 'other_table':
+        state['admin_table'] = {'parcels': 'import_flood_zones'}
+    else:
+        state['wrong_handle'] = True
+    with pytest.raises(ValueError):
+        run(0)
+
+
+def test_a_stage_four_dry_run_is_not_a_publication_candidate(arc_partial_case):
+    """Studio DEV shakeout run 11b: A1's dry-run honua_admin_layer_publish left a completed admin.layer.publish audit
+    event whose handle holds a validation; the candidate loop failed "stage-four publish handle differs"."""
+    run, state = arc_partial_case
+    state['admin'] = {'parcels', 'flood_zones'}
+    state['dry_runs'] = ('parcels',)
+    stack, seeded, rec = run(1)
+    assert stack.extra['arcLineageVerified']
+
+
+def test_a_malformed_admin_handle_still_fails(arc_partial_case):
+    run, state = arc_partial_case
+    state['admin'] = {'parcels', 'flood_zones'}
+    state['admin_table'] = {'parcels': 'Not A Table'}
+    with pytest.raises(ValueError):
+        run(1)
+
+
+def test_a_dry_run_handle_under_a_service_publish_audit_is_inconsistent_evidence(arc_partial_case):
+    """Sol dryrun: the skip applies only when the audit event names admin.layer.publish too."""
+    run, state = arc_partial_case
+    state['admin'] = {'parcels', 'flood_zones'}
+    state['dry_runs'] = ('parcels',)
+    state['dry_run_details'] = 'operationId=service.publish;status=Completed'
+    with pytest.raises(ValueError, match='stage-four publish handle differs'):
+        run(1)
