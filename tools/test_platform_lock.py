@@ -304,11 +304,12 @@ def test_generator_reports_all_current_unresolved_release_work():
     joined = "\n".join(draft.unresolved)
     # The MCP standard content digest is declared and verified against its pinned source bytes
     # by tools/verify_content_digests.py. Since the 2026-11-02 rc.2 cut the runtime catalog/OKF
-    # digests are declared at the candidate server revision (daf56db2) too.
+    # digests are declared at the candidate server revision (daf56db2) too. At the rc.2 final
+    # candidate 86286687 the catalog digest moves (new proving tests) and OKF is unchanged.
     assert "contentDigests" not in joined
     assert draft.lock["contentDigests"] == {
         "geospatialMcp": "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c",
-        "catalog": "sha256:349d7b7c04c90fdb956aa1cb83f2f2447342c5835a9b5ad7c14862a68367ef44",
+        "catalog": "sha256:b431b88a6941345732fa5a18d5a9c01374adb117ea09c98006e891a0253fda1f",
         "okf": "sha256:f3e514b3bb6b447679731777dd52a74c1332c9bb5aa504fa03b91a5847901144",
     }
     # With the server candidate bound, only the post-gate facts remain (qualification marks them pending).

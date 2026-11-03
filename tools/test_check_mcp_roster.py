@@ -101,8 +101,10 @@ def test_committed_expected_tools_matches_the_roster_in_both_topologies():
         summary = cmr.check(committed, roster(), topology=topology)
         assert summary['status'] == 'pass', (topology, summary['reasons'])
     durable = committed['fullCatalog']['requiresDurableControlPlane']['tools']
-    # 24 since the 4709145 re-pin added honua_admin_import_upload_object (fixture re-copied at a4bde4b).
-    assert CONNECT_IMPORT <= set(durable) and len(durable) == 24
+    # 24 since the 4709145 re-pin added honua_admin_import_upload_object (fixture re-copied at a4bde4b);
+    # 26 since the rc.2 final candidate 86286687 added honua_admin_connections_list and
+    # honua_admin_connection_tables_list (honua-server #6889).
+    assert CONNECT_IMPORT <= set(durable) and len(durable) == 26
 
 
 def test_missing_tool_fails():

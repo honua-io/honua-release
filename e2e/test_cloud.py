@@ -3784,7 +3784,7 @@ def test_s2_redis_off_111_catalog_passes_with_topology_recorded():
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 24}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 26}
         assert "redis-off" in row["why"]
 
 

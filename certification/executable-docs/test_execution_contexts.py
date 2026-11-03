@@ -38,19 +38,21 @@ def gp_source():
     sources = json.loads((HERE / "sources.json").read_text())
     doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
                and d["path"] == "docs/geoprocessing/index.md")
-    return doc, (HERE / "fixtures/site-geoprocessing-b56533b9fd2c.md").read_text()
+    return doc, (HERE / "fixtures/site-geoprocessing-928c005a.md").read_text()
 
 
 def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
     doc, text = gp_source()
-    # Published geoprocessing page bytes are the b56533b9fd2c fixture. The inventory
-    # revision is the last commit on the default branch that changed the file.
-    # The two shell install blocks are @honua/sdk-js@0.2.10 and honua-sdk==0.1.19.
-    assert hashlib.sha256(text.encode()).hexdigest() == "6a10734164314cb3c85ee9e82756488f842ff86f8bf50c8639e9197cb14f2f20"
+    # Published geoprocessing page bytes are the 928c005a fixture (honua-site #367; the previous
+    # b56533b9fd2c fixture is kept as history). The inventory revision is the last commit on the
+    # default branch that changed the file. The two shell install blocks are @honua/sdk-js@0.2.10
+    # and honua-sdk==0.1.19; since #367 the .NET install block names the newest public
+    # Honua.Sdk 1.13.1 (the certified rc.2 pin stays 1.12.0, as the site discloses).
+    assert hashlib.sha256(text.encode()).hexdigest() == "d16716b7606e7a8378789b3fa2541e12fd0e8dc98ab9f2087c78a60e4f70e296"
     plan = compile_plan(doc, extract(text, "markdown"))
     frozen = json.loads((HERE / "inventory.json").read_text())
     row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    assert row["revision"] == "477350e54f7a29ee63cbea112e317de3ba6a2b15"
+    assert row["revision"] == "928c005a9c20be2429aa6f3d4d90ae391bbf24ba"
     assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
     variables = load_vars(HERE / "vars", row["id"])
