@@ -1167,3 +1167,30 @@ def test_only_the_studio_action_bound_was_raised_and_it_binds_both_arms():
     for stage, row in limits.items():
         assert (row['maxTurns'], row['maxSeconds'], row['maxContinueNudges']) == (60, 2700, 1), stage
         assert not set(row) & {'A1', 'A2', 'claude-cli', 'codex-cli'}, stage
+
+
+FINAL_RC2_SERVER = '8628668794df9f0c22a490e59cedaee409cc1bdd'
+
+
+def test_every_honua_server_pin_in_the_spec_is_the_final_rc2_candidate():
+    """rc.2 re-pin (release session 2026-11-03): the Console compose, the ops composition, the quickstart package and
+    the quickstart page all pin honua-server at the final candidate; only versionPair.install keeps rc.1's source.
+    No earlier candidate revision (daf56db2, 645ea3c0, d4bf97a2, 22c06af0) remains anywhere in the spec."""
+    raw = (Path(__file__).resolve().parents[1] / 'certification/ai-arc/arc.v1.json').read_text()
+    for stale in ('daf56db2', '645ea3c0', 'd4bf97a2', '22c06af0'):
+        assert stale not in raw, stale
+    pins = []
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            if node.get('repo') == 'honua-io/honua-server' and 'revision' in node:
+                pins.append((path, node['revision']))
+            for key, value in node.items():
+                walk(value, path + '.' + key)
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f'{path}[{index}]')
+    walk(json.loads(raw), '')
+    assert sorted(path for path, _ in pins) == ['.console.compose', '.opsComposition', '.quickstart', '.quickstartPackage']
+    assert {revision for _, revision in pins} == {FINAL_RC2_SERVER}
+    assert ARC['versionPair']['install']['release'] == '2026.1-rc.1'

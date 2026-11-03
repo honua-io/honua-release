@@ -185,8 +185,9 @@ def test_local_setup_runs_through_the_real_cli_adapter_for_both_required_arms(tm
     assert result['outcome'] == 'pass', result
     assert (cli.agent, cli.model) == ((R.arm_by_id(ARC, arm)['agent'], R.arm_by_id(ARC, arm)['model']))
     staged = vm.scripts[0]['script']
-    assert 'HONUA_ADMIN_PASSWORD=' in staged and all(slot.vm.secrets[k] not in ' '.join(vm.scripts[0]['argv'])
-                                                    for k in slot.vm.secrets)
+    # 645ea3c0 (#6888): the walkthrough's serving secrets are files (secrets/<key>), never on the command line.
+    assert ('secrets/honua_admin_password' in staged or 'HONUA_ADMIN_PASSWORD=' in staged) and all(
+        slot.vm.secrets[k] not in ' '.join(vm.scripts[0]['argv']) for k in slot.vm.secrets)
     run = next(s['script'] for s in vm.scripts if 'up -d --wait' in s['script'])
     assert '--project-name arc-abcdef123456' in run and 'HONUA_' in run   # compose admitted only via approved stdin
     assert 'HONUA_HTTP_PORT=18180' in staged, 'slot index 1 has its own ports'

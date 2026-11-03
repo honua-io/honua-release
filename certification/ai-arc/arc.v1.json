@@ -519,39 +519,40 @@
     "rule": "Stage 4 runs only against this Console digest: the compose console service must select it and the running container must report it; anything else fails closed.",
     "compose": {
       "repo": "honua-io/honua-server",
-      "revision": "daf56db25c208765f5440e484a7c24fbc5ba81ab",
+      "revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
       "path": "docker-compose.yml",
-      "sha256": "sha256:e6701f824316cf97c0dfa5067da9ae892385063ef51eb64fae05af674360a5b9",
+      "sha256": "sha256:9d204598559e47731acd19a2ec2fdef5c8e9ae0b61723b452928bc2e1c363d26",
       "rule": "Stage 4 adds Console from exactly this compose file (honua-server #6864, which selects the pinned Console digest); the workflow passes it, so stage 4 runs in CI (Fable B3)."
     }
   },
   "opsComposition": {
     "executorCompose": "docs/get-started/compose.executor.yaml",
     "repo": "honua-io/honua-server",
-    "revision": "22c06af0dc9a0aec12f4084948f6390c373cb013",
-    "sha256": "sha256:e43ec48faa83b5bfa4ce18b9120586a5d3efa85f084cbaf15a9aa8d2e3683c97",
+    "revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
+    "sha256": "sha256:1060f1becdcf4197f24499e076608fab39babecbe19f9bad08757165395e41b9",
     "kind": "development-composition",
     "rule": "Until the quickstart compose ships the executor service, local ops runs with this exact documented overlay; such runs are never certifying."
   },
   "quickstartPackage": {
     "repo": "honua-io/honua-server",
-    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+    "revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
     "priorMaxSchema": 140,
     "certifyingRule": "ARC v2 B1/S4: only local runs whose setup installed this package and whose ops adopted its own manager and executor (slotFacts.opsComposition.kind quickstart-package) certify. The aggregate and tools/rc_gate_window.py admission both enforce it; the development composition (opsComposition) never certifies.",
-    "note": "The product's customer package (scripts/docker/package_quickstart.py, #6846) built at this revision from the candidate release lock; the harness stages it and the customer's .env choices only. priorMaxSchema is the install release's (rc.1) exact migration, never guessed.",
+    "note": "The product's customer package (scripts/docker/package_quickstart.py, #6846) built at the final rc.2 candidate's revision (86286687: #6885 agent guide packaged as AGENTS.md, #6888 secrets in files, #6899 Console healthcheck, #6901 full JSON in MCP text content, #6903 propose_finding candidateId documented; the five pinned package files are byte-identical to the redo candidate's) from the candidate release lock; the harness stages it and the customer's .env choices only. priorMaxSchema is the install release's (rc.1) exact migration, never guessed.",
     "files": {
-      "docs/get-started/quickstart.md": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
-      "docs/get-started/compose.executor.yaml": "sha256:7e6a6dde32d133780247705784941ad77d3b77ca5cde227c8b8b715bee824764",
-      "scripts/docker/compose_quickstart.py": "sha256:1c164a77cecae32bd6626865fe7c1653fe76011dd87f1db6a76ed5e7e4adf0c8",
-      "scripts/docker/package_quickstart.py": "sha256:918f148e0ed3ea6ced1fc546e7c3a52492fce3f29370c40a0a91fcde33342273"
+      "docs/get-started/quickstart.md": "sha256:7b228f6aaccce301897905fc9f77dad02453639c4752bf905d2b8aa8804f6c77",
+      "docs/get-started/compose.executor.yaml": "sha256:1060f1becdcf4197f24499e076608fab39babecbe19f9bad08757165395e41b9",
+      "scripts/docker/compose_quickstart.py": "sha256:4d96e8d7245bdb36e332af7cee31352363a7d2dafc82deb10d7034c0dffbfe86",
+      "scripts/docker/package_quickstart.py": "sha256:464a9724f876786b0c9b9149060c43fc016d9777e10d67b3b152d6119ca89df1",
+      "docs/guides/connect/working-with-ai-agents.md": "sha256:42a2337e4a90ace748f980a191f4ce8e1fd9b8f96297ac3300f8418e41210924"
     },
     "candidateMaxSchema": 143
   },
   "quickstart": {
     "repo": "honua-io/honua-server",
-    "revision": "d4bf97a22ab2182730b2c155b09fdb7f3ba581cd",
+    "revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
     "path": "docs/get-started/quickstart.md",
-    "sha256": "sha256:00f41159fa1523f258eba90df2946015e0d81f6d0756e4df2dac785766372426",
+    "sha256": "sha256:7b228f6aaccce301897905fc9f77dad02453639c4752bf905d2b8aa8804f6c77",
     "rule": "The setup attachment is exactly this page (ARC v2, Fable/Astra S5): the workflow fetches it at the pinned revision, the runner rejects any other bytes, and verify_run rejects a receipt whose quickstart.pageSha256 differs."
   },
   "spendCap": {

@@ -174,8 +174,12 @@ def health_output(result, method, before, after, bootstrap):
         if not isinstance(contents, list) or len(contents) != 1 or contents[0].get("uri") != URI or contents[0].get("mimeType") != "application/json":
             raise ValueError("health resource lacks exact JSON media/URI")
         value = wire.strict_json(contents[0]["text"])
-    if not isinstance(value, dict) or set(value) != {"evidencePosture", "generatedAt", "overallStatus", "health", "servingLatency", "geoprocessing", "alertDispatch", "deploy", "database"}:
+    if not isinstance(value, dict) or set(value) != {"evidencePosture", "generatedAt", "overallStatus", "health", "servingLatency", "geoprocessing", "alertDispatch", "deploy", "managedTargets", "database"}:
         raise ValueError("health response lacks server-supported sections")
+    # This fixture owns a standalone server and declares no managed Compose
+    # targets. Never accept unobserved target health or silently drop the field.
+    if value["managedTargets"] != []:
+        raise ValueError("standalone health fixture has unobserved managed targets")
     generated = instant(value["generatedAt"])
     if not instant(before["completedAt"]) <= generated <= instant(after["startedAt"]):
         raise ValueError("health timestamp outside independent live observations")
@@ -374,8 +378,9 @@ def main():
         fixture, bootstrap = args.fixture.read_bytes(), wire.strict_json(args.bootstrap.read_bytes())
         value = judge(fixture, bootstrap, wire.strict_json(args.observations.read_bytes())) if args.observations else scenario(fixture, bootstrap, args.nonce, args.canonical_client)
         print(json.dumps(value, allow_nan=False)); return 0
-    except (ValueError, TypeError, KeyError, AttributeError, OSError):
-        print("authored live health oracle refused evidence", file=sys.stderr); return 1
+    except (ValueError, TypeError, KeyError, AttributeError, OSError) as error:
+        reason = str(error) if isinstance(error, ValueError) else type(error).__name__
+        print(f"authored live health oracle refused evidence: {reason}", file=sys.stderr); return 1
 
 
 if __name__ == "__main__":

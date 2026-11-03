@@ -1,3 +1,4 @@
+import { withRefusingPython, refusalCredential, assertRefusalRedacted } from "./mcp_helper_refusal_controls.mjs";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
@@ -72,5 +73,22 @@ test("publication refuses absent disposable ownership before setup/client launch
     assert.equal(entries.length, 1);
     assert.match(entries[0][1], /explicitly owned disposable candidate/);
     assert.ok(entries.every(([, status]) => status !== "pass"));
+  } finally { control.close(); }
+});
+
+test("publication refusal diagnostics redact caller, inherited env, encoded values and credential shapes", async () => {
+  const control = setup();
+  try {
+    await withRefusingPython(control.directory, async () => {
+      const errors = [];
+      await control.api.publishResultScenarios(async (_operation, run) => {
+        try { await run(); } catch (error) { errors.push(error); }
+      }, { candidateSourceSha: control.proof.candidateSourceSha, candidateImage: control.proof.candidateImage,
+        canonicalClient: control.proof.canonicalClient, clientVersion: control.proof.clientVersion,
+        credential: refusalCredential, installationRoot: "/unused", ownedDisposableCandidate: true,
+        results: join(control.directory, "refusal-results.json") });
+      assert.ok(errors.length > 0);
+      assertRefusalRedacted(errors[0]);
+    });
   } finally { control.close(); }
 });
