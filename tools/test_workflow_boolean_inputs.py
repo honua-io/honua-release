@@ -54,4 +54,6 @@ def test_e2e_local_docker_seam_follows_the_typed_input_and_slices_keep_their_str
     text = (Path(__file__).resolve().parents[1] / ".github/workflows/e2e-local-docker.yml").read_text()
     assert "E2E_REQUIRE_REAL: ${{ inputs.require_real == true && '1' || '' }}" in text
     assert text.count("(inputs.require_real == true || github.event_name == 'schedule' || "
-                      "github.event_name == 'workflow_dispatch') && '1' || ''") == 2
+                      "(github.event_name == 'workflow_dispatch' && github.workflow == 'e2e-local-docker')) "
+                      "&& '1' || ''") == 2
+    assert "\nname: e2e-local-docker\n" in text      # the direct-dispatch clause names this workflow
