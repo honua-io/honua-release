@@ -75,12 +75,16 @@ AI_GATES: tuple[str, ...] = (
 )
 # Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
 # required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
-# certification needs a signed lock (gate-upgrade's rollback leg covers rc); gate-journey needs cloud-cell
-# receipts plus the data-driven roster.
+# certification needs a signed lock; gate-journey needs cloud-cell receipts plus the data-driven roster.
+# Founder decision 2026-11-02 (docs/2026.1-release-decision-overrides.json
+# `upgrade-gate-ga-deferred-2026-11-02`): gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
+# announced, so no customer upgrades from it. gate-upgrade (and with it the rc upgrade/rollback leg) stays a
+# GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
     "gate-journey.yml",
+    "gate-upgrade.yml",
 )
 # Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
 # `wedge-critical-retier-2026-10-25`, honua-release#376 comment 6407009748): "The AI gates (full agent
@@ -345,6 +349,7 @@ ARC_EXCLUSIONS = {"tenant.denied", "P18", "custody.worker-replaced@local-docker"
 
 
 ARC_PACKAGE_FILES = {"compose.yaml", "compose.executor.yaml", "quickstart.py", "images.json", "README.md"}
+# The product agent guide is part of the package when the product packager ships it (ai_arc_local.AGENT_GUIDE).
 
 
 def _arc_package_binding(aggregate: dict, revision: str) -> dict | None:
@@ -352,7 +357,8 @@ def _arc_package_binding(aggregate: dict, revision: str) -> dict | None:
     pkg = aggregate.get("quickstartPackage")
     if (not isinstance(pkg, dict) or set(pkg) != {"revision", "declaredRelease", "sha256"}
             or pkg["revision"] != revision or not isinstance(pkg["declaredRelease"], str) or not pkg["declaredRelease"]
-            or not isinstance(pkg["sha256"], dict) or set(pkg["sha256"]) != ARC_PACKAGE_FILES
+            or not isinstance(pkg["sha256"], dict)
+            or set(pkg["sha256"]) not in (ARC_PACKAGE_FILES, ARC_PACKAGE_FILES | {"AGENTS.md"})
             or any(not isinstance(v, str) or normalize_digest(v) != v for v in pkg["sha256"].values())):
         return None
     return pkg

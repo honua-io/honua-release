@@ -124,6 +124,8 @@ jobs:
       sdk_python_digest: ${{ steps.pins.outputs.sdk_python_digest }}
       iac_version: ${{ steps.pins.outputs.iac_version }}
       iac_sha: ${{ steps.pins.outputs.iac_sha }}
+      iac_archive_url: ${{ steps.pins.outputs.iac_archive_url }}
+      iac_archive_sha256: ${{ steps.pins.outputs.iac_archive_sha256 }}
       helm_version: ${{ steps.pins.outputs.helm_version }}
       helm_sha: ${{ steps.pins.outputs.helm_sha }}
       server_image: ${{ steps.pins.outputs.server_image }}
@@ -131,6 +133,8 @@ jobs:
       server_sha: ${{ steps.pins.outputs.server_sha }}
       grpc_version: ${{ steps.pins.outputs.grpc_version }}
       grpc_sha: ${{ steps.pins.outputs.grpc_sha }}
+      grpc_nupkg_id: ${{ steps.pins.outputs.grpc_nupkg_id }}
+      grpc_nupkg_sha256: ${{ steps.pins.outputs.grpc_nupkg_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use the immutable candidate inputs
@@ -175,6 +179,39 @@ jobs:
                   raise SystemExit(f"{component_name} does not have a version pin")
               values[f"{prefix}_sha"] = sha
               values[f"{prefix}_version"] = version
+              if prefix == "iac":
+                  # The customer distribution the manifest pins: the exact source archive of the pinned
+                  # commit, bound by its sha256 (no release tarball asset exists). Empty when absent.
+                  # A declared archive whose binding is wrong fails resolution: it never silently drops to
+                  # the release-asset or source-build fallbacks. Only an undeclared archive leaves it empty.
+                  artifact = str(component.get("artifact") or "")
+                  archive_sha = str(component.get("artifactSha256") or "")
+                  url = ""
+                  if artifact.startswith("archive:"):
+                      url = artifact.removeprefix("archive:")
+                      if (url != f"https://github.com/honua-io/honua-iac/archive/{sha}.tar.gz"
+                              or str(component.get("artifactSourceRevision") or "") != sha
+                              or not re.fullmatch(r"sha256:[0-9a-f]{64}", archive_sha)):
+                          raise SystemExit("honua-iac declares an archive artifact that is not bound to its pinned sha "
+                                           "(archive URL, artifactSourceRevision and artifactSha256 must all match)")
+                  values["iac_archive_url"] = url
+                  values["iac_archive_sha256"] = archive_sha if url else ""
+              if prefix == "grpc":
+                  # The shipped generated client the manifest pins: the nuget.org package (repository-signed
+                  # nupkg) bound by artifactSha256. It carries the proto/ sources codegen consumes.
+                  # As for honua-iac: a declared nuget artifact with a wrong binding fails resolution.
+                  artifact = str(component.get("artifact") or "")
+                  package_sha = str(component.get("artifactSha256") or "")
+                  package_id = ""
+                  if artifact.startswith("nuget:"):
+                      package_id = artifact.removeprefix("nuget:")
+                      if (not re.fullmatch(r"[A-Za-z0-9_.-]+", package_id)
+                              or str(component.get("artifactSourceRevision") or "") != sha
+                              or not re.fullmatch(r"sha256:[0-9a-f]{64}", package_sha)):
+                          raise SystemExit("geospatial-grpc declares a nuget artifact that is not bound to its pinned sha "
+                                           "(package id, artifactSourceRevision and artifactSha256 must all match)")
+                  values["grpc_nupkg_id"] = package_id
+                  values["grpc_nupkg_sha256"] = package_sha if package_id else ""
 
           clients = manifest.get("clientArtifacts") or {}
           client_specs = {
@@ -703,21 +740,47 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           IAC_VERSION: ${{ needs.resolve_pins.outputs.iac_version }}
           IAC_SHA: ${{ needs.resolve_pins.outputs.iac_sha }}
+          IAC_ARCHIVE_URL: ${{ needs.resolve_pins.outputs.iac_archive_url }}
+          IAC_ARCHIVE_SHA256: ${{ needs.resolve_pins.outputs.iac_archive_sha256 }}
         run: |
           set -uo pipefail
           GATE=terraform; SOURCE=blocked; STATUS=blocked; WHY=""
           WORK="$RUNNER_TEMP/tf-consume"; mkdir -p "$WORK"; cd "$WORK"
+          STRIP=0; TARBALL=""
 
-          echo "::group::Try STAGING (release asset: honua-iac customer tarball)"
-          # The customer distribution tarball is published as a GitHub release asset on honua-iac.
-          if [ "$IAC_VERSION" != "pre-release" ] && gh release download "$IAC_VERSION" --repo honua-io/honua-iac --pattern 'honua-iac-*.tar.gz' --dir "$WORK" >/tmp/tf-staging.log 2>&1; then
-            SOURCE=staging; STATUS=have-tarball
-          else
-            echo "staging asset miss (expected until publish lands):"; tail -n 5 /tmp/tf-staging.log || true
+          # The manifest's pinned customer distribution: the honua-iac source archive of the pinned
+          # commit, fetched anonymously exactly as a customer would and bound by artifactSha256.
+          # A digest mismatch is a FAIL, never a fallback.
+          if [ -n "$IAC_ARCHIVE_URL" ]; then
+            echo "::group::Try PUBLISHED (manifest-pinned honua-iac archive)"
+            if curl -fsSL --retry 3 -o "$WORK/pinned-archive.tgz" "$IAC_ARCHIVE_URL" >/tmp/tf-staging.log 2>&1; then
+              ACTUAL="sha256:$(sha256sum "$WORK/pinned-archive.tgz" | cut -d' ' -f1)"
+              if [ "$ACTUAL" = "$IAC_ARCHIVE_SHA256" ]; then
+                SOURCE=published; STATUS=have-tarball; TARBALL="$WORK/pinned-archive.tgz"; STRIP=1
+              else
+                rm -f "$WORK/pinned-archive.tgz"
+                STATUS=fail; WHY="pinned honua-iac archive digest $ACTUAL is not the manifest's $IAC_ARCHIVE_SHA256"
+              fi
+            else
+              # A partial download must not be mistaken for a tarball by a later source.
+              rm -f "$WORK/pinned-archive.tgz"
+              echo "pinned archive download failed:"; tail -n 5 /tmp/tf-staging.log || true
+            fi
+            echo "::endgroup::"
           fi
-          echo "::endgroup::"
 
-          if [ "$STATUS" != "have-tarball" ]; then
+          if [ "$STATUS" = "blocked" ]; then
+            echo "::group::Try STAGING (release asset: honua-iac customer tarball)"
+            # A customer distribution tarball published as a GitHub release asset on honua-iac (tags are v<version>).
+            if [ "$IAC_VERSION" != "pre-release" ] && gh release download "v${IAC_VERSION#v}" --repo honua-io/honua-iac --pattern 'honua-iac-*.tar.gz' --dir "$WORK" >/tmp/tf-staging.log 2>&1; then
+              SOURCE=staging; STATUS=have-tarball
+            else
+              echo "staging asset miss (expected until publish lands):"; tail -n 5 /tmp/tf-staging.log || true
+            fi
+            echo "::endgroup::"
+          fi
+
+          if [ "$STATUS" = "blocked" ]; then
             # STUB (pending real published artifact): build the customer tarball from source the same
             # way the release would (prefer a `make dist`/packaging target; else tar the module root),
             # then init THAT. A tarball that "doesn't init" (iac#81) fails at `terraform init` below.
@@ -754,14 +817,27 @@ jobs:
 
           if [ "$STATUS" = "have-tarball" ]; then
             echo "::group::Extract + terraform init -backend=false"
-            TARBALL="$(ls -1 "$WORK"/honua-iac-*.tar.gz "$WORK"/honua-iac-local.tar.gz 2>/dev/null | head -n1)"
-            mkdir -p "$WORK/extract" && tar xzf "$TARBALL" -C "$WORK/extract"
+            # The verified pinned archive is named explicitly (pinned-archive.tgz, which no other source's
+            # honua-iac-*.tar.gz glob can match); a release asset or local build is the single
+            # honua-iac-*.tar.gz. `|| true`: ls exits 2 on no match, which -e plus pipefail would crash.
+            [ -n "$TARBALL" ] || TARBALL="$(ls -1 "$WORK"/honua-iac-*.tar.gz 2>/dev/null | head -n1 || true)"
+            # The GitHub source archive has one top-level honua-iac-<sha>/ directory (STRIP=1).
+            mkdir -p "$WORK/extract"
+            if [ -z "$TARBALL" ] || ! tar xzf "$TARBALL" -C "$WORK/extract" --strip-components="$STRIP" >/tmp/tf-extract.log 2>&1; then
+              STATUS=fail; WHY="the ${SOURCE} honua-iac tarball could not be extracted"; tail -n 5 /tmp/tf-extract.log 2>/dev/null || true
+            fi
+          fi
+
+          if [ "$STATUS" = "have-tarball" ]; then
             # The customer's first command is `terraform init`. backend=false avoids needing real
             # cloud creds; it still resolves every module + provider, which is what iac#81 broke.
             # The GA customer quickstart root (examples/aws, ECS) when the tarball has the customer
             # layout; otherwise the first root in a stable order.
             if [ -f "$WORK/extract/examples/aws/main.tf" ]; then
               INITDIR="$WORK/extract/examples/aws"
+            elif [ -f "$WORK/extract/infrastructure/terraform/examples/aws/main.tf" ]; then
+              # The pinned source archive: the same GA quickstart root, its modules beside it.
+              INITDIR="$WORK/extract/infrastructure/terraform/examples/aws"
             else
               FIRST_TF="$(find "$WORK/extract" -maxdepth 3 -name '*.tf' | sort | head -n1)"
               INITDIR="${FIRST_TF:+$(dirname "$FIRST_TF")}"
@@ -1061,23 +1137,49 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           GRPC_VERSION: ${{ needs.resolve_pins.outputs.grpc_version }}
           GRPC_SHA: ${{ needs.resolve_pins.outputs.grpc_sha }}
+          GRPC_NUPKG_ID: ${{ needs.resolve_pins.outputs.grpc_nupkg_id }}
+          GRPC_NUPKG_SHA256: ${{ needs.resolve_pins.outputs.grpc_nupkg_sha256 }}
         run: |
           set -uo pipefail
           GATE=grpc-codegen; SOURCE=blocked; STATUS=blocked; WHY=""
           WORK="$RUNNER_TEMP/grpc-consume"; mkdir -p "$WORK"; cd "$WORK"
 
-          # Codegen is run against the proto SOURCE module (there is no "published" form to pull —
-          # the artifact IS the generated code). Closes grpc#45: if `buf generate` is broken,
-          # this fails. We try a published buf module first, then the source repo.
-          echo "::group::Try STAGING (buf module: buf.build/honua-io/geospatial)"
-          if [ "$GRPC_VERSION" != "pre-release" ] && buf export "buf.build/honua-io/geospatial:v${GRPC_VERSION}" --output "$WORK/proto" >/tmp/grpc-staging.log 2>&1; then
-            SOURCE=staging; STATUS=have-proto; PROTODIR="$WORK/proto"
-          else
-            echo "buf module miss (expected until publish lands):"; tail -n 5 /tmp/grpc-staging.log || true
+          # Codegen runs against the proto sources of the artifact the manifest pins: nuget:<id> on
+          # nuget.org, bound by artifactSha256, which ships proto/ beside the generated .NET bindings.
+          # Download it anonymously, verify the bytes and generate from its proto/ (closes grpc#45 if
+          # `buf generate` breaks). A digest mismatch or a package without proto sources is a FAIL,
+          # never a fallback. Then a published buf module, then the source repo (local, strict fails).
+          if [ -n "$GRPC_NUPKG_ID" ]; then
+            echo "::group::Try PUBLISHED (manifest-pinned ${GRPC_NUPKG_ID} ${GRPC_VERSION} from nuget.org)"
+            ID_LOWER="$(printf '%s' "$GRPC_NUPKG_ID" | tr '[:upper:]' '[:lower:]')"
+            URL="https://api.nuget.org/v3-flatcontainer/${ID_LOWER}/${GRPC_VERSION}/${ID_LOWER}.${GRPC_VERSION}.nupkg"
+            if curl -fsSL --retry 3 -o "$WORK/grpc.nupkg" "$URL" >/tmp/grpc-staging.log 2>&1; then
+              ACTUAL="sha256:$(sha256sum "$WORK/grpc.nupkg" | cut -d' ' -f1)"
+              if [ "$ACTUAL" != "$GRPC_NUPKG_SHA256" ]; then
+                STATUS=fail; WHY="pinned ${GRPC_NUPKG_ID} ${GRPC_VERSION} digest $ACTUAL is not the manifest's $GRPC_NUPKG_SHA256"
+              elif mkdir -p "$WORK/pkg" && unzip -q "$WORK/grpc.nupkg" 'proto/*' -d "$WORK/pkg" >/tmp/grpc-unzip.log 2>&1 \
+                   && [ -n "$(find "$WORK/pkg/proto" -name '*.proto' | head -n1)" ]; then
+                SOURCE=published; STATUS=have-proto; PROTODIR="$WORK/pkg/proto"
+              else
+                STATUS=fail; WHY="pinned ${GRPC_NUPKG_ID} ${GRPC_VERSION} ships no proto/ sources"; tail -n 5 /tmp/grpc-unzip.log || true
+              fi
+            else
+              echo "pinned package download failed:"; tail -n 5 /tmp/grpc-staging.log || true
+            fi
+            echo "::endgroup::"
           fi
-          echo "::endgroup::"
 
-          if [ "$STATUS" != "have-proto" ]; then
+          if [ "$STATUS" = "blocked" ]; then
+            echo "::group::Try STAGING (buf module: buf.build/honua-io/geospatial)"
+            if [ "$GRPC_VERSION" != "pre-release" ] && buf export "buf.build/honua-io/geospatial:v${GRPC_VERSION}" --output "$WORK/proto" >/tmp/grpc-staging.log 2>&1; then
+              SOURCE=staging; STATUS=have-proto; PROTODIR="$WORK/proto"
+            else
+              echo "buf module miss (expected until publish lands):"; tail -n 5 /tmp/grpc-staging.log || true
+            fi
+            echo "::endgroup::"
+          fi
+
+          if [ "$STATUS" = "blocked" ]; then
             # STUB (pending published buf module): clone the proto repo and generate from source.
             echo "::group::LOCAL fallback — clone geospatial-grpc and generate from source"
             if bash "$GITHUB_WORKSPACE/tools/checkout_component.sh" geospatial-grpc "$GRPC_SHA" src >/tmp/grpc-clone.log 2>&1; then
@@ -1101,11 +1203,15 @@ jobs:
             buf lint >/tmp/grpc-lint.log 2>&1 || echo "buf lint reported issues (non-fatal for codegen):"
             OUT="$WORK/gen"; mkdir -p "$OUT"
             # If a buf.gen.yaml exists use it; else synthesize a minimal one so codegen is exercised.
+            # C# messages + gRPC stubs: the shipped binding's language, and needs no per-file
+            # language options (Go would require go_package, which the published protos don't set).
             if [ ! -f buf.gen.yaml ]; then
               cat > buf.gen.yaml <<'EOF'
           version: v1
           plugins:
-            - plugin: buf.build/protocolbuffers/go
+            - plugin: buf.build/protocolbuffers/csharp
+              out: gen
+            - plugin: buf.build/grpc/csharp
               out: gen
           EOF
             fi

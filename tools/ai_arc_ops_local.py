@@ -54,7 +54,7 @@ import time
 import urllib.error
 import urllib.request
 
-DEFAULT_REVISION = '22c06af0dc9a0aec12f4084948f6390c373cb013'
+DEFAULT_REVISION = '8628668794df9f0c22a490e59cedaee409cc1bdd'
 EXECUTOR_COMPOSE = 'docs/get-started/compose.executor.yaml'
 MARKER = 'public.arc_ops_marker'
 # The product's ops surface: read-only ops, alert, operate-event, release-status, deploy-operation and
@@ -734,13 +734,12 @@ class Live:
 
 # --------------------------------------------------------------------------- the stage
 
-# What the customer's rc.2 release notes say about versions (honua-release release-notes/2026.1.md, known issue
-# honua-server#6865), quoted as the customer has it: every 2026.1 pre-release build reports server version 2026.1.1,
-# so a careful agent comparing version strings would read the update as a downgrade (pre-cut shakeout 11-01). It
-# tells the customer how to tell builds apart; it does not perform or shortcut any scored step.
-RELEASE_NOTE_VERSION = ('From the rc.2 release notes: 2026.1 pre-release builds all report server version 2026.1.1. '
-                        'Identify the running build by deploymentRevision or by image digest. rc.2 is newer than '
-                        'rc.1 even though both report the same version.')
+# What the customer's rc.2 release notes say about versions (honua-release release-notes/2026.1.md; honua-server
+# #6865 and #6884), quoted as the customer has it: rc.1 reported server version 2026.1.1 in error, so a careful agent
+# comparing version strings could read the update as a downgrade (pre-cut shakeout 11-01). It tells the customer how to
+# tell builds apart; it does not perform or shortcut any scored step.
+RELEASE_NOTE_VERSION = ('From the rc.2 release notes: rc.1 reported server version 2026.1.1 in error; rc.2 reports '
+                        '2026.1.0-rc.2 and is newer. Identify builds by deploymentRevision or image digest.')
 
 
 class LocalOps:

@@ -1,8 +1,8 @@
-These are unedited registry index bytes. honua-server was re-captured on 2026-11-02 for the
-daf56db rc.2 cut; honua-console was re-captured for the c63b37fd final rc.2 re-pin:
+These are unedited registry index bytes. honua-server was re-captured on 2026-11-03 for the
+8628668 rc.2 redo pin; honua-console was re-captured for the c63b37fd final rc.2 re-pin:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/honua-io/honua-server@sha256:0dd350510ce294253981fd69c86cd9016ff5b85905878ec2785c54e2d1591268 --raw > honua-server/index.json
+docker buildx imagetools inspect ghcr.io/honua-io/honua-server@sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da --raw > honua-server/index.json
 docker buildx imagetools inspect ghcr.io/honua-io/honua-console@sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358 --raw > honua-console/index.json
 ```
 

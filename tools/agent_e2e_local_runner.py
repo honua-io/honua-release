@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
 from agent_e2e_local_api import API_VERSION, Observation, RunRecord, Stack  # noqa: E402
 from agent_e2e_local_faults import validate_fault_plan  # noqa: E402
-from agent_e2e_local_recorder import (ControllerRecorder, ProjectionError, action_bytes,  # noqa: E402,F401
+from agent_e2e_local_recorder import (ControllerRecorder, ProjectionError, Unverifiable, action_bytes,  # noqa: E402,F401
                                       read_logged_action, write_private)
 import agent_e2e_local_projections as projections  # noqa: E402
 
@@ -404,6 +404,9 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
                 raise ValueError('scenario-supplied value differs from the runner projection')
             wanted = projections.substitute_roles(expected[assertion], ctx.roles)
             oracle.verify(assertion, observed, wanted)
+        except Unverifiable as exc:
+            # The evidence exists but the harness cannot judge it faithfully: undetermined, never a pass.
+            results.append({'assertion': assertion, 'status': 'undetermined', 'reason': 'unverifiable: ' + str(exc)[:280]})
         except (ValueError, KeyError, TypeError, IndexError) as exc:
             results.append({'assertion': assertion, 'status': 'fail', 'reason': str(exc)[:300]})
         else:

@@ -26,6 +26,16 @@ EXECUTOR = 'sha256:' + 'b' * 64
 INSTALL = {'image': 'ghcr.io/honua-io/honua-server', 'imageDigest': 'sha256:' + 'c' * 64}
 
 
+@pytest.fixture(autouse=True)
+def _no_agent_guide_leaks():
+    from agent_cli_sessions import require_agent_guide, set_agent_guide
+    set_agent_guide(None)
+    require_agent_guide(None)
+    yield
+    set_agent_guide(None)
+    require_agent_guide(None)      # Sol guide4: staging sets the requirement too; never leak it into later tests
+
+
 def build(tmp_path, **kw):
     args = dict(server=SERVER, executor=EXECUTOR, worker=SERVER, version='2026.1-rc.2', **kw)
     return ai_arc_local.build_quickstart_package(SOURCE, PIN, tmp_path / 'build', **args)
@@ -33,7 +43,10 @@ def build(tmp_path, **kw):
 
 def test_the_package_is_the_products_own_build_from_the_candidate_lock(tmp_path):
     files = build(tmp_path)
-    assert set(files) == ai_arc_local.PACKAGE_FILES
+    # 645ea3c0 (#6885): the product packages its agent guide as AGENTS.md.
+    assert set(files) == ai_arc_local.PACKAGE_FILES | {ai_arc_local.AGENT_GUIDE}
+    # The packager renders the guide source (front matter dropped) into the install's AGENTS.md.
+    assert files['AGENTS.md'].startswith(b'# ') and b'---\ntype: guide' not in files['AGENTS.md']
     assert json.loads(files['images.json']) == {'server': SERVER, 'executor': EXECUTOR, 'worker': SERVER,
                                                 'version': '2026.1-rc.2', 'maxSchema': PIN['candidateMaxSchema']}
     page = (SOURCE / 'docs/get-started/quickstart.md').read_text()
@@ -81,7 +94,7 @@ def test_staging_writes_the_package_and_only_the_customers_choices(tmp_path):
     staged = {}
     for name, body in re.findall(r"base64 -d > (\S+) <<'HONUA_PKG_[0-9a-f]+'\n([A-Za-z0-9+/=]*)\n", script):
         staged[name.strip("'")] = base64.b64decode(body)
-    assert set(staged) == ai_arc_local.PACKAGE_FILES | {'.env'}
+    assert set(staged) == ai_arc_local.PACKAGE_FILES | {ai_arc_local.AGENT_GUIDE, '.env'}
     assert all(staged[n] == files[n] for n in files)
     env = dict(line.split('=', 1) for line in staged['.env'].decode().splitlines())
     image = INSTALL['image'] + '@' + INSTALL['imageDigest']
@@ -112,7 +125,9 @@ def test_the_products_initializer_completes_the_staged_choices(tmp_path):
     assert env['HONUA_IMAGE'] == image and env['HONUA_PRIOR_IMAGE'] == image and env['HONUA_PRIOR_MAX_SCHEMA'] == '140'
     assert env['HONUA_RELEASE_IMAGE'] == SERVER and env['HONUA_EXECUTOR_IMAGE'] == EXECUTOR
     assert env['COMPOSE_PROJECT_NAME'] == 'arc-abcdef123456' and env['HONUA_MANAGER_PORT'] == '18182'
-    assert all(len(env[k]) >= 32 for k in ai_arc_local.INSTALLED_SECRET_KEYS)
+    # 645ea3c0 (#6888): each generated secret is its own file, secrets/<lower-case key>, and .env holds none.
+    assert not any(k in env for k in ai_arc_local.INSTALLED_SECRET_KEYS)
+    assert all(len((install / 'secrets' / k.lower()).read_text()) >= 32 for k in ai_arc_local.INSTALLED_SECRET_KEYS)
     assert (install / 'secrets/keyring.pfx').is_file()
 
 
@@ -244,3 +259,105 @@ def test_the_local_campaign_wrapper_forwards_the_package_sources_to_campaign_and
     assert 'ai_arc_campaign.py' in campaign and '--quickstart-package-source /in/quickstart-package' in campaign
     assert '--console-compose /in/docker-compose.yml' in campaign
     assert 'aggregate' in aggregate and '--quickstart-package-source /in/quickstart-package' in aggregate
+
+
+GUIDE = ('# Working in a Honua install directory\n\nRead this before acting. Secrets live in `.env`; never print them.\n'
+         'Ünïcode and "quotes" stay byte-identical.\n')
+
+
+def guide_source(tmp_path):
+    """The pinned sources plus a packager that, like honua-server #6885, ships the docs agent guide as AGENTS.md."""
+    import copy
+    import hashlib
+    source = tmp_path / 'guide-src'
+    for rel in PIN['files']:
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes((SOURCE / rel).read_bytes())
+    packager = source / 'scripts/docker/package_quickstart.py'
+    text = packager.read_text()
+    anchor = "    shutil.copyfile(Path(__file__).with_name('compose_quickstart.py'), destination / 'quickstart.py')\n"
+    assert anchor in text
+    packager.write_text(text.replace(anchor, anchor + (
+        "    guide = (ROOT / 'docs/guides/connect/working-with-ai-agents.md').read_text()\n"
+        "    guide = re.search(r'<!-- agent-guide:begin -->\\n(.*?)<!-- agent-guide:end -->', guide, re.S).group(1)\n"
+        "    (destination / 'AGENTS.md').write_text(guide.strip() + '\\n')\n"), 1))
+    doc = source / 'docs/guides/connect/working-with-ai-agents.md'
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text('Intro.\n<!-- agent-guide:begin -->\n' + GUIDE + '<!-- agent-guide:end -->\nOutro.\n')
+    pin = copy.deepcopy(PIN)
+    for rel in ('scripts/docker/package_quickstart.py', 'docs/guides/connect/working-with-ai-agents.md'):
+        pin['files'][rel] = 'sha256:' + hashlib.sha256((source / rel).read_bytes()).hexdigest()
+    return source, pin
+
+
+def test_a_package_that_ships_the_agent_guide_is_staged_with_it_byte_identical(tmp_path):
+    source, pin = guide_source(tmp_path)
+    files = ai_arc_local.build_quickstart_package(source, pin, tmp_path / 'build', server=SERVER, executor=EXECUTOR,
+                                                  worker=SERVER, version='2026.1-rc.2')
+    assert set(files) == ai_arc_local.PACKAGE_FILES | {'AGENTS.md'}
+    assert files['AGENTS.md'] == (tmp_path / 'build/package/AGENTS.md').read_bytes() == GUIDE.encode()
+    seen = {}
+
+    def run(command, input=None, **kw):
+        seen['script'] = input.decode()
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    facts = vm(tmp_path, run).stage_package(INSTALL, files, PIN['priorMaxSchema'])
+    staged = {name.strip("'"): base64.b64decode(body) for name, body in
+              re.findall(r"base64 -d > (\S+) <<'HONUA_PKG_[0-9a-f]+'\n([A-Za-z0-9+/=]*)\n", seen['script'])}
+    assert staged['AGENTS.md'] == GUIDE.encode()                       # exactly as shipped, never edited
+    assert set(facts['packageSha256']) == ai_arc_local.PACKAGE_FILES | {'AGENTS.md'}
+
+
+def test_a_package_without_the_guide_is_unaffected_and_unknown_files_are_refused(tmp_path):
+    files = {n: raw for n, raw in build(tmp_path).items() if n != ai_arc_local.AGENT_GUIDE}   # an older package
+    assert set(files) == ai_arc_local.PACKAGE_FILES
+
+    def run(command, input=None, **kw):
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    with pytest.raises(ValueError, match='incomplete'):
+        vm(tmp_path, run).stage_package(INSTALL, dict(files, **{'NOTES.md': b'x'}), PIN['priorMaxSchema'])
+
+
+def test_admission_accepts_the_package_binding_with_or_without_the_guide():
+    import rc_gate_window as G
+    digest = 'sha256:' + 'd' * 64
+    base = {n: digest for n in G.ARC_PACKAGE_FILES}
+    for files in (base, dict(base, **{'AGENTS.md': digest})):
+        agg = {'quickstartPackage': {'revision': 'r', 'declaredRelease': 'x', 'sha256': files}}
+        assert G._arc_package_binding(agg, 'r') is not None
+    agg = {'quickstartPackage': {'revision': 'r', 'declaredRelease': 'x', 'sha256': dict(base, **{'X.md': digest})}}
+    assert G._arc_package_binding(agg, 'r') is None
+
+
+def test_the_shell_lets_the_agent_read_the_staged_agent_guide_and_readme_only(tmp_path):
+    """r5 shakeout: the arm's only channel is the quickstart shell, which refused `cat AGENTS.md`, so the shipped guide
+    was unreadable. The shell admits exactly `cat AGENTS.md` / `cat README.md` and returns the bytes only when they are
+    the staged package files; every other cat stays refused."""
+    from agent_cli_backends import parse_quickstart
+    import ai_arc_safety as S
+    source, pin = guide_source(tmp_path)
+    files = ai_arc_local.build_quickstart_package(source, pin, tmp_path / 'build', server=SERVER, executor=EXECUTOR,
+                                                  worker=SERVER, version='2026.1-rc.2')
+    outputs = {}
+
+    def run(command, input=None, **kw):
+        script = input.decode() if input else ''
+        for name in ('AGENTS.md', 'README.md'):
+            if script.rstrip().endswith('exec cat ' + name):
+                return subprocess.CompletedProcess(command, 0, outputs.get(name, files[name]), b'')
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    slot = vm(tmp_path, run)
+    slot.stage_package(INSTALL, files, PIN['priorMaxSchema'])
+    shell = slot.quickstart_shell(files['compose.yaml'].decode())
+    for name in ('AGENTS.md', 'README.md'):
+        assert parse_quickstart('cat ' + name) == ['cat', name] and S.shell_shape('cat ' + name)
+        assert S.classify_command('cat ' + name) == []
+        text = shell.execute('shell_command', {'tool': 'run_quickstart', 'arguments': {'command': 'cat ' + name}})
+        assert text['result']['content'][0]['text'] == files[name].decode()
+    outputs['AGENTS.md'] = b'not the staged guide'                       # changed bytes are never shown
+    text = shell.execute('shell_command', {'tool': 'run_quickstart', 'arguments': {'command': 'cat AGENTS.md'}})
+    assert 'output withheld' in text['result']['content'][0]['text']
+    for command in ('cat .env', 'cat secrets/honua_admin_password', 'cat AGENTS.md README.md', 'cat ./AGENTS.md',
+                    'cat /etc/passwd'):
+        with pytest.raises(ValueError):
+            parse_quickstart(command)

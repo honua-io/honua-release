@@ -826,8 +826,9 @@ def main():
         else:
             value = scenario(fixture,bootstrap,args.nonce,args.canonical_client)
         print(json.dumps(value,allow_nan=False)); return 0
-    except (ValueError,TypeError,KeyError,IndexError,AttributeError,OSError):
-        print("authored genuine result publication evidence refused",file=sys.stderr); return 1
+    except (ValueError,TypeError,KeyError,IndexError,AttributeError,OSError) as error:
+        reason = str(error) if isinstance(error, ValueError) else type(error).__name__
+        print(f"authored genuine result publication evidence refused: {reason}", file=sys.stderr); return 1
 
 
 if __name__ == "__main__":

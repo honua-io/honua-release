@@ -93,13 +93,22 @@ def _journey_attribute(properties):
     A file-upload import stores source attributes in one JSONB `properties` column
     (honua.create_import_table: id, geometry, properties), and publishing projects source
     columns verbatim, so the fixture key may be nested one level. Exactly one location
-    must hold it; the layout is reported, never guessed.
+    must hold it unless both agree (below); the layout is reported, never guessed.
+
+    From honua-server #6815 an import also promotes typed source attributes into real columns while the
+    jsonb document stays complete (migration 143), so the key is legitimately in both places. That layout
+    passes only when the two values are identical (value and JSON type); the column value is used.
     """
     nested = properties.get("properties")
     top = "journey_id" in properties
     inner = isinstance(nested, dict) and "journey_id" in nested
-    if top == inner:
-        raise ProofError("published feature does not carry exactly one journey_id")
+    if not top and not inner:
+        raise ProofError("published feature carries no journey_id (neither a column nor the import properties)")
+    if top and inner:
+        column, document = properties["journey_id"], nested["journey_id"]
+        if type(column) is not type(document) or column != document:
+            raise ProofError("published feature's journey_id column differs from its import properties value")
+        return column, "columns+import-jsonb-properties"
     return (properties["journey_id"], "columns") if top else (nested["journey_id"], "import-jsonb-properties")
 
 

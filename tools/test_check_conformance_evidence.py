@@ -342,3 +342,43 @@ def test_an_implemented_suite_regression_still_fails_under_scope():
         CANDIDATE, parse_cite_status(regressed), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
     )
     assert overall == "fail"
+
+
+def _retired_section():
+    """The evidence section whose producer was retired on 2026-11-02 (every section but cite and stac)."""
+    import check_conformance_evidence as cce
+    (section,) = [s for s in cce.ALL_SECTIONS if s not in ("cite", "stac")]
+    return section
+
+
+@pytest.mark.parametrize("selection", ["retired", "cite,stac"])
+def test_cli_on_the_committed_config_writes_a_report_with_the_producer_retired(tmp_path, selection):
+    """The committed config carries the retired section as an empty mapping since 2026-11-02; a null
+    section must not crash the CLI before it writes the lane report (OGC/STAC included)."""
+    import json
+    from pathlib import Path
+    import check_conformance_evidence as cce
+    sections = _retired_section() if selection == "retired" else selection
+    root = Path(cce.__file__).resolve().parents[1]
+    out = tmp_path / "report.json"
+    code = cce.main(["--manifest", str(root / "platform-manifest.yaml"), "--sections", sections,
+                     "--json-out", str(out)])
+    report = json.loads(out.read_text())
+    assert report["overallStatus"] != "pass" and code == 1  # no evidence supplied: never a pass
+    assert report["rows"]
+
+
+def test_a_null_section_is_normalized_not_a_crash(tmp_path):
+    import json
+    import yaml
+    from pathlib import Path
+    import check_conformance_evidence as cce
+    root = Path(cce.__file__).resolve().parents[1]
+    config = yaml.safe_load((root / "certification/conformance-evidence.yaml").read_text())
+    config[_retired_section()] = None
+    path = tmp_path / "conformance-evidence.yaml"
+    path.write_text(yaml.safe_dump(config))
+    out = tmp_path / "report.json"
+    cce.main(["--manifest", str(root / "platform-manifest.yaml"), "--config", str(path),
+              "--sections", _retired_section(), "--json-out", str(out)])
+    assert json.loads(out.read_text())["overallStatus"] != "pass"

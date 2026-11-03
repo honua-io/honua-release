@@ -78,6 +78,11 @@ candidate's image is skipped, and with neither the cell is blocked (strict: fail
 itself. Every `upgrade-kind-*` (Helm on kind) fragment is non-blocking Preview evidence. This is a
 founder-approved exception to the pre-rc.3 gate freeze; no other required gate changed.
 
+**Upgrade gate not required for rc.N (founder decision 2026-11-02, ruling
+`upgrade-gate-ga-deferred-2026-11-02`).** 2026.1-rc.1 was never announced, so no customer upgrades
+from it. `tools/rc_gate_window.py` lists `gate-upgrade.yml` in `GA_DEFERRED`: rc admission reports it
+and never requires it. It stays a GA gate; the workflow, tools and tests above are unchanged.
+
 ## 2. Select, burn and qualify a promotion candidate
 
 - [ ] Select a signed certified lock rc.N and verify its signature and minting strict train. Deploy its

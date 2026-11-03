@@ -90,6 +90,215 @@ honua-iac:
       Scheduled maintenance job (Terraform Validation IAM Sweeper) with the same role precondition
       as the reaper; cleanup only, never a verdict on the pinned sha.
 
+  - name: "Drift plan (aws-bedrock-quotas)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-demo-deploy)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-drift-plan)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-ecs)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-eks)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-eval-docker-hosts)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-exec-identity)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-release-cells)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-serverless)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-support-access)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-terraform-oidc)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-tfstate)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-update-rollback-controller)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (aws-validation-reaper)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (azure-aca)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (azure-aks)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (azure-functions)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Drift plan (azure-support-access)"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): plans
+      each bootstrap root against its LIVE AWS state with the plan-only drift OIDC role. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
+  - name: "Open, update or close the drift issue"
+    why: >-
+      honua-iac Bootstrap Drift Plan (`.github/workflows/bootstrap-drift-plan.yml`, scheduled): files the
+      result of the live AWS drift plans as the drift issue. It needs an
+      external live backend and certifies nothing about the IaC at the pinned sha; a red is live
+      account drift (honua-iac#338: aws-demo-deploy never applied, aws-update-rollback-controller
+      #355/#356 unapplied, aws-eval-docker-hosts applied but recorded never-applied). Same precedent
+      as "Reap orphaned validation infrastructure" above. Terraform Validate, Terraform Policy Gates
+      and the static "Root coverage" job stay core. Exact job names from the workflow's matrix at
+      the pinned fa76b1dd (drift-roots.json); release-session ruling 2026-11-03; honua-release#482.
+
 honua-server:
   - name: "geometry-buffer"
     why: >-
