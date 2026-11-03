@@ -50,7 +50,8 @@ services:
       - "8080:8080"
     healthcheck:
       # The server image ships bash but no wget or curl: the authenticated request goes over /dev/tcp.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /api/v1/admin/license HTTP/1.0\\r\\nHost: localhost\\r\\nX-API-Key: %s\\r\\nConnection: close\\r\\n\\r\\n' \"$$HONUA_ADMIN_PASSWORD\" >&3 && grep -Eq '\"mode\"[[:space:]]*:[[:space:]]*\"disabled\"' <&3"]
+      # Only an exact 200 counts; the headers are skipped and the mode is read from the body.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /api/v1/admin/license HTTP/1.0\\r\\nHost: localhost\\r\\nX-API-Key: %s\\r\\nConnection: close\\r\\n\\r\\n' \"$$HONUA_ADMIN_PASSWORD\" >&3 && IFS=' ' read -r proto code rest <&3 && [ \"$$code\" = 200 ] && while IFS= read -r line <&3 && [ $${#line} -gt 1 ]; do :; done && grep -Eq '\"mode\"[[:space:]]*:[[:space:]]*\"disabled\"' <&3"]
       interval: 5s
       timeout: 5s
       retries: 60
@@ -87,7 +88,9 @@ repeat the same assertion through the server container:
 
 ```sh
 docker compose exec -T honua bash -c \
-  'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /api/v1/admin/license HTTP/1.0\r\nHost: localhost\r\nX-API-Key: %s\r\nConnection: close\r\n\r\n" "$HONUA_ADMIN_PASSWORD" >&3 && cat <&3' \
+  'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /api/v1/admin/license HTTP/1.0\r\nHost: localhost\r\nX-API-Key: %s\r\nConnection: close\r\n\r\n" "$HONUA_ADMIN_PASSWORD" >&3 &&
+   IFS=" " read -r proto code rest <&3 && [ "$code" = 200 ] &&
+   while IFS= read -r line <&3 && [ ${#line} -gt 1 ]; do :; done && cat <&3' \
   | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"disabled"'
 ```
 

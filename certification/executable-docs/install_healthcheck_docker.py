@@ -27,48 +27,82 @@ def _compose_example(path: Path) -> str:
 
 
 class _LicenseStub(http.server.BaseHTTPRequestHandler):
-    """Stands in for the server: records each raw request and answers with a fixed licensing mode."""
+    """Stands in for the server: records each raw request and sends one configured response."""
 
     requests: list[str] = []
-    mode = "disabled"
+    status = 200
+    headers_out: dict[str, str] = {}
+    body = b""
 
     def do_GET(self) -> None:  # noqa: N802 - http.server API
-        type(self).requests.append(self.requestline + "\r\n" + str(self.headers))
-        body = json.dumps({"data": {"mode": type(self).mode}}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+        cls = type(self)
+        cls.requests.append(self.requestline + "\r\n" + str(self.headers))
+        self.send_response(cls.status)
+        for name, value in cls.headers_out.items():
+            self.send_header(name, value)
+        self.send_header("Content-Length", str(len(cls.body)))
         self.end_headers()
-        self.wfile.write(body)
+        self.wfile.write(cls.body)
 
     def log_message(self, *args) -> None:
         pass
 
 
-def _run_probe(argv: list[str], directory: Path, mode: str = "disabled") -> tuple[int, list[str]]:
+def _license(mode: str) -> bytes:
+    return json.dumps({"data": {"mode": mode}}).encode()
+
+
+def _serve(status: int = 200, body: bytes = _license("disabled"),
+           headers: dict[str, str] | None = None) -> http.server.HTTPServer:
+    _LicenseStub.requests = []
+    _LicenseStub.status, _LicenseStub.body = status, body
+    _LicenseStub.headers_out = {"Content-Type": "application/json", **(headers or {})}
+    server = http.server.HTTPServer(("127.0.0.1", 0), _LicenseStub)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _run_probe(argv: list[str], directory: Path, **response) -> tuple[int, list[str]]:
     # The documented probe opens /dev/tcp/127.0.0.1/8080 inside the server container. Point that one
     # address at a local stub; the probe cannot reach a server or print a credential.
-    _LicenseStub.requests = []
-    _LicenseStub.mode = mode
-    server = http.server.HTTPServer(("127.0.0.1", 0), _LicenseStub)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    server = _serve(**response)
     try:
         assert argv[:2] == ["bash", "-c"], argv
         script = argv[2].replace("/dev/tcp/127.0.0.1/8080", f"/dev/tcp/127.0.0.1/{server.server_port}")
         assert script != argv[2], "the probe no longer targets the container's own port 8080"
-        env = {
-            "HOME": str(directory),
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-            "LANG": "C",
-            "HONUA_ADMIN_PASSWORD": DUMMY_KEY,
-        }
-        result = subprocess.run(["bash", "-c", script, *argv[3:]], cwd=directory, env=env,
+        result = subprocess.run(["bash", "-c", script, *argv[3:]], cwd=directory, env=_probe_env(directory),
                                 capture_output=True, text=True, timeout=5, check=False)
         return result.returncode, list(_LicenseStub.requests)
     finally:
         server.shutdown()
         server.server_close()
+
+
+def _probe_env(directory: Path) -> dict[str, str]:
+    return {"HOME": str(directory), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C",
+            "HONUA_ADMIN_PASSWORD": DUMMY_KEY}
+
+
+# Responses no probe may accept: an HTTP failure carrying the right body, the mode only in a header,
+# and an enabled mode.
+REFUSED = (
+    {"status": 401},
+    {"status": 503},
+    {"status": 503, "body": b"", "headers": {"X-Diagnostic": '"mode":"disabled"'}},
+    {"status": 200, "body": b"{}", "headers": {"X-Diagnostic": '"mode":"disabled"'}},
+    {"status": 200, "body": _license("enabled")},
+)
+
+
+def _post_start_assertion(path: Path) -> str:
+    """The pasted post-start block, with `docker compose exec -T honua` replaced by a local bash."""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r"```sh\n(docker compose exec -T honua bash -c \\\n.*?)\n```", text, re.DOTALL)
+    assert match is not None, f"{path.name}: missing post-start licensing assertion"
+    block = match.group(1)
+    local = block.replace("docker compose exec -T honua bash -c", "bash -c", 1)
+    assert local != block
+    return local
 
 
 def _created_healthcheck(directory: Path) -> list[str]:
@@ -127,9 +161,9 @@ def test_install_probe_expands_admin_key_after_compose(guide: str, tmp_path: Pat
     assert requests[0].count(f"X-API-Key: {DUMMY_KEY}") == 1
     assert "${HONUA_ADMIN_PASSWORD}" not in requests[0] and "$HONUA_ADMIN_PASSWORD" not in requests[0]
 
-    # An enabled licensing mode must keep the server unhealthy.
-    code, _ = _run_probe(argv, tmp_path, mode="enabled")
-    assert code != 0, "health probe accepted an enabled licensing mode"
+    for response in REFUSED:
+        code, _ = _run_probe(argv, tmp_path, **response)
+        assert code != 0, f"health probe accepted {response}"
 
     # A single-quoted key reference must remain a failing control: it sends the literal name.
     quoted = argv[:2] + [argv[2].replace('"$HONUA_ADMIN_PASSWORD"', "'$HONUA_ADMIN_PASSWORD'")] + argv[3:]
@@ -137,3 +171,28 @@ def test_install_probe_expands_admin_key_after_compose(guide: str, tmp_path: Pat
     _, old_requests = _run_probe(quoted, tmp_path)
     assert f"X-API-Key: {DUMMY_KEY}" not in old_requests[0]
     assert "X-API-Key: $HONUA_ADMIN_PASSWORD" in old_requests[0]
+
+
+@pytest.mark.parametrize("guide", GUIDES)
+def test_post_start_assertion_requires_authenticated_disabled_mode(guide: str, tmp_path: Path) -> None:
+    command = _post_start_assertion(ROOT / guide)
+    assert "wget" not in command and "curl" not in command
+
+    def run(**response) -> tuple[int, list[str]]:
+        server = _serve(**response)
+        try:
+            local = command.replace("/dev/tcp/127.0.0.1/8080", f"/dev/tcp/127.0.0.1/{server.server_port}")
+            assert local != command
+            result = subprocess.run(["sh", "-c", local], cwd=tmp_path, env=_probe_env(tmp_path),
+                                    capture_output=True, text=True, timeout=5, check=False)
+            return result.returncode, list(_LicenseStub.requests)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    code, requests = run()
+    assert code == 0, "post-start assertion did not accept the disabled-mode response"
+    assert len(requests) == 1 and requests[0].count(f"X-API-Key: {DUMMY_KEY}") == 1
+    for response in REFUSED:
+        code, _ = run(**response)
+        assert code != 0, f"post-start assertion accepted {response}"
