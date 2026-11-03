@@ -262,3 +262,29 @@ def test_manifest_without_pinned_digest_refuses():
     component = copy.deepcopy(COMPONENT)
     component["digest"] = ""
     assert World().resolve(component=component)["status"] == "unavailable"
+
+
+def test_a_newer_red_on_the_pin_itself_decides():
+    """Sol round 1: a newer failed candidate dispatch at the pin sha must not be filtered out."""
+    world = World()
+    world.runs.append(_run(id=RUN_ID + 1, head_sha=PIN, conclusion="failure", created_at="2026-11-03T21:00:00Z"))
+    record = world.resolve()
+    assert record["status"] == "unavailable"
+
+
+def test_a_failed_rerun_of_an_earlier_dispatch_decides():
+    """Sol round 1: recency is execution recency (latest attempt), not the original dispatch time."""
+    world = World()
+    world.runs[0]["updated_at"] = "2026-11-03T20:10:00Z"
+    world.runs.append(_run(id=RUN_ID - 1, run_attempt=2, conclusion="failure", created_at="2026-11-03T19:00:00Z",
+                           run_started_at="2026-11-03T21:50:00Z", updated_at="2026-11-03T22:00:00Z"))
+    record = world.resolve()
+    assert record["status"] == "unavailable" and str(RUN_ID - 1) in record["reason"]
+
+
+def test_an_older_red_does_not_block_a_newer_verified_green():
+    world = World()
+    world.runs[0]["updated_at"] = "2026-11-03T20:10:00Z"
+    world.runs.append(_run(id=RUN_ID - 1, conclusion="failure", created_at="2026-11-03T18:00:00Z",
+                           updated_at="2026-11-03T18:40:00Z"))
+    assert world.resolve()["status"] == "verified"

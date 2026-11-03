@@ -102,18 +102,28 @@ def require_on_trunk(run_sha: str, compare_to_trunk: dict) -> None:
         raise NotQualified("run commit is not on server trunk")
 
 
+def _recency(run: dict) -> tuple[str, int, int]:
+    """Execution recency: the latest of the run's update, latest-attempt start and creation times, then
+    its attempt and id. A failed re-run of an earlier dispatch is newer than a later dispatch's green."""
+    times = [str(run.get(key) or "") for key in ("updated_at", "run_started_at", "created_at")]
+    return max(times), int(run.get("run_attempt") or 0), int(run.get("id") or 0)
+
+
 def select_run(runs_payload: dict, pinned: str, digest: str) -> dict:
-    """The newest completed workflow_dispatch run whose title names the pinned digest (index only)."""
+    """The deciding execution: the most recently executed completed workflow_dispatch run whose title
+    names the pinned digest (the title is only an index). It is chosen BEFORE any qualification, so a
+    newer red, including one on the pin itself or a failed re-run of an older dispatch, is the run that
+    decides; it then fails qualification and the pin's own check-runs stay in charge."""
     candidates = []
     for run in runs_payload.get("workflow_runs") or []:
         title = str(run.get("display_title") or "")
         if (run.get("event") == "workflow_dispatch" and run.get("path") == WORKFLOW_PATH
-                and run.get("status") == "completed" and run.get("head_sha") != pinned
+                and run.get("status") == "completed"
                 and title.startswith(TITLE_PREFIX) and title.endswith("@" + digest)):
             candidates.append(run)
     if not candidates:
         raise NotQualified("no completed candidate-image dispatch of the validated-examples workflow")
-    return max(candidates, key=lambda r: (str(r.get("created_at") or ""), int(r.get("id") or 0)))
+    return max(candidates, key=_recency)
 
 
 def verify_run(run: dict, run_sha: str) -> None:
@@ -186,9 +196,11 @@ def resolve(pinned: str, component: dict, sdk_version: str | None,
         runs = get_json(f"repos/{REPO}/actions/workflows/{WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=100")
         run = select_run(runs, pinned, digest)
         run_sha = str(run.get("head_sha") or "")
+        verify_run(run, run_sha)
+        if run_sha == pinned:
+            raise NotQualified(f"deciding run {run.get('id')} ran at the pin itself; the pin's check-runs decide")
         paths = changed_paths(pinned, run_sha, get_json(f"repos/{REPO}/compare/{pinned}...{run_sha}"))
         require_on_trunk(run_sha, get_json(f"repos/{REPO}/compare/{run_sha}...trunk"))
-        verify_run(run, run_sha)
         verify_jobs(run, get_json(f"repos/{REPO}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100"), run_sha)
         artifacts = get_json(f"repos/{REPO}/actions/runs/{run['id']}/artifacts?per_page=100").get("artifacts") or []
         facts = {}
