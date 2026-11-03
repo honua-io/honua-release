@@ -61,6 +61,17 @@ def studio_cli_tool_view(tool_view):
         if not row['name'].startswith('honua_studio_') or row['name'] in reads]}
 
 
+def studio_origin_refusals(runtime) -> list:
+    """Every frame the Studio browser's origin guard refused in this case, with the allowed origins and the page's
+    frame list at the time (rehearsal 9 run 14c, H4: "refused document origin" named no address)."""
+    rows = []
+    for browser in getattr(runtime, 'studio_browsers', None) or []:
+        refusals = getattr(browser, 'origin_refusals', None)
+        if isinstance(refusals, list):
+            rows.extend(row for row in refusals if isinstance(row, dict))
+    return rows[:20]
+
+
 def studio_ui_assertion(receipt, stack) -> dict:
     """goal.studio-ui: the map was created and saved through Studio in Console (runner-observed UI actions, their
     sealed responses and the operation handles). A session that did not finish was never observed, so the row says
@@ -613,6 +624,8 @@ def studio_runtime_class():
             return studio_cli_tool_view(super().tool_view(stack))
 
         def register_studio_browser(self, browser):
+            # Kept for the case receipt: the frames the browser's origin guard refused (H4).
+            self.__dict__.setdefault('studio_browsers', []).append(browser)
             register = getattr(self, 'browser_register', None)
             if callable(register):
                 guard = close_browser_on_gate(browser)
@@ -871,6 +884,9 @@ def arc_stage(ctx):
                     scenario=scenario, variant=fixture, case=case,
                     candidate_digest=context.candidate['imageDigest'], runtime=runtime)
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
+                refusals = studio_origin_refusals(runtime)
+                if refusals:
+                    receipt['studioOriginRefusals'] = refusals
                 if stack and stack.extra.get('arcLineageVerified') is True:
                     receipt['studioServicesHandoff'] = stack.extra['arcServicesHandoff']
                     receipt['studioServicesLineage'] = stack.extra['arcServicesLineage']

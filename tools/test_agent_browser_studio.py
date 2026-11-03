@@ -1259,3 +1259,114 @@ def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
     body['layers'][0]['styleRef'] = 'authored'
     with pytest.raises(ProjectionError, match='viewless catalog layer'):
         catalog_composition_without_view(body, ids)
+
+
+def _guarded_page(frames):
+    """A PlaywrightPage with no browser: only the origin guard's state and fake frames."""
+    from agent_browser_studio import OriginLock, PlaywrightPage
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page.origin = OriginLock('http://127.0.0.1:39267/studio')
+    page.origin_refusals, page._initial_document, page._origin_failed = [], False, False
+    closed = []
+    page._context = SimpleNamespace(close=lambda: closed.append(True))
+    page._page = SimpleNamespace(frames=frames, url=frames[0].url)
+    return page, closed
+
+
+def _frame(url, name='', parent=None):
+    return SimpleNamespace(url=url, name=name, parent_frame=parent)
+
+
+@pytest.mark.parametrize('url, recorded', [
+    ('http://127.0.0.1:41000/_studio/maputnik/index.html?layer=1#channel=secret', 'http://127.0.0.1:41000/_studio/maputnik/index.html'),
+    ('blob:http://127.0.0.1:39267/5d1c-uuid', 'blob:http://127.0.0.1:39267/5d1c-uuid'),
+    ('about:srcdoc', 'about:srcdoc'),
+    ('data:text/html;base64,PHNjcmlwdD4=', 'data:'),
+    ('https://user:pw@tiles.example.com/x/y?token=abc', 'https://tiles.example.com/x/y')])
+def test_a_refused_frame_is_named_in_the_action_result_and_kept_for_the_receipt(url, recorded):
+    """Rehearsal 9 run 14c (H4): "refused document origin" named no address. The refusal now names the refused
+    frame (origin and path; never a query, fragment, credentials or data: content) and the allowed origin, and
+    the page keeps the record for the case receipt. The guard still refuses and still closes the context."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, closed = _guarded_page([top, _frame(url, 'style-editor', top)])
+    with pytest.raises(OriginLocked) as refused:
+        page._check_origin()
+    assert closed == [True]
+    message = str(refused.value)
+    assert message.startswith('refused document origin: ' + recorded) and '(allowed: http://127.0.0.1:39267)' in message
+    assert 'secret' not in message and 'token=' not in message and 'pw@' not in message and 'PHNj' not in message
+    row = page.origin_refusals[-1]
+    assert row['event'] == 'check' and row['allowedOrigins'] == ['http://127.0.0.1:39267']
+    assert row['refused'] == [{'url': recorded, 'name': 'style-editor', 'parent': 'http://127.0.0.1:39267/studio'}]
+    assert row['frames'] == ['http://127.0.0.1:39267/studio', recorded]
+
+
+def test_a_refused_navigation_is_recorded_and_the_next_action_names_it():
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, closed = _guarded_page([top])
+    page._navigation(_frame('http://127.0.0.1:41000/_studio/maputnik/index.html#channel=x', parent=top))
+    assert closed == [True] and page.origin_refusals[0]['event'] == 'framenavigated'
+    with pytest.raises(OriginLocked, match=r'refused document origin: http://127\.0\.0\.1:41000/_studio/maputnik/'):
+        page._check_origin()
+    # Allowed frames are never recorded.
+    page2, closed2 = _guarded_page([top, _frame('http://127.0.0.1:39267/_studio/maputnik/index.html#c=1', parent=top)])
+    page2._check_origin()
+    assert page2.origin_refusals == [] and closed2 == []
+
+
+def test_the_studio_case_receipt_carries_every_browsers_refusals():
+    from agent_e2e_studio_arc import studio_origin_refusals
+    row = {'event': 'check', 'allowedOrigins': ['http://127.0.0.1:1'], 'refused': [], 'frames': []}
+    runtime = SimpleNamespace(studio_browsers=[SimpleNamespace(origin_refusals=[row]),
+                                               SimpleNamespace(origin_refusals=None), SimpleNamespace()])
+    assert studio_origin_refusals(runtime) == [row]
+    assert studio_origin_refusals(SimpleNamespace()) == []
+
+
+@pytest.mark.parametrize('initial', ['', 'about:blank'])
+def test_an_initial_empty_child_frame_is_allowed_only_until_it_commits_and_is_rechecked(initial):
+    """H4 (rehearsal 9 run 14c, no-model reproduction h4-repro-2): Studio's second Maputnik iframe was still on its
+    initial empty document ('') when the guard's post-action check ran, and the guard closed the browser. Such a
+    child of an allowed frame is allowed; the moment it commits a real navigation it is checked again (framenavigated
+    handler and every post-action check), so the allowance is never a window to another origin."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    child = _frame(initial, 'maputnik', top)
+    page, closed = _guarded_page([top, child])
+    page._check_origin()
+    page._navigation(child)
+    assert closed == [] and page.origin_refusals == []
+    child.url = 'http://127.0.0.1:39267/_studio/maputnik/index.html#channel=x'      # its same-origin commit
+    page._navigation(child)
+    page._check_origin()
+    assert closed == [] and page.origin_refusals == []
+    child.url = 'http://127.0.0.1:41000/elsewhere'                                 # then off-origin: refused
+    page._navigation(child)
+    assert closed == [True] and page.origin_refusals[0]['refused'][0]['url'] == 'http://127.0.0.1:41000/elsewhere'
+    with pytest.raises(OriginLocked, match='refused document origin'):
+        page._check_origin()
+    # The post-action check alone (no navigation event) also refuses a committed off-origin child.
+    other = _frame(initial, 'maputnik', top)
+    page2, closed2 = _guarded_page([top, other])
+    page2._check_origin()
+    other.url = 'https://tiles.example.com/x'
+    with pytest.raises(OriginLocked):
+        page2._check_origin()
+    assert closed2 == [True]
+
+
+@pytest.mark.parametrize('frames', [
+    lambda top: [top, _frame('about:srcdoc', '', top)],
+    lambda top: [top, _frame('blob:http://127.0.0.1:39267/uuid', '', top)],
+    lambda top: [top, _frame('data:text/html,x', '', top)],
+    lambda top: [top, _frame('', '', _frame('http://127.0.0.1:41000/off', '', top))],   # empty child of an off-origin frame
+    lambda top: [top, _frame('', '', None)]])                                          # not a child frame
+def test_only_an_initial_empty_child_of_an_allowed_frame_is_allowed(frames):
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, closed = _guarded_page(frames(top))
+    with pytest.raises(OriginLocked):
+        page._check_origin()
+    assert closed == [True]

@@ -290,6 +290,28 @@ class OriginLock:
         return url == 'about:blank' or self.allows(url)
 
 
+def refused_frame_url(url) -> str:
+    """A refused frame's address for the evidence record: scheme, host, port and path in full; query and fragment
+    dropped (they can carry tokens, e.g. Maputnik's #channel=). about:/blob:/data: keep their scheme (blob: also
+    its inner origin and path); a data: URL's content is never kept. Bounded; never raises."""
+    try:
+        if not isinstance(url, str):
+            return '<not a string>'
+        lowered = url.lower()
+        if lowered.startswith('data:'):
+            return 'data:'
+        if lowered.startswith('about:'):
+            return url.split('?', 1)[0].split('#', 1)[0][:200]
+        inner = url[5:] if lowered.startswith('blob:') else url
+        parts = urlsplit(inner)
+        host = parts.hostname or ''
+        host = f'[{host}]' if ':' in host else host
+        address = f'{parts.scheme}://{host}' + (f':{parts.port}' if parts.port else '') + (parts.path or '')
+        return (('blob:' if inner is not url else '') + address)[:300]
+    except Exception:  # noqa: BLE001
+        return '<unparseable>'
+
+
 def launch_options():
     """Headless, with devtools left off. Playwright 1.64 has no devtools launch switch."""
     # Responses are fulfilled by the guarded route, which otherwise gives local
@@ -389,6 +411,8 @@ class PlaywrightPage:
         from playwright.sync_api import sync_playwright
         self.origin = origin
         self.aborted = []
+        # Every frame the origin guard refused (rehearsal 9 run 14c, H4: the refused address was not recorded).
+        self.origin_refusals = []
         self._initial_document = True
         self._origin_failed = False
         self._identity = identity
@@ -416,18 +440,45 @@ class PlaywrightPage:
         # This MCP surface owns one page. Popups cannot create an unobserved browsing surface.
         self._context.on('page', lambda page: page.close())
 
+    def _refusal(self, event, frames):
+        row = {'event': event, 'allowedOrigins': [self.origin.origin],
+               'refused': [{'url': refused_frame_url(f.url), 'name': str(getattr(f, 'name', '') or '')[:80],
+                            'parent': refused_frame_url(f.parent_frame.url) if getattr(f, 'parent_frame', None)
+                            else None} for f in frames],
+               'frames': [refused_frame_url(f.url) for f in self._page.frames] if self._page is not None else []}
+        if len(self.origin_refusals) < 20:
+            self.origin_refusals.append(row)
+        return row
+
+    def _frame_allowed(self, frame, depth=0):
+        """A frame on the locked origin, or a child frame still on its initial empty document ('' before its first
+        navigation commits, or about:blank), which has its creator's origin, whose parent is itself allowed
+        (rehearsal 9 run 14c, H4: Studio's second Maputnik iframe was refused in the instant before it committed
+        its same-origin URL). about:srcdoc, blob:, data: and every other origin stay refused."""
+        url = getattr(frame, 'url', None)
+        if self.origin.allows(url):
+            return True
+        parent = getattr(frame, 'parent_frame', None)
+        return (url in ('', 'about:blank') and parent is not None and depth < 8
+                and self._frame_allowed(parent, depth + 1))
+
     def _navigation(self, frame):
-        if not self.origin.allows(frame.url):
+        if not self._frame_allowed(frame):
+            self._refusal('framenavigated', [frame])
             self._origin_failed = True
             self._context.close()
 
     def _check_origin(self):
         frames = self._page.frames
         initial = self._initial_document and len(frames) == 1 and self._page.url == 'about:blank'
-        if self._origin_failed or not initial and any(not self.origin.allows(frame.url) for frame in frames):
+        refused = [frame for frame in frames if not self._frame_allowed(frame)]
+        if self._origin_failed or not initial and refused:
+            row = self._refusal('check', refused) if refused else (self.origin_refusals[-1] if self.origin_refusals
+                                                                    else {'refused': [], 'allowedOrigins': [self.origin.origin]})
             self._origin_failed = True
             self._context.close()
-            raise OriginLocked('refused document origin')
+            names = ', '.join(r['url'] for r in row['refused']) or 'an earlier frame'
+            raise OriginLocked(f"refused document origin: {names} (allowed: {', '.join(row['allowedOrigins'])})"[:600])
 
     def _interact(self, operation):
         self._check_origin()
@@ -683,6 +734,7 @@ class StudioBrowserServer:
         self.endpoint = None
         self.server = None
         self.decoy = []
+        self.origin_refusals = []
         self.lock = None
         self._owner = None
         self._http_thread = None
@@ -702,6 +754,10 @@ class StudioBrowserServer:
                 lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None,
                 stage_gate=self.stage_gate, refusal_log=self.action_log))
             self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
+            # The same list object, kept after the page closes, for the case receipt (H4).
+            self.origin_refusals = getattr(self.page, 'origin_refusals', None)
+            if not isinstance(self.origin_refusals, list):
+                self.origin_refusals = []
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
             self._serve()
