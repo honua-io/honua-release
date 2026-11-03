@@ -148,20 +148,11 @@ def tool_output(result):
     if (not isinstance(result, dict) or result.get("isError", False) is not False
             or set(result) - {"isError", "structuredContent", "content"}
             or not isinstance(result.get("structuredContent"), dict)
-            or not isinstance(result.get("content"), list) or len(result["content"]) != 1):
+            or not isinstance(result.get("content"), list)):
         raise ValueError("health tool lacks actual structured payload and text projection")
-    item, value = result["content"][0], result["structuredContent"]
-    if not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text" or not isinstance(item["text"], str):
-        raise ValueError("health tool contains unrelated media")
-    # Server SuccessJsonElement uses a1024-character threshold. A full health
-    # payload is large; OpsHealthTool supplies this exact informational summary.
-    # The complete structured payload remains mandatory and is judged below.
-    if len(json.dumps(value, separators=(",", ":"), ensure_ascii=True)) >= 1024:
-        if item["text"] != "Ops health snapshot returned in structuredContent.":
-            raise ValueError("health large-payload text differs from actual server summary")
-    elif not wire.same_json(wire.strict_json(item["text"]), value):
-        raise ValueError("health inline JSON differs from structured payload")
-    return value
+    # honua-server #6901: [json] below the 1024-character threshold, otherwise OpsHealthTool's
+    # exact summary followed by the complete serialized JSON. The payload is judged below.
+    return wire.structured_text_content(result, summary="Ops health snapshot returned in structuredContent.")
 
 
 def health_output(result, method, before, after, bootstrap):

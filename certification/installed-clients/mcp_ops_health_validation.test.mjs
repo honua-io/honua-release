@@ -137,7 +137,12 @@ print(json.dumps(value['imageReadback'] if sys.argv[1]=='image' else {key:value[
       responseMutation: frame => {
         if (frame.result?.structuredContent?.overallStatus) {
           frame.result.structuredContent = update(frame.result.structuredContent);
-          frame.result.content[0].text = "Ops health snapshot returned in structuredContent.";
+          // honua-server #6901: the serialized JSON is always the last text block; OpsHealthTool's
+          // summary precedes it at 1024+ characters.
+          const text = JSON.stringify(frame.result.structuredContent);
+          frame.result.content = [
+            ...(text.length >= 1024 ? [{ type: "text", text: "Ops health snapshot returned in structuredContent." }] : []),
+            { type: "text", text }];
         } else if (frame.result?.contents?.[0]?.text) {
           frame.result.contents[0].text = JSON.stringify(update(JSON.parse(frame.result.contents[0].text)));
         }

@@ -238,19 +238,11 @@ def deploy_tool_output(result):
     if (not isinstance(result, dict) or result.get("isError") is not False
             or set(result) - {"isError", "structuredContent", "content"}
             or not isinstance(result.get("structuredContent"), dict)
-            or not isinstance(result.get("content"), list) or len(result["content"]) != 1):
+            or not isinstance(result.get("content"), list)):
         raise ValueError("deploy operations lacks actual structured payload")
-    value, item = result["structuredContent"], result["content"][0]
-    if not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text" or not isinstance(item["text"], str):
-        raise ValueError("deploy operations has unrelated media")
-    # Match SuccessJsonElement's informational large-payload projection. The
-    # complete structured payload is mandatory and independently judged below.
-    if len(json.dumps(value, separators=(",", ":"), ensure_ascii=True)) >= 1024:
-        if item["text"] != "Deploy operations returned in structuredContent.":
-            raise ValueError("deploy large-payload summary differs from actual server")
-    elif not wire.same_json(wire.strict_json(item["text"]), value):
-        raise ValueError("deploy inline and structured payloads differ")
-    return value
+    # honua-server #6901: [json], or the tool's exact summary followed by the serialized JSON.
+    # The complete structured payload is mandatory and independently judged below.
+    return wire.structured_text_content(result, summary="Deploy operations returned in structuredContent.")
 
 
 def deploy_posture(value, observed_at, window):

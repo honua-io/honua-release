@@ -314,6 +314,18 @@ def rehash_member(vector,selector,mutation):
 
 
 class FullOriginalCohortControls(unittest.TestCase):
+    def test_scoped_refusal_is_exactly_one_json_block(self):
+        # Error results are never summarized (honua-server #6901): exactly [json].
+        message = 'Caller is not authorized to manage this workspace.'
+        body = {'status': 'error', 'code': 'permission_denied', 'message': message,
+                'error': {'kind': 'AuthorizationDenied', 'message': message}}
+        block = {'type': 'text', 'text': json.dumps(body)}
+        authority.scoped_refusal({'isError': True, 'structuredContent': body, 'content': [block]}, message)
+        for content in ([], [{'type': 'text', 'text': 'Denied.'}, block], [block, block],
+                        [{'type': 'text', 'text': json.dumps(dict(body, code='unauthenticated'))}]):
+            with self.assertRaises(ValueError):
+                authority.scoped_refusal({'isError': True, 'structuredContent': body, 'content': content}, message)
+
     @classmethod
     def setUpClass(cls):cls.golden=full_controls()
 

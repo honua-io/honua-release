@@ -295,6 +295,42 @@ LARGE_PAYLOAD_SUMMARY = re.compile(r"Structured result \(([0-9]{1,3}(?:,[0-9]{3}
 INLINE_TEXT_THRESHOLD = 1024
 
 
+def structured_text_content(result, *, summary=None, summary_limit=16384, text_limit=32 * 1024 * 1024):
+    """Judge the text projection of one structured tool result (honua-server #6901).
+
+    honua-server McpToolHelpers.BuildStructuredSuccess (86286687) always returns the complete
+    serialized JSON as the LAST text block. Only when that JSON is at least
+    INLINE_TEXT_THRESHOLD characters and the tool supplies a summarizer does exactly one
+    non-JSON summary block precede it; error results are never summarized. The only shapes are
+    therefore [json] and [summary, json]. A summary-only result, extra or non-text blocks, and
+    JSON text that differs from structuredContent are refused.
+      summary=None   the tool's summary text is not pinned here
+      summary=<str>  the tool supplies exactly this summary, so a large payload must carry it
+      summary=False  no summary may appear (error results)
+    Returns structuredContent.
+    """
+    value = result.get("structuredContent") if isinstance(result, dict) else None
+    content = result.get("content") if isinstance(result, dict) else None
+    if not isinstance(value, dict) or not isinstance(content, list) or len(content) not in (1, 2):
+        raise ValueError("structured tool result text is not [json] or [summary, json]")
+    for item in content:
+        if (not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text"
+                or not isinstance(item["text"], str) or not item["text"].strip()):
+            raise ValueError("structured tool result carries non-text or empty content")
+    serialized = content[-1]["text"]
+    if len(serialized) > text_limit or not same_json(strict_json(serialized), value):
+        raise ValueError("serialized JSON text differs from structuredContent")
+    large = len(serialized) >= INLINE_TEXT_THRESHOLD
+    if len(content) == 2:
+        lead = content[0]["text"]
+        if (summary is False or not large or len(lead) > summary_limit or lead.lstrip().startswith(("{", "["))
+                or (isinstance(summary, str) and lead != summary)):
+            raise ValueError("structured tool result has an unexpected summary block")
+    elif isinstance(summary, str) and large:
+        raise ValueError("large structured tool result lost its summary block")
+    return value
+
+
 def large_payload_summary(text, value):
     """True only for the server's exact elision line describing this structured payload."""
     match = LARGE_PAYLOAD_SUMMARY.fullmatch(text) if isinstance(text, str) else None

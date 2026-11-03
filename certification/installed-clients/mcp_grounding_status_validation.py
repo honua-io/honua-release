@@ -407,10 +407,12 @@ def declared_status(output, admin_preflight, declaration=None):
                 or output["skewedIds"] != [target]
                 or environment.get("ControlPlane__DeployTargets__0__ArtifactReference") != bindings.get("explicitTestTarget")
                 or environment.get("ControlPlane__PlatformRelease__ServingArtifactReference") != bindings.get("declaredServing")
-                or not isinstance(serving, list) or [plane_projection(entry) for entry in serving] != [{
+                or not isinstance(serving, list) or [serving_projection(entry) for entry in serving] != [{
                     "id": target, "runtimeProfile": None,
                     "effectiveArtifactReference": bindings["explicitTestTarget"],
-                    "projectedFromRelease": False, "skewed": True}]
+                    "projectedFromRelease": False, "skewed": True,
+                    # The standalone candidate observes no managed Compose target.
+                    "observationStatus": "notObserved"}]
                 or declared_workers(environment) != [("managed", bindings.get("declaredServing"))]
                 or not declared_execution(output["execution"], declared_workers(environment), target)):
             raise ValueError("declared status differs from the reviewed owned configuration skew")
@@ -467,6 +469,24 @@ def plane_projection(entry):
     return {**dict.fromkeys(nullable), **entry}
 
 
+# honua-server ManagedComposeObserver.ProjectRelease (#6851) adds the live observation to each
+# serving entry: observationStatus is always written, the observed values only when non-null.
+SERVING_OBSERVATION_STATUSES = {"notObserved", "observed", "unavailable"}
+SERVING_OBSERVED_FIELDS = {"observedArtifactReference", "observedImageId", "serverVersion", "observedAt"}
+
+
+def serving_projection(entry):
+    """A serving entry is an execution projection plus its observation, judged strictly."""
+    if not isinstance(entry, dict) or entry.get("observationStatus") not in SERVING_OBSERVATION_STATUSES:
+        raise ValueError("serving observation status differs from the server contract")
+    observed = {key: entry[key] for key in SERVING_OBSERVED_FIELDS & set(entry)}
+    if entry["observationStatus"] != "observed" and observed:
+        raise ValueError("serving entry reports observed values without an observation")
+    projection = plane_projection({key: value for key, value in entry.items()
+                                   if key != "observationStatus" and key not in SERVING_OBSERVED_FIELDS})
+    return {**projection, "observationStatus": entry["observationStatus"], **observed}
+
+
 def declared_execution(execution, workers, target):
     """Every execution workload must inherit exactly what the declared workers project.
 
@@ -501,14 +521,8 @@ def successful_tool(result):
     if (result.get("isError") is not False or not isinstance(result.get("structuredContent"), dict)
             or not isinstance(result.get("content"), list) or not result["content"]):
         raise ValueError("grounding/status result lacks successful structured output")
-    for item in result["content"]:
-        item = _mapping(item, "tool content")
-        if item.get("type") != "text" or not isinstance(item.get("text"), str):
-            raise ValueError("grounding/status result has unrelated media")
-        text = item["text"].strip()
-        if text.startswith("{") and not wire.same_json(strict_json(text), result["structuredContent"]):
-            raise ValueError("tool text contradicts structured output")
-    return result["structuredContent"]
+    # honua-server #6901: [json] or [summary, json]; the JSON block must equal structuredContent.
+    return wire.structured_text_content(result)
 
 
 def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
