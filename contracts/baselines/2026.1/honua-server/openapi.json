@@ -111,6 +111,10 @@
           "extent": {
             "$ref": "#/components/schemas/Extent"
           },
+          "geometryType": {
+            "description": "Canonical geometry type, for example Point or Polygon. GeometryCollection denotes a generic spatial resource. Omitted when spatial metadata is unavailable.",
+            "type": "string"
+          },
           "id": {
             "type": "string"
           },
