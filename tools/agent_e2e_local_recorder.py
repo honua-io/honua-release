@@ -22,6 +22,11 @@ class ProjectionError(ValueError):
     pass
 
 
+class Unverifiable(ProjectionError):
+    """The evidence exists but the harness cannot judge it faithfully (e.g. an agent query the restricted-service
+    P10 path cannot translate). The assertion is undetermined, never a pass."""
+
+
 def require(condition, reason):
     if not condition:
         raise ProjectionError(reason)

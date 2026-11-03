@@ -56,7 +56,7 @@ import hashlib
 import json
 import re
 
-from agent_e2e_local_recorder import ProjectionError
+from agent_e2e_local_recorder import ProjectionError, Unverifiable
 
 
 def require(condition, reason):
@@ -66,7 +66,7 @@ def require(condition, reason):
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
              'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures', 'absent',
-             'fullPublished', 'sourceRows')
+             'fullPublished', 'sourceRows', 'finalQuery', 'settings', 'catalog')
 
 
 def referenced_steps(spec, found=None):
@@ -495,6 +495,12 @@ def evaluate(spec, ctx, *, item=None, step=None):
             if str(ctx.roles[role]) in found:
                 out.append(ctx.roles[role])
         return sorted(out, key=str)
+    if keys == {'featureQueryIds', 'service', 'layer', 'fullPublished', 'sourceRows', 'restricted'}:
+        require(spec['restricted'] == ARC_P10_RESTRICTED, 'unreviewed restricted-service projection')
+        if data_plane_denied(ctx.record(named(spec['featureQueryIds']))):
+            return restricted_feature_query_ids(spec, ctx, sub)
+        spec = {k: v for k, v in spec.items() if k != 'restricted'}
+        keys = set(spec)
     if keys in ({'featureQueryIds', 'service', 'layer'},
                 {'featureQueryIds', 'service', 'layer', 'fullPublished', 'sourceRows'}):
         record = ctx.record(named(spec['featureQueryIds']))
@@ -520,7 +526,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
         service, layer = sub(spec['service']), sub(spec['layer'])
-        require(isinstance(value, dict) and str(value.get('serviceId')) == str(service)
+        require(isinstance(value, dict) and echoes_service(value.get('serviceId'), service)
                 and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
                 and value.get('resultOffset') == 0, 'feature query is foreign or incomplete')
         arguments = (record.request_arguments or {}).get('arguments') or {}
@@ -541,22 +547,37 @@ def evaluate(spec, ctx, *, item=None, step=None):
             require(full.kind == 'mcp' and full.status == 200 and full.principal == 'controller'
                     and (full.request_arguments or {}).get('tool') == 'honua_query_features'
                     and request == {'serviceId': str(service), 'layerId': int(layer), 'where': '1=1',
-                        'outFields': ['source_id', 'name', 'capacity', 'is_open'], 'limit': 1000,
+                        'outFields': list(FULL_READ_FIELDS), 'limit': 1000,
                         'resultOffset': 0, 'returnGeometry': True,
                         'outSrid': 3857, 'geometryPrecision': -1}, 'full published query request differs')
             result = (full.json or {}).get('result') or {}
             value = result.get('structuredContent') or {}
             collection = value.get('geojson') or {}
             published = collection.get('features')
-            require(result.get('isError', False) is False and str(value.get('serviceId')) == str(service)
+            require(result.get('isError', False) is False and echoes_service(value.get('serviceId'), service)
                     and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
                     and value.get('resultOffset') == 0 and isinstance(published, list)
                     and type(value.get('returnedCount')) is int and value['returnedCount'] == len(published)
                     and collection.get('type') == 'FeatureCollection' and source.kind == 'sql'
                     and source.status == 200 and isinstance(source.json, list),
                     'full published query or source rows are incomplete')
-            observed = [{'geometry': f.get('geometry'), 'properties': f.get('properties')}
-                        for f in published if isinstance(f, dict)]
+            # Compare what the full read asked for (its outFields, in EPSG:3857) on both sides. The server adds its
+            # own objectid to published features; the importer stores the feature id as properties.id and the SQL
+            # snapshot's geometry carries the short EPSG:3857 crs (Studio DEV shakeout 7a/7b, guided A1: an
+            # untouched table failed this check). Any other crs, or any difference in the requested fields, fails.
+            fields = FULL_READ_FIELDS
+
+            def projected(row, side):
+                require(isinstance(row, dict) and isinstance(row.get('properties'), dict)
+                        and isinstance(row.get('geometry'), dict), 'invalid fixture or published row')
+                geometry = dict(row['geometry'])
+                if side == 'source' and 'crs' in geometry:
+                    require(geometry.pop('crs') == EPSG_3857_CRS, 'source geometry is not in EPSG:3857')
+                require(set(geometry) == {'type', 'coordinates'}, 'unexpected geometry members')
+                require(all(k in row['properties'] for k in fields), 'a requested field is missing')
+                return {'geometry': geometry, 'properties': {k: row['properties'][k] for k in fields}}
+            observed = [projected(f, 'published') for f in published]
+            source_rows = [projected(r, 'source') for r in source.json]
             from decimal import Decimal
 
             def equivalent(left, right):
@@ -581,7 +602,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
                             'fixture or published rows lack unique source ids')
                     out[identity] = row
                 return out
-            actual, wanted = by_source_id(observed), by_source_id(source.json)
+            actual, wanted = by_source_id(observed), by_source_id(source_rows)
             require(len(observed) == len(published) and actual.keys() == wanted.keys()
                     and all(equivalent(actual[key], wanted[key]) for key in wanted),
                     'published service contents differ from the raw fixture table')
@@ -1124,6 +1145,361 @@ def admin_layer_publication(result) -> str | None:
     return value
 
 
+FULL_READ_FIELDS = ('source_id', 'name', 'capacity', 'is_open')
+EPSG_3857_CRS = {'type': 'name', 'properties': {'name': 'EPSG:3857'}}
+
+
+PUBLICATION_OPERATIONS = ('service.publish', 'admin.layer.publish')
+PUBLICATION_AUDIT_PREFIXES = tuple(['operationId=' + op, 'status=Completed'] for op in PUBLICATION_OPERATIONS)
+
+
+def publication_audit_prefix(event) -> bool:
+    """A completed publication's operation.completed audit details: service.publish or admin.layer.publish."""
+    return isinstance(event, dict) and str(event.get('details', '')).split(';')[:2] in PUBLICATION_AUDIT_PREFIXES
+
+
+def admin_validation_handle(handle, operation) -> bool:
+    """A completed admin.layer.publish handle whose embedded admin response is a validation (a dry run: success,
+    data.isValid present, no layerId). It published nothing, so it is not a publication candidate; anything else
+    that fails publication_handle_identity is still a failure (Studio DEV shakeout run 11b)."""
+    import json as _json
+    if not (isinstance(handle, dict) and handle.get('operationId') == 'admin.layer.publish'
+            and handle.get('status') == 'Completed' and handle.get('operationInstanceId') == operation):
+        return False
+    details = (handle.get('result') or {}).get('details') if isinstance(handle.get('result'), dict) else None
+    try:
+        embedded = _json.loads(details.get('response')) if isinstance(details, dict) else None
+    except (TypeError, ValueError):
+        return False
+    data = embedded.get('data') if isinstance(embedded, dict) else None
+    return (isinstance(embedded, dict) and embedded.get('success') is True and isinstance(data, dict)
+            and 'isValid' in data and 'layerId' not in data)
+
+
+def publication_handle_identity(handle) -> dict:
+    """The layer a completed publication operation handle names (``data`` of GET /api/v1/operations/handles/{id}):
+    {"operationId", "service", "layerId", "schema", "table"}; raises ProjectionError on anything missing or malformed.
+
+    service.publish names it in ``resourceIds`` (serviceName, layerId; schema and table are not in the handle).
+    admin.layer.publish leaves ``resourceIds`` empty on rc.2 (honua-server #6895, tracked for GA; release session
+    2026-11-02: harness-only for rc.2), so it is read from the admin REST layer-publish response the handle embeds at
+    ``result.details.response``: a real publication (success, data.layerId an integer, no validation ``isValid``)
+    with data.serviceName, data.schema and data.table. Callers still verify the audit event and actor, the layer
+    metadata and the table binding independently; the response alone is never trusted."""
+    import json as _json
+    require(isinstance(handle, dict) and handle.get('status') == 'Completed'
+            and handle.get('operationId') in PUBLICATION_OPERATIONS, 'not a completed publication handle')
+    if handle['operationId'] == 'service.publish':
+        ids = handle.get('resourceIds')
+        require(isinstance(ids, dict) and isinstance(ids.get('serviceName'), str)
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', ids['serviceName'])
+                and re.fullmatch(r'0|[1-9][0-9]*', str(ids.get('layerId'))), 'publication handle lacks its resource ids')
+        return {'operationId': 'service.publish', 'service': ids['serviceName'], 'layerId': int(ids['layerId']),
+                'schema': None, 'table': None}
+    details = (handle.get('result') or {}).get('details') if isinstance(handle.get('result'), dict) else None
+    raw = details.get('response') if isinstance(details, dict) else None
+    require(isinstance(raw, str) and raw, 'admin publication handle lacks its response')
+    try:
+        embedded = _json.loads(raw)
+    except ValueError as exc:
+        raise ProjectionError('admin publication response is not JSON') from exc
+    data = embedded.get('data') if isinstance(embedded, dict) else None
+    require(isinstance(data, dict) and embedded.get('success') is True and 'isValid' not in data
+            and type(data.get('layerId')) is int and data['layerId'] >= 0
+            and isinstance(data.get('serviceName'), str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', data['serviceName'])
+            and all(isinstance(data.get(k), str) and re.fullmatch(r'[a-z_][a-z0-9_]{0,62}', data[k])
+                    for k in ('schema', 'table')),
+            'admin publication response is not a completed layer publication')
+    return {'operationId': 'admin.layer.publish', 'service': data['serviceName'], 'layerId': data['layerId'],
+            'schema': data['schema'], 'table': data['table']}
+
+
+# =========================================================================== P10 on a role-restricted service
+# Founder decision 2026-11-02 (rehearsal of record r4): when the agent role-restricts the service it published, P10 is
+# still observed WITHOUT any principal bypassing the access policy: existence, metadata and the layer binding through
+# the ADMIN CATALOG API (not the FeatureServer data plane), content through the SQL snapshot of the underlying table,
+# and filter.exact by evaluating the agent's own final query semantics against that snapshot. Only the documented
+# where-clause subset below is translated; anything else is Unverifiable (undetermined), never a pass. The path is
+# taken only when the data plane denied the controller AND the admin catalog shows a role-restricted access policy.
+ARC_P10_LAYER_ALTERNATIVE = {'step': 'arc-p10-catalog-layers', 'settings': 'arc-p10-service-settings',
+                             'connectionRole': 'seeded:connection:shelters', 'schemaRole': 'seeded:schema:shelters',
+                             'tableRole': 'seeded:table:shelters'}
+ARC_P10_RESTRICTED = {'finalQuery': 'arc-p10-final-query', 'settings': 'arc-p10-service-settings',
+                      'catalog': 'arc-p10-catalog-layers'}
+_QUERY_ARGUMENTS = {'serviceId', 'layerId', 'where', 'outFields', 'returnGeometry', 'outSrid', 'geometryPrecision',
+                    'limit', 'resultOffset', 'cursor', 'returnCountOnly'}
+
+
+def _quote_segment(value):
+    from urllib.parse import quote
+    return quote(str(value), safe='')
+
+
+def role_restricted_policy(record, service) -> bool:
+    """The admin catalog's own record that the service is restricted to roles (no anonymous read)."""
+    if (record is None or record.kind != 'http' or record.method != 'GET' or record.principal != 'controller'
+            or record.phase != 'observe' or record.status != 200 or not isinstance(record.json, dict)
+            or record.path != '/api/v1/admin/services/' + _quote_segment(service) + '/settings'):
+        return False
+    data = record.json.get('data') if isinstance(record.json.get('data'), dict) else record.json
+    policy = data.get('accessPolicy') if isinstance(data, dict) else None
+    roles = policy.get('allowedRoles') if isinstance(policy, dict) else None
+    return (isinstance(policy, dict) and policy.get('allowAnonymous') is False and isinstance(roles, list)
+            and bool(roles) and all(isinstance(r, str) and r.strip() for r in roles))
+
+
+_PUBLISHED_SERVICE_NAME = re.compile(r'[A-Za-z0-9_.](?:[A-Za-z0-9_.-]{0,78}[A-Za-z0-9_.])?')
+
+
+def echoes_service(echoed, service) -> bool:
+    """A query response's structuredContent.serviceId names the queried service: its name, or the metadata id the
+    server gives a service created by publishing under that name ("svc-publish-" + the name; honua-server
+    PostgreSqlLayerPublishingService.BuildNewPublishedServiceId). The server refuses a new service whose id collides
+    with an existing one, so the id names exactly one service. Only names the server's sanitisation leaves unchanged
+    (letters, digits, "_", "." and inner "-") map to an id; anything else must echo verbatim. Rehearsal r5 DEV
+    (guide loaded): honua_publish_service "kestrel" answered queries as "svc-publish-kestrel"."""
+    if echoed is None or service is None:
+        return False
+    echoed, service = str(echoed), str(service)
+    return echoed == service or (_PUBLISHED_SERVICE_NAME.fullmatch(service) is not None
+                                 and echoed == 'svc-publish-' + service)
+
+
+def data_plane_denied(record) -> bool:
+    """The controller's data-plane read was refused by the access policy (GeoServices 403 body, or an MCP
+    AuthorizationDenied tool error), not by a missing or broken resource."""
+    if record is None or not isinstance(record.json, dict):
+        return False
+    if record.kind == 'http':
+        error = record.json.get('error')
+        return isinstance(error, dict) and error.get('code') == 403
+    result = record.json.get('result')
+    payload = result.get('structuredContent') if isinstance(result, dict) else None
+    error = payload.get('error') if isinstance(payload, dict) else None
+    return (isinstance(result, dict) and result.get('isError') is True and isinstance(error, dict)
+            and error.get('kind') == 'AuthorizationDenied')
+
+
+def catalog_layer(record, service, connection, schema, table):
+    """The one admin-catalog row binding the agent's service to the seeded table: its layer id, or raise."""
+    require(record is not None and record.kind == 'http' and record.method == 'GET' and record.principal == 'controller'
+            and record.phase == 'observe' and record.status == 200 and isinstance(record.json, dict)
+            and record.path == ('/api/v1/admin/connections/' + _quote_segment(connection) + '/layers?serviceName='
+                                + _quote_segment(service)),
+            'admin catalog read is missing or foreign')
+    rows = record.json.get('data')
+    require(isinstance(rows, list), 'admin catalog has an invalid shape')
+    found = [r for r in rows if isinstance(r, dict) and str(r.get('serviceName')) == str(service)
+             and r.get('schema') == schema and r.get('table') == table]
+    require(len(found) == 1, f'admin catalog binds the service to the seeded table {len(found)} times')
+    row = found[0]
+    require(row.get('enabled') is True and type(row.get('layerId')) is int, 'catalog layer is disabled or unnamed')
+    return row['layerId']
+
+
+_TOKEN = re.compile(r"\s*(?:(?P<num>-?\d+(?:\.\d+)?)|(?P<str>'(?:[^']|'')*')|(?P<op><>|!=|<=|>=|=|<|>)"
+                    r"|(?P<lp>\()|(?P<rp>\))|(?P<word>[A-Za-z_][A-Za-z0-9_]*))")
+_KEYWORDS = {'AND', 'OR', 'NOT', 'IS', 'NULL', 'TRUE', 'FALSE'}
+
+
+def where_predicate(where, fields):
+    """Translate the documented where-clause subset into a three-valued predicate over a row's properties.
+
+    Subset: <field> <op> <literal> with op in = <> != < <= > >= (numbers against numbers, strings against strings,
+    booleans against TRUE/FALSE), <field> IS [NOT] NULL, the constant 1=1, AND, OR, NOT and parentheses. SQL
+    three-valued logic: a comparison with a NULL value is unknown, and only rows where the clause is TRUE are selected.
+    Anything else (LIKE, IN, BETWEEN, functions, unknown fields, mixed types) raises Unverifiable."""
+    if where is None or (isinstance(where, str) and where.strip() in ('', '1=1')):
+        return lambda row: True
+    if not isinstance(where, str) or len(where) > 1000:
+        raise Unverifiable('agent where clause is not a string the harness can translate')
+    tokens, pos = [], 0
+    while pos < len(where):
+        if where[pos:].strip() == '':
+            break
+        m = _TOKEN.match(where, pos)
+        if not m or m.end() == pos:
+            raise Unverifiable('agent where clause uses syntax outside the translated subset')
+        kind = m.lastgroup
+        text = m.group(kind)
+        if kind == 'word' and text.upper() in _KEYWORDS:
+            tokens.append(('kw', text.upper()))
+        else:
+            tokens.append((kind, text))
+        pos = m.end()
+    lowered = {f.lower(): f for f in fields}
+
+    def literal(tok):
+        kind, text = tok
+        if kind == 'num':
+            return ('number', float(text) if '.' in text else int(text))
+        if kind == 'str':
+            return ('string', text[1:-1].replace("''", "'"))
+        if tok in (('kw', 'TRUE'), ('kw', 'FALSE')):
+            return ('boolean', tok[1] == 'TRUE')
+        raise Unverifiable('agent where clause compares against something that is not a literal')
+
+    leaves = []      # every comparison, checked on every row regardless of short-circuiting (Sol p10r1)
+
+    def compare(field, op, lit):
+        typ, value = lit
+
+        def test(row):
+            current = row.get(field)
+            if current is None:
+                return None
+            if typ == 'boolean':
+                if type(current) is not bool or op not in ('=', '<>', '!='):
+                    raise Unverifiable('agent where clause compares a boolean in an untranslated way')
+            elif typ == 'number':
+                if isinstance(current, bool) or not isinstance(current, (int, float)):
+                    raise Unverifiable('agent where clause compares a non-number field with a number')
+            elif not isinstance(current, str):
+                raise Unverifiable('agent where clause compares a non-string field with a string')
+            return {'=': current == value, '<>': current != value, '!=': current != value, '<': current < value,
+                    '<=': current <= value, '>': current > value, '>=': current >= value}[op]
+        leaves.append(test)
+        return test
+
+    state = {'i': 0}
+
+    def peek():
+        return tokens[state['i']] if state['i'] < len(tokens) else None
+
+    def take():
+        tok = peek()
+        if tok is None:
+            raise Unverifiable('agent where clause ends early')
+        state['i'] += 1
+        return tok
+
+    def primary():
+        tok = take()
+        if tok == ('lp', '('):
+            inner = disjunction()
+            if take() != ('rp', ')'):
+                raise Unverifiable('agent where clause has unbalanced parentheses')
+            return inner
+        if tok == ('kw', 'NOT'):
+            inner = primary()
+            return lambda row: None if (v := inner(row)) is None else not v
+        if tok[0] == 'num':
+            # Only the literal constant 1=1 is in the reviewed subset (Sol p10r1: not 2=2 or any other constant).
+            if tok[1] == '1' and take() == ('op', '=') and take() == ('num', '1'):
+                return lambda row: True
+            raise Unverifiable('agent where clause uses an untranslated constant comparison')
+        if tok[0] != 'word' or tok[1].lower() not in lowered:
+            raise Unverifiable('agent where clause names an unknown field or expression')
+        field = lowered[tok[1].lower()]
+        nxt = take()
+        if nxt == ('kw', 'IS'):
+            negate = peek() == ('kw', 'NOT')
+            if negate:
+                take()
+            if take() != ('kw', 'NULL'):
+                raise Unverifiable('agent where clause uses IS without NULL')
+            return (lambda row: row.get(field) is not None) if negate else (lambda row: row.get(field) is None)
+        if nxt[0] != 'op':
+            raise Unverifiable('agent where clause uses an untranslated operator')
+        return compare(field, nxt[1], literal(take()))
+
+    def conjunction():
+        left = primary()
+        while peek() == ('kw', 'AND'):
+            take()
+            right = primary()
+            left = (lambda a, b: lambda row: (False if (x := a(row)) is False or (y := b(row)) is False
+                                              else None if x is None or y is None else True))(left, right)
+        return left
+
+    def disjunction():
+        left = conjunction()
+        while peek() == ('kw', 'OR'):
+            take()
+            right = conjunction()
+            left = (lambda a, b: lambda row: (True if (x := a(row)) is True or (y := b(row)) is True
+                                              else None if x is None or y is None else False))(left, right)
+        return left
+
+    predicate = disjunction()
+    if state['i'] != len(tokens):
+        raise Unverifiable('agent where clause has trailing syntax outside the translated subset')
+
+    def selected(row):
+        for leaf in leaves:      # an unsupported comparison anywhere is Unverifiable, even in a skipped branch
+            leaf(row)
+        return predicate(row) is True
+    return selected
+
+
+def restricted_feature_query_ids(spec, ctx, sub):
+    """filter.exact when the agent role-restricted the service (ARC_P10_RESTRICTED): the agent's own final query,
+    evaluated against the SQL snapshot of the table the admin catalog binds to the published layer. The agent must
+    have produced the list (its final query succeeded); the ids come from the snapshot, and they must equal the ids
+    the agent's own query returned, or the translation is not trusted (Unverifiable)."""
+    from agent_e2e_local_expectations import fixture_catalog
+    restricted = spec['restricted']
+    service, layer = sub(spec['service']), sub(spec['layer'])
+    require(role_restricted_policy(ctx.record((restricted['settings'])), service),
+            'the data plane denied the controller but the admin catalog shows no role-restricted policy')
+    require(data_plane_denied(ctx.record((spec['fullPublished']))),
+            'restricted-service path needs the denied full published read too')
+    queries = [(identity, action) for identity, action in ctx.model_actions.items()
+               if action.get('kind') == 'tool_call' and action.get('tool') == 'honua_query_features']
+    require(queries and len(queries) <= fixture_catalog()['maxP10Queries']
+            and all(type(action.get('_session')) is int and type(action.get('_sequence')) is int
+                    for _, action in queries), 'feature query budget or action order is invalid')
+    positions = [(a['_session'], a['_sequence']) for _, a in queries]
+    require(len(set(positions)) == len(positions), 'feature query action order is ambiguous')
+    final_id, final = max(queries, key=lambda item: (item[1]['_session'], item[1]['_sequence']))
+    record = ctx.record((restricted['finalQuery']))
+    require(record.kind == 'mcp' and record.principal == 'agent' and record.phase == 'observe'
+            and record.status == 200 and isinstance(record.json, dict) and record.replay_of == final_id
+            and record.request_arguments == {'tool': final.get('tool'), 'arguments': final.get('arguments')},
+            "the restricted-service list is not the agent's own final query response")
+    arguments = final.get('arguments') if isinstance(final.get('arguments'), dict) else {}
+    require(echoes_service(arguments.get('serviceId'), service) and str(arguments.get('layerId')) == str(layer),
+            'the final agent query addresses another service or layer')
+    require(arguments.get('returnCountOnly', False) is False, 'feature query is count-only')
+    if set(arguments) - _QUERY_ARGUMENTS or arguments.get('resultOffset', 0) != 0 \
+            or str(arguments.get('cursor', '0')) != '0':
+        raise Unverifiable('the final agent query uses arguments the restricted-service path does not translate')
+    # The agent produced the list: its own call succeeded and returned one complete page with source ids.
+    result = record.json.get('result')
+    require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
+    value = result.get('structuredContent')
+    require(isinstance(value, dict) and echoes_service(value.get('serviceId'), service)
+            and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
+            and value.get('resultOffset') == 0, 'feature query is foreign or incomplete')
+    collection = value.get('geojson')
+    require(isinstance(collection, dict) and collection.get('type') == 'FeatureCollection'
+            and isinstance(collection.get('features'), list), 'feature query lacks features')
+    returned = [f.get('properties', {}).get('source_id') if isinstance(f, dict) else None
+                for f in collection['features']]
+    require(type(value.get('returnedCount')) is int and value['returnedCount'] == len(returned),
+            'feature query count differs from returned features')
+    require(all(isinstance(i, str) and i for i in returned) and len(set(returned)) == len(returned),
+            'feature query lacks distinct source ids')
+    # Content: the SQL snapshot of the table the catalog binds (the layer role resolved through it).
+    source = ctx.record((spec['sourceRows']))
+    require(source.kind == 'sql' and source.status == 200 and isinstance(source.json, list),
+            'source rows are incomplete')
+    rows = []
+    for row in source.json:
+        require(isinstance(row, dict) and isinstance(row.get('properties'), dict)
+                and isinstance(row['properties'].get('source_id'), str), 'invalid source row')
+        rows.append(row['properties'])
+    fields = set().union(*(r.keys() for r in rows)) if rows else set()
+    predicate = where_predicate(arguments.get('where'), fields)
+    selected = sorted(r['source_id'] for r in rows if predicate(r))
+    limit = arguments.get('limit', 100)
+    if type(limit) is not int or limit < len(selected):
+        raise Unverifiable("the final agent query's limit truncates the selection")
+    if selected != sorted(returned):
+        raise Unverifiable("the translated selection differs from the ids the agent's own query returned")
+    return selected
+
+
 def resolve_roles(bindings, records, *, agent_principal, action_results=(), custody=None, run_facts=None):
     """Bind logical roles to live ids using only recorded controller responses."""
     roles = {}
@@ -1148,14 +1524,23 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                     and record.kind == 'http' and record.method == 'GET' and record.intact(),
                     'invalid arc publication role')
             handle = record.json.get('data', {})
-            ids = handle.get('resourceIds', {})
-            require(handle.get('operationId') == 'service.publish' and handle.get('status') == 'Completed'
+            ids = handle.get('resourceIds', {}) if isinstance(handle, dict) else {}
+            try:
+                identity = publication_handle_identity(handle)
+            except ProjectionError:
+                identity = None
+            require(identity is not None
                     and record.path == '/api/v1/operations/handles/' + str(handle.get('operationInstanceId')),
                     'arc role lacks a completed controller publication handle')
             field = 'serviceName' if parts[1] == 'service' else 'layerId'
-            require(binding.pointer == '/data/resourceIds/' + field and ids.get(field) is not None,
-                    'invalid arc role pointer')
-            roles[name] = ids[field]
+            require(binding.pointer == '/data/resourceIds/' + field, 'invalid arc role pointer')
+            if identity['operationId'] == 'service.publish':
+                require(ids.get(field) is not None, 'invalid arc role pointer')
+                roles[name] = ids[field]
+            else:
+                # admin.layer.publish (#6895): the same identity, read from the embedded admin response, in the
+                # resourceIds form (layerId as a string), and bound to the stage-three handoff by the caller.
+                roles[name] = identity['service'] if field == 'serviceName' else str(identity['layerId'])
             continue
         if name.startswith('audited:'):
             parts = name.split(':')
@@ -1177,6 +1562,20 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         if name.startswith('child:'):
             require(record.phase == 'observe' and binding.pointer is not None and binding.parent in roles,
                     'child role needs an observe-phase read and an already resolved parent role: ' + name)
+            alternative = getattr(binding, 'alternative', None)
+            require(alternative is None or alternative == ARC_P10_LAYER_ALTERNATIVE,
+                    'unreviewed child role alternative: ' + name)
+            if alternative is not None and data_plane_denied(record) and role_restricted_policy(
+                    records.get(alternative['settings']), roles[binding.parent]):
+                # The agent restricted the service to a role, so the controller's data-plane read is refused (no
+                # principal bypasses the policy): bind the layer through the admin catalog instead.
+                require(all(r in roles for r in (alternative['connectionRole'], alternative['schemaRole'],
+                                                 alternative['tableRole'])),
+                        'catalog binding needs the seeded connection, schema and table: ' + name)
+                roles[name] = catalog_layer(records.get(alternative['step']), roles[binding.parent],
+                                            roles[alternative['connectionRole']], roles[alternative['schemaRole']],
+                                            roles[alternative['tableRole']])
+                continue
             # The parent link comes from the controller read itself: the exact request field that addresses
             # the parent, and the response field that names it.
             link = binding.parent_link
