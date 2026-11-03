@@ -329,3 +329,34 @@ def test_cli_corpus_refuses_host_docker_before_driver_setup():
     runtime=corpus.LocalRuntime(Driver(),agent='claude-cli',model='claude-opus-5-5',release_id='rc')
     with pytest.raises(ValueError,match='host Docker is disabled'):
         runtime.setup('P10:A:local-docker',DIGEST)
+
+
+@pytest.mark.parametrize('agent, model', [('claude-cli', 'claude-opus-5-5'), ('codex-cli', 'gpt-6.1-sol')])
+def test_cli_arms_have_no_token_bound_and_keep_the_real_failure_reason(tmp_path, agent, model):
+    """PREREG A19 (rehearsal 9 run 13b): a CLI session over the corpus token default (1.5M, here 100) is neither
+    failed for tokens nor has its real failure reason replaced; tokens stay reported data."""
+    from types import SimpleNamespace
+    from agent_cli_sessions import CliFailure
+    from agent_e2e_local_api import SessionContext, SessionLimits
+    done = {'tokens': 2959363, 'usage': [{'input_tokens': 1}], 'provenance': [], 'modelVisibleDigests': [],
+            'messageIds': [], 'finalAnswer': 'done', 'systemContractSha256': 's', 'toolViewSha256': 't'}
+    outcomes = [done, CliFailure('action bound reached', {**done, 'finalAnswer': None}, 'model'),
+                CliFailure('CLI reported an execution failure', {**done, 'finalAnswer': None},
+                           'post-action-undetermined')]
+
+    class FakeCli:
+        def run(self, **kwargs):
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+    runtime = SimpleNamespace(agent=agent, model=model, cli=FakeCli())
+    context = SessionContext(prompt='Make the map', session=1, candidate_release='rc',
+                             limits=SessionLimits(10, 10, 100), tool_view={'tools': []}, execute=lambda *_: None,
+                             mcp_proxy=lambda: None, workdir=str(tmp_path), token_budget_used=50)
+    session = agent_e2e_cli_sessions.CorpusCliSession(runtime, None)
+    finished = session.run(context)
+    assert finished.failure is None and finished.final_answer == 'done' and finished.tokens == 2959363
+    assert session.run(context).failure == {'category': 'model', 'reason': 'action bound reached'}
+    assert session.run(context).failure == {'category': 'post-action-undetermined',
+                                            'reason': 'CLI reported an execution failure'}
