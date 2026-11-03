@@ -1298,7 +1298,8 @@ def test_a_refused_frame_is_named_in_the_action_result_and_kept_for_the_receipt(
     assert 'secret' not in message and 'token=' not in message and 'pw@' not in message and 'PHNj' not in message
     row = page.origin_refusals[-1]
     assert row['event'] == 'check' and row['allowedOrigins'] == ['http://127.0.0.1:39267']
-    assert row['refused'] == [{'url': recorded, 'name': 'style-editor', 'parent': 'http://127.0.0.1:39267/studio'}]
+    assert row['refused'] == [{'url': recorded, 'nameSha256': 'sha256:' + hashlib.sha256(b'style-editor').hexdigest(),
+                               'parent': 'http://127.0.0.1:39267/studio'}]
     assert row['frames'] == ['http://127.0.0.1:39267/studio', recorded]
 
 
@@ -1370,3 +1371,17 @@ def test_only_an_initial_empty_child_of_an_allowed_frame_is_allowed(frames):
     with pytest.raises(OriginLocked):
         page._check_origin()
     assert closed == [True]
+
+
+def test_a_refused_frames_name_is_kept_only_as_a_digest():
+    """Sol h4 P2: a frame name (window.name) is page-controlled and may hold credentials or tokens."""
+    from agent_browser_studio import OriginLocked
+    name = 'https://user:pw@host/x?token=abc#frag data:text/html,secret'
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, _ = _guarded_page([top, _frame('about:srcdoc', name, top)])
+    with pytest.raises(OriginLocked) as refused:
+        page._check_origin()
+    evidence = json.dumps(page.origin_refusals) + str(refused.value)
+    for leaked in ('pw@', 'token=abc', '#frag', 'secret', name):
+        assert leaked not in evidence
+    assert page.origin_refusals[0]['refused'][0]['nameSha256'] == 'sha256:' + hashlib.sha256(name.encode()).hexdigest()

@@ -442,7 +442,9 @@ class PlaywrightPage:
 
     def _refusal(self, event, frames):
         row = {'event': event, 'allowedOrigins': [self.origin.origin],
-               'refused': [{'url': refused_frame_url(f.url), 'name': str(getattr(f, 'name', '') or '')[:80],
+               # A frame name is page-controlled (window.name) and may carry anything: only its digest is kept.
+               'refused': [{'url': refused_frame_url(f.url),
+                            'nameSha256': 'sha256:' + hashlib.sha256(str(getattr(f, 'name', '') or '').encode()).hexdigest(),
                             'parent': refused_frame_url(f.parent_frame.url) if getattr(f, 'parent_frame', None)
                             else None} for f in frames],
                'frames': [refused_frame_url(f.url) for f in self._page.frames] if self._page is not None else []}
