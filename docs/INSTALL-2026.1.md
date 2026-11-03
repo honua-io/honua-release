@@ -49,7 +49,8 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- --header=\"X-API-Key: $${HONUA_ADMIN_PASSWORD}\" http://localhost:8080/api/v1/admin/license | grep -Eq '\"mode\"[[:space:]]*:[[:space:]]*\"disabled\"'"]
+      # The server image ships bash but no wget or curl: the authenticated request goes over /dev/tcp.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /api/v1/admin/license HTTP/1.0\\r\\nHost: localhost\\r\\nX-API-Key: %s\\r\\nConnection: close\\r\\n\\r\\n' \"$$HONUA_ADMIN_PASSWORD\" >&3 && grep -Eq '\"mode\"[[:space:]]*:[[:space:]]*\"disabled\"' <&3"]
       interval: 5s
       timeout: 5s
       retries: 60
@@ -85,8 +86,8 @@ After readiness, authenticate with the installer-provisioned admin key and
 repeat the same assertion through the server container:
 
 ```sh
-docker compose exec -T honua sh -c \
-  'wget -qO- --header="X-API-Key: $HONUA_ADMIN_PASSWORD" http://localhost:8080/api/v1/admin/license' \
+docker compose exec -T honua bash -c \
+  'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /api/v1/admin/license HTTP/1.0\r\nHost: localhost\r\nX-API-Key: %s\r\nConnection: close\r\n\r\n" "$HONUA_ADMIN_PASSWORD" >&3 && cat <&3' \
   | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"disabled"'
 ```
 
