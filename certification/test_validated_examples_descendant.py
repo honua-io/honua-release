@@ -45,7 +45,8 @@ def _compare(paths=("examples/manifest.json", "docs/internal/ci/workflow-invento
 def _run(**over):
     value = {"id": RUN_ID, "run_attempt": 1, "path": vx.WORKFLOW_PATH, "event": "workflow_dispatch",
              "status": "completed", "conclusion": "success", "head_sha": RUN_SHA,
-             "created_at": "2026-11-03T20:00:00Z", "updated_at": "2026-11-03T20:30:00Z", "display_title": vx.TITLE_PREFIX + IMAGE,
+             "created_at": "2026-11-03T20:00:00Z", "run_started_at": "2026-11-03T20:00:00Z",
+             "updated_at": "2026-11-03T20:30:00Z", "display_title": vx.TITLE_PREFIX + IMAGE,
              "repository": REPO, "head_repository": REPO, "html_url": "https://example.invalid/run"}
     value.update(over)
     return value
@@ -241,7 +242,7 @@ def test_red_run_or_job_refuses():
 def test_newest_candidate_run_decides_an_older_green_cannot_hide_a_newer_red():
     world = World()
     newer_red = _run(id=RUN_ID + 1, conclusion="failure", created_at="2026-11-03T21:00:00Z",
-                     updated_at="2026-11-03T21:30:00Z")
+                     run_started_at="2026-11-03T21:00:00Z", updated_at="2026-11-03T21:30:00Z")
     world.runs = [_run(), newer_red]
     record = world.resolve()
     assert record["status"] == "unavailable" and str(RUN_ID + 1) in record["reason"]
@@ -272,75 +273,122 @@ def test_a_newer_red_on_the_pin_itself_decides():
     """Sol round 1: a newer failed candidate dispatch at the pin sha must not be filtered out."""
     world = World()
     world.runs.append(_run(id=RUN_ID + 1, head_sha=PIN, conclusion="failure", created_at="2026-11-03T21:00:00Z",
-                           updated_at="2026-11-03T21:30:00Z"))
-    record = world.resolve()
-    assert record["status"] == "unavailable"
+                           run_started_at="2026-11-03T21:00:00Z", updated_at="2026-11-03T21:30:00Z"))
+    assert world.resolve()["status"] == "unavailable"
 
 
 def test_a_failed_rerun_of_an_earlier_dispatch_decides():
-    """Sol round 1: recency is execution recency (latest attempt), not the original dispatch time."""
+    """Sol round 1: recency is execution recency (the latest attempt), not the original dispatch time."""
     world = World()
-    world.runs[0]["updated_at"] = "2026-11-03T20:10:00Z"
     world.runs.append(_run(id=RUN_ID - 1, run_attempt=2, conclusion="failure", created_at="2026-11-03T19:00:00Z",
                            run_started_at="2026-11-03T21:50:00Z", updated_at="2026-11-03T22:00:00Z"))
     record = world.resolve()
     assert record["status"] == "unavailable" and str(RUN_ID - 1) in record["reason"]
 
 
-def test_an_older_red_does_not_block_a_newer_verified_green():
+def test_an_older_red_that_finished_before_the_green_started_does_not_block_it():
     world = World()
-    world.runs[0]["updated_at"] = "2026-11-03T20:10:00Z"
     world.runs.append(_run(id=RUN_ID - 1, conclusion="failure", created_at="2026-11-03T18:00:00Z",
-                           updated_at="2026-11-03T18:40:00Z"))
+                           run_started_at="2026-11-03T18:00:00Z", updated_at="2026-11-03T18:40:00Z"))
     assert world.resolve()["status"] == "verified"
 
 
-def test_tied_latest_updated_at_is_ambiguous_and_refuses():
-    """Sol round 2: attempt numbers are per dispatch; a tie for latest never picks the green."""
+def test_a_concurrent_red_that_finished_first_still_refuses():
+    """Sol round 3: green 20:00-20:40, red 20:10-20:20. The green does not supersede the red."""
+    world = World()
+    world.runs[0]["updated_at"] = "2026-11-03T20:40:00Z"
+    world.runs.append(_run(id=RUN_ID + 1, conclusion="failure", created_at="2026-11-03T20:10:00Z",
+                           run_started_at="2026-11-03T20:10:00Z", updated_at="2026-11-03T20:20:00Z"))
+    record = world.resolve()
+    assert record["status"] == "unavailable" and "overlap" in record["reason"]
+    # The same overlap with the green starting later is still refused (it started before the red ended).
+    world = World()
+    world.runs[0].update(run_started_at="2026-11-03T20:15:00Z", updated_at="2026-11-03T20:40:00Z")
+    world.runs.append(_run(id=RUN_ID + 1, conclusion="failure", created_at="2026-11-03T20:10:00Z",
+                           run_started_at="2026-11-03T20:10:00Z", updated_at="2026-11-03T20:20:00Z"))
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_tied_starts_are_ambiguous_and_refuse():
+    """Sol round 2: attempt numbers are per dispatch; a tie never picks the green."""
     world = World()
     world.runs[0]["run_attempt"] = 2
-    world.runs.append(_run(id=RUN_ID + 1, conclusion="failure", created_at="2026-11-03T20:20:00Z",
+    world.runs.append(_run(id=RUN_ID + 1, conclusion="failure", run_started_at=world.runs[0]["run_started_at"],
                            updated_at=world.runs[0]["updated_at"]))
     record = world.resolve()
     assert record["status"] == "unavailable" and "ambiguous" in record["reason"]
 
 
+@pytest.mark.parametrize("field", ["updated_at", "run_started_at"])
 @pytest.mark.parametrize("stamp", [None, "", "yesterday", "2026-11-03 20:40:00"])
-def test_a_candidate_without_a_valid_updated_at_refuses(stamp):
+def test_a_candidate_without_valid_ordering_timestamps_refuses(field, stamp):
     """Sol round 2: missing ordering evidence is not proof of age."""
     world = World()
-    world.runs.append(_run(id=RUN_ID + 1, conclusion="failure", updated_at=stamp))
+    stamps = {"run_started_at": "2026-11-03T18:00:00Z", "updated_at": "2026-11-03T18:40:00Z", field: stamp}
+    world.runs.append(_run(id=RUN_ID - 1, conclusion="failure", created_at="2026-11-03T18:00:00Z", **stamps))
     record = world.resolve()
-    assert record["status"] == "unavailable" and "updated_at" in record["reason"]
+    assert record["status"] == "unavailable" and "execution order is unknown" in record["reason"]
+
+
+def _filler(count, start=10_000):
+    return [_run(id=start + i, display_title="Validated examples (advisory)", run_started_at="2026-11-03T17:00:00Z",
+                 updated_at="2026-11-03T17:30:00Z") for i in range(count)]
 
 
 def test_every_page_of_dispatches_is_read_and_a_failed_rerun_on_page_two_decides():
     """Sol round 2: the run list is paginated; the deciding run may be beyond the first page."""
     world = World()
-    filler = [_run(id=10_000 + i, display_title="Validated examples (advisory)",
-                   updated_at="2026-11-03T19:00:00Z") for i in range(99)]
     rerun_red = _run(id=RUN_ID - 1, run_attempt=2, conclusion="failure", created_at="2026-11-03T18:00:00Z",
-                     updated_at="2026-11-03T22:00:00Z")
-    world.runs = [world.runs[0]] + filler + [rerun_red]
+                     run_started_at="2026-11-03T21:50:00Z", updated_at="2026-11-03T22:00:00Z")
+    world.runs = [world.runs[0]] + _filler(99) + [rerun_red]
     record = world.resolve()
     assert record["status"] == "unavailable" and str(RUN_ID - 1) in record["reason"]
-    world.runs = [world.runs[0]] + filler + [_run(id=RUN_ID - 1, display_title="Validated examples (advisory)",
-                                                  updated_at="2026-11-03T22:00:00Z")]
+    world.runs = [world.runs[0]] + _filler(100)
     assert world.resolve()["status"] == "verified"      # two pages, the green is still the latest candidate
+
+
+def test_a_dispatch_inserted_between_pages_refuses():
+    """Sol round 3: a run inserted at the front while paging shifts a duplicate onto page 2."""
+    world = World()
+    base = [world.runs[0]] + _filler(100)                 # 101 runs
+    new_red = _run(id=20_000, conclusion="failure", run_started_at="2026-11-03T22:00:00Z",
+                   updated_at="2026-11-03T22:30:00Z")
+    served = {"n": 0}
+    original = world.get_json
+
+    def get_json(path):
+        if "/runs?" in path and "page=" in path:
+            served["n"] += 1
+            page = int(path.rsplit("page=", 1)[1])
+            runs = base if served["n"] == 1 else [new_red] + base
+            return {"workflow_runs": runs[(page - 1) * 100: page * 100], "total_count": len(runs)}
+        return original(path)
+
+    world.get_json = get_json
+    record = world.resolve()
+    assert record["status"] == "unavailable" and "changed while it was read" in record["reason"]
+
+
+def test_a_duplicate_run_id_or_a_changed_first_page_refuses():
+    world = World()
+    base = [world.runs[0]] + _filler(99)
+    dup = base + [base[5]]                                 # 101 entries, 100 distinct
+    world.runs = dup
+    assert world.resolve()["status"] == "unavailable"
 
 
 def test_an_incomplete_dispatch_list_refuses():
     world = World()
-    world.total = 5                         # declares more runs than the API returned
+    world.total = 5                         # declares more runs than the API returns
     assert world.resolve()["status"] == "unavailable"
     world = World()
     world.total = vx.RUN_SEARCH_LIMIT + 1   # beyond the listing limit, completeness cannot be shown
-    world.runs = world.runs * 1
     assert world.resolve()["status"] == "unavailable"
 
 
 def test_a_running_candidate_dispatch_refuses():
     world = World()
-    world.runs.append(_run(id=RUN_ID + 1, status="in_progress", conclusion=None, updated_at="2026-11-03T21:00:00Z"))
+    world.runs.append(_run(id=RUN_ID + 1, status="in_progress", conclusion=None, run_started_at="2026-11-03T21:00:00Z",
+                           updated_at="2026-11-03T21:00:00Z"))
     record = world.resolve()
     assert record["status"] == "unavailable" and "not completed" in record["reason"]

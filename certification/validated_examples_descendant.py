@@ -128,13 +128,19 @@ def select_run(runs_payload: dict, pinned: str, digest: str) -> dict:
     running = [run.get("id") for run in candidates if run.get("status") != "completed"]
     if running:
         raise NotQualified(f"candidate dispatch(es) {running} not completed; the latest execution is unknown")
-    if any(not _TIMESTAMP.fullmatch(str(run.get("updated_at") or "")) for run in candidates):
-        raise NotQualified("a candidate dispatch has no valid updated_at; execution order is unknown")
-    ordered = sorted(candidates, key=lambda run: str(run["updated_at"]), reverse=True)
-    if len(ordered) > 1 and ordered[0]["updated_at"] == ordered[1]["updated_at"]:
-        raise NotQualified(f"candidate dispatches {ordered[0].get('id')} and {ordered[1].get('id')} share the "
-                           "latest updated_at; execution order is ambiguous")
-    return ordered[0]
+    for run in candidates:
+        if not all(_TIMESTAMP.fullmatch(str(run.get(key) or "")) for key in ("run_started_at", "updated_at")):
+            raise NotQualified(f"candidate dispatch {run.get('id')} lacks a valid run_started_at/updated_at; "
+                               "execution order is unknown")
+    # The deciding run is the one whose latest attempt started last, and it must SUPERSEDE every other
+    # candidate: its latest attempt started strictly after each other candidate's last update. Overlapping
+    # or tied executions are ambiguous and refuse, so a concurrent red can never be outranked by a green.
+    deciding = max(candidates, key=lambda run: str(run["run_started_at"]))
+    for run in candidates:
+        if run is not deciding and not str(run["updated_at"]) < str(deciding["run_started_at"]):
+            raise NotQualified(f"candidate dispatches {deciding.get('id')} and {run.get('id')} overlap or tie; "
+                               "execution order is ambiguous")
+    return deciding
 
 
 def verify_run(run: dict, run_sha: str) -> None:
@@ -197,19 +203,33 @@ def evidence_from_zip(scenario: str, blob: bytes) -> dict:
 
 
 def _all_runs(get_json: Callable[[str], dict]) -> dict:
-    """Every workflow_dispatch run of the workflow, page by page, with the declared total."""
-    runs: list[dict] = []
-    total = None
-    for page in range(1, RUN_SEARCH_LIMIT // 100 + 2):
+    """Every workflow_dispatch run of the workflow, page by page. Fails closed unless the collection was
+    stable while read: the same declared total on every page, no duplicate run ids, a distinct count equal
+    to that total, and an identical first page re-read at the end."""
+    def page(number: int) -> tuple[list[dict], int]:
         answer = get_json(f"repos/{REPO}/actions/workflows/{WORKFLOW_FILE}/runs"
-                          f"?event=workflow_dispatch&per_page=100&page={page}")
-        batch = answer.get("workflow_runs")
-        total = answer.get("total_count")
+                          f"?event=workflow_dispatch&per_page=100&page={number}")
+        batch, total = answer.get("workflow_runs"), answer.get("total_count")
         if not isinstance(batch, list) or type(total) is not int:
             raise NotQualified("the validated-examples dispatch list is unreadable")
+        return batch, total
+
+    first, total = page(1)
+    if total > RUN_SEARCH_LIMIT:
+        raise NotQualified("too many validated-examples dispatches to establish a complete list")
+    runs = list(first)
+    number = 1
+    while len(runs) < total:
+        number += 1
+        batch, again = page(number)
+        if again != total or not batch:
+            raise NotQualified("the validated-examples dispatch list changed while it was read")
         runs.extend(batch)
-        if len(runs) >= total or not batch:
-            break
+    ids = [run.get("id") for run in runs]
+    recheck, again = page(1)
+    if (len(set(ids)) != len(ids) or len(ids) != total or again != total
+            or [run.get("id") for run in recheck] != [run.get("id") for run in first]):
+        raise NotQualified("the validated-examples dispatch list changed while it was read")
     return {"workflow_runs": runs, "total_count": total}
 
 
