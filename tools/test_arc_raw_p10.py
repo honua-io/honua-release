@@ -28,13 +28,15 @@ def query_response(ids, *, truncated=False):
 
 
 class Recorder:
-    def __init__(self, actions, *, publication_error=False, responses=None):
+    def __init__(self, actions, *, publication_error=False, responses=None, source=None):
         self.log, self.calls, self.publication_error = actions, [], publication_error
+        self.source = source
         # sequence -> source ids a honua_query_features call returned (default: exactly the reported s3, s4)
         self.responses = responses or {}
     def actions(self): return self.log
     def table_rows(self, step, schema, table, columns):
         self.calls.append(('sql', step, schema, table, columns))
+        return self.source
     def json(self, step, method, path):
         self.calls.append(('http', step, method, path))
         body = {'data': [{'serviceName': 'agent-service'}]} if step.endswith('services-after') else {
@@ -110,6 +112,25 @@ def test_repeated_identical_verification_reads_never_reuse_an_evidence_step():
     state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
     ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run())
     assert [call[2] for call in rec.calls if call[0] == 'replay'] == [2]
+
+
+SOURCE = [{'properties': {'source_id': i, 'capacity': c, 'is_open': o}}
+          for i, c, o in (('s1', None, True), ('s2', 120, False), ('s3', 80, True), ('s4', 75, True), ('s5', 50, True))]
+
+
+def test_an_evaluation_time_untranslatable_candidate_yields_to_a_valid_witness():
+    """Sol a22-24b P2: capacity > '50' passes parsing and raises only when a row is evaluated (mixed types)."""
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'})
+    args = {'serviceId': 'agent-service', 'layerId': 2}
+    coercing = action(2, 'honua_query_features', {**args, 'where': "is_open = TRUE AND capacity > '50'"})
+    valid = action(3, 'honua_query_features', {**args, 'where': 'is_open = TRUE AND capacity > 50'})
+    bare = action(4, 'honua_query_features', {**args, 'where': '1=1'})
+    for log, chosen in (([publish, coercing, valid], 3), ([publish, coercing], 2), ([publish, bare, valid], 3)):
+        rec = Recorder(log, responses={2: ['s3', 's4'], 3: ['s3', 's4'], 4: ['s3', 's4']}, source=SOURCE)
+        state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+        ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run())
+        assert [call[2] for call in rec.calls if call[0] == 'replay'] == [chosen]
 
 
 def test_a_reported_list_no_query_returned_is_never_proven():
@@ -273,6 +294,16 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
         action_bytes({'tool': 'honua_query_features', 'arguments': enum_args}), origin='session-result')
     enumerated = with_answer(answer, {'occ': {**model_actions['occ'], 'arguments': enum_args}})
     assert enumerated['status'] == 'fail' and 'enumerates identifiers' in enumerated['reason'], enumerated
+    records['p10-replay-query'], records['arc-p10-final-query'] = saved_replay, saved_final_q
+    # A24 (Sol a24-wording caveat): a clause that names no attribute (1=1, or none) expresses no selection.
+    for bare_args in ({**query_args, 'where': '1=1'}, {k: v for k, v in query_args.items() if k != 'where'}):
+        records['p10-replay-query'] = record('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call',
+            query_result, args={'tool': 'honua_query_features', 'arguments': bare_args}, replay='occ')
+        records['arc-p10-final-query'] = Record('arc-p10-final-query', 'observe', 'mcp', 'agent', 'agent-id', 'POST',
+            '/mcp#tools/call', 200, final_raw, 'sha256:' + hashlib.sha256(final_raw).hexdigest(), 'occ',
+            action_bytes({'tool': 'honua_query_features', 'arguments': bare_args}), origin='session-result')
+        bare = with_answer(answer, {'occ': {**model_actions['occ'], 'arguments': bare_args}})
+        assert bare['status'] == 'fail' and 'names no attribute' in bare['reason'], bare
     records['p10-replay-query'], records['arc-p10-final-query'] = saved_replay, saved_final_q
     # A24: a proving query outside the documented where-clause subset is undetermined, never a pass.
     like_args = {**query_args, 'where': "name LIKE 'H%' OR name LIKE 'C%'"}

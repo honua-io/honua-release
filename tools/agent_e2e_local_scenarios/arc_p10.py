@@ -193,13 +193,15 @@ class ArcP10(P10):
                 def qualifies(action):
                     from agent_e2e_local_projections import IDENTITY_FIELDS, Unverifiable, where_fields, where_predicate
                     where = (action.arguments or {}).get('where') if isinstance(action.arguments, dict) else None
-                    if where_fields(where) & IDENTITY_FIELDS or not source_props:
+                    named = where_fields(where)
+                    if not named or named & IDENTITY_FIELDS or not source_props:
                         return False
                     try:
+                        # Evaluation-time checks (mixed types) raise too (Sol a22-24b): inside the boundary.
                         keep = where_predicate(where, set().union(*(r.keys() for r in source_props)))
+                        return frozenset(r.get('source_id') for r in source_props if keep(r)) == reported
                     except Unverifiable:
                         return False
-                    return frozenset(r.get('source_id') for r in source_props if keep(r)) == reported
                 query = (self.selected_query(actions, seeded, reported if status == 'ok' else None, response_ids,
                                              qualifies)
                          if count <= fixture_catalog()['maxP10Queries'] else None)

@@ -1491,8 +1491,12 @@ def reported_list_proven(ctx, arguments, returned, rows) -> None:
             + ('' if status == 'missing' else f' ({reported})'))
     require(frozenset(returned) == reported, "the reported list differs from the agent's query that proves it")
     fields = set().union(*(r.keys() for r in rows)) if rows else set()
-    require(not (where_fields(arguments.get('where')) & IDENTITY_FIELDS),
+    named = where_fields(arguments.get('where'))
+    require(not (named & IDENTITY_FIELDS),
             "the proving query enumerates identifiers instead of expressing the requested selection")
+    # Sol a24-wording (implementation caveat): the witness must express a selection; no clause, or the constant
+    # 1=1, names no attribute and never witnesses a list, even when every row happens to qualify.
+    require(bool(named), 'the proving query names no attribute, so it expresses no selection')
     predicate = where_predicate(arguments.get('where'), fields)     # Unverifiable outside the documented subset
     selected = frozenset(r.get('source_id') for r in rows if predicate(r))
     if selected != reported:
