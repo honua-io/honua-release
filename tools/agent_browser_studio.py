@@ -290,24 +290,50 @@ class OriginLock:
         return url == 'about:blank' or self.allows(url)
 
 
+# The only frame paths kept verbatim in refusal evidence: Studio's own pages. Any other path, and any host that is
+# not a loopback literal, is page-controlled text (history.replaceState, a crafted URL) and is kept only as a digest.
+EVIDENCE_PATHS = frozenset({'', '/', '/studio', '/_studio/maputnik/index.html'})
+EVIDENCE_HOSTS = frozenset({'127.0.0.1', 'localhost', '::1'})
+EVIDENCE_ABOUT = frozenset({'about:blank', 'about:srcdoc'})
+
+
+def _text_digest(text) -> str:
+    """sha256 of any str, lone surrogates included (Sol h4b: a JavaScript string may hold one); never raises."""
+    try:
+        raw = str(text).encode('utf-8', 'surrogatepass')
+    except Exception:  # noqa: BLE001
+        raw = repr(text).encode('ascii', 'backslashreplace')
+    return 'sha256:' + hashlib.sha256(raw).hexdigest()
+
+
 def refused_frame_url(url) -> str:
-    """A refused frame's address for the evidence record: scheme, host, port and path in full; query and fragment
-    dropped (they can carry tokens, e.g. Maputnik's #channel=). about:/blob:/data: keep their scheme (blob: also
-    its inner origin and path); a data: URL's content is never kept. Bounded; never raises."""
+    """A frame's address for refusal evidence, from approved components only (Sol h4b): the scheme, a loopback host
+    and the port verbatim; Studio's own paths verbatim; any other host or path as a digest; never a query, fragment,
+    userinfo or data: content. about:blank and about:srcdoc verbatim, other about: as a digest. Never raises."""
     try:
         if not isinstance(url, str):
             return '<not a string>'
+        if url == '':
+            return "'' (initial empty document)"
         lowered = url.lower()
         if lowered.startswith('data:'):
             return 'data:'
         if lowered.startswith('about:'):
-            return url.split('?', 1)[0].split('#', 1)[0][:200]
-        inner = url[5:] if lowered.startswith('blob:') else url
-        parts = urlsplit(inner)
-        host = parts.hostname or ''
-        host = f'[{host}]' if ':' in host else host
-        address = f'{parts.scheme}://{host}' + (f':{parts.port}' if parts.port else '') + (parts.path or '')
-        return (('blob:' if inner is not url else '') + address)[:300]
+            bare = lowered.split('?', 1)[0].split('#', 1)[0]
+            return bare if bare in EVIDENCE_ABOUT else 'about: [' + _text_digest(url) + ']'
+        blob = lowered.startswith('blob:')
+        parts = urlsplit(url[5:] if blob else url)
+        scheme = parts.scheme.lower() if parts.scheme.lower() in ('http', 'https', 'ws', 'wss', 'file') else \
+            'scheme[' + _text_digest(parts.scheme) + ']'
+        host = (parts.hostname or '').lower()
+        shown = (f'[{host}]' if ':' in host else host) if host in EVIDENCE_HOSTS else \
+            'host[' + _text_digest(host) + ']'
+        try:
+            port = f':{parts.port}' if parts.port else ''
+        except ValueError:
+            port = ':[invalid]'
+        path = parts.path if parts.path in EVIDENCE_PATHS and not blob else ' path[' + _text_digest(parts.path) + ']'
+        return (('blob:' if blob else '') + f'{scheme}://{shown}{port}' + path)[:300]
     except Exception:  # noqa: BLE001
         return '<unparseable>'
 
@@ -441,13 +467,19 @@ class PlaywrightPage:
         self._context.on('page', lambda page: page.close())
 
     def _refusal(self, event, frames):
-        row = {'event': event, 'allowedOrigins': [self.origin.origin],
-               # A frame name is page-controlled (window.name) and may carry anything: only its digest is kept.
-               'refused': [{'url': refused_frame_url(f.url),
-                            'nameSha256': 'sha256:' + hashlib.sha256(str(getattr(f, 'name', '') or '').encode()).hexdigest(),
-                            'parent': refused_frame_url(f.parent_frame.url) if getattr(f, 'parent_frame', None)
-                            else None} for f in frames],
-               'frames': [refused_frame_url(f.url) for f in self._page.frames] if self._page is not None else []}
+        """Evidence for one refusal. Never raises: evidence can never interrupt enforcement (Sol h4b)."""
+        try:
+            row = {'event': event, 'allowedOrigins': [self.origin.origin],
+                   # A frame name is page-controlled (window.name) and may carry anything: only its digest is kept.
+                   'refused': [{'url': refused_frame_url(getattr(f, 'url', None)),
+                                'nameSha256': _text_digest(getattr(f, 'name', '') or ''),
+                                'parent': refused_frame_url(f.parent_frame.url) if getattr(f, 'parent_frame', None)
+                                else None} for f in frames],
+                   'frames': [refused_frame_url(getattr(f, 'url', None)) for f in self._page.frames]
+                   if self._page is not None else []}
+        except Exception as exc:  # noqa: BLE001
+            row = {'event': event, 'allowedOrigins': [self.origin.origin], 'refused': [],
+                   'frames': [], 'evidenceError': type(exc).__name__}
         if len(self.origin_refusals) < 20:
             self.origin_refusals.append(row)
         return row
@@ -457,28 +489,36 @@ class PlaywrightPage:
         navigation commits, or about:blank), which has its creator's origin, whose parent is itself allowed
         (rehearsal 9 run 14c, H4: Studio's second Maputnik iframe was refused in the instant before it committed
         its same-origin URL). about:srcdoc, blob:, data: and every other origin stay refused."""
-        url = getattr(frame, 'url', None)
+        try:
+            url = frame.url
+            parent = getattr(frame, 'parent_frame', None)
+        except Exception:  # noqa: BLE001  (an unreadable frame is refused: fail closed)
+            return False
         if self.origin.allows(url):
             return True
-        parent = getattr(frame, 'parent_frame', None)
         return (url in ('', 'about:blank') and parent is not None and depth < 8
                 and self._frame_allowed(parent, depth + 1))
 
     def _navigation(self, frame):
         if not self._frame_allowed(frame):
-            self._refusal('framenavigated', [frame])
-            self._origin_failed = True
-            self._context.close()
+            self._origin_failed = True           # enforcement first; evidence after, and it never raises
+            try:
+                self._refusal('framenavigated', [frame])
+            finally:
+                self._context.close()
 
     def _check_origin(self):
         frames = self._page.frames
         initial = self._initial_document and len(frames) == 1 and self._page.url == 'about:blank'
         refused = [frame for frame in frames if not self._frame_allowed(frame)]
         if self._origin_failed or not initial and refused:
-            row = self._refusal('check', refused) if refused else (self.origin_refusals[-1] if self.origin_refusals
-                                                                    else {'refused': [], 'allowedOrigins': [self.origin.origin]})
-            self._origin_failed = True
-            self._context.close()
+            self._origin_failed = True           # enforcement first; evidence after, and it never raises
+            try:
+                row = self._refusal('check', refused) if refused else (
+                    self.origin_refusals[-1] if self.origin_refusals
+                    else {'refused': [], 'allowedOrigins': [self.origin.origin]})
+            finally:
+                self._context.close()
             names = ', '.join(r['url'] for r in row['refused']) or 'an earlier frame'
             raise OriginLocked(f"refused document origin: {names} (allowed: {', '.join(row['allowedOrigins'])})"[:600])
 

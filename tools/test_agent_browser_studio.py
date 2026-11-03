@@ -1261,6 +1261,10 @@ def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
         catalog_composition_without_view(body, ids)
 
 
+def _d(text):
+    return 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
+
+
 def _guarded_page(frames):
     """A PlaywrightPage with no browser: only the origin guard's state and fake frames."""
     from agent_browser_studio import OriginLock, PlaywrightPage
@@ -1279,10 +1283,11 @@ def _frame(url, name='', parent=None):
 
 @pytest.mark.parametrize('url, recorded', [
     ('http://127.0.0.1:41000/_studio/maputnik/index.html?layer=1#channel=secret', 'http://127.0.0.1:41000/_studio/maputnik/index.html'),
-    ('blob:http://127.0.0.1:39267/5d1c-uuid', 'blob:http://127.0.0.1:39267/5d1c-uuid'),
+    ('blob:http://127.0.0.1:39267/5d1c-uuid', 'blob:http://127.0.0.1:39267 path[' + _d('/5d1c-uuid') + ']'),
     ('about:srcdoc', 'about:srcdoc'),
     ('data:text/html;base64,PHNjcmlwdD4=', 'data:'),
-    ('https://user:pw@tiles.example.com/x/y?token=abc', 'https://tiles.example.com/x/y')])
+    ('https://user:pw@tiles.example.com/x/y?token=abc',
+     'https://host[' + _d('tiles.example.com') + '] path[' + _d('/x/y') + ']')])
 def test_a_refused_frame_is_named_in_the_action_result_and_kept_for_the_receipt(url, recorded):
     """Rehearsal 9 run 14c (H4): "refused document origin" named no address. The refusal now names the refused
     frame (origin and path; never a query, fragment, credentials or data: content) and the allowed origin, and
@@ -1345,7 +1350,8 @@ def test_an_initial_empty_child_frame_is_allowed_only_until_it_commits_and_is_re
     assert closed == [] and page.origin_refusals == []
     child.url = 'http://127.0.0.1:41000/elsewhere'                                 # then off-origin: refused
     page._navigation(child)
-    assert closed == [True] and page.origin_refusals[0]['refused'][0]['url'] == 'http://127.0.0.1:41000/elsewhere'
+    assert closed == [True] and page.origin_refusals[0]['refused'][0]['url'] == \
+        'http://127.0.0.1:41000 path[' + _d('/elsewhere') + ']'
     with pytest.raises(OriginLocked, match='refused document origin'):
         page._check_origin()
     # The post-action check alone (no navigation event) also refuses a committed off-origin child.
@@ -1385,3 +1391,54 @@ def test_a_refused_frames_name_is_kept_only_as_a_digest():
     for leaked in ('pw@', 'token=abc', '#frag', 'secret', name):
         assert leaked not in evidence
     assert page.origin_refusals[0]['refused'][0]['nameSha256'] == 'sha256:' + hashlib.sha256(name.encode()).hexdigest()
+
+
+def test_refusal_evidence_keeps_page_controlled_paths_and_hosts_only_as_digests():
+    """Sol h4b P2: a same-origin parent can put a credential in its own path (history.replaceState) and then create a
+    refused child; the parent, sibling and refused paths are page-controlled. Only Studio's own paths and loopback
+    hosts are kept verbatim; everything else is a digest, in the receipt and in the action text."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio/ghp_SECRETTOKEN123')
+    sibling = _frame('http://127.0.0.1:39267/_studio/x/AKIAABCDEFGHIJKLMNOP', '', top)
+    refused = _frame('https://evil-ghp_SECRET2.example.com/steal/eyJhbGciOi', 'n', top)
+    page, closed = _guarded_page([top, sibling, refused])
+    with pytest.raises(OriginLocked) as raised:
+        page._check_origin()
+    evidence = json.dumps(page.origin_refusals) + str(raised.value)
+    for leaked in ('SECRETTOKEN', 'AKIAABCDEFGHIJKLMNOP', 'SECRET2', 'eyJhbGciOi', 'steal', 'evil'):
+        assert leaked not in evidence
+    assert closed == [True]
+    row = page.origin_refusals[0]
+    assert row['refused'][0]['parent'] == 'http://127.0.0.1:39267 path[' + _d('/studio/ghp_SECRETTOKEN123') + ']'
+    assert row['frames'][1] == 'http://127.0.0.1:39267 path[' + _d('/_studio/x/AKIAABCDEFGHIJKLMNOP') + ']'
+    # Studio's own pages stay readable.
+    from agent_browser_studio import refused_frame_url
+    assert refused_frame_url('http://127.0.0.1:41000/_studio/maputnik/index.html?layer=1#channel=x') == \
+        'http://127.0.0.1:41000/_studio/maputnik/index.html'
+
+
+@pytest.mark.parametrize('where', ['navigation', 'check'])
+def test_evidence_collection_never_interrupts_enforcement(where):
+    """Sol h4b P2: a frame name with a lone surrogate (String.fromCharCode(0xd800)) made hashing raise before the
+    context was closed. The name is now hashed surrogate-safely, and enforcement happens first in any case."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    child = _frame('http://127.0.0.1:41000/x', '\ud800', top)
+    page, closed = _guarded_page([top, child])
+    if where == 'navigation':
+        page._navigation(child)
+    else:
+        with pytest.raises(OriginLocked):
+            page._check_origin()
+    assert closed == [True] and page._origin_failed
+    assert page.origin_refusals[0]['refused'][0]['nameSha256'].startswith('sha256:')
+
+    class Broken:
+        @property
+        def url(self):
+            raise RuntimeError('frame detached')
+    page2, closed2 = _guarded_page([top, child])
+    page2._page.frames = [top, child, Broken()]
+    with pytest.raises(OriginLocked):
+        page2._check_origin()
+    assert closed2 == [True] and page2._origin_failed
