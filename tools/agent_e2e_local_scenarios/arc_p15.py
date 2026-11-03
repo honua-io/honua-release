@@ -19,6 +19,13 @@ class ArcP15(P15):
     def source_path(self, binding):
         return source_path(binding).replace('outFields=%2A', 'outFields=source_id%2Cname%2Ccapacity%2Cis_open')
 
+    def geojson_path(self, binding):
+        """The same source read as f=geojson: its typed booleans cross-check the GeoServices 0/1 values (A25)."""
+        path = self.source_path(binding)
+        if '?f=json&' not in path:
+            raise ValueError('the P15 source read has an unexpected shape')
+        return path.replace('?f=json&', '?f=geojson&', 1)
+
     def roles(self, stack, seeded, variant, run=None):
         return load_roles('P15', 'arc')
 
@@ -57,7 +64,14 @@ class ArcP15(P15):
                  'contentHash': saved['contentHash'], 'shelters': binding,
                  'priorCaseReceiptSha256': shared['caseReceiptSha256']}
         rec.json('p15-source-before', 'GET', self.source_path(binding))
+        rec.json('p15-source-before-geojson', 'GET', self.geojson_path(binding))
+        # A26: the seeded map is customer knowledge the customer hands over (no tool can discover saved maps).
+        stack.extra['arcP15Map'] = {k: state[k] for k in ('itemId', 'versionId', 'contentHash')}
         return Seeded(state)
+
+    def observe(self, stack, seeded, variant, run=None):
+        stack.extra['recorder'].json('p15-source-after-geojson', 'GET', self.geojson_path(seeded.state['shelters']))
+        return super().observe(stack, seeded, variant, run=run)
 
 
 scenario = ArcP15()

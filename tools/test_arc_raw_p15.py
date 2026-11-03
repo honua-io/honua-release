@@ -51,11 +51,22 @@ def test_raw_p15_keeps_frozen_assertions_and_changes_only_service_identity_sourc
     assert load_expected('P15', variant, 'arc') == load_expected('P15', variant)
     arc = load_projections('P15', variant, 'arc')
     base = load_projections('P15', variant)
-    assert arc['source-content.unchanged']['spec'] == base['source-content.unchanged']['spec']
+    # PREREG A25: the arc row adds only the reviewed typed-boolean cross-check (f=geojson companions); otherwise
+    # it is the frozen base row.
+    arc_row = dict(arc['source-content.unchanged']['spec']['protectedContent'][0])
+    content = arc_row.pop('content')
+    assert {'protectedContent': [arc_row]} == base['source-content.unchanged']['spec']
+    assert content == {'featureServerFeatures': '$step', 'booleanFields': ['is_open'],
+                       'booleanGeo': {'p15-source-before': 'p15-source-before-geojson',
+                                      'p15-source-after': 'p15-source-after-geojson'}}
     assert {k: v for k, v in arc.items() if k != 'source-content.unchanged'} == {
         k: v for k, v in base.items() if k != 'source-content.unchanged'}
-    assert all('outFields=source_id%2Cname%2Ccapacity%2Cis_open' in rule['path']
-               for rule in arc['source-content.unchanged']['reads'].values())
+    reads = arc['source-content.unchanged']['reads']
+    assert all('outFields=source_id%2Cname%2Ccapacity%2Cis_open' in rule['path'] for rule in reads.values())
+    for step in ('p15-source-before', 'p15-source-after'):
+        companion = dict(reads[step + '-geojson'])
+        assert companion.pop('path') == reads[step]['path'].replace('f=json&', 'f=geojson&', 1)
+        assert companion == {k: v for k, v in reads[step].items() if k != 'path'}
     roles = {r.role: r for r in load_roles('P15', 'arc')}
     assert roles['seeded:service:shelters'].step == 'arc-p15-service-meta'
     assert roles['seeded:layer:shelters'].step == 'arc-p15-service-meta'
