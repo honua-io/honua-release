@@ -102,28 +102,39 @@ def require_on_trunk(run_sha: str, compare_to_trunk: dict) -> None:
         raise NotQualified("run commit is not on server trunk")
 
 
-def _recency(run: dict) -> tuple[str, int, int]:
-    """Execution recency: the latest of the run's update, latest-attempt start and creation times, then
-    its attempt and id. A failed re-run of an earlier dispatch is newer than a later dispatch's green."""
-    times = [str(run.get(key) or "") for key in ("updated_at", "run_started_at", "created_at")]
-    return max(times), int(run.get("run_attempt") or 0), int(run.get("id") or 0)
+_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
+RUN_SEARCH_LIMIT = 1000   # GitHub's workflow-run listing returns at most this many results
 
 
 def select_run(runs_payload: dict, pinned: str, digest: str) -> dict:
-    """The deciding execution: the most recently executed completed workflow_dispatch run whose title
-    names the pinned digest (the title is only an index). It is chosen BEFORE any qualification, so a
-    newer red, including one on the pin itself or a failed re-run of an older dispatch, is the run that
-    decides; it then fails qualification and the pin's own check-runs stay in charge."""
+    """The deciding execution among ALL workflow_dispatch runs whose title names the pinned digest (the
+    title is only an index), chosen BEFORE any qualification. It fails closed: the collection must be
+    complete, no candidate may still be running, every candidate needs a valid updated_at (when its
+    latest attempt last changed), and the latest must be unique. A newer red, including one at the pin
+    itself or a failed re-run of an older dispatch, therefore decides, fails qualification, and leaves
+    the pin's own check-runs in charge."""
+    runs = runs_payload.get("workflow_runs")
+    total = runs_payload.get("total_count")
+    if not isinstance(runs, list) or type(total) is not int or len(runs) != total or total > RUN_SEARCH_LIMIT:
+        raise NotQualified("the validated-examples dispatch list is incomplete; execution order is unknown")
     candidates = []
-    for run in runs_payload.get("workflow_runs") or []:
+    for run in runs:
         title = str(run.get("display_title") or "")
         if (run.get("event") == "workflow_dispatch" and run.get("path") == WORKFLOW_PATH
-                and run.get("status") == "completed"
                 and title.startswith(TITLE_PREFIX) and title.endswith("@" + digest)):
             candidates.append(run)
     if not candidates:
         raise NotQualified("no completed candidate-image dispatch of the validated-examples workflow")
-    return max(candidates, key=_recency)
+    running = [run.get("id") for run in candidates if run.get("status") != "completed"]
+    if running:
+        raise NotQualified(f"candidate dispatch(es) {running} not completed; the latest execution is unknown")
+    if any(not _TIMESTAMP.fullmatch(str(run.get("updated_at") or "")) for run in candidates):
+        raise NotQualified("a candidate dispatch has no valid updated_at; execution order is unknown")
+    ordered = sorted(candidates, key=lambda run: str(run["updated_at"]), reverse=True)
+    if len(ordered) > 1 and ordered[0]["updated_at"] == ordered[1]["updated_at"]:
+        raise NotQualified(f"candidate dispatches {ordered[0].get('id')} and {ordered[1].get('id')} share the "
+                           "latest updated_at; execution order is ambiguous")
+    return ordered[0]
 
 
 def verify_run(run: dict, run_sha: str) -> None:
@@ -185,6 +196,23 @@ def evidence_from_zip(scenario: str, blob: bytes) -> dict:
     return value
 
 
+def _all_runs(get_json: Callable[[str], dict]) -> dict:
+    """Every workflow_dispatch run of the workflow, page by page, with the declared total."""
+    runs: list[dict] = []
+    total = None
+    for page in range(1, RUN_SEARCH_LIMIT // 100 + 2):
+        answer = get_json(f"repos/{REPO}/actions/workflows/{WORKFLOW_FILE}/runs"
+                          f"?event=workflow_dispatch&per_page=100&page={page}")
+        batch = answer.get("workflow_runs")
+        total = answer.get("total_count")
+        if not isinstance(batch, list) or type(total) is not int:
+            raise NotQualified("the validated-examples dispatch list is unreadable")
+        runs.extend(batch)
+        if len(runs) >= total or not batch:
+            break
+    return {"workflow_runs": runs, "total_count": total}
+
+
 def resolve(pinned: str, component: dict, sdk_version: str | None,
             get_json: Callable[[str], dict], get_bytes: Callable[[str], bytes]) -> dict:
     """Return {'status': 'verified', ...record} or {'status': 'unavailable', 'reason': ...}.
@@ -193,7 +221,7 @@ def resolve(pinned: str, component: dict, sdk_version: str | None,
     downloads an artifact archive. Any error leaves the pin's own check-runs in charge."""
     try:
         repo, digest = pinned_image(component)
-        runs = get_json(f"repos/{REPO}/actions/workflows/{WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=100")
+        runs = _all_runs(get_json)
         run = select_run(runs, pinned, digest)
         run_sha = str(run.get("head_sha") or "")
         verify_run(run, run_sha)
