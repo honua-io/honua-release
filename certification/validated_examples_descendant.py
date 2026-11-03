@@ -204,8 +204,8 @@ def evidence_from_zip(scenario: str, blob: bytes) -> dict:
 
 def _all_runs(get_json: Callable[[str], dict]) -> dict:
     """Every workflow_dispatch run of the workflow, page by page. Fails closed unless the collection was
-    stable while read: the same declared total on every page, no duplicate run ids, a distinct count equal
-    to that total, and an identical first page re-read at the end."""
+    stable while read: the same declared total on every page, no duplicate run ids, and a distinct count
+    equal to that total. resolve() reads it again after all checks and compares every run's execution state."""
     def page(number: int) -> tuple[list[dict], int]:
         answer = get_json(f"repos/{REPO}/actions/workflows/{WORKFLOW_FILE}/runs"
                           f"?event=workflow_dispatch&per_page=100&page={number}")
@@ -226,11 +226,19 @@ def _all_runs(get_json: Callable[[str], dict]) -> dict:
             raise NotQualified("the validated-examples dispatch list changed while it was read")
         runs.extend(batch)
     ids = [run.get("id") for run in runs]
-    recheck, again = page(1)
-    if (len(set(ids)) != len(ids) or len(ids) != total or again != total
-            or [run.get("id") for run in recheck] != [run.get("id") for run in first]):
+    if len(set(ids)) != len(ids) or len(ids) != total:
         raise NotQualified("the validated-examples dispatch list changed while it was read")
     return {"workflow_runs": runs, "total_count": total}
+
+
+_EXECUTION_FIELDS = ("id", "run_attempt", "status", "conclusion", "head_sha", "display_title",
+                     "run_started_at", "updated_at")
+
+
+def _fingerprint(collection: dict) -> list[tuple]:
+    """Every run's identity AND execution state, so a re-run (same id, new attempt) is a change."""
+    return sorted((tuple(str(run.get(key)) for key in _EXECUTION_FIELDS) for run in collection["workflow_runs"]),
+                  key=lambda row: row[0])
 
 
 def resolve(pinned: str, component: dict, sdk_version: str | None,
@@ -264,6 +272,10 @@ def resolve(pinned: str, component: dict, sdk_version: str | None,
                 raise NotQualified(f"{scenario}: expected one evidence artifact for attempt "
                                    f"{run.get('run_attempt')}, found {len(verified)}")
             facts[scenario] = verified[0]
+        # The whole collection is read again AFTER every check: if any run's attempt, status, conclusion or
+        # timestamps changed meanwhile (a re-run, a new dispatch), the verdict is stale and refuses.
+        if _fingerprint(_all_runs(get_json)) != _fingerprint(runs):
+            raise NotQualified("the validated-examples dispatch list changed while it was evaluated")
         return {"status": "verified", "ruling": RULING, "pinSha": pinned, "runSha": run_sha,
                 "runId": run["id"], "runAttempt": run.get("run_attempt"), "runUrl": run.get("html_url"),
                 "changedPaths": paths, "imageDigest": digest,

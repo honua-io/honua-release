@@ -84,7 +84,8 @@ class World:
         if path.startswith(f"repos/{vx.REPO}/actions/workflows/{vx.WORKFLOW_FILE}/runs?"):
             page = int(path.rsplit("page=", 1)[1])
             total = len(self.runs) if self.total is None else self.total
-            return {"workflow_runs": self.runs[(page - 1) * 100: page * 100], "total_count": total}
+            # A fresh copy per read, as a real API answer is: later mutation must not alias earlier reads.
+            return copy.deepcopy({"workflow_runs": self.runs[(page - 1) * 100: page * 100], "total_count": total})
         if path == f"repos/{vx.REPO}/compare/{PIN}...{RUN_SHA}":
             return self.compare
         if path == f"repos/{vx.REPO}/compare/{RUN_SHA}...trunk":
@@ -392,3 +393,41 @@ def test_a_running_candidate_dispatch_refuses():
                            updated_at="2026-11-03T21:00:00Z"))
     record = world.resolve()
     assert record["status"] == "unavailable" and "not completed" in record["reason"]
+
+
+def _mutating(world, after_reads, mutate):
+    """Serve the run list unchanged for `after_reads` full-list page-1 reads, then apply `mutate`."""
+    reads = {"n": 0}
+    original = world.get_json
+
+    def get_json(path):
+        if "/runs?" in path and path.endswith("page=1"):
+            reads["n"] += 1
+            if reads["n"] == after_reads + 1:
+                mutate(world)
+        return original(path)
+
+    world.get_json = get_json
+    return world
+
+
+def test_a_failed_rerun_appearing_in_the_final_reread_refuses():
+    """Sol round 4: a re-run keeps its id and the total; its new attempt and red must still be seen."""
+    world = World()
+    world.runs.append(_run(id=RUN_ID - 1, conclusion="failure", created_at="2026-11-03T18:00:00Z",
+                           run_started_at="2026-11-03T18:00:00Z", updated_at="2026-11-03T18:40:00Z"))
+    assert World().resolve()["status"] == "verified"
+
+    def rerun(w):
+        w.runs[1] = _run(id=RUN_ID - 1, run_attempt=2, conclusion="failure", created_at="2026-11-03T18:00:00Z",
+                         run_started_at="2026-11-03T21:00:00Z", updated_at="2026-11-03T21:30:00Z")
+
+    record = _mutating(world, 1, rerun).resolve()
+    assert record["status"] == "unavailable" and "changed while it was evaluated" in record["reason"]
+
+
+@pytest.mark.parametrize("change", [dict(status="in_progress", conclusion=None), dict(run_attempt=2),
+                                    dict(updated_at="2026-11-03T23:00:00Z")])
+def test_any_execution_change_to_the_deciding_run_during_evaluation_refuses(change):
+    world = _mutating(World(), 1, lambda w: w.runs[0].update(change))
+    assert world.resolve()["status"] == "unavailable"
