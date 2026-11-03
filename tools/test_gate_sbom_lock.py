@@ -22,8 +22,10 @@ def test_the_lock_verification_is_the_studio_and_upgrade_gates_step_for_step():
     upgrade = _steps("gate-upgrade.yml", "compose-upgrade")
     verify = _verify(sbom)
     assert verify["run"] == _verify(upgrade)["run"]
-    assert verify["env"] == _verify(upgrade)["env"]
-    assert verify["env"]["GH_TOKEN"] == _verify(studio)["env"]["GH_TOKEN"] == "${{ secrets.RELEASE_GH_TOKEN }}"
+    assert verify["env"]["LOCK_DIGEST"] == _verify(upgrade)["env"]["LOCK_DIGEST"]
+    # Same token as the Studio gate, with the job token as a fallback: RELEASE_GH_TOKEN is optional here.
+    assert _verify(studio)["env"]["GH_TOKEN"] == "${{ secrets.RELEASE_GH_TOKEN }}"
+    assert verify["env"]["GH_TOKEN"] == "${{ secrets.RELEASE_GH_TOKEN || github.token }}"
     lines = [line.strip() for line in verify["run"].splitlines() if line.strip()]
     position = 0
     for line in (line.strip() for line in _verify(studio)["run"].splitlines() if line.strip()):

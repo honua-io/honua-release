@@ -129,7 +129,9 @@ jobs:
         id: candidate_lock
         if: ${{ inputs.lock_run_id != '' }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          # RELEASE_GH_TOKEN is optional for callers of this workflow; the job token (attestations: read)
+          # verifies the same attestations when it is absent.
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
         run: |
           set -euo pipefail
