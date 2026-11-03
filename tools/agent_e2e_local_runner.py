@@ -986,7 +986,8 @@ def execute_case(*, case_id, scenario, variant, case, candidate_digest, runtime)
                'sessions': [], 'assertions': [],
                'finalAnswerCheck': None, 'nudges': 0, 'tokens': 0, 'infrastructure': [],
                'bounds': {'maxModelCalls': runtime.max_model_calls, 'maxActions': runtime.max_actions,
-                          'maxTokens': runtime.max_tokens}}
+                          # PREREG A19: no token bound binds a CLI arm (agent_e2e_cli_sessions).
+                          'maxTokens': None if agent in ('claude-cli', 'codex-cli') else runtime.max_tokens}}
     stack = seeded = None
     acted = False
     rulings = {}

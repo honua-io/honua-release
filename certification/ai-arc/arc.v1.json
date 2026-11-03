@@ -426,7 +426,7 @@
       "approvals": "once per proposal or plan, per the scenario script; out-of-scope requests refused"
     },
     "studio": {
-      "maxToolCalls": 60,
+      "maxToolCalls": 150,
       "maxTurns": 60,
       "maxSeconds": 2700,
       "maxContinueNudges": 1,

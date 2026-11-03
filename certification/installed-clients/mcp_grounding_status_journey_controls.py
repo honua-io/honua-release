@@ -64,7 +64,7 @@ def vector(*, inspector=False, pages=1):
         isCoVersioned=False, skewedIds=["cert-ops-skew"],
         serving=[{"id": "cert-ops-skew", "runtimeProfile": None,
                   "effectiveArtifactReference": declaration["artifactBindings"]["explicitTestTarget"],
-                  "projectedFromRelease": False, "skewed": True}])
+                  "projectedFromRelease": False, "observationStatus": "notObserved", "skewed": True}])
     observation = {**authored, "canonicalClient": "MCP Inspector" if inspector else "Official MCP TypeScript SDK",
         "clientVersion": "2.10.1" if inspector else "1.32.1",
         "runtimeBefore": owned["runtimeBinding"], "runtimeAfter": owned["runtimeBinding"],

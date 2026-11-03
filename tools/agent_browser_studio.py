@@ -291,6 +291,54 @@ class OriginLock:
         return url == 'about:blank' or self.allows(url)
 
 
+# The only frame paths kept verbatim in refusal evidence: Studio's own pages. Any other path, and any host that is
+# not a loopback literal, is page-controlled text (history.replaceState, a crafted URL) and is kept only as a digest.
+EVIDENCE_PATHS = frozenset({'', '/', '/studio', '/_studio/maputnik/index.html'})
+EVIDENCE_HOSTS = frozenset({'127.0.0.1', 'localhost', '::1'})
+EVIDENCE_ABOUT = frozenset({'about:blank', 'about:srcdoc'})
+
+
+def _text_digest(text) -> str:
+    """sha256 of any str, lone surrogates included (Sol h4b: a JavaScript string may hold one); never raises."""
+    try:
+        raw = str(text).encode('utf-8', 'surrogatepass')
+    except Exception:  # noqa: BLE001
+        raw = repr(text).encode('ascii', 'backslashreplace')
+    return 'sha256:' + hashlib.sha256(raw).hexdigest()
+
+
+def refused_frame_url(url) -> str:
+    """A frame's address for refusal evidence, from approved components only (Sol h4b): the scheme, a loopback host
+    and the port verbatim; Studio's own paths verbatim; any other host or path as a digest; never a query, fragment,
+    userinfo or data: content. about:blank and about:srcdoc verbatim, other about: as a digest. Never raises."""
+    try:
+        if not isinstance(url, str):
+            return '<not a string>'
+        if url == '':
+            return "'' (initial empty document)"
+        lowered = url.lower()
+        if lowered.startswith('data:'):
+            return 'data:'
+        if lowered.startswith('about:'):
+            bare = lowered.split('?', 1)[0].split('#', 1)[0]
+            return bare if bare in EVIDENCE_ABOUT else 'about: [' + _text_digest(url) + ']'
+        blob = lowered.startswith('blob:')
+        parts = urlsplit(url[5:] if blob else url)
+        scheme = parts.scheme.lower() if parts.scheme.lower() in ('http', 'https', 'ws', 'wss', 'file') else \
+            'scheme[' + _text_digest(parts.scheme) + ']'
+        host = (parts.hostname or '').lower()
+        shown = (f'[{host}]' if ':' in host else host) if host in EVIDENCE_HOSTS else \
+            'host[' + _text_digest(host) + ']'
+        try:
+            port = f':{parts.port}' if parts.port else ''
+        except ValueError:
+            port = ':[invalid]'
+        path = parts.path if parts.path in EVIDENCE_PATHS and not blob else ' path[' + _text_digest(parts.path) + ']'
+        return (('blob:' if blob else '') + f'{scheme}://{shown}{port}' + path)[:300]
+    except Exception:  # noqa: BLE001
+        return '<unparseable>'
+
+
 def launch_options():
     """Headless, with devtools left off. Playwright 1.64 has no devtools launch switch."""
     # Responses are fulfilled by the guarded route, which otherwise gives local
@@ -390,6 +438,8 @@ class PlaywrightPage:
         from playwright.sync_api import sync_playwright
         self.origin = origin
         self.aborted = []
+        # Every frame the origin guard refused (rehearsal 9 run 14c, H4: the refused address was not recorded).
+        self.origin_refusals = []
         self._initial_document = True
         self._origin_failed = False
         self._identity = identity
@@ -417,18 +467,61 @@ class PlaywrightPage:
         # This MCP surface owns one page. Popups cannot create an unobserved browsing surface.
         self._context.on('page', lambda page: page.close())
 
+    def _refusal(self, event, frames):
+        """Evidence for one refusal. Never raises: evidence can never interrupt enforcement (Sol h4b)."""
+        try:
+            row = {'event': event, 'allowedOrigins': [self.origin.origin],
+                   # A frame name is page-controlled (window.name) and may carry anything: only its digest is kept.
+                   'refused': [{'url': refused_frame_url(getattr(f, 'url', None)),
+                                'nameSha256': _text_digest(getattr(f, 'name', '') or ''),
+                                'parent': refused_frame_url(f.parent_frame.url) if getattr(f, 'parent_frame', None)
+                                else None} for f in frames],
+                   'frames': [refused_frame_url(getattr(f, 'url', None)) for f in self._page.frames]
+                   if self._page is not None else []}
+        except Exception as exc:  # noqa: BLE001
+            row = {'event': event, 'allowedOrigins': [self.origin.origin], 'refused': [],
+                   'frames': [], 'evidenceError': type(exc).__name__}
+        if len(self.origin_refusals) < 20:
+            self.origin_refusals.append(row)
+        return row
+
+    def _frame_allowed(self, frame, depth=0):
+        """A frame on the locked origin, or a child frame still on its initial empty document ('' before its first
+        navigation commits, or about:blank), which has its creator's origin, whose parent is itself allowed
+        (rehearsal 9 run 14c, H4: Studio's second Maputnik iframe was refused in the instant before it committed
+        its same-origin URL). about:srcdoc, blob:, data: and every other origin stay refused."""
+        try:
+            url = frame.url
+            parent = getattr(frame, 'parent_frame', None)
+        except Exception:  # noqa: BLE001  (an unreadable frame is refused: fail closed)
+            return False
+        if self.origin.allows(url):
+            return True
+        return (url in ('', 'about:blank') and parent is not None and depth < 8
+                and self._frame_allowed(parent, depth + 1))
+
     def _navigation(self, frame):
-        if not self.origin.allows(frame.url):
-            self._origin_failed = True
-            self._context.close()
+        if not self._frame_allowed(frame):
+            self._origin_failed = True           # enforcement first; evidence after, and it never raises
+            try:
+                self._refusal('framenavigated', [frame])
+            finally:
+                self._context.close()
 
     def _check_origin(self):
         frames = self._page.frames
         initial = self._initial_document and len(frames) == 1 and self._page.url == 'about:blank'
-        if self._origin_failed or not initial and any(not self.origin.allows(frame.url) for frame in frames):
-            self._origin_failed = True
-            self._context.close()
-            raise OriginLocked('refused document origin')
+        refused = [frame for frame in frames if not self._frame_allowed(frame)]
+        if self._origin_failed or not initial and refused:
+            self._origin_failed = True           # enforcement first; evidence after, and it never raises
+            try:
+                row = self._refusal('check', refused) if refused else (
+                    self.origin_refusals[-1] if self.origin_refusals
+                    else {'refused': [], 'allowedOrigins': [self.origin.origin]})
+            finally:
+                self._context.close()
+            names = ', '.join(r['url'] for r in row['refused']) or 'an earlier frame'
+            raise OriginLocked(f"refused document origin: {names} (allowed: {', '.join(row['allowedOrigins'])})"[:600])
 
     def _interact(self, operation):
         self._check_origin()
@@ -627,8 +720,27 @@ class PlaywrightPage:
             text = body.aria_snapshot(timeout=5000)
         except Exception:
             text = body.inner_text(timeout=5000)
+        text = (text or '') + self._frame_text()
         self._check_origin()
-        return (text or '')[:8000]
+        return text[:16000]
+
+    def _frame_text(self):
+        """The page's embedded frames (e.g. Studio's sandboxed Maputnik style editor), which the body's accessibility
+        snapshot does not include. Each is listed with the selector prefix that reaches into it, so the arm can click
+        and type inside, as a customer's browser agent can (Studio DEV shakeout run 11b: the style and label controls
+        were invisible to the arm). Frames stay under the same origin lock."""
+        out = []
+        for index in range(self._page.locator('iframe').count()):
+            frame = self._page.locator('iframe').nth(index)
+            title = (frame.get_attribute('title', timeout=2000) or '').replace('"', "'")[:80]
+            prefix = f'iframe >> nth={index} >> internal:control=enter-frame >> '
+            try:
+                inner = self._page.frame_locator('iframe').nth(index).locator('body').aria_snapshot(timeout=5000)
+            except Exception:
+                inner = '(frame content unavailable)'
+            out.append(f'\n- frame {index} "{title}" (prefix selectors with: {prefix}):\n'
+                       + '\n'.join('  ' + line for line in (inner or '').splitlines()))
+        return ''.join(out)
 
     def chat_state(self):
         """Read the visible Studio chat without evaluating page code."""
@@ -684,6 +796,7 @@ class StudioBrowserServer:
         self.endpoint = None
         self.server = None
         self.decoy = []
+        self.origin_refusals = []
         self.lock = None
         self._owner = None
         self._http_thread = None
@@ -703,6 +816,10 @@ class StudioBrowserServer:
                 lock, identity=self.identity, assistant_log=self.action_log if self.scripted_customer else None,
                 stage_gate=self.stage_gate, refusal_log=self.action_log))
             self.page = self._owner.submit(factory, self.lock).result(timeout=self.owner_timeout)
+            # The same list object, kept after the page closes, for the case receipt (H4).
+            self.origin_refusals = getattr(self.page, 'origin_refusals', None)
+            if not isinstance(self.origin_refusals, list):
+                self.origin_refusals = []
             if isinstance(self.page, PlaywrightPage):
                 self._owner.idle = self.page.pump_events
             self._serve()
@@ -865,10 +982,10 @@ class StudioBrowserServer:
                     shot['url'] = self.page.current_url() if self.page is not None else None
                 except Exception:  # noqa: BLE001  (an unknown URL may be a sign-in page: never kept)
                     shot['url'] = None
-            result = {'status': status, 'text': text[:8000], 'screenshotSha256': digest}
+            result = {"status": status, "text": text[:16000], "screenshotSha256": digest}
             # The action is written before execution. Its result, including the screenshot digest,
             # is retained separately and bound by the runner's response digest and action chain.
-            response = {'jsonrpc': '2.0', 'id': rpc_id, 'result': _tool_result(status, text[:8000], digest)}
+            response = {'jsonrpc': '2.0', 'id': rpc_id, 'result': _tool_result(status, text[:16000], digest)}
             return {**result, '_rawResponse': (200, action_bytes(response))}
 
         result = self.action_log.dispatch('tool_call', selected, execute)
@@ -975,8 +1092,11 @@ def _rpc_error(message, code, text):
 
 
 def _tool_result(status, text, digest):
+    # The page text goes in structuredContent too: an MCP client that prefers structuredContent (Claude Code 2.1.316)
+    # otherwise shows the arm only the screenshot digest. Studio DEV shakeout run 10a: A1 reported "the page-reading
+    # tool gives me no text, only a screenshot hash" and could not find Studio's controls.
     return {'content': [{'type': 'text', 'text': text}], 'isError': status != 'ok',
-            'structuredContent': {'screenshotSha256': digest}}
+            'structuredContent': {'text': text, 'screenshotSha256': digest}}
 
 
 def open_studio_browser(stack, action_log, *, identity=None, scripted_customer=False):

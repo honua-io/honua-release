@@ -18,12 +18,11 @@ FIELDS={'schema','callsBefore','callsAfter','foreignWorkspacePrerequisite','pers
 
 def scoped_refusal(result,message):
     if (not isinstance(result,dict) or set(result)!={'isError','content','structuredContent'} or result['isError'] is not True
-            or not isinstance(result['content'],list) or len(result['content'])!=1 or not isinstance(result['structuredContent'],dict)):
+            or not isinstance(result['content'],list) or not isinstance(result['structuredContent'],dict)):
         raise ValueError('valid managed scoped caller must receive typed authorization denial')
-    item,value=result['content'][0],result['structuredContent']
-    if (not isinstance(item,dict) or set(item)!={'type','text'} or item['type']!='text'
-            or not wire.same_json(wire.strict_json(item['text']),value)
-            or set(value)-{'status','code','message','error','correlationId'} or value.get('status')!='error'
+    # Error results are never summarized (honua-server #6901): exactly [json].
+    value=wire.structured_text_content(result,summary=False)
+    if (set(value)-{'status','code','message','error','correlationId'} or value.get('status')!='error'
             or value.get('code')!='permission_denied' or value.get('message')!=message
             or value.get('error')!={'kind':'AuthorizationDenied','message':message}
             or ('correlationId' in value and (not isinstance(value['correlationId'],str) or not 0<len(value['correlationId'])<=256))):

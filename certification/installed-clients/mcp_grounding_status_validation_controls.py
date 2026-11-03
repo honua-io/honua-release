@@ -290,14 +290,25 @@ class GroundingStatusControls(unittest.TestCase):
         projection.update(isCoVersioned=False, skewedIds=["cert-ops-skew"],
                           serving=[{"id": "cert-ops-skew", "runtimeProfile": None,
                                     "effectiveArtifactReference": alternate,
-                                    "projectedFromRelease": False, "skewed": True}])
+                                    "projectedFromRelease": False, "observationStatus": "notObserved",
+                                    "skewed": True}])
         self.assertEqual(declared_status(projection, {"platformRelease": projection}, declaration)["skewedIds"],
                          ["cert-ops-skew"])
         for change in (lambda p: p.update(skewedIds=[]),
                        lambda p: p["serving"][0].update(effectiveArtifactReference=serving),
                        lambda p: p["serving"][0].update(projectedFromRelease=True),
                        lambda p: p["serving"][0].update(runtimeProfile="unreviewed"),
-                       lambda p: p["serving"][0].update(targetKind="unprojected")):
+                       lambda p: p["serving"][0].update(targetKind="unprojected"),
+                       # honua-server ManagedComposeObserver (#6851) always writes observationStatus,
+                       # one of notObserved/observed/unavailable; the standalone fixture observes nothing.
+                       lambda p: p["serving"][0].pop("observationStatus"),
+                       lambda p: p["serving"][0].update(observationStatus="healthy"),
+                       lambda p: p["serving"][0].update(observationStatus=None),
+                       lambda p: p["serving"][0].update(observationStatus="observed"),
+                       lambda p: p["serving"][0].update(observationStatus="unavailable"),
+                       lambda p: p["serving"][0].update(observedArtifactReference=alternate),
+                       lambda p: p["serving"][0].update(observationStatus="observed", serverVersion="2026.1",
+                                                        observedArtifactReference=alternate)):
             changed = copy.deepcopy(projection); change(changed)
             with self.assertRaises(ValueError): declared_status(changed, {"platformRelease": changed}, declaration)
 
@@ -377,7 +388,8 @@ class GroundingStatusControls(unittest.TestCase):
         projection.update(isCoVersioned=False, skewedIds=["cert-ops-skew"],
                           serving=[{"id": "cert-ops-skew", "runtimeProfile": None,
                                     "effectiveArtifactReference": alternate,
-                                    "projectedFromRelease": False, "skewed": True}])
+                                    "projectedFromRelease": False, "observationStatus": "notObserved",
+                                    "skewed": True}])
         return declaration, projection, serving, alternate
 
 

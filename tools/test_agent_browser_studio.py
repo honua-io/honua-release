@@ -1259,3 +1259,232 @@ def test_viewless_catalog_map_keeps_layer_facts_for_failed_handoff():
     body['layers'][0]['styleRef'] = 'authored'
     with pytest.raises(ProjectionError, match='viewless catalog layer'):
         catalog_composition_without_view(body, ids)
+
+
+def _d(text):
+    return 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
+
+
+def _guarded_page(frames):
+    """A PlaywrightPage with no browser: only the origin guard's state and fake frames."""
+    from agent_browser_studio import OriginLock, PlaywrightPage
+    page = PlaywrightPage.__new__(PlaywrightPage)
+    page.origin = OriginLock('http://127.0.0.1:39267/studio')
+    page.origin_refusals, page._initial_document, page._origin_failed = [], False, False
+    closed = []
+    page._context = SimpleNamespace(close=lambda: closed.append(True))
+    page._page = SimpleNamespace(frames=frames, url=frames[0].url)
+    return page, closed
+
+
+def _frame(url, name='', parent=None):
+    return SimpleNamespace(url=url, name=name, parent_frame=parent)
+
+
+@pytest.mark.parametrize('url, recorded', [
+    ('http://127.0.0.1:41000/_studio/maputnik/index.html?layer=1#channel=secret', 'http://127.0.0.1:41000/_studio/maputnik/index.html'),
+    ('blob:http://127.0.0.1:39267/5d1c-uuid', 'blob:http://127.0.0.1:39267 path[' + _d('/5d1c-uuid') + ']'),
+    ('about:srcdoc', 'about:srcdoc'),
+    ('data:text/html;base64,PHNjcmlwdD4=', 'data:'),
+    ('https://user:pw@tiles.example.com/x/y?token=abc',
+     'https://host[' + _d('tiles.example.com') + '] path[' + _d('/x/y') + ']')])
+def test_a_refused_frame_is_named_in_the_action_result_and_kept_for_the_receipt(url, recorded):
+    """Rehearsal 9 run 14c (H4): "refused document origin" named no address. The refusal now names the refused
+    frame (origin and path; never a query, fragment, credentials or data: content) and the allowed origin, and
+    the page keeps the record for the case receipt. The guard still refuses and still closes the context."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, closed = _guarded_page([top, _frame(url, 'style-editor', top)])
+    with pytest.raises(OriginLocked) as refused:
+        page._check_origin()
+    assert closed == [True]
+    message = str(refused.value)
+    assert message.startswith('refused document origin: ' + recorded) and '(allowed: http://127.0.0.1:39267)' in message
+    assert 'secret' not in message and 'token=' not in message and 'pw@' not in message and 'PHNj' not in message
+    row = page.origin_refusals[-1]
+    assert row['event'] == 'check' and row['allowedOrigins'] == ['http://127.0.0.1:39267']
+    assert row['refused'] == [{'url': recorded, 'nameSha256': 'sha256:' + hashlib.sha256(b'style-editor').hexdigest(),
+                               'parent': 'http://127.0.0.1:39267/studio'}]
+    assert row['frames'] == ['http://127.0.0.1:39267/studio', recorded]
+
+
+def test_a_refused_navigation_is_recorded_and_the_next_action_names_it():
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, closed = _guarded_page([top])
+    page._navigation(_frame('http://127.0.0.1:41000/_studio/maputnik/index.html#channel=x', parent=top))
+    assert closed == [True] and page.origin_refusals[0]['event'] == 'framenavigated'
+    with pytest.raises(OriginLocked, match=r'refused document origin: http://127\.0\.0\.1:41000/_studio/maputnik/'):
+        page._check_origin()
+    # Allowed frames are never recorded.
+    page2, closed2 = _guarded_page([top, _frame('http://127.0.0.1:39267/_studio/maputnik/index.html#c=1', parent=top)])
+    page2._check_origin()
+    assert page2.origin_refusals == [] and closed2 == []
+
+
+def test_the_studio_case_receipt_carries_every_browsers_refusals():
+    from agent_e2e_studio_arc import studio_origin_refusals
+    row = {'event': 'check', 'allowedOrigins': ['http://127.0.0.1:1'], 'refused': [], 'frames': []}
+    runtime = SimpleNamespace(studio_browsers=[SimpleNamespace(origin_refusals=[row]),
+                                               SimpleNamespace(origin_refusals=None), SimpleNamespace()])
+    assert studio_origin_refusals(runtime) == [row]
+    assert studio_origin_refusals(SimpleNamespace()) == []
+
+
+@pytest.mark.parametrize('initial', ['', 'about:blank'])
+def test_an_initial_empty_child_frame_is_allowed_only_until_it_commits_and_is_rechecked(initial):
+    """H4 (rehearsal 9 run 14c, no-model reproduction h4-repro-2): Studio's second Maputnik iframe was still on its
+    initial empty document ('') when the guard's post-action check ran, and the guard closed the browser. Such a
+    child of an allowed frame is allowed; the moment it commits a real navigation it is checked again (framenavigated
+    handler and every post-action check), so the allowance is never a window to another origin."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    child = _frame(initial, 'maputnik', top)
+    page, closed = _guarded_page([top, child])
+    page._check_origin()
+    page._navigation(child)
+    assert closed == [] and page.origin_refusals == []
+    child.url = 'http://127.0.0.1:39267/_studio/maputnik/index.html#channel=x'      # its same-origin commit
+    page._navigation(child)
+    page._check_origin()
+    assert closed == [] and page.origin_refusals == []
+    child.url = 'http://127.0.0.1:41000/elsewhere'                                 # then off-origin: refused
+    page._navigation(child)
+    assert closed == [True] and page.origin_refusals[0]['refused'][0]['url'] == \
+        'http://127.0.0.1:41000 path[' + _d('/elsewhere') + ']'
+    with pytest.raises(OriginLocked, match='refused document origin'):
+        page._check_origin()
+    # The post-action check alone (no navigation event) also refuses a committed off-origin child.
+    other = _frame(initial, 'maputnik', top)
+    page2, closed2 = _guarded_page([top, other])
+    page2._check_origin()
+    other.url = 'https://tiles.example.com/x'
+    with pytest.raises(OriginLocked):
+        page2._check_origin()
+    assert closed2 == [True]
+
+
+@pytest.mark.parametrize('frames', [
+    lambda top: [top, _frame('about:srcdoc', '', top)],
+    lambda top: [top, _frame('blob:http://127.0.0.1:39267/uuid', '', top)],
+    lambda top: [top, _frame('data:text/html,x', '', top)],
+    lambda top: [top, _frame('', '', _frame('http://127.0.0.1:41000/off', '', top))],   # empty child of an off-origin frame
+    lambda top: [top, _frame('', '', None)]])                                          # not a child frame
+def test_only_an_initial_empty_child_of_an_allowed_frame_is_allowed(frames):
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, closed = _guarded_page(frames(top))
+    with pytest.raises(OriginLocked):
+        page._check_origin()
+    assert closed == [True]
+
+
+def test_a_refused_frames_name_is_kept_only_as_a_digest():
+    """Sol h4 P2: a frame name (window.name) is page-controlled and may hold credentials or tokens."""
+    from agent_browser_studio import OriginLocked
+    name = 'https://user:pw@host/x?token=abc#frag data:text/html,secret'
+    top = _frame('http://127.0.0.1:39267/studio')
+    page, _ = _guarded_page([top, _frame('about:srcdoc', name, top)])
+    with pytest.raises(OriginLocked) as refused:
+        page._check_origin()
+    evidence = json.dumps(page.origin_refusals) + str(refused.value)
+    for leaked in ('pw@', 'token=abc', '#frag', 'secret', name):
+        assert leaked not in evidence
+    assert page.origin_refusals[0]['refused'][0]['nameSha256'] == 'sha256:' + hashlib.sha256(name.encode()).hexdigest()
+
+
+def test_refusal_evidence_keeps_page_controlled_paths_and_hosts_only_as_digests():
+    """Sol h4b P2: a same-origin parent can put a credential in its own path (history.replaceState) and then create a
+    refused child; the parent, sibling and refused paths are page-controlled. Only Studio's own paths and loopback
+    hosts are kept verbatim; everything else is a digest, in the receipt and in the action text."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio/ghp_SECRETTOKEN123')
+    sibling = _frame('http://127.0.0.1:39267/_studio/x/AKIAABCDEFGHIJKLMNOP', '', top)
+    refused = _frame('https://evil-ghp_SECRET2.example.com/steal/eyJhbGciOi', 'n', top)
+    page, closed = _guarded_page([top, sibling, refused])
+    with pytest.raises(OriginLocked) as raised:
+        page._check_origin()
+    evidence = json.dumps(page.origin_refusals) + str(raised.value)
+    for leaked in ('SECRETTOKEN', 'AKIAABCDEFGHIJKLMNOP', 'SECRET2', 'eyJhbGciOi', 'steal', 'evil'):
+        assert leaked not in evidence
+    assert closed == [True]
+    row = page.origin_refusals[0]
+    assert row['refused'][0]['parent'] == 'http://127.0.0.1:39267 path[' + _d('/studio/ghp_SECRETTOKEN123') + ']'
+    assert row['frames'][1] == 'http://127.0.0.1:39267 path[' + _d('/_studio/x/AKIAABCDEFGHIJKLMNOP') + ']'
+    # Studio's own pages stay readable.
+    from agent_browser_studio import refused_frame_url
+    assert refused_frame_url('http://127.0.0.1:41000/_studio/maputnik/index.html?layer=1#channel=x') == \
+        'http://127.0.0.1:41000/_studio/maputnik/index.html'
+
+
+@pytest.mark.parametrize('where', ['navigation', 'check'])
+def test_evidence_collection_never_interrupts_enforcement(where):
+    """Sol h4b P2: a frame name with a lone surrogate (String.fromCharCode(0xd800)) made hashing raise before the
+    context was closed. The name is now hashed surrogate-safely, and enforcement happens first in any case."""
+    from agent_browser_studio import OriginLocked
+    top = _frame('http://127.0.0.1:39267/studio')
+    child = _frame('http://127.0.0.1:41000/x', '\ud800', top)
+    page, closed = _guarded_page([top, child])
+    if where == 'navigation':
+        page._navigation(child)
+    else:
+        with pytest.raises(OriginLocked):
+            page._check_origin()
+    assert closed == [True] and page._origin_failed
+    assert page.origin_refusals[0]['refused'][0]['nameSha256'].startswith('sha256:')
+
+    class Broken:
+        @property
+        def url(self):
+            raise RuntimeError('frame detached')
+    page2, closed2 = _guarded_page([top, child])
+    page2._page.frames = [top, child, Broken()]
+    with pytest.raises(OriginLocked):
+        page2._check_origin()
+    assert closed2 == [True] and page2._origin_failed
+
+
+def test_browser_tool_results_carry_the_page_text_in_structured_content():
+    """Studio DEV shakeout run 10a: Claude Code shows the model structuredContent when present; with only the
+    screenshot digest there, A1 never saw the page ("no text, only a screenshot hash")."""
+    import agent_browser_studio as studio
+    result = studio._tool_result('ok', '- heading "Studio" [level=1]', 'a' * 64)
+    assert result['structuredContent'] == {'text': '- heading "Studio" [level=1]', 'screenshotSha256': 'a' * 64}
+    assert result['content'] == [{'type': 'text', 'text': '- heading "Studio" [level=1]'}]
+
+
+def test_the_snapshot_includes_embedded_frames_with_their_selector_prefix():
+    """Studio DEV shakeout run 11b: Studio's style editor (Maputnik) is a sandboxed iframe; the body's accessibility
+    snapshot omitted it, so the arm could not see the colour, opacity and label controls."""
+    import agent_browser_studio as studio
+
+    class Loc:
+        def __init__(self, text=None, title=None):
+            self.text, self.title = text, title
+
+        def aria_snapshot(self, timeout=None):
+            return self.text
+
+        def get_attribute(self, name, timeout=None):
+            return self.title
+
+        def count(self):
+            return 1
+
+        def nth(self, i):
+            return self
+
+        def locator(self, selector):
+            return Loc('- button "Fill color"\n- slider "Opacity"')
+
+    class Page:
+        def locator(self, selector):
+            return Loc('- heading "Studio" [level=1]', 'Maputnik visual map style editor') if selector else None
+
+        def frame_locator(self, selector):
+            return Loc()
+    page = studio.PlaywrightPage.__new__(studio.PlaywrightPage)
+    page._page = Page()
+    text = page._frame_text()
+    assert 'frame 0 "Maputnik visual map style editor"' in text
+    assert 'iframe >> nth=0 >> internal:control=enter-frame >> ' in text and '  - slider "Opacity"' in text

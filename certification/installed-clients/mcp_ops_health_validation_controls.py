@@ -61,8 +61,17 @@ def payload(seconds, active=True):
         "evidencePosture": {"schemaVersion": "1.0", "status": "complete", "sources": [aggregate, *components]}}
 
 
+def server_content(value, summary="Ops health snapshot returned in structuredContent."):
+    """honua-server #6901 McpToolHelpers.BuildStructuredSuccess: the serialized JSON is always the
+    last text block; at 1024+ characters the tool's summary precedes it. Errors are never summarized."""
+    text = json.dumps(value, separators=(",", ":"))
+    lead = [{"type": "text", "text": summary}] if summary and len(text) >= 1024 else []
+    return lead + [{"type": "text", "text": text}]
+
+
 def envelope(value, error=False):
-    return {"isError": error, "structuredContent": value, "content": [{"type": "text", "text": "Ops health snapshot returned in structuredContent." if "overallStatus" in value else json.dumps(value)}]}
+    return {"isError": error, "structuredContent": value,
+            "content": server_content(value, None if error or "overallStatus" not in value else "Ops health snapshot returned in structuredContent.")}
 
 
 def rebind(value):
@@ -110,7 +119,7 @@ def inspector_controls():
 def mutate_payload(value, transform):
     body = value["calls"][0]["result"]["structuredContent"]
     transform(body)
-    value["calls"][0]["result"]["content"][0]["text"] = "Ops health snapshot returned in structuredContent."
+    value["calls"][0]["result"]["content"] = server_content(body)
     return rebind(value)
 
 
@@ -222,7 +231,7 @@ class OpsHealthControls(unittest.TestCase):
                 entry[key]["redis"]["jobs"][0]["status"] = 3; entry[key]["redis"]["activeIds"] = []
             if entry["method"] == "tools/call":
                 entry["result"]["structuredContent"]["geoprocessing"] = {"available": True, "totalActive": 0, "buckets": []}
-                entry["result"]["content"][0]["text"] = "Ops health snapshot returned in structuredContent."
+                entry["result"]["content"] = server_content(entry["result"]["structuredContent"])
             else:
                 body = json.loads(entry["result"]["contents"][0]["text"]); body["geoprocessing"] = {"available": True, "totalActive": 0, "buckets": []}
                 entry["result"]["contents"][0]["text"] = json.dumps(body)
@@ -288,13 +297,23 @@ class OpsHealthControls(unittest.TestCase):
 
     def test_exact_server_large_payload_summary_never_substitutes_for_structured_semantics(self):
         value = controls()
-        self.assertEqual(value["calls"][0]["result"]["content"][0]["text"], "Ops health snapshot returned in structuredContent.")
-        for name in ("arbitrary", "conflicting-json", "missing-structured", "extra-media"):
+        result = value["calls"][0]["result"]
+        self.assertEqual([item["text"] for item in result["content"]][0], "Ops health snapshot returned in structuredContent.")
+        self.assertEqual(json.loads(result["content"][1]["text"]), result["structuredContent"])
+        for name in ("arbitrary", "conflicting-json", "missing-structured", "extra-media", "summary-only",
+                     "json-only-large", "three-items", "json-mismatch", "summary-is-json"):
             with self.subTest(name=name):
                 value = controls(); result = value["calls"][0]["result"]
                 if name == "arbitrary": result["content"][0]["text"] = "healthy"
                 elif name == "conflicting-json": result["content"][0]["text"] = "{}"
                 elif name == "missing-structured": result.pop("structuredContent")
+                elif name == "summary-only": result["content"] = result["content"][:1]
+                elif name == "json-only-large": result["content"] = result["content"][1:]
+                elif name == "three-items": result["content"].append(dict(result["content"][1]))
+                elif name == "json-mismatch":
+                    changed = json.loads(result["content"][1]["text"]); changed["overallStatus"] = "unhealthy"
+                    result["content"][1]["text"] = json.dumps(changed, separators=(",", ":"))
+                elif name == "summary-is-json": result["content"][0]["text"] = result["content"][1]["text"]
                 else: result["content"].append({"type": "image", "mimeType": "image/png", "data": "AA=="})
                 self.refused(rebind(value))
 
@@ -333,7 +352,7 @@ class OpsHealthControls(unittest.TestCase):
             aggregate["coverage"]["includedComponentIds"] = sorted(source["sourceId"] for source in body["evidencePosture"]["sources"] if source is not aggregate and source["completeness"] == "complete")
             aggregate.update(completeness="partial", reasonCodes=["incompleteCoverage"], observedAt=body["generatedAt"], lastSuccessfulAt=body["generatedAt"], validUntil=timestamp(int((validation.instant(body["generatedAt"])-validation.instant(timestamp(0))).total_seconds())+120))
             body["evidencePosture"]["status"] = "unavailable"
-            if entry["method"] == "tools/call": entry["result"]["content"][0]["text"] = "Ops health snapshot returned in structuredContent."
+            if entry["method"] == "tools/call": entry["result"]["content"] = server_content(entry["result"]["structuredContent"])
             else: entry["result"]["contents"][0]["text"] = json.dumps(body)
         self.assertTrue(validation.judge(FIXTURE, bootstrap(), rebind(value))["positive"])
 

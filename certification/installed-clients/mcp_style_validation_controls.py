@@ -141,6 +141,21 @@ def change_output(entry, **values):
 
 
 class StyleControls(unittest.TestCase):
+    def test_style_text_is_exactly_the_server_shape(self):
+        # honua-server #6901: [json], or [summary, json] once the JSON reaches 1024 characters.
+        large = {"styleId": "authored", "layers": [{"id": n, "paint": {"fill-color": "#" + "a" * 6}, "note": "x" * 40} for n in range(20)]}
+        text = json.dumps(large, separators=(",", ":"))
+        summary = {"type": "text", "text": "Style returned in structuredContent."}
+        result = {"isError": False, "structuredContent": large, "content": [summary, {"type": "text", "text": text}]}
+        self.assertEqual(validation.tool_output(copy.deepcopy(result)), large)
+        self.assertEqual(validation.tool_output(dict(result, content=result["content"][1:])), large)
+        for content in ([summary], [summary, result["content"][1], result["content"][1]],
+                        [summary, {"type": "text", "text": json.dumps({"styleId": "other"})}],
+                        [result["content"][1], result["content"][1]],
+                        [summary, {"type": "text", "text": json.dumps({"styleId": "authored"})}][1:] + [summary]):
+            with self.assertRaises(ValueError):
+                validation.tool_output(dict(result, content=content))
+
     def test_complete_authored_journey(self):
         proof = validation.judge(FIXTURE, bootstrap(), controls())
         self.assertEqual(validation.OPERATIONS, proof["operations"])

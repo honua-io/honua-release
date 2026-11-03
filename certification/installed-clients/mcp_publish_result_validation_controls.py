@@ -109,7 +109,8 @@ def database(authored,published):
     current["services"].append({"service_name":authored["serviceName"]})
     current["layers"].append({"layer_id":physical,"layer_name":"authored-result","table_schema":"public","table_name":authored["table"],
         "primary_key_column":"id","geometry_column":"geom","storage_srid":4326,"srid":4326,"enabled":True,"default_visibility":True})
-    current["serviceLayers"].append({"service_name":authored["serviceName"],"layer_id":physical,"layer_order":0})
+    # honua-server LayerPersistence.cs:819: COALESCE(MAX(layer_order), 0) + 1 for the new service.
+    current["serviceLayers"].append({"service_name":authored["serviceName"],"layer_id":physical,"layer_order":1})
     for ordinal,(name,kind) in enumerate((("id","BigInteger"),("attributes","Json"),("geom","Geometry")),1):
         current["fields"].append({"layer_id":physical,"field_name":name,"field_type":kind,"field_order":ordinal})
     for index,row in enumerate(rows):
@@ -126,6 +127,14 @@ def database(authored,published):
         document["publications"].append({"metadata":metadata(identifier),"serviceId":"canonical-service-7","resourceId":"own-resource","storageBindingId":"own-binding",
             "publicationType":kind,"isPrimary":primary,"identifier":{"value":"0","isNumeric":True}})
     return initial,current
+
+
+def server_content(value, summary=None):
+    """honua-server #6901 McpToolHelpers.BuildStructuredSuccess: the serialized JSON is always the
+    last text block; at 1024+ characters a tool's summary precedes it."""
+    text = json.dumps(value, separators=(",", ":"))
+    lead = [{"type": "text", "text": summary}] if summary and len(text) >= 1024 else []
+    return lead + [{"type": "text", "text": text}]
 
 
 def controls():
@@ -146,7 +155,7 @@ def controls():
     query = {"serviceId":mapping["serviceId"],"layerId":0,"returnedCount":2,"exceededTransferLimit":False,
         "geojson":{"type":"FeatureCollection","features":[{"type":"Feature","id":row["id"],"geometry":row["geometry"],"properties":{"id":row["id"],"attributes":row["properties"]}} for row in completed["rows"]]},
         "features":[{"id":row["id"],"geometry":row["geometry"],"attributes":{"id":row["id"],"attributes":row["properties"]}} for row in completed["rows"]]}
-    query_result = {"isError":False,"structuredContent":query,"content":[{"type":"text","text":"Returned 2 authored features"}]}
+    query_result = {"isError":False,"structuredContent":query,"content":server_content(query,"Returned 2 authored features")}
     query_args = {"serviceId":published["serviceId"],"layerId":0,"where":"1=1","outFields":["id","attributes"],"outSrid":4326,"returnGeometry":True,"limit":20}
     denial = {"status":"error","code":"unauthenticated","message":"Controlled anonymous publication denied","requiresReauthentication":True,
         "error":{"kind":"AuthorizationDenied","message":"Controlled anonymous publication denied"}}
@@ -316,8 +325,37 @@ class PublicationControls(unittest.TestCase):
             output = value["calls"][index]["result"]["structuredContent"]
             for row in output["features"]: row["attributes"]["attributes"] = json.dumps(row["attributes"]["attributes"])
             for row in output["geojson"]["features"]: row["properties"]["attributes"] = json.dumps(row["properties"]["attributes"])
+            value["calls"][index]["result"]["content"] = server_content(output, value["calls"][index]["result"]["content"][0]["text"])
         self.assertTrue(validation.judge(FIXTURE,bootstrap(),rebind(value))["persistedReadback"])
         value["calls"][7]["result"]["structuredContent"]["features"][0]["attributes"]["attributes"] = "{}"; self.assert_refused(rebind(value))
+
+    def test_new_service_layer_order_follows_server_publication_rule(self):
+        # PostgreSqlLayerPublishingService.LayerPersistence.cs:819 orders a new service's only layer 1.
+        for order in (0, 2, None, "1", True):
+            value = controls()
+            for name in ("published","readback","anonymous-resource","restarted","restarted-readback"):
+                for relation in value["snapshots"][name]["database"]["serviceLayers"]:
+                    if relation["layer_order"] == 1 and relation["service_name"] != "prior-service": relation["layer_order"] = order
+            self.assert_refused(rebind(value))
+
+    def test_query_text_projection_is_exactly_the_server_shape(self):
+        summary = {"type": "text", "text": "Returned 2 authored features"}
+        for index in (7, 10):
+            result = controls()["calls"][index]["result"]
+            # A two-feature page is below the 1024-character threshold: exactly [json].
+            self.assertEqual(len(result["content"]), 1)
+            self.assertEqual(json.loads(result["content"][0]["text"]), result["structuredContent"])
+        changes = (lambda c: [summary],                                # pre-#6901 summary only
+                   lambda c: [summary] + c,                            # summary below the threshold
+                   lambda c: c + c + c,                                # three blocks
+                   lambda c: c + c,                                    # JSON in the summary slot
+                   lambda c: [{"type": "text", "text": "{}"}],         # JSON differs
+                   lambda c: c + [{"type": "image", "data": "AA==", "mimeType": "image/png"}])
+        for change in changes:
+            value = controls()
+            for index in (7, 10):
+                result = value["calls"][index]["result"]; result["content"] = change(result["content"])
+            self.assert_refused(rebind(value))
 
     def test_setup_credentials_never_retained_direct_escaped_or_url_encoded(self):
         for payload in ('{"body":"controlled-private-key"}','{"body":"controlled\\u002dprivate-key"}','{"links":[{"href":"http://owned/%63ontrolled%2Dprivate%2Dkey"}]}','{"controlled%2Dprivate%2Dkey":"value"}'):

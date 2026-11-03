@@ -1310,6 +1310,56 @@ def _ours(name: str, project: str | None) -> bool:
     return bool(project) and (name == project or name.startswith((project + '-', project + '_')))
 
 
+# curl's --write-out format, unquoted: literal characters and read-only %{variable}s only. No comma and no `..`, so
+# bash brace expansion cannot apply to `{...}`; no backslash, quote, `$`, glob or space (rehearsal 9 runs 12-13).
+WRITE_OUT_UNQUOTED = re.compile(r'(?:[A-Za-z0-9_:=+-]|%\{(?:http_code|response_code|time_total|time_connect|'
+                                r'size_download|size_header|content_type|url_effective|remote_ip|remote_port|'
+                                r'num_redirects)\})+')
+
+
+def curl_write_out_literal(command):
+    """The same curl command with its -w/--write-out format single-quoted, when that format is the only shell
+    construct in it; otherwise None. Only these two spellings are modelled (rehearsal 9 runs 12-13: every A1 setup
+    gap was one of them, e.g. `curl -s -o /dev/null -w "%{http_code}\\n" http://localhost:18080/healthz/ready`):
+      - double-quoted: a WRITE_OUT format; inside double quotes bash keeps `\\n` and `\\t` as written and nothing
+        else is special without `$`, a backquote, `!` or a nested quote, which the format excludes;
+      - unquoted: WRITE_OUT_UNQUOTED (no comma or `..`, so no brace expansion; nothing else special).
+    The rewrite changes no byte the shell would pass to curl. Every other construct still makes the command a gap,
+    and the rewritten command is classified like any other curl (read-only GET, localhost, this slot's ports)."""
+    # Printable ASCII only, so the only separator is the space bash also splits on (Sol budgets P1: a vertical tab,
+    # form feed or Unicode space is not a bash separator; reconstructing the command around one changed what the
+    # shell runs). The command is never rebuilt: only the format's own span is replaced, every other byte is kept.
+    if not isinstance(command, str) or not command.startswith('curl ') or not all(' ' <= c <= '~' for c in command):
+        return None
+    words = list(re.finditer(r'"[^"]*"|[^ "]+', command))
+    covered = set()
+    for match in words:
+        covered.update(range(match.start(), match.end()))
+    if any(command[i] != ' ' for i in range(len(command)) if i not in covered):
+        return None                              # a stray (unbalanced) quote
+
+    def alone(match):                            # a whole shell word: space (or the ends) on both sides
+        return ((match.start() == 0 or command[match.start() - 1] == ' ')
+                and (match.end() == len(command) or command[match.end()] == ' '))
+    spans = []
+    for index, match in enumerate(words):
+        word = match.group(0)
+        if not (index and words[index - 1].group(0) in ('-w', '--write-out') and alone(words[index - 1])
+                and alone(match)):
+            continue
+        inner = word[1:-1] if len(word) >= 2 and word[0] == word[-1] == '"' else None
+        if inner is not None and not set(inner) & set('$`!\'"') and WRITE_OUT.fullmatch(inner) and '%{' in inner:
+            spans.append((match.start(), match.end(), "'" + inner + "'"))
+        elif inner is None and WRITE_OUT_UNQUOTED.fullmatch(word) and '%{' in word:
+            spans.append((match.start(), match.end(), "'" + word + "'"))
+    if not spans:
+        return None
+    literal = command
+    for start, end, text in reversed(spans):
+        literal = literal[:start] + text + literal[end:]
+    return literal if not construct_gaps(literal) else None
+
+
 def classify_command(command: str, *, stdin=None, project: str | None = None, approved_compose=None,
                      ports=None, depth: int = 0, state: dict | None = None) -> list[str]:
     """The prereg categories one shell line falls in (each simple command judged on its own; shell bodies and
@@ -1336,6 +1386,8 @@ def _classify_command(command, stdin, project, approved_compose, ports, depth, s
         return []
     found = []
     state = state if state is not None else {'cwd_outside': False, 'env': {}}
+    if depth == 0:
+        command = curl_write_out_literal(command) or command
     for construct in construct_gaps(command):
         _gap('shell construct ' + construct + ' (not modelled)')
     try:

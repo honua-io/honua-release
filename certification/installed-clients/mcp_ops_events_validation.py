@@ -146,17 +146,10 @@ def payload(result, summary, *, resource=False):
         return wire.strict_json(items[0]["text"])
     if (not isinstance(result, dict) or set(result) - {"isError", "content", "structuredContent"}
             or result.get("isError", False) is not False or not isinstance(result.get("structuredContent"), dict)
-            or not isinstance(result.get("content"), list) or len(result["content"]) != 1):
+            or not isinstance(result.get("content"), list)):
         raise ValueError("operate tool lacks complete structured payload")
-    item, value = result["content"][0], result["structuredContent"]
-    if not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text" or not isinstance(item["text"], str):
-        raise ValueError("operate tool media differs")
-    if len(json.dumps(value, separators=(",", ":"), ensure_ascii=True)) >= 1024:
-        if item["text"] != summary:
-            raise ValueError("operate large-payload summary differs")
-    elif not wire.same_json(wire.strict_json(item["text"]), value):
-        raise ValueError("operate text differs from complete structured payload")
-    return value
+    # honua-server #6901: [json], or this tool's exact summary followed by the serialized JSON.
+    return wire.structured_text_content(result, summary=summary)
 
 
 def bracket(before, after, seed):
@@ -459,12 +452,11 @@ def limited_refusal(result):
     """A valid managed reader must receive authorization denial, never reauth."""
     if (not isinstance(result, dict) or set(result) != {"isError", "content", "structuredContent"}
             or result["isError"] is not True or not isinstance(result["structuredContent"], dict)
-            or not isinstance(result["content"], list) or len(result["content"]) != 1):
+            or not isinstance(result["content"], list)):
         raise ValueError("limited reader did not receive the typed tool authorization refusal")
-    item, value = result["content"][0], result["structuredContent"]
-    if (not isinstance(item, dict) or set(item) != {"type", "text"} or item["type"] != "text"
-            or not wire.same_json(wire.strict_json(item["text"]), value)
-            or set(value) - {"status", "code", "message", "error", "correlationId"}
+    # Error results are never summarized (honua-server #6901): exactly [json].
+    value = wire.structured_text_content(result, summary=False)
+    if (set(value) - {"status", "code", "message", "error", "correlationId"}
             or value.get("status") != "error" or value.get("code") != "permission_denied"
             or value.get("message") != "Caller is not authorized to read operational observability."
             or value.get("error") != {"kind": "AuthorizationDenied", "message": value["message"]}

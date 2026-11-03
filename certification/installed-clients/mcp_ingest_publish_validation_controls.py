@@ -22,6 +22,17 @@ def connection_control(selector="22222222-2222-4222-8222-222222222222"):
         "catalog": identity, "target": copy.deepcopy(identity), "verifiedAddress": "127.0.0.1"}
 
 
+QUERY_SUMMARY = "Returned six authored features; inspect structuredContent for geometry and attributes."
+
+
+def server_content(value, summary=None):
+    """honua-server #6901 McpToolHelpers.BuildStructuredSuccess: the serialized JSON is always the
+    last text block; at 1024+ characters a tool's summary precedes it."""
+    text = json.dumps(value, separators=(",", ":"))
+    lead = [{"type": "text", "text": summary}] if summary and len(text) >= 1024 else []
+    return lead + [{"type": "text", "text": text}]
+
+
 def envelope(value, error=False):
     return {"isError": error, "structuredContent": value, "content": [{"type": "text", "text": json.dumps(value)}]}
 
@@ -78,7 +89,8 @@ def controls():
                           "properties": copy.deepcopy(row["properties"]), "objectid": row["id"]}
     queried = envelope({"serviceId": "metadata-service-7", "features": [{"id": row["id"], "attributes": fields(row), "geometry": row["geometry"]} for row in rows], "layerId": 0, "returnedCount": 6, "exceededTransferLimit": False, "geojson": {"type": "FeatureCollection",
         "features": [{"type": "Feature", "id": row["id"], "properties": fields(row), "geometry": row["geometry"]} for row in rows]}})
-    queried["content"][0]["text"] = "Returned six authored features; inspect structuredContent for geometry and attributes."
+    queried["content"] = server_content(queried["structuredContent"], QUERY_SUMMARY)
+    assert len(queried["content"]) == 2  # a six-feature page is above the 1024-character threshold
     queries = [{"id": identifier, "method": "tools/call", "params": {"name": "honua_query_features", "arguments": validation.query_arguments(published, view)},
         "authenticated": True, "result": copy.deepcopy(queried)} for identifier in ("before", "after")]
     restarted = runtime(); restarted["startedAt"] = "2026-10-19T00:05:00Z"
@@ -91,7 +103,8 @@ def controls():
 def replace_output(entry, transform):
     value = entry["result"]["structuredContent"]
     transform(value)
-    entry["result"]["content"][0]["text"] = json.dumps(value)
+    content = entry["result"]["content"]
+    entry["result"]["content"] = server_content(value, content[0]["text"] if len(content) == 2 else None)
 
 
 class IngestPublishControls(unittest.TestCase):

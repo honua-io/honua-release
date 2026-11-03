@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -59,6 +60,54 @@ def studio_cli_tool_view(tool_view):
         raise ValueError('invalid server tool entry')
     return {**tool_view, 'tools': [row for row in tools
         if not row['name'].startswith('honua_studio_') or row['name'] in reads]}
+
+
+def studio_origin_refusals(runtime) -> list:
+    """Every frame the Studio browser's origin guard refused in this case, with the allowed origins and the page's
+    frame list at the time (rehearsal 9 run 14c, H4: "refused document origin" named no address)."""
+    rows = []
+    for browser in getattr(runtime, 'studio_browsers', None) or []:
+        refusals = getattr(browser, 'origin_refusals', None)
+        if isinstance(refusals, list):
+            rows.extend(row for row in refusals if isinstance(row, dict))
+    return rows[:20]
+
+
+def studio_ui_assertion(receipt, stack) -> dict:
+    """goal.studio-ui: the map was created and saved through Studio in Console (runner-observed UI actions, their
+    sealed responses and the operation handles). A session that did not finish was never observed, so the row says
+    so with the session's own failure reason (rehearsal 9 run 13b: reading the action results of an unobserved
+    session raised a recorder-phase error that hid the real cause). It never raises."""
+    failure = receipt.get('failure') if isinstance(receipt, dict) else None
+    if failure or stack is None:
+        reason = 'session did not finish'
+        if isinstance(failure, dict) and failure.get('reason'):
+            reason += ': ' + str(failure['reason'])
+        return {'assertion': 'goal.studio-ui', 'status': 'fail', 'reason': reason[:200]}
+    try:
+        evidence = []
+        for entry in receipt.get('sessions', []):
+            for action in entry.get('actions', []):
+                directory = Path(stack.workdir) / ('session-' + str(action['session']))
+                stem = 'action-' + format(action['sequence'], '04d')
+                evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
+                                 'resultRawPath': str(directory / (stem + '.response'))})
+        recorder = stack.extra['recorder']
+        for action in recorder.actions():
+            if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
+                recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
+
+        def handle_lookup(operation_id):
+            step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
+            if step not in recorder.records:
+                recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
+            return _record(recorder.records, step).get('data')
+        ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
+        receipt['controllerRecords'] = recorder.index()
+        return {'assertion': 'goal.studio-ui', 'status': 'pass'}
+    except Exception as exc:
+        return {'assertion': 'goal.studio-ui', 'status': 'fail',
+                'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]}
 
 
 def ui_provenance(records, session_rows, customer, handle_lookup):
@@ -384,6 +433,27 @@ def fixture_variant(fixture_id, scenario_id, *, manifest_path=CORPUS_MANIFEST):
     return variant, case
 
 
+STUDIO_READY_MARKS = ('heading "Studio" [level=1]', 'status: Connected to ', 'button "New map"')
+
+
+def studio_workspace_ready(*, invoke, deadline, clock=time.monotonic, sleep=time.sleep):
+    """The signed-in customer's Studio workspace in Console, without the built-in assistant (ARC v2: there is none).
+
+    The sign-in probe used to wait for the assistant chat to become ready (agent_e2e_studio_customer_session.
+    prepare_conversation), which never happens with the Studio AI proxy off (Studio DEV shakeout on eval-3,
+    2026-11-02: the customer was signed in, Studio said "Connected to Local honua-server", and the chat stayed
+    not ready). Ready means the Studio page itself: its heading, the server connection and the New map control,
+    read from the page's accessible text; any other page (a sign-in or error page) fails."""
+    invoke('studio_navigate', {'url': '/studio'})
+    while True:
+        text = str(invoke('studio_snapshot', {}))
+        if all(mark in text for mark in STUDIO_READY_MARKS):
+            return text
+        if clock() >= deadline:
+            raise ValueError('the signed-in Studio workspace did not load')
+        sleep(0.5)
+
+
 def select_arc_case(context, prompt=None):
     if context.case is None:
         if context.variant not in ('A', 'B'):
@@ -458,6 +528,25 @@ def initialize_admission(recorder):
             raise ValueError('Studio admission ' + action + ' was not completed')
 
 
+TEST_IDP_ONLY = ('Oidc__TokenValidation__SymmetricSigningKey',)
+
+
+def documented_identity(values: dict) -> dict:
+    """The customer doc's Server identity settings (the docs-validation:identity.override block), with the customer's
+    own values for the issuer and client id. Every other documented value is used verbatim."""
+    import yaml
+    from ai_arc_local import CONSOLE_DOC
+    text = CONSOLE_DOC.read_text(encoding='utf-8')
+    block = re.search(r'<!-- docs-validation:identity\.override -->\s*```yaml\n(.*?)\n```', text, re.S)
+    if block is None:
+        raise ValueError('the Console doc lacks its identity step')
+    services = (yaml.safe_load(block.group(1)) or {}).get('services') or {}
+    env = (services.get('honua') or {}).get('environment')
+    if set(services) != {'honua'} or not isinstance(env, dict) or not set(values) <= set(env):
+        raise ValueError('the documented identity step is not a honua environment override')
+    return {k: str(values.get(k, v)) for k, v in env.items()}
+
+
 def provision_local_server(slot, signing_key):
     """Configure the existing local stack for a customer identity (Studio end-user authorization).
 
@@ -469,31 +558,41 @@ def provision_local_server(slot, signing_key):
     import secrets
     import shlex
     import yaml
+    from ai_arc_local import slot_compose_files
 
     remote = Path(slot.remote_dir)
     if not remote.is_absolute() or '..' in remote.parts or remote == Path('/tmp') or Path('/tmp') in remote.parents:
         raise ValueError('invalid slot directory')
     if not isinstance(signing_key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,128}', signing_key):
         raise ValueError('invalid customer signing authority')
-    env = {'StudioAiProxy__Enabled': 'false',
-           'Oidc__Enabled': 'true',
-           'Oidc__Generic__Enabled': 'true', 'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
-           'Oidc__Generic__ClientId': 'terminal-journey',
-           'Oidc__TokenValidation__SymmetricSigningKey': signing_key,
-           'Studio__EndUserAuthorization__Enabled': 'true',
-           'AiExecutionAdmission__Backend': 'postgres', 'AiExecutionAdmission__DeploymentId': slot.project}
+    # Exactly the customer doc's required "Configure sign-in for Console" step (docs/2026.1-add-console-to-compose-
+    # quickstart.md, step 1: the customer's IdP), with the harness's synthetic test IdP as the customer's IdP, plus the
+    # one setting a discovery-less test IdP needs (its symmetric signing key, which validates the runner-minted
+    # sign-in token). The arc signs in as an administrator, so the optional end-user Studio step (2) is not applied:
+    # the package keeps admin-only Studio (honua-server #6896 closed). The AI proxy is off by default
+    # (StudioAiProxy:Enabled defaults to false) and Studio without AI needs no AiExecutionAdmission (only the AI proxy
+    # and imagery inference use it). Release session 2026-11-02: the harness sets no server setting the customer
+    # does not set.
+    env = documented_identity({'Oidc__Generic__Authority': 'https://terminal-journey.invalid',
+                               'Oidc__Generic__ClientId': 'terminal-journey'})
+    env['Oidc__TokenValidation__SymmetricSigningKey'] = signing_key
     override = yaml.safe_dump({'services': {'honua': {'image': '${HONUA_STUDIO_ACTIVE_IMAGE}',
                                                         'environment': env}}}, sort_keys=True)
     fence = 'HONUA_STUDIO_' + secrets.token_hex(12)
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(str(remote)) + '\n'
-              + 'server_id=$(' + slot.compose('-f', 'compose.yaml', 'ps', '-q', 'honua') + ')\n'
+              # The slot's own compose files (the package's COMPOSE_FILE) plus this override: an explicit
+              # "-f compose.yaml" dropped the executor overlay (its AllowedHosts admit Console's calls to honua).
+              # Sol console2: the running server is read with the slot's files alone; the override is added to
+              # COMPOSE_FILE only once it is written.
+              + slot_compose_files(None)
+              + 'server_id=$(' + slot.compose('ps', '-q', 'honua') + ')\n'
               + '[ -n "$server_id" ]\n'
               + 'HONUA_STUDIO_ACTIVE_IMAGE=$(docker inspect --format "{{.Image}}" "$server_id")\n'
               + 'case "$HONUA_STUDIO_ACTIVE_IMAGE" in sha256:*) ;; *) exit 1 ;; esac\n'
               + 'export HONUA_STUDIO_ACTIVE_IMAGE\n'
               + f"cat > studio-customer.yaml <<'{fence}'\n{override}{fence}\n"
-              + slot.compose('-f', 'compose.yaml', '-f', 'studio-customer.yaml', 'up', '-d', '--no-deps',
-                             '--wait', '--wait-timeout', '240', 'honua') + '\n')
+              + 'export COMPOSE_FILE="$COMPOSE_FILE:studio-customer.yaml"\n'
+              + slot.compose('up', '-d', '--no-deps', '--wait', '--wait-timeout', '240', 'honua') + '\n')
     if slot.ssh(script, timeout=300).returncode:
         raise RuntimeError('could not configure the local Studio server')
     return {'studioAiProxy': 'disabled'}
@@ -576,6 +675,8 @@ def studio_runtime_class():
             return studio_cli_tool_view(super().tool_view(stack))
 
         def register_studio_browser(self, browser):
+            # Kept for the case receipt: the frames the browser's origin guard refused (H4).
+            self.__dict__.setdefault('studio_browsers', []).append(browser)
             register = getattr(self, 'browser_register', None)
             if callable(register):
                 guard = close_browser_on_gate(browser)
@@ -747,7 +848,7 @@ def arc_stage(ctx):
 
         def sign_in_probe(self, context):
             from agent_browser_studio import open_studio_browser
-            from agent_e2e_studio_customer_session import prepare_conversation, rpc
+            from agent_e2e_studio_customer_session import rpc
             self.signing = secrets.token_urlsafe(48)
             context.slot.harness_secrets.append(self.signing)
             try:
@@ -761,8 +862,8 @@ def arc_stage(ctx):
                     log = runner.ActionLog(Path(stack.workdir) / 'sign-in-probe', 1, set(), 200)
                     browser = open_studio_browser(stack, log, identity=runtime._console_identities[stack.compose_project],
                                                   scripted_customer=True)
-                    prepare_conversation(invoke=lambda name, args: rpc(browser.endpoint, name, args),
-                                         deadline=time.monotonic() + 30)
+                    studio_workspace_ready(invoke=lambda name, args: rpc(browser.endpoint, name, args),
+                                           deadline=time.monotonic() + 30)
                     # The slot health Console and the isolated per-customer
                     # CaseConsole are two containers, both pinned to the arc image.
                     facts = getattr(context.slot, 'facts', None)
@@ -776,8 +877,15 @@ def arc_stage(ctx):
                     if browser is not None:
                         browser.stop()
                     runtime.teardown(stack)
-            except Exception:
-                return {'ok': False}
+            except Exception as exc:  # noqa: BLE001
+                # The failing step's own error (exception type and message, the slot's harness secrets redacted) is
+                # the stage cause: a sign-in failure must be classifiable as product, harness or model from the
+                # receipt (Studio DEV shakeout 7a/7b, release session 2026-11-02).
+                text = ' '.join(str(exc).split())
+                for value in sorted((getattr(context.slot, 'harness_secrets', None) or []), key=len, reverse=True):
+                    if isinstance(value, str) and len(value) >= 6:
+                        text = text.replace(value, '[redacted]')
+                return {'ok': False, 'error': type(exc).__name__ + ': ' + text[:300]}
 
         def run(self, context, session, prompt):
             from ai_arc_runner import redact_bytes
@@ -834,6 +942,9 @@ def arc_stage(ctx):
                     scenario=scenario, variant=fixture, case=case,
                     candidate_digest=context.candidate['imageDigest'], runtime=runtime)
                 stack = runtime.stacks[-1] if getattr(runtime, 'stacks', None) else None
+                refusals = studio_origin_refusals(runtime)
+                if refusals:
+                    receipt['studioOriginRefusals'] = refusals
                 if stack and stack.extra.get('arcLineageVerified') is True:
                     receipt['studioServicesHandoff'] = stack.extra['arcServicesHandoff']
                     receipt['studioServicesLineage'] = stack.extra['arcServicesLineage']
@@ -855,29 +966,7 @@ def arc_stage(ctx):
                 lineage = bool(stack and stack.extra.get('arcLineageVerified') is True)
                 checks.append({'assertion': 'goal.services-lineage', 'status': 'pass' if lineage else 'fail',
                                **({} if lineage else {'reason': 'map sources lack verified stage-three or stage-four publication lineage'})})
-                try:
-                    evidence = []
-                    for entry in receipt.get('sessions', []):
-                        for action in entry.get('actions', []):
-                            directory = Path(stack.workdir) / ('session-' + str(action['session']))
-                            stem = 'action-' + format(action['sequence'], '04d')
-                            evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
-                                             'resultRawPath': str(directory / (stem + '.response'))})
-                    recorder = stack.extra['recorder']
-                    for action in recorder.actions():
-                        if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
-                            recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
-                    def handle_lookup(operation_id):
-                        step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
-                        if step not in recorder.records:
-                            recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
-                        return _record(recorder.records, step).get('data')
-                    ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
-                    receipt['controllerRecords'] = recorder.index()
-                    checks.append({'assertion': 'goal.studio-ui', 'status': 'pass'})
-                except Exception as exc:
-                    checks.append({'assertion': 'goal.studio-ui', 'status': 'fail',
-                                   'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]})
+                checks.append(studio_ui_assertion(receipt, stack))
                 # ARC v2 (prereg change 7): false success is judged only from the driver's closing checklist
                 # against readback (the arc re-scores each :finalAnswerCheck row); prose is never scored here.
                 self.integrity[driver] = checks

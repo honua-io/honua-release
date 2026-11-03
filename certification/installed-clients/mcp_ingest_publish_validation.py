@@ -18,7 +18,7 @@ from uuid import UUID
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_render_validation import scenario as fixture_binding, negative_output
 from mcp_map_package_validation import (strict_json, same_json, json_tool_output,
-    observed_wire, client_observation, anonymous_tool_refusal, resource_refusal, wire_frame)
+    observed_wire, client_observation, anonymous_tool_refusal, resource_refusal, wire_frame, structured_text_content)
 
 OPERATIONS = ["tools/call:ingest_dataset", "tools/call:publish_service", "resources/read:Published service"]
 SCHEMA = "honua.mcp-ingest-publish-scenario/v1"
@@ -227,19 +227,13 @@ IMPORTED_ATTRIBUTES_FIELD = "properties"
 
 
 def query_output(result, published, snapshot):
-    # QueryFeaturesTool deliberately puts a prose summary in text content and
-    # the complete typed feature representations in structuredContent.
+    # honua-server #6901: QueryFeaturesTool returns the serialized result as text, after a one-line
+    # summary on large pages; the complete typed features are in structuredContent.
     if (not isinstance(result, dict) or result.get("isError", False) is not False
             or not isinstance(result.get("structuredContent"), dict)
-            or not isinstance(result.get("content"), list) or len(result["content"]) != 1):
+            or not isinstance(result.get("content"), list)):
         raise ValueError("fresh query lacks its structured result and text summary")
-    value = result["structuredContent"]
-    text = result["content"][0]
-    if (not isinstance(text, dict) or set(text) != {"type", "text"} or text["type"] != "text"
-            or not isinstance(text["text"], str) or not 0 < len(text["text"]) <= 16384):
-        raise ValueError("fresh query contains unrelated or missing summary media")
-    if text["text"].lstrip().startswith(("{", "[")) and not same_json(strict_json(text["text"]), value):
-        raise ValueError("fresh query has conflicting JSON/text representations")
+    value = structured_text_content(result)
     if "geojson" in value and "geoJson" in value and not same_json(value["geojson"], value["geoJson"]):
         raise ValueError("fresh query has conflicting GeoJSON aliases")
     collection = value.get("geojson", value.get("geoJson"))

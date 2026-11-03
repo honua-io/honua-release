@@ -2,6 +2,7 @@ import hashlib
 import json
 
 import pytest
+from pathlib import Path
 
 import agent_e2e_studio_arc
 from agent_e2e_studio_arc import load_development_case
@@ -103,7 +104,7 @@ def test_slot_provision_refuses_tmp_and_keeps_signing_secret_private():
     assert 'x' * 48 not in str(result)
     assert 'Oidc__TokenValidation__SymmetricSigningKey' in slot.script
     assert 'AWS_ACCESS_KEY' not in slot.script
-    assert "StudioAiProxy__Enabled: 'false'" in slot.script
+    assert 'StudioAiProxy' not in slot.script
     assert 'AWS_REGION' not in slot.script and 'bedrock' not in slot.script.lower()
     with pytest.raises(TypeError):
         provision_local_server(slot, 'x' * 48, enable_assistant=True)
@@ -331,3 +332,161 @@ def test_studio_arc_contract_is_in_runner_digest_and_does_not_replace_p08():
     assert not any(r.role.startswith('seeded:') for r in load_roles('P08', 'studio-arc'))
     for variant in ('A', 'B'):
         assert 'studioArcContent' in load_projections('P08', variant, 'studio-arc')['source-content.unchanged']['spec']
+
+
+def test_slot_provision_keeps_the_packages_compose_files():
+    """Studio DEV shakeout 11-02: "-f compose.yaml -f studio-customer.yaml" dropped the package's executor overlay
+    (AllowedHosts admitting Console's calls to honua) and image override; the slot's COMPOSE_FILE is kept."""
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import provision_local_server
+
+    class Slot:
+        remote_dir = '/home/eval/arc-owned'
+        project = 'arc-12345678'
+
+        def compose(self, *args):
+            return 'docker compose ' + ' '.join(args)
+
+        def ssh(self, script, timeout):
+            self.script = script
+            return SimpleNamespace(returncode=0)
+    slot = Slot()
+    provision_local_server(slot, 'x' * 48)
+    assert 'sed -n "s/^COMPOSE_FILE=//p" .env' in slot.script
+    assert 'export COMPOSE_FILE="$files" ' in slot.script
+    # Sol console2: the override joins COMPOSE_FILE only after it is written, and before the up.
+    script = slot.script
+    assert script.index('cat > studio-customer.yaml') < script.index('export COMPOSE_FILE="$COMPOSE_FILE:studio-customer.yaml"') \
+        < script.index('up -d --no-deps')
+    assert script.index('ps -q honua') < script.index('cat > studio-customer.yaml')
+    assert 'docker compose -f' not in slot.script and 'up -d --no-deps --wait --wait-timeout 240 honua' in slot.script
+
+
+def test_the_harness_sets_only_the_customer_identity_step_on_the_server():
+    """Release session 2026-11-02: the harness may not set server settings the customer does not set. The harness's
+    honua change is exactly the doc's required sign-in step (the synthetic test IdP as the customer's IdP) plus the
+    discovery-less test IdP's signing key; the arc signs in as an administrator, so end-user Studio stays off."""
+    import re as _re
+    import yaml
+    from types import SimpleNamespace
+    from ai_arc_local import CONSOLE_DOC
+    from agent_e2e_studio_arc import TEST_IDP_ONLY, provision_local_server
+
+    class Slot:
+        remote_dir = '/home/eval/arc-owned'
+        project = 'arc-12345678'
+
+        def compose(self, *args):
+            return 'docker compose ' + ' '.join(args)
+
+        def ssh(self, script, timeout):
+            self.script = script
+            return SimpleNamespace(returncode=0)
+    slot = Slot()
+    provision_local_server(slot, 'x' * 48)
+    override = _re.search(r"cat > studio-customer.yaml <<'(HONUA_STUDIO_[0-9a-f]+)'\n(.*?)\n\1\n", slot.script, _re.S)
+    honua = yaml.safe_load(override.group(2))['services']['honua']
+    block = _re.search(r'<!-- docs-validation:identity\.override -->\s*```yaml\n(.*?)\n```',
+                       CONSOLE_DOC.read_text(), _re.S).group(1)
+    documented = set(yaml.safe_load(block)['services']['honua']['environment'])
+    assert set(honua['environment']) == documented | set(TEST_IDP_ONLY)
+    assert set(honua) == {'image', 'environment'} and honua['image'] == '${HONUA_STUDIO_ACTIVE_IMAGE}'
+    # The arc signs in as an administrator: the optional end-user Studio step is not applied (#6896 closed).
+    assert 'Studio__EndUserAuthorization__Enabled' not in honua['environment']
+    assert set(honua['environment']) == {'Oidc__Enabled', 'Oidc__Generic__Enabled', 'Oidc__Generic__Authority',
+                                         'Oidc__Generic__ClientId', 'Oidc__TokenValidation__SymmetricSigningKey'}
+
+
+def test_slot_provision_script_runs_on_a_fresh_slot(tmp_path):
+    """Sol console2 P1: run the real provisioning script with a stub docker that refuses a COMPOSE_FILE naming a
+    file that does not exist (as Compose does)."""
+    import os
+    import stat
+    import subprocess
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import provision_local_server
+    import shutil
+    import tempfile
+    # provision_local_server refuses slot directories under /tmp, so the slot lives under the user's cache.
+    base = Path(tempfile.mkdtemp(prefix='arc-provision-test-', dir=Path.home() / '.cache'
+                                 if (Path.home() / '.cache').is_dir() else Path.home()))
+    remote = base / 'arc-owned'
+    remote.mkdir()
+    request_cleanup = shutil.rmtree
+    (remote / '.env').write_text('COMPOSE_FILE=compose.yaml:compose.executor.yaml\n')
+    for name in ('compose.yaml', 'compose.executor.yaml'):
+        (remote / name).write_text('services: {}\n')
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log = tmp_path / 'docker.log'
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    'IFS=:; for f in $COMPOSE_FILE; do [ -f "$f" ] || { echo "missing $f" >&2; exit 14; }; done; unset IFS\n'
+                    f'echo "COMPOSE_FILE=$COMPOSE_FILE ARGS=$*" >> {log}\n'
+                    'case "$*" in *"ps -q honua"*) echo h1 ;; "inspect --format {{.Image}} h1") echo sha256:abc ;; esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    class Slot:
+        remote_dir = str(remote)
+        project = 'arc-12345678'
+
+        def compose(self, *args):
+            import ai_arc_local as L
+            return L.VmSlot.compose(self, *args)
+
+        def ssh(self, script, timeout):
+            return subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                  env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    try:
+        assert provision_local_server(Slot(), 'x' * 48) == {'studioAiProxy': 'disabled'}
+    finally:
+        request_cleanup(base, ignore_errors=True)
+    up = [line for line in log.read_text().splitlines() if ' up ' in line]
+    assert len(up) == 1 and 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:studio-customer.yaml ' in up[0]
+
+
+SIGNED_IN = ('- main:\n  - heading "Studio" [level=1]\n  - status: Connected to Local honua-server\n'
+             '  - textbox "New map package key"\n  - button "New map"\n')
+
+
+def test_the_sign_in_probe_waits_for_the_studio_workspace_not_the_assistant():
+    """Studio DEV shakeout (eval-3): signed in, Studio connected, the assistant chat (absent in ARC v2) never ready."""
+    from agent_e2e_studio_arc import studio_workspace_ready
+    calls, pages = [], iter(['- main:\n  - heading "Loading"\n', SIGNED_IN])
+
+    def invoke(name, args):
+        calls.append(name)
+        return next(pages) if name == 'studio_snapshot' else 'ok'
+    assert studio_workspace_ready(invoke=invoke, deadline=10, clock=lambda: 0, sleep=lambda _: None) == SIGNED_IN
+    assert calls == ['studio_navigate', 'studio_snapshot', 'studio_snapshot'] and 'studio_chat_observe' not in calls
+
+
+@pytest.mark.parametrize('page', ['- main:\n  - heading "Sign in" [level=1]\n  - button "Continue"\n',
+                                  SIGNED_IN.replace('status: Connected to Local honua-server', 'status: Disconnected')])
+def test_the_sign_in_probe_fails_on_any_other_page(page):
+    from agent_e2e_studio_arc import studio_workspace_ready
+    clock = iter([0, 0, 5, 50, 50, 50])
+    with pytest.raises(ValueError, match='did not load'):
+        studio_workspace_ready(invoke=lambda name, args: page if name == 'studio_snapshot' else 'ok', deadline=30,
+                               clock=lambda: next(clock), sleep=lambda _: None)
+
+
+def test_studio_ui_on_an_unfinished_session_reports_the_real_cause_and_never_raises(tmp_path):
+    """Rehearsal 9 run 13b: the Studio-UI evidence read on a session that did not finish raised a recorder-phase
+    error ("action results are registered after the session") that hid the real cause."""
+    from types import SimpleNamespace
+    from agent_e2e_studio_arc import studio_ui_assertion
+
+    class Recorder:
+        records = {}
+
+        def actions(self):
+            raise ValueError('action results are registered after the session')
+    stack = SimpleNamespace(workdir=str(tmp_path), extra={'recorder': Recorder()})
+    failed = {'failure': {'category': 'model', 'reason': 'action bound reached'}, 'sessions': []}
+    assert studio_ui_assertion(failed, stack) == {
+        'assertion': 'goal.studio-ui', 'status': 'fail', 'reason': 'session did not finish: action bound reached'}
+    assert studio_ui_assertion({'sessions': []}, None)['reason'] == 'session did not finish'
+    # A finished session whose evidence cannot be read still fails closed, with the evidence reason, and never raises.
+    row = studio_ui_assertion({'sessions': []}, stack)
+    assert row['status'] == 'fail' and 'registered after the session' in row['reason']
