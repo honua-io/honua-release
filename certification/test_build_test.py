@@ -497,3 +497,35 @@ def test_unenriched_replay_stays_core():
     core = {"id": 1, "name": "Validate Console", "status": "completed", "conclusion": "success",
             "started_at": "2026-11-03T00:00:00Z", "app": {"slug": "github-actions"}}
     assert bt.classify({"check_runs": [core, run]})[0] == "fail"
+
+
+def _events():
+    return bt.load_env_gated_events()["honua-console"]
+
+
+def test_scheduled_floating_backend_studio_red_is_skipped_and_core_still_decides():
+    """Ruling 2026-11-03: scheduled console-live-journey.yml runs (floating server nightly) are env-gated."""
+    scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
+    status, why = bt.classify(_console_payload(scheduled), env_gated_events=_events())
+    assert status == "pass" and "env-gated scheduled" in why and "[schedule]" in why
+
+
+@_pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch"])
+def test_the_same_workflow_on_other_events_stays_core(event):
+    run = _studio_check(3, "failure", event=event, title="Console live 3", branch="trunk")
+    assert bt.classify(_console_payload(run), env_gated_events=_events())[0] == "fail"
+
+
+def test_event_gating_never_leaves_the_console_without_core_and_a_core_red_still_fails():
+    scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
+    payload = _console_payload(scheduled)
+    payload["check_runs"][0]["conclusion"] = "failure"          # Validate Console, a core lane
+    assert bt.classify(payload, env_gated_events=_events())[0] == "fail"
+    only = bt._enrich_action_workflow_ids({"check_runs": [scheduled[0]]}, {"workflow_runs": [scheduled[1]]})
+    assert bt.classify(only, env_gated_events=_events())[0] == "blocked"
+
+
+def test_event_gating_requires_workflow_and_event_and_is_console_only():
+    other = _studio_check(3, "failure", event="schedule", title="x", branch="trunk", path=".github/workflows/ci.yml")
+    assert bt.classify(_console_payload(other), env_gated_events=_events())[0] == "fail"
+    assert set(bt.load_env_gated_events()) == {"honua-console"}

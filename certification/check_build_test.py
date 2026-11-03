@@ -121,6 +121,29 @@ def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
     return out
 
 
+def load_env_gated_events(path=ENV_GATED_PATH) -> dict[str, frozenset[tuple[str, str]]]:
+    """Per-component env-gated (workflow path, event) pairs from env-gated-checks.yaml `workflow:` entries.
+
+    A run is dropped only when BOTH its Actions workflow path and its event match, so pull_request and
+    push runs of the same workflow stay core. Names are never matched here. Missing enrichment keeps
+    the check (core)."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    out: dict[str, frozenset[tuple[str, str]]] = {}
+    for comp, entries in data.items():
+        pairs = set()
+        for entry in entries or []:
+            workflow = str((entry or {}).get("workflow", "")).strip()
+            events = [str(e).strip() for e in ((entry or {}).get("events") or []) if str(e).strip()]
+            if workflow.startswith(".github/workflows/") and events:
+                pairs |= {(workflow, event) for event in events}
+        if pairs:
+            out[comp] = frozenset(pairs)
+    return out
+
+
 def load_governance(path=GOVERNANCE_PATH) -> dict[str, frozenset[str]]:
     """Load non-build policy/attestation check names.
 
@@ -254,7 +277,8 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              security_names: frozenset[str] = frozenset(),
              governance_names: frozenset[str] = frozenset(),
              advisory_names: frozenset[str] = frozenset(),
-             advisory_workflows: frozenset[str] = frozenset()) -> tuple[str, str]:
+             advisory_workflows: frozenset[str] = frozenset(),
+             env_gated_events: frozenset[tuple[str, str]] = frozenset()) -> tuple[str, str]:
     """Map a component's check-runs payload to (status, why). Pure → unit-tested.
 
     `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
@@ -279,10 +303,15 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
+    def _env_gated_event(run: dict) -> bool:
+        actions = run.get("_workflow_run")
+        return (isinstance(actions, dict)
+                and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in env_gated_events)
     replayed = [r for r in runs if _is_release_gate_replay(r)]
-    runs = _latest_named_runs([r for r in runs if not _is_release_gate_replay(r)])
+    event_gated = [r for r in runs if not _is_release_gate_replay(r) and _env_gated_event(r)]
+    runs = _latest_named_runs([r for r in runs if not _is_release_gate_replay(r) and not _env_gated_event(r)])
     if not runs:
-        return "blocked", "only release-gate replay check-runs on the pinned sha"
+        return "blocked", "only release-gate replay or env-gated scheduled check-runs on the pinned sha"
 
     def _advisory(run: dict) -> bool:
         # A workflow exclusion applies only when enrichment recorded the path. Without
@@ -326,6 +355,13 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
                      if advisory_nongreen else "")
     replay_note = (f"; {len(replayed)} release-gate replay check(s) excluded (judged by their own gate)"
                    if replayed else "")
+    event_nongreen = [r for r in event_gated if r.get("conclusion") not in ("success", "neutral", "skipped")]
+    if event_gated:
+        replay_note += (f"; {len(event_gated)} env-gated scheduled check(s) skipped"
+                        + (f" ({len(event_nongreen)} not green: "
+                           f"{sorted({str(r.get('name')) + ' [' + str(r['_workflow_run'].get('event')) + ']' for r in event_nongreen})})"
+                           if event_nongreen else "")
+                        + " — external floating backend, see env-gated-checks.yaml")
     env_note = env_note + rollup_note + security_note + governance_note + advisory_note + replay_note
 
     if not core:
@@ -502,7 +538,8 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              security: dict[str, frozenset[str]] | None = None,
              governance: dict[str, frozenset[str]] | None = None,
              full_matrix: dict[str, dict] | None = None,
-             advisory: dict[str, dict[str, frozenset[str]]] | None = None) -> dict:
+             advisory: dict[str, dict[str, frozenset[str]]] | None = None,
+             env_gated_events: dict[str, frozenset[tuple[str, str]]] | None = None) -> dict:
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
     rollup = rollup or {}
@@ -510,6 +547,7 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
     governance = governance or {}
     full_matrix = full_matrix or {}
     advisory = advisory or {}
+    env_gated_events = load_env_gated_events() if env_gated_events is None else env_gated_events
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -524,7 +562,8 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                                rollup.get(name, frozenset()), security.get(name, frozenset()),
                                governance.get(name, frozenset()),
                                advice.get("names", frozenset()),
-                               advice.get("workflows", frozenset()))
+                               advice.get("workflows", frozenset()),
+                               env_gated_events.get(name, frozenset()))
         if name in full_matrix:
             matrix_status, matrix_why = classify_full_matrix(payload, full_matrix[name], sha)
             if matrix_status != "pass":
