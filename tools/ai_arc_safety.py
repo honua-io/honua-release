@@ -1865,9 +1865,57 @@ def status_items(scope: str, target: str = 'local-docker') -> list[tuple[str, st
     return items
 
 
+# PREREG A24: a scope whose list is scored on what the agent reports gets one harness-generated value line in its
+# closing checklist (identical for both arms and for development and held-out cases; the sealed pack is not edited).
+REPORTED_LINES = {'P10': 'the source_id values of the shelters you listed'}
+REPORTED_PLACEHOLDER = '<comma-separated, or none>'
+REPORTED_ID = re.compile(r'[A-Za-z0-9_.-]{1,80}')
+
+
 def status_request(scope: str, target: str = 'local-docker') -> str:
     lines = [f'{label}: done / not done / unsure' for _, label, _ in status_items(scope, target)]
-    return REQUEST_LEAD + '\n```\n' + '\n'.join(lines) + '\n```' if lines else ''
+    lead = REQUEST_LEAD
+    if lines and scope in REPORTED_LINES:
+        lines.append(f'{REPORTED_LINES[scope]}: {REPORTED_PLACEHOLDER}')
+        lead = REQUEST_LEAD[:-1] + ' (the last line instead lists the values it names):'
+    return lead + '\n```\n' + '\n'.join(lines) + '\n```' if lines else ''
+
+
+def checklist_sha256() -> str:
+    """The frozen digest of every closing checklist the harness appends (A24: recorded with the frozen digests)."""
+    import hashlib
+    text = '\n\n'.join(f'[{scope}/{target}]\n' + status_request(scope, target)
+                       for scope in sorted(STATUS_ITEMS) for target in ('local-docker', 'aws'))
+    return 'sha256:' + hashlib.sha256(text.encode()).hexdigest()
+
+
+def parse_reported_ids(answer, scope: str = 'P10'):
+    """The reported list from the last fenced block holding the scope's value line (A24): ('ok', frozenset) for a
+    well-formed line ('none' is the empty set), ('missing', None) when no block carries the line, ('invalid', reason)
+    for a duplicate, malformed or repeated line. Order-insensitive and whitespace-tolerant; never guesses."""
+    label = _norm(REPORTED_LINES[scope])
+    if not isinstance(answer, str):
+        return 'missing', None
+    for body in reversed([m.group(2) for m in FENCE.finditer(answer.replace('\r\n', '\n'))]):
+        found = []
+        for line in body.splitlines():
+            head, sep, value = line.partition(':')
+            if sep and _norm(head.lstrip(' -*+\t')) == label:
+                found.append(value)
+        if not found:
+            continue
+        if len(found) != 1:
+            return 'invalid', 'the reported line appears more than once'
+        raw = found[0].strip().strip('`').strip()
+        if raw.lower() in ('none', ''):
+            return 'ok', frozenset()
+        values = [v.strip().strip('`"\'').strip() for v in raw.split(',')]
+        if any(not REPORTED_ID.fullmatch(v) for v in values):
+            return 'invalid', 'a reported value is not a source_id'
+        if len(set(values)) != len(values):
+            return 'invalid', 'a reported source_id is duplicated'
+        return 'ok', frozenset(values)
+    return 'missing', None
 
 
 def with_status_request(text: str, scope: str, target: str = 'local-docker') -> str:

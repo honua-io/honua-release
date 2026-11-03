@@ -57,6 +57,11 @@ def _query_result(ids, echo=SVC):
                                                     'geojson': {'type': 'FeatureCollection', 'features': feats}}}
 
 
+# PREREG A24: P10 scores the list the closing checklist reports (here the expected s3, s4).
+REPORTED_ANSWER = ('Open shelters over 50: s3, s4.\n```\nthe list you were asked for: done\n'
+                   'the source_id values of the shelters you listed: s3, s4\n```')
+
+
 def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_roles=('operators',), extra_args=None,
           final_ok=True, enabled=True, echo=SVC):
     args = {'serviceId': SVC, 'layerId': LAYER, 'where': where, 'returnGeometry': False}
@@ -121,7 +126,7 @@ def _filter_exact(records, model_actions):
     import importlib.util, pathlib
     spec = load_document('P10', 'arc')['projections']['filter.exact']['spec']
     roles = _roles(records)
-    ctx = P.Context(records, roles, model_actions=model_actions)
+    ctx = P.Context(records, roles, model_actions=model_actions, final_answers=(REPORTED_ANSWER,))
     observed = P.evaluate(spec, ctx)
     path = pathlib.Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/oracle.py'
     module = importlib.util.spec_from_file_location('arc_oracle', path)
@@ -221,7 +226,7 @@ def _scored(records, actions):
     frozen = {'filter.exact': load_projections('P10', 'A', 'arc')['filter.exact']}
     return score_assertions(['filter.exact'], [Observation('filter.exact', None, {'projection': 'extract/v1'})],
                             expected, records=records, roles=_roles(records), scenario_id='P10',
-                            model_actions=actions, frozen=frozen)[0]
+                            model_actions=actions, frozen=frozen, final_answers=(REPORTED_ANSWER,))[0]
 
 
 def test_restrict_after_list_passes_through_frozen_scoring():
@@ -368,21 +373,28 @@ def test_the_frozen_source_rows_are_the_fixture_with_the_stored_id_and_crs(varia
     assert sorted(rows, key=P.canonical) == rows and sorted(want, key=P.canonical) == rows
 
 
-def test_the_final_query_may_address_the_service_by_its_published_id():
-    # Studio DEV shakeout 11-02: A1's last query was the filtered list on "svc-publish-kestrel" (the id the server
-    # reports); it was never replayed, so filter.exact read an unrecorded step. The frozen final-query rule is unchanged.
+def test_the_proving_query_may_address_the_service_by_its_published_id():
+    # Studio DEV shakeout 11-02: the filtered list on "svc-publish-kestrel" (the id the server reports) must be
+    # eligible. A24: the proving query is the latest eligible one that returned exactly the reported list.
     from types import SimpleNamespace
     from agent_e2e_local_scenarios.arc_p10 import ArcP10
     seeded = SimpleNamespace(state={'service': SVC, 'layerId': LAYER})
+    reported = frozenset({'s3', 's4'})
 
-    def query(service, status='pass', layer=LAYER):
-        return SimpleNamespace(kind='tool_call', tool='honua_query_features', status=status,
+    def query(service, status='pass', layer=LAYER, ids=('s3', 's4')):
+        return SimpleNamespace(kind='tool_call', tool='honua_query_features', status=status, ids=frozenset(ids),
                                arguments={'serviceId': service, 'layerId': layer, 'where': GOOD_WHERE})
-    last = query('svc-publish-' + SVC)
-    assert ArcP10.selected_query([query(SVC), last], seeded) is last
-    assert ArcP10.selected_query([query(SVC)], seeded) is not None
-    for bad in (query('svc-publish-other'), query('svc-publish-' + SVC, status='fail'), query(SVC, layer=LAYER + 1)):
-        assert ArcP10.selected_query([query(SVC), bad], seeded) is None      # only the last query is eligible
+    def pick(actions):
+        return ArcP10.selected_query(actions, seeded, reported, lambda a: a.ids)
+    echoed = query('svc-publish-' + SVC)
+    assert pick([query(SVC), echoed]) is echoed
+    assert pick([query(SVC)]) is not None
+    verify = query(SVC, ids=('s1', 's2', 's3', 's4', 's5'))
+    assert pick([echoed, verify]) is echoed                       # a later verification read does not decide
+    for bad in (query('svc-publish-other'), query('svc-publish-' + SVC, status='fail'), query(SVC, layer=LAYER + 1),
+                query(SVC, ids=('s3',))):
+        assert pick([bad]) is None
+    assert ArcP10.selected_query([echoed], seeded, None, lambda a: a.ids) is None     # nothing reported
 
 
 def test_the_restricted_path_accepts_the_published_id_in_the_final_query():

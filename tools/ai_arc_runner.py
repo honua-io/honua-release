@@ -2511,8 +2511,11 @@ def harness_digests() -> dict:
                 rows.append([str(path.relative_to(ROOT)), sha256(path.read_bytes()) if path.is_file() else 'absent'])
         return sha256(canonical(rows))
     sealed = [sha256(p.read_bytes()) for p in SEALED.values() if p.is_file()]
+    from ai_arc_safety import checklist_sha256
     return {'runner': files(runner_closure()), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
-            'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
+            'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None,
+            # PREREG A24: the closing checklist text every arm sees (its P10 line names the source_id values).
+            'statusChecklist': checklist_sha256()}
 
 
 def run_status(stages: list[dict], teardown_clean: bool = True) -> str:

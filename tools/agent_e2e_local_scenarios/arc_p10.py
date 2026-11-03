@@ -9,24 +9,46 @@ from agent_e2e_local_expectations import fixture_catalog, load_roles
 from agent_e2e_local_scenarios.P10 import P10
 
 
+def p10_response_ids(message):
+    """The source_id set one honua_query_features response returned, or None unless it is a complete, successful list
+    (no error, one page from offset 0, not truncated, distinct string ids, count matching the features)."""
+    result = message.get('result') if isinstance(message, dict) else None
+    value = result.get('structuredContent') if isinstance(result, dict) else None
+    if (not isinstance(result, dict) or result.get('isError', False) is not False or not isinstance(value, dict)
+            or value.get('exceededTransferLimit') is not False or value.get('resultOffset') != 0):
+        return None
+    collection = value.get('geojson')
+    features = collection.get('features') if isinstance(collection, dict) else None
+    if not isinstance(features, list) or type(value.get('returnedCount')) is not int \
+            or value['returnedCount'] != len(features):
+        return None
+    ids = [f.get('properties', {}).get('source_id') if isinstance(f, dict) else None for f in features]
+    if not all(isinstance(i, str) and i for i in ids) or len(set(ids)) != len(ids):
+        return None
+    return frozenset(ids)
+
+
 class ArcP10(P10):
     expectation_profile = 'arc'
 
     @staticmethod
-    def selected_query(actions, seeded):
-        """P10's rule unchanged (only the agent's last query is eligible, failures and other layers included), except
-        that the service may be addressed by the metadata id the server gives a service published under that name
-        (agent_e2e_local_projections.echoes_service). Studio DEV shakeout 11-02: A1's last query was the filtered list
-        on "svc-publish-kestrel", the id honua_list_layers and every query response report, and was never replayed."""
+    def selected_query(actions, seeded, reported=None, response_ids=None):
+        """PREREG A24 (retires the last-query rule): the agent's query that proves the list it reports. Among the agent's
+        passing honua_query_features calls on the published service and layer (the service may be addressed by the
+        metadata id the server gives it, agent_e2e_local_projections.echoes_service), the latest whose own recorded
+        response returned exactly the reported source_id set, complete. ``reported`` is the frozenset from the closing
+        checklist (ai_arc_safety.parse_reported_ids); ``response_ids(action)`` reads one call's recorded response as a
+        frozenset of source ids, or None when it is not a complete list. No reported list, no proving query."""
         from agent_e2e_local_projections import echoes_service
-        queries = [a for a in actions if a.kind == 'tool_call' and a.tool == 'honua_query_features']
-        if not queries:
+        if reported is None or response_ids is None:
             return None
-        action = queries[-1]
-        arguments = action.arguments if isinstance(action.arguments, dict) else {}
-        if (action.status == 'pass' and echoes_service(arguments.get('serviceId'), seeded.state['service'])
-                and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
-            return action
+        queries = [a for a in actions if a.kind == 'tool_call' and a.tool == 'honua_query_features']
+        for action in reversed(queries):
+            arguments = action.arguments if isinstance(action.arguments, dict) else {}
+            if (action.status == 'pass' and echoes_service(arguments.get('serviceId'), seeded.state['service'])
+                    and str(arguments.get('layerId')) == str(seeded.state['layerId'])
+                    and response_ids(action) == reported):
+                return action
         return None
 
     def __init__(self, fault='http_503_once'):
@@ -141,10 +163,22 @@ class ArcP10(P10):
                     'geometryPrecision': -1})
                 actions = rec.actions()
                 count = sum(a.kind == 'tool_call' and a.tool == 'honua_query_features' for a in actions)
-                query = self.selected_query(actions, seeded) if count <= fixture_catalog()['maxP10Queries'] else None
+                from ai_arc_safety import parse_reported_ids
+                answers = tuple(getattr(run, 'final_answers', ()) or ()) if run is not None else ()
+                status, reported = parse_reported_ids(answers[-1] if answers else None, 'P10')
+                candidates = {}
+
+                def response_ids(action):
+                    # The call's own recorded response (sealed, digest-checked), registered as evidence.
+                    step = 'arc-p10-query-' + str(len(candidates) + 1)
+                    response = rec.action_result(step, action)
+                    candidates[action.digest] = step
+                    return p10_response_ids(response.json)
+                query = (self.selected_query(actions, seeded, reported if status == 'ok' else None, response_ids)
+                         if count <= fixture_catalog()['maxP10Queries'] else None)
                 if query is not None:
                     rec.replay('p10-replay-query', query)
-                    # The agent's own final query response: the list it produced (scored only on the
+                    # The proving query's own recorded response: the list the agent reported (scored on the
                     # restricted-service path, where the controller replay is refused by the policy).
                     rec.action_result('arc-p10-final-query', query)
         return [Observation('filter.exact', None, {'projection': 'extract/v1'}),
