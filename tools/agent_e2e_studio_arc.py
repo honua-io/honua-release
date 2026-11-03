@@ -12,7 +12,9 @@ from pathlib import Path
 CORPUS_MANIFEST = Path(__file__).resolve().parents[1] / 'certification/agent-e2e/corpus/manifest.v1.json'
 CORPUS_MANIFEST_SHA256 = '166fad2a58cdfb5560882181a1c0afe04b81442401a1b465d28d6dc9710f846e'
 REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / 'certification/ai-arc/studio-fixture-requirements.json'
-REQUIREMENTS_SHA256 = '2d1068e996fa501a0e3742ccf7aaa4da98ea6040e58b33e6eae18dc21e3e7687'
+# PREREG A29: sharing is not a frozen stage-four requirement (a Studio customer's team publication awaits a separate
+# human approval that stage four does not provide); the request is still recorded with the session's evidence.
+REQUIREMENTS_SHA256 = '0801d9e5f10bf074ffb336329ef7d9907ed6943774dd7bd7d9545aa28f6530cf'
 
 
 def _instant(value):

@@ -136,7 +136,8 @@ def test_supported_filter_requires_both_saved_rules_and_rendered_labels():
 def test_fixture_requirements_are_digest_pinned_and_unknown_fails(tmp_path):
     from agent_e2e_studio_arc import fixture_requirements, REQUIREMENTS_PATH
     from ai_arc_runner import RUNNER_FILES
-    assert fixture_requirements('town-A', 'P08') == frozenset({'layers', 'style', 'labels', 'sharing'})
+    # PREREG A29: sharing is not scored in stage four (both development fixtures; held-out cases use the same file).
+    assert fixture_requirements('town-A', 'P08') == frozenset({'layers', 'style', 'labels'})
     assert fixture_requirements('town-B', 'P08') == fixture_requirements('town-A', 'P08')
     with pytest.raises(ValueError, match='requirements'):
         fixture_requirements('unknown', 'P08')
