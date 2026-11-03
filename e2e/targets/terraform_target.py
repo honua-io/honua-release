@@ -1194,8 +1194,9 @@ STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
 IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=67108864"
 # rc.2 DISCLOSED DEVIATION (release-session ruling 2026-11-03; founder: disclosure plus documented tuning;
 # honua-server#6917). On the rc.2 candidate a 330k-feature publish exceeds the default 300 s
-# LayerPublishing:MaterializationTimeoutSeconds, so the ECS Redis-on cell (the only one that publishes the
-# large S10 fixture) applies the documented operator workaround: honua-iac's example-root tfvar
+# LayerPublishing:MaterializationTimeoutSeconds, so the ECS Redis-on cell (the GA large-fixture cell of the normal
+# target=all run; explicit serverless/EKS Preview dispatches also stage the large fixture on Redis-on and keep the
+# default budget) applies the documented operator workaround: honua-iac's example-root tfvar
 # layer_publishing_materialization_timeout_seconds (v0.6.4), rendered as LayerPublishing__
 # MaterializationTimeoutSeconds. Passed only when the pinned root declares it; the S10 receipt records it.
 LAYER_PUBLISH_TIMEOUT_VAR = "layer_publishing_materialization_timeout_seconds=600"

@@ -6380,3 +6380,53 @@ def test_serverless_cell_shortens_the_proxy_idle_client_timeout_only_when_declar
         values = _tf_vars(serverless(run_id="r1")._vars(False))
         assert values["rds_proxy_idle_client_timeout_seconds"] == "60"
         assert values["enable_rds_proxy"] == "true"
+
+
+# Sol review of #1262 (P1): the S10 disclosure the credential-free journey uploads is bound to provision state.
+_DEVIATION = {"setting": "LayerPublishing__MaterializationTimeoutSeconds", "value": 600, "default": 300,
+              "via": "honua-iac example-root tfvar layer_publishing_materialization_timeout_seconds",
+              "reason": "disclosed rc.2 limitation"}
+
+
+def _s10_row(deviations):
+    evidence = {"scenario": run_cloud.large_import.SCENARIO, "topology": "redis-on", "variant": "positive"}
+    if deviations is not None:
+        evidence["disclosedDeviations"] = deviations
+    return {"name": "large-import", "status": "pass", "why": "S10 ok",
+            "evidence": {"scenarios": [{"scenario": run_cloud.large_import.SCENARIO, "evidence": evidence}]}}
+
+
+@pytest.mark.parametrize("provisioned, uploaded, ok", [
+    ([_DEVIATION], [_DEVIATION], True),
+    (None, None, True),
+    ([_DEVIATION], None, False),                                   # dropped
+    ([_DEVIATION], [{**_DEVIATION, "value": 900}], False),         # altered
+    (None, [_DEVIATION], False),                                   # fabricated
+])
+def test_s10_disclosure_must_match_the_provision_record(provisioned, uploaded, ok):
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True}}
+    if provisioned is not None:
+        state["s10"]["disclosedDeviations"] = provisioned
+    report = {"status": "pass", "scenarioCoverage": [{"name": "health", "status": "pass"}, _s10_row(uploaded)]}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert (report["status"] == "pass") is ok
+    if not ok:
+        assert "does not match the provision record" in report["why"] and report["disclosureMismatch"]
+
+
+def test_s10_disclosure_mismatch_fails_the_cell_through_teardown(monkeypatch):
+    cj = run_cloud.cloud_journey
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    passing = [{"name": n, "status": "pass", "why": "ok"} for n in ("health", "capability-manifest")]
+    state = {"cell": "aws-ecs/redis-on", "redis": "redis-on", "requireReal": True, "provisionAttempted": True,
+             "startedAt": cj.now(), "s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True,
+                                            "disclosedDeviations": [_DEVIATION]},
+             "report": {"cell": "aws-ecs/redis-on", "endpoint": "https://cell.invalid", "checks": passing,
+                        "canaryProbes": [], "readiness": {"ready": True}, "journeyAttempts": []}}
+    journey = {"status": "pass", "journeyAttempts": [], "scenarioCoverage": [_s10_row(None)]}
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None,
+                                          cost_report=Path(directory) / "run-cost.json")
+    assert report["status"] == "fail" and report["disclosureMismatch"]

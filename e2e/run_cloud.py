@@ -505,6 +505,37 @@ def _journey_blocked_verdict(blockers: list[list[str]], require_real: bool) -> d
 _ISSUE_REF = re.compile(r"\b[a-z][a-z0-9-]*#\d+\b|https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 
+def _s10_receipts(node):
+    """Every S10 scenario receipt (dict with scenario == large_import.SCENARIO) inside scenarioCoverage."""
+    if isinstance(node, dict):
+        if node.get("scenario") == large_import.SCENARIO and ("topology" in node or "variant" in node):
+            yield node
+        for value in node.values():
+            yield from _s10_receipts(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _s10_receipts(value)
+
+
+def _bind_s10_disclosures(report: dict, state: dict) -> None:
+    """The S10 disclosedDeviations the credential-free journey uploads must equal what provision recorded.
+
+    The journey job holds no cloud credential and its upload is not trusted for this field: a missing,
+    altered or fabricated disclosure fails the cell. The trusted value is the provision state carried to
+    teardown (state["s10"]["disclosedDeviations"], written by provision_phase from the applied tfvars).
+    """
+    expected = (state.get("s10") or {}).get("disclosedDeviations") if isinstance(state.get("s10"), dict) else None
+    expected = expected or []
+    for receipt in _s10_receipts(report.get("scenarioCoverage")):
+        observed = receipt.get("disclosedDeviations") or []
+        if observed != expected:
+            why = ("S10 receipt disclosedDeviations does not match the provision record "
+                   f"(provisioned {json.dumps(expected, sort_keys=True)}, receipt {json.dumps(observed, sort_keys=True)})")
+            report.setdefault("disclosureMismatch", []).append(why)
+            report["status"] = "fail"
+            report["why"] = why
+
+
 def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: str | None,
                    cost_ceiling_usd: str = "20", cost_report: Path | None = None,
                    destroy: bool = True) -> dict:
@@ -514,6 +545,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     require_real = state.get("requireReal", False)
     redis_enabled = state.get("redis") == "redis-on"
     report["scenarioCoverage"] = journey.get("scenarioCoverage", report.get("scenarioCoverage", []))
+    _bind_s10_disclosures(report, state)
     report["journeyAttempts"] = report.get("journeyAttempts", []) + journey.get("journeyAttempts", [])
     if "readiness" in journey:
         report["journeyReadiness"] = journey["readiness"]
