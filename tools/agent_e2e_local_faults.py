@@ -52,8 +52,10 @@ def validate_fault_plan(plan):
             (isinstance(after, dict) and set(after) == {'tool'} and isinstance(after['tool'], str) and after['tool'])
             or (not lost and after == PUBLISH_TRIGGER)):
         raise ValueError('fault plan trigger must name one tool: {"after": {"tool": ...}}')
-    if (match is None and lost) or (match is not None and (not isinstance(match, dict) or set(match) != {'tool'}
-                                                            or not isinstance(match['tool'], str) or not match['tool'])):
+    # PREREG A23: a lost publication reply may match either reviewed publication tool (PUBLISH_TRIGGER).
+    if (match is None and lost) or (match is not None and not (lost and match == PUBLISH_TRIGGER) and (
+            not isinstance(match, dict) or set(match) != {'tool'} or not isinstance(match['tool'], str)
+            or not match['tool'])):
         raise ValueError('fault plan match must be {"tool": ...} (null only for http_503_once)')
     commit = plan.get('commit')
     if lost != (commit is not None) or (lost and (not isinstance(commit, dict) or set(commit) != {'pointer', 'confirm'}
@@ -145,7 +147,7 @@ class FaultInjector:
                 self.skipped.append({'actionDigest': digest, 'upstreamStatus': upstream_status,
                                      'upstreamOutcome': execution.get('status'), 'reason': reason, **extra})
                 return None
-            committed = self._committed_resource(execution, upstream_status, upstream_raw)
+            committed = self._committed_resource(execution, upstream_status, upstream_raw, action)
             if committed is None:
                 return skip('reply is an error or names no resource at the commit pointer')
             if self.confirm is None:
@@ -175,8 +177,8 @@ class FaultInjector:
             self.events.append(event)
             return event
 
-    def _committed_resource(self, execution, status, raw):
-        from agent_e2e_local_projections import pointer_get
+    def _committed_resource(self, execution, status, raw, action=None):
+        from agent_e2e_local_projections import admin_layer_publication, pointer_get
         from agent_e2e_local_recorder import ProjectionError, parse_jsonrpc
         if execution.get('status') != 'ok' or type(status) is not int or not 200 <= status < 300 or raw is None:
             return None
@@ -185,6 +187,12 @@ class FaultInjector:
             result = message.get('result')
             if 'error' in message or not isinstance(result, dict) or result.get('isError') is True:
                 return None
+            if isinstance(action, dict) and action.get('tool') == 'honua_admin_layer_publish':
+                # PREREG A23: the admin route's committed service is read the way it is credited (a completed,
+                # non-dry-run publication, the service named in the embedded admin response).
+                arguments = action.get('arguments') if isinstance(action.get('arguments'), dict) else {}
+                return admin_layer_publication({'kind': 'tool_call', 'status': 'pass', 'arguments': arguments,
+                                                'json': message})
             value = pointer_get(message, self.plan['commit']['pointer'])
         except (ProjectionError, ValueError):
             return None
