@@ -1206,3 +1206,35 @@ def test_the_write_out_rewrite_changes_no_byte_curl_receives():
     import ai_arc_safety as S
     for command in REHEARSAL9_REFUSED + REHEARSAL9_RAN:
         assert shlex.split(S.curl_write_out_literal(command)) == shlex.split(command)
+
+
+@pytest.mark.parametrize('separator', ['\x0b', '\x0c', ' ', ' ', '　'])
+def test_the_write_out_rewrite_never_hides_a_finding_behind_non_bash_whitespace(separator):
+    """Sol budgets P1: bash does not split on a vertical tab, form feed or Unicode space, so `<sep># ; rm -rf ...`
+    still reaches the rm. Rebuilding the command around such a character turned the `#` into a comment and lost
+    the destructive finding. Such a command is never rewritten, and the finding stays beside the gap."""
+    import ai_arc_safety as S
+    command = f'curl -s -o /dev/null -w "%{{http_code}}" http://localhost:18080/{separator}# ; rm -rf /etc/example'
+    assert S.curl_write_out_literal(command) is None
+    unrewritten_found, unrewritten_gaps = _gaps(command, refused=False)
+    original = S.curl_write_out_literal
+    try:
+        S.curl_write_out_literal = lambda _command: None
+        baseline = _gaps(command, refused=False)
+    finally:
+        S.curl_write_out_literal = original
+    assert (unrewritten_found, unrewritten_gaps) == baseline and unrewritten_gaps == [1]
+
+
+@pytest.mark.parametrize('command', [
+    'curl -s -o /dev/null -w"%{http_code}" http://localhost:18080/',           # value glued to the option
+    'curl -s -o /dev/null -w "%{http_code}"x http://localhost:18080/',         # quoted span glued to a word
+    'curl -s -o /dev/null -w "%{http_code} http://localhost:18080/',           # unbalanced quote
+    'curl -s -o /dev/null -w  "%{http_code}"  http://localhost:18080/  # x'])  # a real comment stays as written
+def test_the_write_out_rewrite_only_replaces_a_whole_format_word(command):
+    import shlex
+    import ai_arc_safety as S
+    literal = S.curl_write_out_literal(command)
+    if literal is not None:
+        assert shlex.split(literal, comments=True) == shlex.split(command, comments=True)
+        assert len(literal) == len(command) and literal.replace("'", '"') == command

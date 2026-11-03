@@ -1326,27 +1326,37 @@ def curl_write_out_literal(command):
       - unquoted: WRITE_OUT_UNQUOTED (no comma or `..`, so no brace expansion; nothing else special).
     The rewrite changes no byte the shell would pass to curl. Every other construct still makes the command a gap,
     and the rewritten command is classified like any other curl (read-only GET, localhost, this slot's ports)."""
-    if not isinstance(command, str) or not command.startswith('curl ') or any(c in command for c in '\n\r\t'):
+    # Printable ASCII only, so the only separator is the space bash also splits on (Sol budgets P1: a vertical tab,
+    # form feed or Unicode space is not a bash separator; reconstructing the command around one changed what the
+    # shell runs). The command is never rebuilt: only the format's own span is replaced, every other byte is kept.
+    if not isinstance(command, str) or not command.startswith('curl ') or not all(' ' <= c <= '~' for c in command):
         return None
-    words = [m.group(0) for m in re.finditer(r'"[^"]*"|[^\s"]+', command)]
-    if ' '.join(words) != ' '.join(command.split()):
-        return None                              # a quoted word with runs of spaces, or a stray quote
-    out, changed = [], False
-    for index, word in enumerate(words):
-        if index and words[index - 1] in ('-w', '--write-out'):
-            inner = word[1:-1] if len(word) >= 2 and word[0] == word[-1] == '"' else None
-            if inner is not None and not set(inner) & set('$`!\'"') and WRITE_OUT.fullmatch(inner) and '%{' in inner:
-                out.append("'" + inner + "'")
-                changed = True
-                continue
-            if inner is None and WRITE_OUT_UNQUOTED.fullmatch(word) and '%{' in word:
-                out.append("'" + word + "'")
-                changed = True
-                continue
-        out.append(word)
-    if not changed:
+    words = list(re.finditer(r'"[^"]*"|[^ "]+', command))
+    covered = set()
+    for match in words:
+        covered.update(range(match.start(), match.end()))
+    if any(command[i] != ' ' for i in range(len(command)) if i not in covered):
+        return None                              # a stray (unbalanced) quote
+
+    def alone(match):                            # a whole shell word: space (or the ends) on both sides
+        return ((match.start() == 0 or command[match.start() - 1] == ' ')
+                and (match.end() == len(command) or command[match.end()] == ' '))
+    spans = []
+    for index, match in enumerate(words):
+        word = match.group(0)
+        if not (index and words[index - 1].group(0) in ('-w', '--write-out') and alone(words[index - 1])
+                and alone(match)):
+            continue
+        inner = word[1:-1] if len(word) >= 2 and word[0] == word[-1] == '"' else None
+        if inner is not None and not set(inner) & set('$`!\'"') and WRITE_OUT.fullmatch(inner) and '%{' in inner:
+            spans.append((match.start(), match.end(), "'" + inner + "'"))
+        elif inner is None and WRITE_OUT_UNQUOTED.fullmatch(word) and '%{' in word:
+            spans.append((match.start(), match.end(), "'" + word + "'"))
+    if not spans:
         return None
-    literal = ' '.join(out)
+    literal = command
+    for start, end, text in reversed(spans):
+        literal = literal[:start] + text + literal[end:]
     return literal if not construct_gaps(literal) else None
 
 
