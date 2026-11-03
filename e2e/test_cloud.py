@@ -6380,3 +6380,198 @@ def test_serverless_cell_shortens_the_proxy_idle_client_timeout_only_when_declar
         values = _tf_vars(serverless(run_id="r1")._vars(False))
         assert values["rds_proxy_idle_client_timeout_seconds"] == "60"
         assert values["enable_rds_proxy"] == "true"
+
+
+# Sol review of #1262 (P1): the S10 disclosure the credential-free journey uploads is bound to provision state.
+_DEVIATION = {"setting": "LayerPublishing__MaterializationTimeoutSeconds", "value": 600, "default": 300,
+              "via": "honua-iac example-root tfvar layer_publishing_materialization_timeout_seconds",
+              "reason": "disclosed rc.2 limitation"}
+
+
+def _s10_row(deviations):
+    evidence = {"scenario": run_cloud.large_import.SCENARIO, "topology": "redis-on", "variant": "positive"}
+    if deviations is not None:
+        evidence["disclosedDeviations"] = deviations
+    return {"name": "large-import", "status": "pass", "why": "S10 ok",
+            "evidence": {"scenarios": [{"scenario": run_cloud.large_import.SCENARIO, "evidence": evidence}]}}
+
+
+@pytest.mark.parametrize("provisioned, uploaded, ok", [
+    ([_DEVIATION], [_DEVIATION], True),
+    (None, None, True),
+    ([_DEVIATION], None, False),                                   # dropped
+    ([_DEVIATION], [{**_DEVIATION, "value": 900}], False),         # altered
+    (None, [_DEVIATION], False),                                   # fabricated
+])
+def test_s10_disclosure_must_match_the_provision_record(provisioned, uploaded, ok):
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True}}
+    if provisioned is not None:
+        state["s10"]["disclosedDeviations"] = provisioned
+    report = {"status": "pass", "scenarioCoverage": [{"name": "health", "status": "pass"}, _s10_row(uploaded)]}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert (report["status"] == "pass") is ok
+    if not ok:
+        assert "provision" in report["why"] and report["disclosureMismatch"]
+
+
+def test_s10_disclosure_mismatch_fails_the_cell_through_teardown(monkeypatch):
+    cj = run_cloud.cloud_journey
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    passing = [{"name": n, "status": "pass", "why": "ok"} for n in ("health", "capability-manifest")]
+    state = {"cell": "aws-ecs/redis-on", "redis": "redis-on", "requireReal": True, "provisionAttempted": True,
+             "startedAt": cj.now(), "s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True,
+                                            "disclosedDeviations": [_DEVIATION]},
+             "report": {"cell": "aws-ecs/redis-on", "endpoint": "https://cell.invalid", "checks": passing,
+                        "canaryProbes": [], "readiness": {"ready": True}, "journeyAttempts": []}}
+    journey = {"status": "pass", "journeyAttempts": [], "scenarioCoverage": [_s10_row(None)]}
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None,
+                                          cost_report=Path(directory) / "run-cost.json")
+    assert report["status"] == "fail" and report["disclosureMismatch"]
+
+
+# Sol delta review of #1262 (P1): a provisioned deviation can't be dropped by removing or reshaping the S10 receipt.
+def _s10_row_without_evidence():
+    return {"name": "large-import", "status": "pass", "why": "S10 ok",
+            "evidence": {"scenarios": [{"scenario": run_cloud.large_import.SCENARIO, "status": "pass"}]}}
+
+
+def _s10_row_unlabelled(deviations):
+    row = _s10_row(deviations)
+    evidence = row["evidence"]["scenarios"][0]["evidence"]
+    evidence.pop("topology"), evidence.pop("variant")
+    return row
+
+
+@pytest.mark.parametrize("coverage, provisioned, ok", [
+    ([], [_DEVIATION], False),                                                   # no S10 receipt at all
+    ([{"name": "health", "status": "pass"}], [_DEVIATION], False),               # S10 removed from coverage
+    ([_s10_row_without_evidence()], [_DEVIATION], False),                        # S10 line stripped of receipt
+    ([{"name": "large-import", "status": "pass", "evidence": {"scenarios": [
+        {"scenario": run_cloud.large_import.SCENARIO, "status": "pass", "evidence": None}]}}], [_DEVIATION], False),
+    ([_s10_row_unlabelled(None)], [_DEVIATION], False),                          # receipt without topology/variant
+    ([_s10_row_unlabelled([_DEVIATION])], [_DEVIATION], True),                   # honest, discriminators removed
+    ([_s10_row_unlabelled([_DEVIATION])], None, False),                          # fabricated on an unlabelled receipt
+    ([], None, True),                                                            # no deviation, no S10: unchanged
+    ([_s10_row_without_evidence()], None, True),
+])
+def test_s10_provisioned_deviation_requires_its_receipt(coverage, provisioned, ok):
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True}}
+    if provisioned is not None:
+        state["s10"]["disclosedDeviations"] = provisioned
+    report = {"status": "pass", "scenarioCoverage": coverage}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert (report["status"] == "pass") is ok
+    assert report.get("disclosedDeviations") == (provisioned or None)  # the trusted record, never the upload
+    if not ok:
+        assert report["disclosureMismatch"] and report["why"] == "; ".join(report["disclosureMismatch"])
+
+
+def test_s10_disclosure_check_keeps_an_earlier_failure_cause():
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "disclosedDeviations": [_DEVIATION]}}
+    report = {"status": "fail", "why": "journey failed: S7", "scenarioCoverage": []}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert report["status"] == "fail" and report["why"].startswith("journey failed: S7; provision recorded")
+
+
+@pytest.mark.parametrize("coverage", [
+    [], [_s10_row_without_evidence()], [_s10_row_unlabelled(None)], [{"name": "health", "status": "pass"}]])
+def test_s10_omitted_receipt_fails_the_cell_through_teardown(monkeypatch, coverage):
+    cj = run_cloud.cloud_journey
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    passing = [{"name": n, "status": "pass", "why": "ok"} for n in ("health", "capability-manifest")]
+    state = {"cell": "aws-ecs/redis-on", "redis": "redis-on", "requireReal": True, "provisionAttempted": True,
+             "startedAt": cj.now(), "s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True,
+                                            "disclosedDeviations": [_DEVIATION]},
+             "report": {"cell": "aws-ecs/redis-on", "endpoint": "https://cell.invalid", "checks": passing,
+                        "canaryProbes": [], "readiness": {"ready": True}, "journeyAttempts": []}}
+    journey = {"status": "pass", "journeyAttempts": [], "scenarioCoverage": coverage}
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None,
+                                          cost_report=Path(directory) / "run-cost.json")
+    assert report["status"] == "fail" and report["disclosureMismatch"]
+    assert report["disclosedDeviations"] == [_DEVIATION]
+
+
+# Sol delta review r3 of #1262 (P1): no journey-supplied key (e.g. `evidence`) exempts a disclosure from the check.
+def _s10_line(row):
+    return row["evidence"]["scenarios"][0]
+
+
+def _receipt_with_empty_evidence():
+    row = _s10_row([_DEVIATION])
+    _s10_line(row)["evidence"]["evidence"] = {}
+    return row
+
+
+def _line_with_fabricated_disclosure():
+    row = _s10_row(None)
+    _s10_line(row)["disclosedDeviations"] = [_DEVIATION]
+    return row
+
+
+def _altered_receipt_hiding_behind_child():
+    row = _s10_row([{**_DEVIATION, "value": 900}])
+    _s10_line(row)["evidence"]["evidence"] = {"scenario": run_cloud.large_import.SCENARIO,
+                                              "disclosedDeviations": [_DEVIATION]}
+    return row
+
+
+def _receipt_without_disclosure_hiding_behind_child():
+    row = _s10_row(None)
+    _s10_line(row)["evidence"]["evidence"] = {"scenario": run_cloud.large_import.SCENARIO,
+                                              "disclosedDeviations": [_DEVIATION]}
+    return row
+
+
+def _disclosure_moved_off_s10():
+    return [{"name": "health", "status": "pass", "disclosedDeviations": [_DEVIATION]}]
+
+
+@pytest.mark.parametrize("coverage, provisioned", [
+    ([_receipt_with_empty_evidence()], None),                    # fabricated receipt marked with `evidence`
+    ([_line_with_fabricated_disclosure()], None),                # fabricated on the scenario line
+    ([_altered_receipt_hiding_behind_child()], [_DEVIATION]),    # altered receipt behind a matching child
+    ([_receipt_without_disclosure_hiding_behind_child()], [_DEVIATION]),  # dropped behind a matching child
+    (_disclosure_moved_off_s10(), [_DEVIATION]),                 # carried only by a non-S10 row
+    (_disclosure_moved_off_s10(), None),                         # fabricated on a non-S10 row
+])
+def test_s10_disclosure_is_checked_whatever_the_shape(coverage, provisioned):
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True}}
+    if provisioned is not None:
+        state["s10"]["disclosedDeviations"] = provisioned
+    report = {"status": "pass", "scenarioCoverage": coverage}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert report["status"] == "fail" and report["disclosureMismatch"]
+
+
+@pytest.mark.parametrize("provisioned, coverage", [
+    (None, [_receipt_with_empty_evidence()]),
+    (None, [_line_with_fabricated_disclosure()]),
+    ([_DEVIATION], [_altered_receipt_hiding_behind_child()]),
+    ([_DEVIATION], [_receipt_without_disclosure_hiding_behind_child()]),
+    ([_DEVIATION], _disclosure_moved_off_s10()),
+])
+def test_s10_reshaped_disclosure_fails_the_cell_through_verify_and_teardown(monkeypatch, provisioned, coverage):
+    cj = run_cloud.cloud_journey
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    passing = [{"name": n, "status": "pass", "why": "ok"} for n in ("health", "capability-manifest")]
+    s10 = {"scenario": run_cloud.large_import.SCENARIO, "staged": True}
+    if provisioned is not None:
+        s10["disclosedDeviations"] = provisioned
+    state = {"cell": "aws-ecs/redis-on", "redis": "redis-on", "requireReal": True, "provisionAttempted": True,
+             "startedAt": cj.now(), "s10": s10,
+             "report": {"cell": "aws-ecs/redis-on", "endpoint": "https://cell.invalid", "checks": passing,
+                        "canaryProbes": [], "readiness": {"ready": True}, "journeyAttempts": []}}
+    journey = {"status": "pass", "journeyAttempts": [], "scenarioCoverage": coverage}
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None,
+                                          cost_report=Path(directory) / "run-cost.json")
+    assert report["status"] == "fail" and report["disclosureMismatch"]
+    assert report["teardown"]["attempted"]

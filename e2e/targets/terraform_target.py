@@ -255,6 +255,12 @@ class TerraformTarget(DeployTarget):
         root = Path(base) / self.spec.root
         return root if root.is_dir() else None
 
+    def disclosed_deviations(self) -> list[dict]:
+        """Operator settings this cell applied that differ from the product default (recorded in receipts)."""
+        if any(v == f"-var={LAYER_PUBLISH_TIMEOUT_VAR}" for v in getattr(self, "_last_vars", []) or []):
+            return [dict(LAYER_PUBLISH_TIMEOUT_DEVIATION)]
+        return []
+
     def _root_declares(self, variable: str) -> bool:
         """True when the pinned honua-iac root declares `variable`. Passing an undeclared -var is a
         hard terraform error, and the example roots set module-only inputs (such as additional_env)
@@ -1186,6 +1192,19 @@ STUDIO_END_USER_AUTHORIZATION_VAR = "studio_end_user_authorization=true"
 # The roots render it as Import__Limits__BackgroundJobThresholdBytes; neither aws root declares the
 # input yet (their additional_env is fixed in the root), so nothing is passed until honua-iac does.
 IMPORT_BACKGROUND_THRESHOLD_VAR = "import_background_job_threshold_bytes=67108864"
+# rc.2 DISCLOSED DEVIATION (release-session ruling 2026-11-03; founder: disclosure plus documented tuning;
+# honua-server#6917). On the rc.2 candidate a 330k-feature publish exceeds the default 300 s
+# LayerPublishing:MaterializationTimeoutSeconds, so the ECS Redis-on cell (the GA large-fixture cell of the normal
+# target=all run; explicit serverless/EKS Preview dispatches also stage the large fixture on Redis-on and keep the
+# default budget) applies the documented operator workaround: honua-iac's example-root tfvar
+# layer_publishing_materialization_timeout_seconds (v0.6.4), rendered as LayerPublishing__
+# MaterializationTimeoutSeconds. Passed only when the pinned root declares it; the S10 receipt records it.
+LAYER_PUBLISH_TIMEOUT_VAR = "layer_publishing_materialization_timeout_seconds=600"
+LAYER_PUBLISH_TIMEOUT_DEVIATION = {
+    "setting": "LayerPublishing__MaterializationTimeoutSeconds", "value": 600, "default": 300,
+    "via": "honua-iac example-root tfvar layer_publishing_materialization_timeout_seconds",
+    "reason": "disclosed rc.2 limitation: large-layer publish slower than rc.1 (honua-server#6917)",
+}
 
 # Optional Bedrock model for an opt-in cell (e2e-cloud-aws bedrock_model input). The same id must
 # satisfy honua-iac's bedrock_ai_model validation: exact Claude or OpenAI GPT ids or us. profiles.
@@ -1304,7 +1323,7 @@ ECS_SPEC = TfTargetSpec(
     alb_http_redirect=True,
     redis_on_scale_bucket_env="HONUA_AWS_CELL_FILE_STORAGE_BUCKET",
     cors_allowed_origins=(DEMO_SITE_ORIGIN,),
-    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR,),
+    redis_on_declared_vars=(IMPORT_BACKGROUND_THRESHOLD_VAR, LAYER_PUBLISH_TIMEOUT_VAR),
 )
 
 

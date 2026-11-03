@@ -828,3 +828,42 @@ def test_worker_reasons_are_scrubbed_and_bounded():
         "https://b.s3.amazonaws.com/k?X-Amz-Signature=abc123def " + "x" * 400]
     reason = s10.worker_failure(diagnostics, _JOB)["reasons"][0]
     assert "abc123def" not in reason and reason.endswith("...(truncated)")
+
+
+def test_rc2_publish_budget_deviation_is_ecs_redis_on_only_declared_and_recorded():
+    """Release-session ruling 2026-11-03: the ECS Redis-on cell applies the documented 600 s publish budget."""
+    assert tt.LAYER_PUBLISH_TIMEOUT_VAR == "layer_publishing_materialization_timeout_seconds=600"
+    assert tt.LAYER_PUBLISH_TIMEOUT_VAR in tt.ECS_SPEC.redis_on_declared_vars
+    assert tt.LAYER_PUBLISH_TIMEOUT_VAR not in tt.SERVERLESS_SPEC.redis_on_declared_vars
+    assert "disclosedDeviations" in s10.RECEIPT_FIELDS
+    target = tt.TerraformTarget.__new__(tt.TerraformTarget)
+    target._last_vars = [f"-var={tt.IMPORT_BACKGROUND_THRESHOLD_VAR}"]
+    assert target.disclosed_deviations() == []
+    target._last_vars.append(f"-var={tt.LAYER_PUBLISH_TIMEOUT_VAR}")
+    (deviation,) = target.disclosed_deviations()
+    assert deviation["setting"] == "LayerPublishing__MaterializationTimeoutSeconds" and deviation["value"] == 600
+
+
+def test_s10_receipt_carries_the_disclosed_publish_budget_deviation():
+    def request(method, url, key, body=None):
+        if method == "POST" and url.endswith("/layers"):
+            return 0, None, None
+        status, document = cell.answer(method, "/" + url.split("/", 3)[3], body, key)
+        return status, document, "task-a"
+
+    cell = _Cell(appears_after=1)
+    record = {"scenario": s10.SCENARIO, "variant": "positive", "fixture": fx.LARGE.name,
+              "features": fx.LARGE.features, "bytes": fx.LARGE.bytes, "fixtureSha256": fx.LARGE.sha256,
+              "staged": True, "bucket": BUCKET, "region": REGION, "keySha256": "ab" * 32,
+              "disclosedDeviations": [dict(tt.LAYER_PUBLISH_TIMEOUT_DEVIATION)]}
+    clock = {"t": 0.0}
+    with tempfile.TemporaryDirectory() as scratch:
+        manifest = Path(scratch) / "seed-manifest.json"
+        manifest.write_text(json.dumps({"connectionId": "c1"}))
+        row = s10.run_scenario({"redis": "redis-on", "s10": record}, "http://cell.invalid", ADMIN_KEY,
+                               source_url=URL, seed_manifest=manifest, request=request,
+                               clock=lambda: clock["t"],
+                               sleep=lambda seconds: clock.__setitem__("t", clock["t"] + seconds))
+    assert row.status == "pass", row.why
+    receipt = row.evidence["scenarios"][0]["evidence"]
+    assert receipt["disclosedDeviations"] == [tt.LAYER_PUBLISH_TIMEOUT_DEVIATION]

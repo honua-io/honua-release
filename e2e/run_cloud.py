@@ -255,6 +255,10 @@ def provision_phase(target, target_name: str, *, require_real: bool, redis_enabl
             except Exception as e:
                 state["s10"] = {"scenario": large_import.SCENARIO, "staged": False,
                                 "why": f"staging the S10 fixture raised {type(e).__name__} ({large_import.ISSUE})"}
+            # Disclosed operator deviations this cell was provisioned with (e.g. the rc.2 publish budget).
+            deviations = getattr(target, "disclosed_deviations", lambda: [])()
+            if deviations and isinstance(state.get("s10"), dict):
+                state["s10"]["disclosedDeviations"] = deviations
         # The owned 1.1-candidate-image check needs the image ECS reports running.
         if target_name == "aws-ecs":
             # Every RUNNING task must report the candidate; the detail names any that disagrees.
@@ -501,6 +505,63 @@ def _journey_blocked_verdict(blockers: list[list[str]], require_real: bool) -> d
 _ISSUE_REF = re.compile(r"\b[a-z][a-z0-9-]*#\d+\b|https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 
+_S10_LINE_KEYS = frozenset({"scenario", "status", "why", "evidence"})  # large_import._row's scenario line
+
+
+def _dicts(node):
+    """Every dict inside a JSON value, depth first."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _dicts(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _dicts(value)
+
+
+def _bind_s10_disclosures(report: dict, state: dict) -> None:
+    """The S10 disclosedDeviations the credential-free journey uploads must equal what provision recorded.
+
+    The journey job holds no cloud credential and its upload is not trusted for this field. The trusted
+    value is the provision state carried to teardown (state["s10"]["disclosedDeviations"], written by
+    provision_phase from the applied tfvars); it is copied onto the cell report as-is. No key the journey
+    supplies exempts a node from the check:
+    - every dict anywhere in scenarioCoverage that carries disclosedDeviations must carry exactly the
+      provision record (so a fabricated, altered or contradicting copy fails, whatever its shape);
+    - with a provisioned deviation, every S10 dict must carry it, except a bare scenario line (only the
+      keys large_import._row writes on one) whose evidence is an S10 dict, itself checked the same way;
+      and at least one must carry it, so a dropped receipt or disclosure fails.
+    """
+    expected = (state.get("s10") or {}).get("disclosedDeviations") if isinstance(state.get("s10"), dict) else None
+    expected = expected or []
+    if expected:
+        report["disclosedDeviations"] = expected
+    rendered = json.dumps(expected, sort_keys=True)
+    problems, carriers = [], 0
+    for node in _dicts(report.get("scenarioCoverage")):
+        if "disclosedDeviations" in node:
+            observed = node["disclosedDeviations"] or []
+            if observed != expected:
+                problems.append("S10 disclosedDeviations does not match the provision record "
+                                f"(provisioned {rendered}, uploaded {json.dumps(observed, sort_keys=True)})")
+            elif expected and node.get("scenario") == large_import.SCENARIO:
+                carriers += 1
+        elif expected and node.get("scenario") == large_import.SCENARIO:
+            evidence = node.get("evidence")
+            # Only a bare scenario line (no receipt field of its own) may defer to the receipt it holds.
+            if not (set(node) <= _S10_LINE_KEYS and isinstance(evidence, dict)
+                    and evidence.get("scenario") == large_import.SCENARIO):
+                problems.append(f"an S10 receipt omits the provisioned disclosure {rendered}")
+    if expected and not carriers:
+        problems.append(f"provision recorded the disclosed deviation {rendered} "
+                        "but scenarioCoverage carries no S10 receipt with it")
+    if problems:
+        report["disclosureMismatch"] = problems
+        prior = report.get("why") if report.get("status") == "fail" and report.get("why") else None
+        report["status"] = "fail"
+        report["why"] = "; ".join(([prior] if prior else []) + problems)
+
+
 def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: str | None,
                    cost_ceiling_usd: str = "20", cost_report: Path | None = None,
                    destroy: bool = True) -> dict:
@@ -520,6 +581,7 @@ def teardown_phase(state: dict, journey: dict, target, *, reference_endpoint: st
     if journey.get("status") == "fail" and report.get("status") != "fail":
         report["status"] = "fail"
         report["why"] = journey.get("why", "journey failed")
+    _bind_s10_disclosures(report, state)  # after the journey verdict, so its cause is kept
     journey_blocked = journey.get("status") == "blocked"
     if journey_blocked:
         report["journeyBlockedBy"] = journey.get("blockedBy", [])
