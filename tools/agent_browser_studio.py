@@ -1496,14 +1496,34 @@ def normalize_studio_authored_map(body, source_ids, fixtures):
     return normalized
 
 
+def view_is_unset(body):
+    """PREREG A31: Studio in Console saves ``view: {}`` (or no view) when the customer never set one."""
+    return isinstance(body, dict) and body.get('view', {}) == {}
+
+
+def fit_view_to_fixture(normalized, variant):
+    """PREREG A31 (main's ruling on D6): an unset saved view is scored at the fixture data's exact extent
+    (fit-to-data, no padding), in EPSG:4326, for the composition extent, the per-layer exports and the independent
+    render alike. Only an unset view is fitted; a present view is scored as saved and fails closed if malformed."""
+    import math
+    require(view_is_unset(normalized), 'only an unset Studio view is fitted to the data')
+    left, bottom, right, top = fixture_extent(variant)
+
+    def geographic(x, y):
+        return [math.degrees(x / 6378137.0), math.degrees(2 * math.atan(math.exp(y / 6378137.0)) - math.pi / 2)]
+    fitted = copy.deepcopy(normalized)
+    fitted['view'] = {'bbox': geographic(left, bottom) + geographic(right, top), 'crs': 'EPSG:4326'}
+    return fitted
+
+
 def has_saved_view(body):
     view = body.get('view') if isinstance(body, dict) else None
     return isinstance(view, dict) and isinstance(view.get('bbox'), list) and len(view['bbox']) == 4
 
 
 def studio_composition_without_view(normalized):
-    """PREREG A28 / D6: a Studio-authored map saved with no view (Studio in Console has no customer view control):
-    order and visibility are recorded; the extent stays unproven, so map.composition fails on it."""
+    """PREREG A28/A31: a Studio-authored map whose saved view is present but has no bounds: order and visibility are
+    recorded; the extent stays unproven, so map.composition fails on it and no render is attempted."""
     ordered, visibility = [], {}
     for row in normalized['layers']:
         require(type(row.get('visible')) is bool and row['id'] not in visibility, 'invalid Studio composition layer')
@@ -2279,11 +2299,15 @@ def observe_map(stack, seeded, prefix, *, created):
     if studio_map is not None:
         # PREREG A28: the fixture-bound copy of a Studio-authored map is what stage four scores; it is retained as
         # a derived record so the goal checks read the same bound document.
+        if view_is_unset(studio_map):
+            studio_map = fit_view_to_fixture(studio_map, seeded.state['variant'])
+            recorder.store_derived(prefix + '-view-fit', {'fitToData': True, 'view': studio_map['view']})
         recorder.store_derived(prefix + '-studio-map', studio_map)
         if not has_saved_view(studio_map):
+            # A present view without bounds (for example center/zoom only) is not fitted: it fails closed.
             recorder.store_derived(prefix + '-composition', studio_composition_without_view(studio_map))
             recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(saved_body)})
-            stack.extra[prefix + 'RenderFailure'] = 'saved map has no view (Studio saved none)'
+            stack.extra[prefix + 'RenderFailure'] = 'saved map view is unsupported (no bounds)'
             return
         render_body, authored_colors = studio_map, authored_paint_colors(studio_map)
     if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:

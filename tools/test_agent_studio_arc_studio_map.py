@@ -157,3 +157,13 @@ def test_blue_and_see_through(color, opacity):
     ('blue', 0.35), ('#08f', 0.35), (['rgb', 0, 136, 255], 0.35), ({'unsupportedIntermediateColor': 'x'}, 0.35)])
 def test_not_blue_or_not_see_through(color, opacity):
     assert not blue_see_through(color, opacity)
+
+
+def test_only_an_unset_view_is_fitted_to_the_data():
+    from agent_browser_studio import fit_view_to_fixture, view_is_unset
+    normalized = normalize_studio_authored_map(body(), CATALOG, FIXTURES)
+    assert view_is_unset(normalized) and view_is_unset({k: v for k, v in normalized.items() if k != 'view'})
+    fitted = fit_view_to_fixture(normalized, 'A')
+    assert fitted['view']['crs'] == 'EPSG:4326' and has_saved_view(fitted) and normalized['view'] == {}
+    with pytest.raises(ProjectionError, match='only an unset'):
+        fit_view_to_fixture({**normalized, 'view': {'center': [0, 0], 'zoom': 3}}, 'A')

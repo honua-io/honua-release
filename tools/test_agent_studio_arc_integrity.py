@@ -767,20 +767,49 @@ def test_a_studio_authored_map_is_scored_through_its_catalog_binding(arc_partial
     assert goal['goal.labels']['status'] == 'fail'     # no independent render in this test
 
 
-def test_a_view_less_studio_map_fails_only_on_its_extent(arc_partial_case):
-    """D6 (product finding): Studio in Console saved no view; order and visibility are recorded, the extent is
-    unproven and the render is not attempted. Source content and the authored style are still scored."""
+def test_an_unset_studio_view_is_scored_at_the_fixture_data_extent(arc_partial_case):
+    """PREREG A31 (main's ruling on D6): Studio in Console saved no view; the map is scored fit-to-data at the
+    fixture's exact extent, for the composition extent, exports and render alike."""
+    import math
+    from agent_browser_studio import fixture_extent
     run, state = arc_partial_case
     state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
     state['studio_body'] = _studio_saved_body({})
     stack, seeded, rec = run(0)
-    assert rec.records['p08-composition'].json == {
-        'orderedLayerIds': ['parcels', 'flood_zones', 'shelters'],
-        'visibility': {'parcels': True, 'flood_zones': True, 'shelters': True}, 'view': None}
-    assert stack.extra['p08RenderFailure'].startswith('saved map has no view')
+    left, bottom, right, top = fixture_extent('A')
+    geographic = lambda x, y: [math.degrees(x / 6378137.0), math.degrees(2 * math.atan(math.exp(y / 6378137.0)) - math.pi / 2)]  # noqa: E731
+    fitted = {'bbox': geographic(left, bottom) + geographic(right, top), 'crs': 'EPSG:4326'}
+    assert rec.records['p08-view-fit'].json == {'fitToData': True, 'view': fitted}
+    assert rec.records['p08-studio-map'].json['view'] == fitted
+    assert rec.records['p08-composition'].json['view'] == fitted
+    assert 'p08RenderFailure' not in stack.extra
     scores = _score(rec, ('map.composition', 'source-content.unchanged'))
-    assert scores['map.composition']['status'] == 'fail'
-    assert scores['source-content.unchanged']['status'] == 'pass', scores
+    assert all(row['status'] == 'pass' for row in scores.values()), scores
+
+
+def test_a_present_studio_view_is_scored_as_saved(arc_partial_case):
+    run, state = arc_partial_case
+    state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
+    saved = {'bbox': [-0.1815, -0.0468, -0.167, -0.0404]}
+    state['studio_body'] = _studio_saved_body(saved)
+    stack, seeded, rec = run(0)
+    assert 'p08-view-fit' not in rec.records
+    assert rec.records['p08-studio-map'].json['view'] == saved
+
+
+@pytest.mark.parametrize('view', [
+    {'center': [-0.17, -0.04], 'zoom': 14},            # no bounds
+    {'bbox': [-0.18, -0.05, -0.17]},                    # malformed bounds
+    {'bbox': [-200, -0.05, -0.17, -0.04]},              # out of range
+    {'bbox': [-170, -80, 170, 80]},                     # far looser than the data (more than 8x)
+    {'bbox': [-0.18, -0.05, -0.17, -0.04], 'crs': 'EPSG:2193'}])   # unsupported CRS
+def test_a_present_but_malformed_studio_view_fails_closed(arc_partial_case, view):
+    run, state = arc_partial_case
+    state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
+    state['studio_body'] = _studio_saved_body(view)
+    stack, seeded, rec = run(0)
+    assert 'p08-view-fit' not in rec.records
+    assert _score(rec, ('map.composition',))['map.composition']['status'] == 'fail'
 
 
 @pytest.mark.parametrize('fault', ['unknown-owner', 'fourth-layer'])
