@@ -407,7 +407,7 @@ def declared_status(output, admin_preflight, declaration=None):
                 or output["skewedIds"] != [target]
                 or environment.get("ControlPlane__DeployTargets__0__ArtifactReference") != bindings.get("explicitTestTarget")
                 or environment.get("ControlPlane__PlatformRelease__ServingArtifactReference") != bindings.get("declaredServing")
-                or not isinstance(serving, list) or serving != [{
+                or not isinstance(serving, list) or [plane_projection(entry) for entry in serving] != [{
                     "id": target, "runtimeProfile": None,
                     "effectiveArtifactReference": bindings["explicitTestTarget"],
                     "projectedFromRelease": False, "skewed": True}]
@@ -453,6 +453,20 @@ def resolve_worker(workers, runtime_profile):
     return default
 
 
+def plane_projection(entry):
+    """Match nullable C# projection fields under WhenWritingNull serialization.
+
+    Only runtimeProfile/effectiveArtifactReference may be omitted. Required
+    identity and boolean flags, unexpected fields and all non-null values keep
+    their original strict checks.
+    """
+    nullable = {"runtimeProfile", "effectiveArtifactReference"}
+    if (not isinstance(entry, dict) or not EXECUTION_FIELDS - nullable <= set(entry)
+            or not set(entry) <= EXECUTION_FIELDS):
+        raise ValueError("release plane projection fields differ from the server contract")
+    return {**dict.fromkeys(nullable), **entry}
+
+
 def declared_execution(execution, workers, target):
     """Every execution workload must inherit exactly what the declared workers project.
 
@@ -465,7 +479,9 @@ def declared_execution(execution, workers, target):
         return False
     seen = set()
     for entry in execution:
-        if not isinstance(entry, dict) or set(entry) != EXECUTION_FIELDS:
+        try:
+            entry = plane_projection(entry)
+        except ValueError:
             return False
         identifier, profile = entry["id"], entry["runtimeProfile"]
         if (not isinstance(identifier, str) or not identifier or identifier in seen or identifier == target
@@ -631,8 +647,9 @@ def main():
             value = judge(fixture, bootstrap, args.manifest.read_bytes(),
                           strict_json(args.declaration.read_bytes()), strict_json(args.observations.read_bytes()))
         print(json.dumps(value, allow_nan=False, sort_keys=True))
-    except (ValueError, KeyError, TypeError, OSError, OverflowError):
-        print("owned grounding/status observation refused", file=sys.stderr)
+    except (ValueError, KeyError, TypeError, OSError, OverflowError) as error:
+        reason = str(error) if isinstance(error, ValueError) else type(error).__name__
+        print(f"owned grounding/status observation refused: {reason}", file=sys.stderr)
         raise SystemExit(1) from None
 
 

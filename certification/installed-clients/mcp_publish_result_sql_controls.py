@@ -24,6 +24,7 @@ class SqlObserverControls(unittest.TestCase):
         table = self.authored["table"]
         self.query("CREATE EXTENSION IF NOT EXISTS postgis; DROP SCHEMA IF EXISTS honua CASCADE; CREATE SCHEMA honua; "
             "DROP TABLE IF EXISTS public.features; CREATE TABLE public.features(objectid bigint,layer_id integer,attributes jsonb,geometry geometry); "
+            "CREATE TABLE honua.features(objectid bigint,layer_id integer,attributes jsonb,geometry geometry); "
             f'DROP TABLE IF EXISTS public."{table}"; CREATE TABLE public."{table}"(id bigint,geom geometry,attributes jsonb); '
             "CREATE TABLE honua.services(service_name text); CREATE TABLE honua.layers(layer_id integer); "
             "CREATE TABLE honua.service_layers(service_name text,layer_id integer); CREATE TABLE honua.layer_fields(layer_id integer,field_order integer,field_name text); "
@@ -105,8 +106,11 @@ printf advisory-holder-completed
 
     def test_actual_nongeometry_jsonb_projection_and_separate_geometry_distinct_ids(self):
         table = self.authored["table"]; self.graph("production",self.completed["graphs"][0]["document"])
-        self.query(f'INSERT INTO public.features SELECT id+870,741,jsonb_build_object(\'id\',id,\'attributes\',attributes),geom FROM public."{table}";')
+        self.query(f'INSERT INTO honua.features SELECT id+870,741,jsonb_build_object(\'id\',id,\'attributes\',attributes),geom FROM public."{table}";')
+        # A decoy in the legacy public schema must never satisfy canonical snapshot proof.
+        self.query("INSERT INTO public.features VALUES (9999,741,'{}'::jsonb,ST_SetSRID(ST_MakePoint(0,0),4326));")
         value = self.observe(); self.assertEqual(len(value["materialized"]),2)
+        self.assertEqual({row["id"] for row in value["materialized"]}, {881, 882})
         by_source = {row["id"]:row for row in value["rows"]}
         for row in value["materialized"]:
             source = by_source[row["attributes"]["id"]]

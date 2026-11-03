@@ -50,7 +50,7 @@ async function setup(mode) {
     assert.ok(realPython.startsWith("/"));
     executable(join(directory, "python3"), [
       "#!" + realPython,
-      "import copy,hashlib,json,os,sys",
+      "import base64,copy,hashlib,json,os,sys,urllib.parse",
       "from pathlib import Path",
       "real=" + JSON.stringify(realPython),
       "mode=" + JSON.stringify(mode),
@@ -86,6 +86,14 @@ async function setup(mode) {
       "    print(json.dumps(item)); sys.exit(0)",
       "if name=='mcp_render_validation.py' and '--inspect-runtime' in args:",
       "    print(json.dumps(state['runtimeBefore'])); sys.exit(0)",
+      "if mode=='observer-refusal' and name=='mcp_grounding_status_state.py':",
+      "    values=[os.environ['HONUA_MCP_API_KEY'],'controlled-limited-read-key','caller secret/with+symbols','inherited-bootstrap-key',os.environ['CONTROL_DB_PASS'],os.environ['CONTROL_PWD']]",
+      "    print('controlled observer diagnostic: '+values[0],file=sys.stderr)",
+      "    for value in values:",
+      "        print(value,file=sys.stderr); print(urllib.parse.quote(value,safe=''),file=sys.stderr); print(base64.b64encode(value.encode()).decode(),file=sys.stderr)",
+      "    for value in ['hnua_untracked_managed_key','hnua_seed_private_tail_to_remove','Bearer   untracked-bearer-value','Bearer%20%20encoded-bearer-value','Basic dXNlcjpwYXNz','authorization: untracked-auth-value','cookie=session=untracked-cookie-value','x-api-key: untracked-api-value','eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature','AKIAABCDEFGHIJKLMNOP','ASIAABCDEFGHIJKLMNOP','password=untracked-db-pass;','pwd=untracked-pwd;','postgres://somebody:untracked-url-pass@localhost/db']:",
+      "        print(value,file=sys.stderr)",
+      "    sys.exit(7)",
       "if name=='mcp_grounding_status_state.py':",
       "    key='preflightBefore' if '--admin-preflight' in args else 'graphObservation'",
       "    print(json.dumps(state[key])); sys.exit(0)",
@@ -117,9 +125,12 @@ async function setup(mode) {
   }
 }
 
-for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"]) {
+for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure", "observer-refusal"]) {
   test(`offline full grounding/status producer ${mode}`, async () => {
     const control = await setup(mode), oldPath = process.env.PATH;
+    const diagnosticEnv = { HONUA_MCP_API_KEY: "inherited-bootstrap-key", CONTROL_DB_PASS: "overlap-secret-with-tail", CONTROL_PWD: "overlap-secret", CONTROL_SESSION_MARKER: "seed" };
+    const beforeEnv = Object.fromEntries(Object.keys(diagnosticEnv).map(key => [key, process.env[key]]));
+    if (mode === "observer-refusal") Object.assign(process.env, diagnosticEnv);
     process.env.PATH = control.directory + delimiter + oldPath;
     try {
       const checks = {}, results = join(control.directory, "results.json");
@@ -129,10 +140,25 @@ for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"
       }, { candidateSourceSha: control.fixture.observed.candidateSourceSha,
         candidateImage: control.fixture.observed.candidateImage,
         canonicalClient: "Official MCP TypeScript SDK", clientVersion: "1.32.1",
-        installationRoot: control.installationRoot, credential: "controlled-full-key",
+        installationRoot: control.installationRoot, credential: mode === "observer-refusal" ? "caller secret/with+symbols" : "controlled-full-key",
         ownedDisposableCandidate: true, results });
       const seen = readFileSync(control.seenPath, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
-      assert.equal(seen.length, 13);
+      assert.equal(seen.length, mode === "observer-refusal" ? 0 : 13);
+      if (mode === "observer-refusal") {
+        const failure = checks[control.fixture.observed.operations[0]];
+        assert.equal(failure.pass, false);
+        assert.match(failure.error, /mcp_grounding_status_state.py; status=7/);
+        assert.match(failure.error, /stderr=controlled observer diagnostic: \[REDACTED\]/);
+        for (const value of ["controlled-full-key", "controlled-limited-read-key", "caller secret/with+symbols",
+          ...Object.values(diagnosticEnv).filter(value => value.length >= 8)]) {
+          for (const form of [value, encodeURIComponent(value), Buffer.from(value).toString("base64")])
+            assert.ok(!failure.error.includes(form), "credential representation survived retained stderr redaction");
+        }
+        for (const value of ["-with-tail", "hnua_untracked_managed_key", "untracked-bearer-value", "dXNlcjpwYXNz",
+          "private_tail_to_remove", "encoded-bearer-value", "untracked-auth-value", "untracked-cookie-value", "untracked-api-value", "eyJhbGciOiJIUzI1NiJ9",
+          "AKIAABCDEFGHIJKLMNOP", "ASIAABCDEFGHIJKLMNOP", "untracked-db-pass", "untracked-pwd", "untracked-url-pass"])
+          assert.ok(!failure.error.includes(value), "credential shape survived retained stderr redaction");
+      }
       if (mode === "valid") {
         for (const operation of control.fixture.observed.operations) {
           assert.equal(checks[operation].pass, true, checks[operation].error);
@@ -156,6 +182,9 @@ for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"
       }
     } finally {
       process.env.PATH = oldPath;
+      for (const [key, value] of Object.entries(beforeEnv)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
       const pathFile = join(control.directory, "managed-path-limited-read.txt");
       if (existsSync(pathFile)) {
         const retained = readFileSync(pathFile, "utf8");
@@ -166,3 +195,29 @@ for (const mode of ["valid", "wrong-status", "reused-session", "cleanup-failure"
     }
   });
 }
+
+test("retained helper diagnostic bounds UTF-8 bytes after redaction without truncating a character", async () => {
+  const { retainedHelperRefusal } = await import(pathToFileURL(join(source, "mcp_candidate_wire.mjs")).href);
+  const value = "credential/with+symbols!'";
+  const encoded = encodeURIComponent(value).replace(/[!'()*]/g, char => "%" + char.charCodeAt(0).toString(16).toUpperCase());
+  const error = retainedHelperRefusal("controlled refusal", "controlled.py",
+    { status: null, signal: "SIGTERM", error: { code: "ETIMEDOUT" }, stderr: encoded + "\n" + "🌍".repeat(10_000) },
+    { credentials: [value] });
+  assert.match(error.message, /status=null; signal=SIGTERM; error=ETIMEDOUT/);
+  const retained = error.message.split("stderr=")[1];
+  assert.ok(Buffer.byteLength(retained) <= 16_384);
+  assert.ok(!retained.includes(encoded));
+  assert.ok(!retained.includes("�"));
+  assert.match(retained, /^\[REDACTED\]/);
+});
+
+test("retained helper diagnostic handles long whitespace without nested repetition", () => {
+  const url = pathToFileURL(join(source, "mcp_candidate_wire.mjs")).href;
+  const program = `import { retainedHelperRefusal } from ${JSON.stringify(url)};
+    const error = retainedHelperRefusal("controlled refusal", "controlled.py",
+      {status: 1, stderr: "Bearer" + " ".repeat(100_000) + "\\n"});
+    if (Buffer.byteLength(error.message.split("stderr=")[1]) > 16_384) process.exit(1);`;
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", program],
+    { encoding: "utf8", timeout: 2000 });
+  assert.equal(result.status, 0, "long-whitespace redaction exceeded its isolated control budget");
+});
