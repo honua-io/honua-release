@@ -43,7 +43,10 @@ def build(tmp_path, **kw):
 
 def test_the_package_is_the_products_own_build_from_the_candidate_lock(tmp_path):
     files = build(tmp_path)
-    assert set(files) == ai_arc_local.PACKAGE_FILES
+    # 645ea3c0 (#6885): the product packages its agent guide as AGENTS.md.
+    assert set(files) == ai_arc_local.PACKAGE_FILES | {ai_arc_local.AGENT_GUIDE}
+    # The packager renders the guide source (front matter dropped) into the install's AGENTS.md.
+    assert files['AGENTS.md'].startswith(b'# ') and b'---\ntype: guide' not in files['AGENTS.md']
     assert json.loads(files['images.json']) == {'server': SERVER, 'executor': EXECUTOR, 'worker': SERVER,
                                                 'version': '2026.1-rc.2', 'maxSchema': PIN['candidateMaxSchema']}
     page = (SOURCE / 'docs/get-started/quickstart.md').read_text()
@@ -91,7 +94,7 @@ def test_staging_writes_the_package_and_only_the_customers_choices(tmp_path):
     staged = {}
     for name, body in re.findall(r"base64 -d > (\S+) <<'HONUA_PKG_[0-9a-f]+'\n([A-Za-z0-9+/=]*)\n", script):
         staged[name.strip("'")] = base64.b64decode(body)
-    assert set(staged) == ai_arc_local.PACKAGE_FILES | {'.env'}
+    assert set(staged) == ai_arc_local.PACKAGE_FILES | {ai_arc_local.AGENT_GUIDE, '.env'}
     assert all(staged[n] == files[n] for n in files)
     env = dict(line.split('=', 1) for line in staged['.env'].decode().splitlines())
     image = INSTALL['image'] + '@' + INSTALL['imageDigest']
@@ -122,7 +125,9 @@ def test_the_products_initializer_completes_the_staged_choices(tmp_path):
     assert env['HONUA_IMAGE'] == image and env['HONUA_PRIOR_IMAGE'] == image and env['HONUA_PRIOR_MAX_SCHEMA'] == '140'
     assert env['HONUA_RELEASE_IMAGE'] == SERVER and env['HONUA_EXECUTOR_IMAGE'] == EXECUTOR
     assert env['COMPOSE_PROJECT_NAME'] == 'arc-abcdef123456' and env['HONUA_MANAGER_PORT'] == '18182'
-    assert all(len(env[k]) >= 32 for k in ai_arc_local.INSTALLED_SECRET_KEYS)
+    # 645ea3c0 (#6888): each generated secret is its own file, secrets/<lower-case key>, and .env holds none.
+    assert not any(k in env for k in ai_arc_local.INSTALLED_SECRET_KEYS)
+    assert all(len((install / 'secrets' / k.lower()).read_text()) >= 32 for k in ai_arc_local.INSTALLED_SECRET_KEYS)
     assert (install / 'secrets/keyring.pfx').is_file()
 
 
@@ -304,8 +309,8 @@ def test_a_package_that_ships_the_agent_guide_is_staged_with_it_byte_identical(t
 
 
 def test_a_package_without_the_guide_is_unaffected_and_unknown_files_are_refused(tmp_path):
-    files = build(tmp_path)
-    assert 'AGENTS.md' not in files and set(files) == ai_arc_local.PACKAGE_FILES
+    files = {n: raw for n, raw in build(tmp_path).items() if n != ai_arc_local.AGENT_GUIDE}   # an older package
+    assert set(files) == ai_arc_local.PACKAGE_FILES
 
     def run(command, input=None, **kw):
         return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')

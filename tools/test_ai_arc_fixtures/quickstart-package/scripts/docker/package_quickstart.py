@@ -24,6 +24,10 @@ def package(destination, server, executor, worker, version):
     (destination / 'compose.yaml').write_text(compose + '\n')
     shutil.copyfile(ROOT / 'docs/get-started/compose.executor.yaml', destination / 'compose.executor.yaml')
     shutil.copyfile(Path(__file__).with_name('compose_quickstart.py'), destination / 'quickstart.py')
+    # The agent guide is published once, in the docs; the package carries that exact text.
+    guide = (ROOT / 'docs/guides/connect/working-with-ai-agents.md').read_text()
+    guide = re.search(r'<!-- agent-guide:begin -->\n(.*?)<!-- agent-guide:end -->', guide, re.S).group(1)
+    (destination / 'AGENTS.md').write_text(guide.strip() + '\n')
     max_schema = max(int(path.name.split('_', 1)[0]) for path in
                      (ROOT / 'src/Honua.Server/Migrations').glob('[0-9]*_*.sql'))
     (destination / 'images.json').write_text(json.dumps(dict(server=server, executor=executor, worker=worker,
@@ -31,10 +35,14 @@ def package(destination, server, executor, worker, version):
     (destination / 'README.md').write_text(
         '# Honua local Compose quickstart\n\n'
         'Run `python3 quickstart.py` with Docker Compose and OpenSSL installed. '
-        'Secrets are created locally in `.env` and `secrets/keyring.pfx`; preserve both.\n\n'
+        'Each secret is created locally in its own file under `secrets/`, beside `secrets/keyring.pfx`; '
+        'preserve that directory. `.env` holds only non-secret settings, so `docker compose config` '
+        'never prints a secret. An install whose secrets are still in `.env` (an earlier package) '
+        'migrates on the next `python3 quickstart.py` run, after this package\'s files replace its own.\n\n'
         'Serving API: http://localhost:18080. Management API and MCP: http://localhost:18082. '
-        'Use HONUA_MANAGER_ADMIN_PASSWORD from `.env` to create separate proposer and approver '
-        'API keys on the management API. Self approval is refused. Only approved proposals execute.\n\n'
+        'Use the management admin password in `secrets/honua_manager_admin_password` to create separate '
+        'proposer and approver API keys on the management API. Self approval is refused. '
+        'Only approved proposals execute.\n\n'
         'The executor runs as uid 1002, targets only this project and serving service, and is '
         'the only process with Docker socket access. Docker socket access grants host control; '
         'use a dedicated local Docker host. No Docker socket is mounted in either HTTP server. '
@@ -43,7 +51,9 @@ def package(destination, server, executor, worker, version):
         'For an upgrade, set HONUA_RELEASE_IMAGE, HONUA_RELEASE_WORKER_IMAGE and HONUA_RELEASE_VERSION '
         'in .env from the new release lock. Pull the new serving image before approving. '
         'For older images without a schema label, configure HONUA_PRIOR_MAX_SCHEMA from that exact image. '
-        'Never guess its schema.\n')
+        'Never guess its schema.\n\n'
+        'AI coding agents working in this directory: read `AGENTS.md` first. It covers secrets, '
+        'approvals, upgrades and verifying work before reporting it done.\n')
 
 
 def main():
