@@ -695,3 +695,19 @@ def test_a_dry_run_handle_under_a_service_publish_audit_is_inconsistent_evidence
     state['dry_run_details'] = 'operationId=service.publish;status=Completed'
     with pytest.raises(ValueError, match='stage-four publish handle differs'):
         run(1)
+
+
+def test_raw_table_baseline_compares_like_with_like_with_the_featureserver_read():
+    """PREREG A28: the SQL snapshot's crs, the importer's 'id' property and a single-part MultiPolygon are the
+    storage form of the same feature a FeatureServer read returns; a real difference still differs."""
+    from agent_e2e_studio_arc_sources import table_content
+    ring = [[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]
+    def snapshot(geometry, **extra):
+        rows = [{'properties': {'source_id': 'p1', 'zone': 'R1', **extra}, 'geometry': geometry}]
+        return SimpleNamespace(kind='sql', principal='controller', phase='seed', status=200, json=rows)
+    plain = table_content(snapshot({'type': 'Polygon', 'coordinates': [ring]}))
+    stored = table_content(snapshot({'type': 'MultiPolygon', 'coordinates': [[ring]],
+                                     'crs': {'type': 'name', 'properties': {'name': 'EPSG:3857'}}}, id='p1'))
+    assert stored == plain
+    assert table_content(snapshot({'type': 'MultiPolygon', 'coordinates': [[ring], [ring]]})) != plain
+    assert table_content(snapshot({'type': 'Polygon', 'coordinates': [ring]}, zone='R2')) != plain

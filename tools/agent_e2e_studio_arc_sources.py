@@ -59,6 +59,11 @@ def table_content(record):
         require(isinstance(row, dict) and isinstance(row.get('properties'), dict)
                 and isinstance(row.get('geometry'), dict), 'raw table row is malformed')
         geometry = copy.deepcopy(row['geometry'])
+        # PREREG A28: the SQL snapshot carries the row's crs and the importer's single-part MultiPolygon, where a
+        # FeatureServer read returns a crs-less Polygon (rings). Compare like with like.
+        geometry.pop('crs', None)
+        if geometry.get('type') == 'MultiPolygon' and len(geometry.get('coordinates') or []) == 1:
+            geometry = {'type': 'Polygon', 'coordinates': geometry['coordinates'][0]}
         if geometry.get('type') == 'Polygon':
             rings = []
             for index, ring in enumerate(geometry['coordinates']):
@@ -67,7 +72,10 @@ def table_content(record):
             geometry['coordinates'] = rings
         identity = row['properties'].get('source_id')
         require(isinstance(identity, str) and identity, 'raw table lacks source identity')
-        features.append({'type': 'Feature', 'id': identity, 'properties': row['properties'], 'geometry': geometry})
+        # PREREG A28: the importer keeps the GeoJSON feature id as an 'id' property; the published layer's 'id' is its
+        # object id, which the FeatureServer normalization drops. The fixture's own fields are compared.
+        properties = {k: v for k, v in row['properties'].items() if k != 'id'}
+        features.append({'type': 'Feature', 'id': identity, 'properties': properties, 'geometry': geometry})
     require(len({f['id'] for f in features}) == len(features), 'duplicate raw source identity')
     return {'srid': 3857, 'features': sorted(features, key=lambda f: f['id'])}
 
