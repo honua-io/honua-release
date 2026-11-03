@@ -43,6 +43,12 @@ SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 
 # The product's quickstart package (honua-server scripts/docker/package_quickstart.py) and the secrets its
 # initializer generates (scripts/docker/compose_quickstart.py SECRET_KEYS and AUDIT_KEYS).
 PACKAGE_FILES = frozenset(('compose.yaml', 'compose.executor.yaml', 'quickstart.py', 'images.json', 'README.md'))
+# The product's agent guide (honua-server agent-guide lane, redo plan D1): when the product packager emits it, the
+# package carries it and the harness stages it exactly as shipped (never authored or edited here).
+AGENT_GUIDE = 'AGENTS.md'
+# The walkthrough arm's serving secrets, written as files when the published compose reads /run/secrets (#6888).
+SERVING_SECRET_FILES = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_KEYRING_PASSWORD',
+                        'HONUA_AUDIT_CHAIN_KEY')
 INSTALLED_SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MANAGER_ADMIN_PASSWORD',
                          'HONUA_MANAGER_POSTGRES_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_MANAGER_MASTER_KEY',
                          'HONUA_KEYRING_PASSWORD', 'HONUA_AUDIT_CHAIN_KEY', 'HONUA_MANAGER_AUDIT_CHAIN_KEY')
@@ -130,6 +136,21 @@ class VmSlot:
         before running it; the agent still has to bring the install up, check it and hand it over."""
         env = self.env_file(install)
         fence = 'HONUA_ENV_' + pysecrets.token_hex(8)
+        secret_files = bool(compose) and '/run/secrets/' in compose
+        if secret_files:
+            self.secrets.setdefault('HONUA_AUDIT_CHAIN_KEY', pysecrets.token_hex(32))
+            # honua-server #6888: the published compose reads the serving secrets from /run/secrets, so they are
+            # files secrets/<lower-case key> (bare value), and .env keeps only the image and the ports.
+            env = '\n'.join(line for line in env.splitlines() if line.split('=', 1)[0] not in SERVING_SECRET_FILES) + '\n'
+            files = ''.join(f"printf '%s' {shlex.quote(self.secrets[k])} > secrets/{k.lower()}\n"
+                            for k in SERVING_SECRET_FILES)
+            keyring = ('openssl pkcs12 -export -inkey secrets/keyring.pem -in secrets/keyring.crt '
+                       '-out secrets/keyring.pfx -passout file:secrets/honua_keyring_password\n')
+        else:
+            files = ''
+            keyring = ('KP="$(grep \'^HONUA_KEYRING_PASSWORD=\' .env | cut -d= -f2)"\n'
+                       'openssl pkcs12 -export -inkey secrets/keyring.pem -in secrets/keyring.crt '
+                       '-out secrets/keyring.pfx -passout "pass:${KP}"\n')
         script = (
             'set -eu\numask 077\n'
             f'mkdir -p -m 700 -- {shlex.quote(str(Path(self.remote_dir).parent))}\n'
@@ -137,12 +158,11 @@ class VmSlot:
             f"cat > .env <<'{fence}'\n{env}{fence}\n"
             + (f"cat > compose.yaml <<'{fence}C'\n{compose}{fence}C\n" if compose else '')
             + 'mkdir -p secrets\n'
-            'KP="$(grep \'^HONUA_KEYRING_PASSWORD=\' .env | cut -d= -f2)"\n'
-            'openssl req -x509 -newkey rsa:2048 -keyout secrets/keyring.pem -out secrets/keyring.crt '
+            + ('umask 027\n' + files if secret_files else '')
+            + 'openssl req -x509 -newkey rsa:2048 -keyout secrets/keyring.pem -out secrets/keyring.crt '
             '-days 3650 -nodes -subj "/CN=honua-quickstart" 2>/dev/null\n'
-            'openssl pkcs12 -export -inkey secrets/keyring.pem -in secrets/keyring.crt '
-            '-out secrets/keyring.pfx -passout "pass:${KP}"\n'
-            'rm -f secrets/keyring.pem secrets/keyring.crt\nchmod 600 secrets/keyring.pfx\n'
+            + keyring
+            + 'rm -f secrets/keyring.pem secrets/keyring.crt\nchmod 600 secrets/keyring.pfx\n'
             "docker info --format '{{.ServerVersion}}'\n")
         done = self.ssh(script)
         if done.returncode:
@@ -170,7 +190,8 @@ class VmSlot:
         """The customer downloads the product's quickstart package into an empty private directory and writes
         their choices into .env. Everything else (secrets, the key ring, starting the stack) is the agent's
         work through ``python3 quickstart.py``."""
-        if set(package) != PACKAGE_FILES or any(not isinstance(v, bytes) for v in package.values()):
+        if set(package) not in (PACKAGE_FILES, PACKAGE_FILES | {AGENT_GUIDE}) \
+                or any(not isinstance(v, bytes) for v in package.values()):
             raise ValueError('the quickstart package is incomplete')
         fence = 'HONUA_PKG_' + pysecrets.token_hex(8)
         files = dict(package, **{'.env': self.package_env(install, prior_max_schema).encode()})
@@ -194,11 +215,19 @@ class VmSlot:
     def read_installed_secrets(self) -> dict:
         """After the agent's install: the secrets quickstart.py generated in .env, read by the harness over its own
         SSH (never through the model's shell) so it can act as the operator and redact them everywhere."""
-        done = self.ssh('set -eu\ncd -- ' + shlex.quote(self.remote_dir) + '\ncat .env\n', 60)
+        # honua-server #6888: each secret is its own file, secrets/<lower-case key> (bare value, no newline), and .env
+        # holds none; an rc.1-layout install keeps them in .env. Files win; .env is the fallback.
+        files = ''.join(f'if [ -f secrets/{k.lower()} ]; then printf \'%s=%s\\n\' {k} "$(cat secrets/{k.lower()})"; fi\n'
+                        for k in INSTALLED_SECRET_KEYS)
+        done = self.ssh('set -eu\ncd -- ' + shlex.quote(self.remote_dir) + '\nif [ -f .env ]; then cat .env; fi\n'
+                        + files, 60)
         if done.returncode:
-            raise RuntimeError('the installed .env could not be read')
-        values = dict(line.split('=', 1) for line in done.stdout.decode().splitlines()
-                      if '=' in line and not line.startswith('#'))
+            raise RuntimeError('the installed secrets could not be read')
+        values = {}
+        for line in done.stdout.decode().splitlines():
+            if '=' in line and not line.startswith('#'):
+                key, value = line.split('=', 1)
+                values[key] = value          # a secrets/ file line comes after .env, so it wins
         wanted = INSTALLED_SECRET_KEYS
         if any(not values.get(k) for k in ('HONUA_ADMIN_PASSWORD', 'HONUA_MANAGER_ADMIN_PASSWORD')):
             raise RuntimeError('the install did not generate its administrator credentials')
@@ -484,6 +513,8 @@ def build_quickstart_package(source: Path, pin: dict, out: Path, *, server: str,
         raise RuntimeError('the product packager refused the candidate lock: '
                            + (done.stderr.decode('utf-8', 'replace') if isinstance(done.stderr, bytes) else '')[-200:])
     files = {name: (package / name).read_bytes() for name in sorted(PACKAGE_FILES)}
+    if (package / AGENT_GUIDE).is_file():
+        files[AGENT_GUIDE] = (package / AGENT_GUIDE).read_bytes()      # byte-identical to what the packager shipped
     lock = json.loads(files['images.json'])
     if (lock.get('server'), lock.get('executor'), lock.get('worker'), lock.get('version'), lock.get('maxSchema')) != \
             (server, executor, worker, version, schema):
