@@ -50,66 +50,12 @@
     {"repo": "honua-io/honua-site", "path": "docs.html", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "format": "html"},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/install-with-docker/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "prerequisites": {"node": "docs/playbooks/install-with-docker/index.md:18 — \"Node.js 22.12.0 or later with `npm`\""}},
     {"repo": "honua-io/honua-site", "path": "docs/playbooks/publish-a-service/index.md", "revision": {"defaultBranch": true}, "runtime": "python", "prerequisites": {"node": "docs/playbooks/publish-a-service/index.md:27 — \"Node.js 20.19.0 or later with `npm`\"", "jq": "docs/playbooks/publish-a-service/index.md:27 — \"`jq` 1.6 or later\""}},
-    {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"},
-    {
-      "repo": "honua-io/honua-site",
-      "path": "docs/geoprocessing/index.md",
-      "revision": {
-        "defaultBranch": true
-      },
-      "runtime": "node",
-      "executionContexts": [
-        {
-          "name": "javascript",
-          "runtime": "node",
-          "documentedAt": "docs/geoprocessing/index.md:40-64 \u2014 JavaScript installation and example",
-          "blocks": [
-            {
-              "index": 0,
-              "sha256": "e35aa17c2cd7e7ffac38564e5982d0712af67104fa7b22c33232d904acf30082"
-            },
-            {
-              "index": 1,
-              "sha256": "346524f59dd63dcfc7ae5e23778a78697e4e3c752a1c8355ecd7749505346a5d"
-            }
-          ]
-        },
-        {
-          "name": "python",
-          "runtime": "python",
-          "documentedAt": "docs/geoprocessing/index.md:66-84 \u2014 Python installation and example",
-          "blocks": [
-            {
-              "index": 2,
-              "sha256": "ffbdfd09b8acaa2e8e05911086cd4e9a5831a35f47fe48903f35308b810ebf24"
-            },
-            {
-              "index": 3,
-              "sha256": "85cc85b51f5e9933fee19d503d9dbf3fcc80b1bc38f21745bc9967f1ce540e6d"
-            }
-          ]
-        },
-        {
-          "name": "dotnet",
-          "runtime": "dotnet",
-          "documentedAt": "docs/geoprocessing/index.md:86-119 \u2014 .NET console project, package and example. Since honua-site #367 (928c005a) the tutorial installs the newest public Honua.Sdk, 1.13.1 (the site's registry-claims rule pins install commands to the published version); the certified rc.2 pin stays Honua.Sdk 1.12.0, as the site discloses on client-compatibility.html (\"That package is not the RC pin.\")",
-          "blocks": [
-            {
-              "index": 4,
-              "sha256": "f16e074ee730de40e09dd0d85c1f338e179e72b86cee6f29dea5731ee5a63fbb"
-            },
-            {
-              "index": 5,
-              "sha256": "366928ee4f5a115705aa92bb69b695499e32e3258db1cd384cf47164d8bf29ff"
-            }
-          ]
-        }
-      ]
-    }
+    {"repo": "honua-io/honua-site", "path": "docs/playbooks/run-a-bounded-gp-job/index.md", "revision": {"defaultBranch": true}, "runtime": "python"}
   ],
   "outOfScope": [
     {"repo": "honua-io/honua-server", "path": "docs/get-started/linux-packages.md", "reason": "installs a native .deb/.rpm as a systemd service; a container has no init system, so this lane cannot be the clean machine. The native-package lane owns it."},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/windows-packages.md", "reason": "Windows-only (PowerShell + MSI); this gate runs Linux containers. The clean-Windows lane (customer-install-manifest cleanWindowsQualification) owns it."}
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/windows-packages.md", "reason": "Windows-only (PowerShell + MSI); this gate runs Linux containers. The clean-Windows lane (customer-install-manifest cleanWindowsQualification) owns it."},
+    {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "reason": "Preview surface. The page's .NET tab installs the newest public Honua.Sdk (1.13.1), while 2026.1-rc.2 certifies 1.12.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."}
   ],
   "toolchain": {
     "typescript": "5.9.3"
