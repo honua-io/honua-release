@@ -58,6 +58,16 @@ RED = {"failure", "timed_out", "action_required", "startup_failure"}
 # and is still caught, so downgrading cancelled cannot mask a genuine red.
 FLAKE = {"cancelled"}
 
+# Release-session ruling 2026-11-03 (rc.2): for an rc.N manifest, a component whose lifecycleStatus is
+# Experimental or Excluded is evaluated and REPORTED with its real verdict but does not decide the gate.
+# The platform lock already says so: platform_lock_bundle.build_ledger lists exactly these components in
+# the ledger's experimentalExclusions ("Locked lifecycle: ..."), so requiring them here would contradict
+# the lock. The exception is grounded in that derived ledger, not in a list of names: a component the
+# manifest calls Experimental but the derived lock does not exclude fails closed, and nothing but the
+# manifest's own lifecycleStatus can make a GA or Preview component reported-only.
+REPORTED_LIFECYCLES = frozenset({"Experimental", "Excluded"})
+REPORTED_NOTE = "experimental: reported, not required"
+
 # A check-runs payload is either the parsed dict, or one of these sentinels.
 NOT_FOUND = "not_found"     # sha/repo not resolvable (404 / no access)
 
@@ -605,6 +615,30 @@ def live_validated_examples(name: str, sha: str, component: dict, manifest: dict
                       _download_artifact)
 
 
+def lock_lifecycle_exclusions(manifest_path: Path, matrix_path: Path) -> frozenset[str] | None:
+    """Components the platform lock derived from these exact manifest/matrix bytes excludes by lifecycle.
+
+    Reads platform_lock_bundle.build_ledger(lock)["experimentalExclusions"] for the lock that
+    tools/generate_platform_lock.generate() derives offline, keeping only the "Locked lifecycle:
+    Experimental|Excluded" entries (a Preview out-of-lock exclusion never qualifies). None when the
+    lock cannot be derived, which leaves every component required (fail closed).
+    """
+    tools = str(REPO_ROOT / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    try:
+        from generate_platform_lock import generate
+        from platform_lock_bundle import build_ledger
+        lock = generate(Path(manifest_path), Path(matrix_path)).lock
+        ledger = build_ledger(lock)
+    except Exception:  # noqa: BLE001 - any failure to derive the lock must fail closed
+        return None
+    reasons = {f"Locked lifecycle: {status}" for status in REPORTED_LIFECYCLES}
+    return frozenset(entry["component"] for entry in ledger.get("experimentalExclusions", [])
+                     if entry.get("reason") in reasons
+                     and (lock["components"].get(entry["component"]) or {}).get("lifecycleStatus") in REPORTED_LIFECYCLES)
+
+
 def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              env_gated: dict[str, frozenset[str]] | None = None,
              rollup: dict[str, frozenset[str]] | None = None,
@@ -613,9 +647,14 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              full_matrix: dict[str, dict] | None = None,
              advisory: dict[str, dict[str, frozenset[str]]] | None = None,
              env_gated_events: dict[str, frozenset[tuple[str, str]]] | None = None,
-             validated_examples: Callable[[str, str, dict, dict], dict] | None = None) -> dict:
+             validated_examples: Callable[[str, str, dict, dict], dict] | None = None,
+             lock_exclusions: frozenset[str] | None = None) -> dict:
     """`validated_examples(name, sha, component, manifest)` resolves the honua-server validated-examples
-    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide."""
+    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide.
+
+    `lock_exclusions` is lock_lifecycle_exclusions() for the same manifest. For an rc manifest
+    (status: rc), an Experimental/Excluded component in it is reported with its real verdict and
+    REPORTED_NOTE but does not decide; one the lock does not exclude fails closed."""
     import validated_examples_descendant as vx
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
@@ -652,7 +691,17 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                 status, why = matrix_status, matrix_why
             else:
                 why = f"{why}; {matrix_why}"
-        row = {"component": name, "status": status, "sha": sha[:12], "why": why}
+        lifecycle = comp.get("lifecycleStatus")
+        required = True
+        if manifest.get("status") == "rc" and lifecycle in REPORTED_LIFECYCLES:
+            if lock_exclusions is not None and name in lock_exclusions:
+                required = False
+                why = f"{why}; {REPORTED_NOTE} (lifecycleStatus {lifecycle}; platform lock experimentalExclusions)"
+            else:
+                status = "fail"
+                why = (f"lifecycleStatus {lifecycle} is not confirmed by the platform lock's experimentalExclusions; "
+                       f"failing closed ({why})")
+        row = {"component": name, "status": status, "sha": sha[:12], "why": why, "required": required}
         if vx_record is not None:
             row["validatedExamples"] = vx_record
         rows.append(row)
@@ -661,14 +710,16 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
         return "fail" if (s == "blocked" and enforcement == "strict") else s
 
     decided_rows = [{**r, "decided": decided(r["status"])} for r in rows]
-    overall = ("fail" if any(r["decided"] == "fail" for r in decided_rows)
-               else "blocked" if any(r["decided"] == "blocked" for r in decided_rows)
+    deciding = [r for r in decided_rows if r.get("required", True)]
+    overall = ("fail" if any(r["decided"] == "fail" for r in deciding)
+               else "blocked" if any(r["decided"] == "blocked" for r in deciding)
                else "pass")
     return {
         "gate": "build-test",
         "enforcement": enforcement,
         "overallStatus": overall,
-        "summary": {k: sum(1 for r in decided_rows if r["decided"] == k) for k in ("pass", "fail", "blocked")},
+        "summary": {k: sum(1 for r in deciding if r["decided"] == k) for k in ("pass", "fail", "blocked")},
+        "reported": {r["component"]: r["decided"] for r in decided_rows if not r.get("required", True)},
         "components": decided_rows,
     }
 
@@ -677,6 +728,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--enforcement", choices=["bootstrap", "strict"], default="bootstrap")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
+    ap.add_argument("--matrix", default=str(REPO_ROOT / "compatibility-matrix.yaml"),
+                    help="compatibility matrix the platform lock is derived from (experimentalExclusions)")
     ap.add_argument("--env-gated", default=str(ENV_GATED_PATH),
                     help="YAML of per-component env-gated integration check-run names")
     ap.add_argument("--rollup", default=str(ROLLUP_PATH),
@@ -700,14 +753,16 @@ def main(argv: list[str] | None = None) -> int:
     full_matrix = load_full_matrix(args.full_matrix)
     advisory = load_advisory(args.advisory)
     report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance,
-                      full_matrix, advisory, validated_examples=live_validated_examples)
+                      full_matrix, advisory, validated_examples=live_validated_examples,
+                      lock_exclusions=lock_lifecycle_exclusions(Path(args.manifest), Path(args.matrix)))
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "
           f"(enforcement={args.enforcement}) ==")
     for r in report["components"]:
-        print(f"  [{r['decided'].upper():7}] {r['component']}: {r['why']}")
-    print(f"  summary: {report['summary']}")
+        tag = r["decided"].upper() if r.get("required", True) else r["decided"].upper() + "*"
+        print(f"  [{tag:8}] {r['component']}: {r['why']}")
+    print(f"  summary: {report['summary']}" + (f"; reported, not required (*): {report['reported']}" if report["reported"] else ""))
 
     return 1 if report["overallStatus"] == "fail" else 0
 

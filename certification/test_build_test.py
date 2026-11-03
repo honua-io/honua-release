@@ -658,3 +658,95 @@ def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record
 def test_main_wires_the_live_resolver():
     import inspect
     assert "validated_examples=live_validated_examples" in inspect.getsource(bt.main)
+
+
+# ---- rc.N: Experimental/Excluded components are reported, not required (ruling 2026-11-03) ------------
+def _rc_manifest(**lifecycles):
+    return {"status": "rc", "components": {
+        name: {"sha": (name[0] * 40)[:40], "lifecycleStatus": status} for name, status in lifecycles.items()}}
+
+
+def test_rc_experimental_red_is_reported_with_its_real_verdict_but_does_not_fail():
+    manifest = _rc_manifest(server="GA", mcp="Experimental")
+    rep = bt.evaluate(manifest, _fetch_map({"server": _runs("success"), "mcp": _runs("failure")}),
+                      lock_exclusions=frozenset({"mcp"}))
+    row = next(r for r in rep["components"] if r["component"] == "mcp")
+    assert rep["overallStatus"] == "pass"
+    assert row["status"] == "fail" and row["decided"] == "fail" and row["required"] is False
+    assert bt.REPORTED_NOTE in row["why"]
+    assert rep["reported"] == {"mcp": "fail"} and rep["summary"] == {"pass": 1, "fail": 0, "blocked": 0}
+
+
+def test_rc_experimental_blocked_is_reported_and_strict_does_not_promote_it():
+    manifest = _rc_manifest(server="GA", mcp="Excluded")
+    rep = bt.evaluate(manifest, _fetch_map({"server": _runs("success")}), "strict",
+                      lock_exclusions=frozenset({"mcp"}))
+    assert rep["overallStatus"] == "pass" and rep["reported"] == {"mcp": "fail"}
+
+
+def test_rc_ga_and_preview_core_red_still_fails_beside_a_reported_experimental():
+    for red in ("server", "helm"):
+        manifest = _rc_manifest(server="GA", helm="Preview", mcp="Experimental")
+        payloads = {"server": _runs("success"), "helm": _runs("success"), "mcp": _runs("success")}
+        payloads[red] = _runs("failure")
+        rep = bt.evaluate(manifest, _fetch_map(payloads), lock_exclusions=frozenset({"mcp"}))
+        assert rep["overallStatus"] == "fail", red
+        assert next(r for r in rep["components"] if r["component"] == red)["required"] is True
+
+
+def test_rc_ga_and_preview_are_unchanged_by_the_rule():
+    manifest = _rc_manifest(server="GA", helm="Preview")
+    fetch = _fetch_map({"server": _runs("success"), "helm": _runs("failure")})
+    with_rule = bt.evaluate(manifest, fetch, lock_exclusions=frozenset())
+    without = bt.evaluate(manifest, fetch)
+    assert with_rule["overallStatus"] == without["overallStatus"] == "fail"
+    assert [r["status"] for r in with_rule["components"]] == [r["status"] for r in without["components"]]
+    assert with_rule["reported"] == {}
+
+
+def test_rc_experimental_missing_from_lock_exclusions_fails_closed():
+    manifest = _rc_manifest(server="GA", mcp="Experimental")
+    fetch = _fetch_map({"server": _runs("success"), "mcp": _runs("success")})
+    for exclusions in (frozenset(), frozenset({"other"}), None):  # None: the lock could not be derived
+        rep = bt.evaluate(manifest, fetch, lock_exclusions=exclusions)
+        row = next(r for r in rep["components"] if r["component"] == "mcp")
+        assert rep["overallStatus"] == "fail" and row["required"] is True and row["status"] == "fail"
+        assert "failing closed" in row["why"]
+
+
+def test_ga_or_preview_cannot_be_relabelled_reported_without_a_manifest_change():
+    # Only the manifest's own lifecycleStatus qualifies a component; listing a GA/Preview component in
+    # the exclusions (e.g. helm's Preview out-of-lock exclusion) changes nothing.
+    manifest = _rc_manifest(server="GA", helm="Preview")
+    rep = bt.evaluate(manifest, _fetch_map({"server": _runs("failure"), "helm": _runs("failure")}),
+                      lock_exclusions=frozenset({"server", "helm"}))
+    assert rep["overallStatus"] == "fail" and rep["reported"] == {}
+    assert all(r["required"] is True for r in rep["components"])
+
+
+def test_non_rc_manifest_keeps_experimental_required():
+    manifest = _rc_manifest(server="GA", mcp="Experimental")
+    manifest["status"] = "released"
+    rep = bt.evaluate(manifest, _fetch_map({"server": _runs("success"), "mcp": _runs("failure")}),
+                      lock_exclusions=frozenset({"mcp"}))
+    assert rep["overallStatus"] == "fail" and rep["reported"] == {}
+
+
+def test_lock_exclusions_are_derived_from_the_committed_lock_inputs():
+    import yaml
+    manifest = yaml.safe_load((REPO_ROOT / "platform-manifest.yaml").read_text(encoding="utf-8"))
+    exclusions = bt.lock_lifecycle_exclusions(REPO_ROOT / "platform-manifest.yaml", REPO_ROOT / "compatibility-matrix.yaml")
+    assert exclusions is not None
+    expected = {name for name, comp in manifest["components"].items()
+                if comp.get("lifecycleStatus") in bt.REPORTED_LIFECYCLES}
+    # Every manifest Experimental/Excluded component is excluded by the derived lock (else it fails closed),
+    # and nothing GA or Preview is (helm's Preview out-of-lock exclusion does not qualify).
+    assert expected <= exclusions
+    assert not {name for name, comp in manifest["components"].items()
+                if comp.get("lifecycleStatus") in {"GA", "Preview"}} & exclusions
+
+
+def test_lock_exclusions_fail_closed_when_the_lock_cannot_be_derived(tmp_path):
+    broken = tmp_path / "platform-manifest.yaml"
+    broken.write_text("components: [not, a, mapping]\n", encoding="utf-8")
+    assert bt.lock_lifecycle_exclusions(broken, REPO_ROOT / "compatibility-matrix.yaml") is None
