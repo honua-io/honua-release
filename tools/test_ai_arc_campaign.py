@@ -640,6 +640,25 @@ def test_a_completed_run_with_a_provisional_gap_still_waits_for_its_verdict(tmp_
     assert len(log2) == 2 and not (out2 / 'PENDING-ADJUDICATION').exists()
 
 
+def test_a_run_with_hidden_tool_results_blocks_the_next_launch(tmp_path):
+    """A16: a recorded tool result one CLI arm could not see holds the campaign until adjudicated."""
+    log = []
+
+    def launch(row, slot):
+        log.append(row['runId'])
+        path = Path(tmp_path) / 'runs' / row['runId'].replace(':', '-') / 'trial-receipt.json'
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({'runId': row['runId'], 'status': 'completed',
+                                    'startedAt': '2026-11-02T09:00:00Z', 'finishedAt': '2026-11-02T09:30:00Z',
+                                    'stages': [{'stage': 'services', 'outcome': 'pass', 'mcpChannelGaps': 3}]}))
+        return 0
+    (tmp_path / 'adjudications').mkdir(parents=True)
+    with pytest.raises(TimeoutError):
+        C.run_campaign(target='local-docker', arm='A2', schedule_rows=rows(2, 'local-docker:A2:'), out=tmp_path,
+                       hosts=['h1'], per_host=1, common=[], wait_poll=0.01, max_wait=0.3, launch=launch)
+    assert log == ['local-docker:A2:001']
+
+
 def guideless_launch(out, log):
     """Sol guide3: completed receipts whose package ships AGENTS.md but whose sessions ran without it."""
     shipped = 'sha256:' + 'a' * 64

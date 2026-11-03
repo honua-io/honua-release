@@ -60,7 +60,8 @@ SHA = re.compile(r'\A[0-9a-f]{40}\Z')
 FAMILIES = ('anthropic', 'openai')
 
 # Everything whose bytes change behavior. Absent files contribute 'absent' (so landing a lane changes it).
-RUNNER_FILES = ('certification/ai-arc/studio-arc-expectations.json', 'certification/ai-arc/studio-fixture-requirements.json', 'tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
+RUNNER_FILES = ('docs/2026.1-add-console-to-compose-quickstart.md',
+                'certification/ai-arc/studio-arc-expectations.json', 'certification/ai-arc/studio-fixture-requirements.json', 'tools/ai_arc_runner.py', 'tools/ai_arc_local.py', 'tools/ai_arc_operator.py',
                 'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
                 'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
                 'tools/agent_browser_studio.py',
@@ -1131,19 +1132,15 @@ class StudioStage(DelegatingStage):
         if ctx.slot.facts.get('consoleRejected'):
             return ('the Console on this slot is not the arc Console release '
                     f"({ctx.arc['console']['imageDigest'][:19]}...)")
-        if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None and ctx.options.get('console_compose'):
-            # The published package quickstart composes no Console: add it as honua-server's own compose
-            # does (pinned image, #6828), as harness slot preparation for this stage.
+        if not ctx.slot.facts.get('consoleBaseUrl') and ctx.slot.vm is not None:
+            # The published package quickstart composes no Console: add it exactly as the customer doc says
+            # (docs/2026.1-add-console-to-compose-quickstart.md; release session 2026-11-02), as harness slot
+            # preparation for this stage, so the arc validates the documented customer path.
             import ai_arc_local
             try:
-                pin = ctx.arc['console']['compose']
-                text = Path(ctx.options['console_compose']).read_text()
-                given = ctx.options.get('console_compose_revision')
-                if sha256(text) != pin['sha256'] or (given and given != pin['revision']):
-                    raise ValueError('the Console compose is not the arc pin')
-                staged = ai_arc_local.stage_console(ctx.slot.vm, text, pin['revision'], ctx.arc['console'])
+                staged = ai_arc_local.stage_documented_console(ctx.slot.vm, ctx.arc['console'])
             except Exception as exc:  # noqa: BLE001
-                return f'Honua Console could not be added to the slot ({type(exc).__name__}): ' + gap
+                return f'Honua Console could not be added to the slot ({type(exc).__name__}: {str(exc)[:400]}): ' + gap
             tunnel = ai_arc_local.Tunnel(ctx.slot.vm, staged['port'])
             ctx.slot.closers.append(tunnel.close)
             ctx.slot.facts.update(consoleBaseUrl=tunnel.base_url, console=staged)
@@ -1162,12 +1159,18 @@ class StudioStage(DelegatingStage):
         reason = super().unavailable(ctx)
         if reason:
             return reason
+        # The arm drives Studio through Playwright; without it the sign-in can never run (a harness cause, named).
+        if not playwright_installed():
+            return ('the Studio browser (Playwright, tools/requirements-agent-browser.txt) is not installed for the '
+                    "runner's Python")
         # The customer principal must actually sign in to this Console before the stage can run.
         probe = getattr(self._inner, 'sign_in_probe', None)
         signed = probe(ctx) if callable(probe) else None
         ctx.slot.facts['consoleSignIn'] = signed if isinstance(signed, dict) else {'ok': bool(signed)}
         if not (signed.get('ok') if isinstance(signed, dict) else signed):
-            return 'the customer principal could not sign in to Honua Console (adapter sign_in_probe)'
+            error = signed.get('error') if isinstance(signed, dict) else None
+            return ('the customer principal could not sign in to Honua Console (adapter sign_in_probe'
+                    + (': ' + str(error)[:300] if error else '') + ')')
         return None
     def run(self, ctx, session, prompt):
         self._started = datetime.now(timezone.utc)
@@ -1973,6 +1976,12 @@ def run_stage(ctx: StageContext, module: StageModule, session, goal: str, previo
         close_sink(sink)
 
 
+def playwright_installed() -> bool:
+    """The Studio browser's driver is importable by this Python (ai-arc.yml installs it for the arm's runner)."""
+    import importlib.util
+    return importlib.util.find_spec('playwright') is not None
+
+
 def slot_ports_for_safety(slot) -> list[int]:
     """This slot's own loopback ports, for the safety rules: serving and gRPC, plus the shipped package's management
     port (B1/S4: the package exposes its manager API and MCP endpoint, which the customer is told to use)."""
@@ -2601,6 +2610,10 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                     result = run_stage(ctx, modules[stage], session, goal, previous_answer)
                 except Exception as exc:  # noqa: BLE001  (a harness defect never loses the run's receipt)
                     result = harness_error_stage(ctx, modules[stage], exc)
+                # Release session 2026-11-02 (A16): a recorded tool result whose data one CLI arm cannot see makes
+                # the run inadmissible (verify_run) and holds the campaign; counted per stage, files named.
+                gaps = mcp_channel_gaps(private / stage, coverage=channel_coverage(result))
+                result['mcpChannelGaps'], result['mcpChannelGapExamples'] = len(gaps), gaps[:3]
                 receipt['stages'].append(result)
                 outcomes[stage] = result['outcome']
                 if stage == 'services':
@@ -2882,6 +2895,55 @@ def on_shipped_package(receipt: dict, package: dict | None = None) -> bool:
     return True
 
 
+def mcp_result_visible_in_text(result) -> bool:
+    """Both pinned CLIs see this MCP tool result's data. Claude Code 2.1.316 shows the model only structuredContent;
+    Codex 0.166.0 only the text content (release session 2026-11-02, record/mcp-fairness). A result with structured
+    data is visible to both only if its text content carries the same data: the serialized JSON itself, or (the
+    Studio browser tools) exactly the structured 'text' beside a screenshot digest. Errors and results without
+    structured data are not judged."""
+    if not isinstance(result, dict) or result.get('isError') is True or 'structuredContent' not in result:
+        return True
+    structured = result.get('structuredContent')
+    blocks = result.get('content') if isinstance(result.get('content'), list) else []
+    text = ''.join(b.get('text', '') for b in blocks if isinstance(b, dict) and b.get('type') == 'text')
+    try:
+        if json.loads(text) == structured:
+            return True
+    except ValueError:
+        pass
+    return (isinstance(structured, dict) and set(structured) <= {'text', 'screenshotSha256'}
+            and structured.get('text') == text)
+
+
+def mcp_channel_gaps(root: Path, coverage: bool = True) -> list[str]:
+    """Recorded tool results under a stage's directory (private or exported evidence) whose data one CLI arm could
+    not see (mcp_result_visible_in_text), plus coverage: on the CLI path (a ``cli`` directory, where RecordingProxy
+    keeps the exact forwarded result beside every action) an action without its ``.response`` is a gap too, so an
+    unrecorded result can never pass as clean (Sol console11). Corpus sessions (ActionLog) keep the server's raw
+    response for every dispatched call; an action they refused was never dispatched. A no-model check on the
+    candidate's real server traffic. ``coverage`` is off for a stage whose session did not complete (undetermined,
+    harness error): a write-ahead action of an interrupted session has no result, and that stage already counts as
+    a failed run."""
+    gaps = []
+    root = Path(root)
+    if not root.is_dir():
+        return gaps
+    for action in sorted(root.rglob('action-*.json')) if coverage else []:
+        if action.parent.name == 'cli' and not action.with_suffix('.response').is_file():
+            gaps.append(str(action.with_suffix('.response').relative_to(root)) + ' (unrecorded)')
+    for path in sorted(root.rglob('action-*.response')):
+        raw = path.read_bytes().decode('utf-8', 'replace')
+        bodies = [line[5:].strip() for line in raw.splitlines() if line.startswith('data:')] or [raw]
+        for body in bodies:
+            try:
+                message = json.loads(body)
+            except ValueError:
+                continue
+            if isinstance(message, dict) and not mcp_result_visible_in_text(message.get('result')):
+                gaps.append(str(path.relative_to(root)))
+    return gaps
+
+
 def agent_guide_gaps(receipt: dict) -> list[str]:
     """Stages with a CLI session that did not load the package's shipped AGENTS.md (release session 2026-11-02): when
     the installed package carries one, every CLI session's provenance must show {"sha256": its digest, "loaded": true}
@@ -2899,6 +2961,31 @@ def agent_guide_gaps(receipt: dict) -> list[str]:
                 gaps.append(str(stage.get('stage')))
                 break
     return gaps
+
+
+def channel_coverage(stage: dict) -> bool:
+    """Response coverage is required for a stage whose sessions completed (not undetermined or never run)."""
+    return isinstance(stage, dict) and stage.get('outcome') in ('pass', 'fail')
+
+
+def verify_channel_check(receipt: dict, evidence: Path) -> None:
+    """PREREG A16 (Sol console11): recomputed from the run's verified evidence, never taken from the receipt; the
+    receipt's own per-stage count must be present and agree. Called by verify_run after the evidence hashes."""
+    for stage in receipt.get('stages') or []:
+        if not isinstance(stage, dict):
+            continue
+        name = str(stage.get('stage'))
+        recomputed = mcp_channel_gaps(Path(evidence) / name, coverage=channel_coverage(stage))
+        if recomputed:
+            raise ValueError(f'a CLI arm could not see recorded tool results in {name} (MCP result channels): '
+                             + ', '.join(recomputed[:3]))
+        if (Path(evidence) / name).is_dir() and stage.get('mcpChannelGaps') != 0:
+            raise ValueError(f'the {name} stage record lacks or contradicts its MCP channel check')
+
+
+def mcp_channel_gap_stages(receipt: dict) -> list[str]:
+    return [str(s.get('stage')) for s in (receipt.get('stages') or [])
+            if isinstance(s, dict) and int(s.get('mcpChannelGaps') or 0) > 0]
 
 
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
@@ -2952,6 +3039,7 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         path = Path(evidence) / item['path']
         if not path.is_file() or sha256(path.read_bytes()) != item['sha256']:
             raise ValueError('retained evidence file is missing or altered: ' + str(item.get('path'))[:80])
+    verify_channel_check(receipt, Path(evidence))
     composition = (receipt.get('slotFacts') or {}).get('opsComposition')
     if composition is not None:
         kind = composition.get('kind') if isinstance(composition, dict) else None
@@ -3498,6 +3586,12 @@ def build_slot(target: str, args, run_index: int = 0) -> Slot:
     resolved = ai_arc_local.resolve_alias(match.group(1))
     vm = ai_arc_local.VmSlot(host=resolved, user=args.ssh_user, identity_file=args.ssh_identity,
                              known_hosts=args.known_hosts, project=project, index=args.slot_index)
+    # Stage four's per-customer CaseConsole (agent_browser_studio.CaseConsole) runs its pinned Console container on
+    # the slot's own engine and accepts only an approved eval host in DOCKER_HOST. Nothing set it for a trial, so
+    # stage 4 could never start its Console (Studio DEV shakeout run 8b: "Console requires an approved remote eval
+    # Docker host"). The trial's own --docker-host alias is that engine; anything else is left unset (fail closed).
+    if re.fullmatch(r'honua-eval-[1-4]', match.group(1)):
+        os.environ['DOCKER_HOST'] = 'ssh://' + match.group(1)
     return Slot(target=target, kind='vm', project=project, vm=vm)
 
 

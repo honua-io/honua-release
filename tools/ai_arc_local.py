@@ -278,11 +278,37 @@ class VmSlot:
     def teardown(self) -> dict:
         d = shlex.quote(self.remote_dir)
         # Files the product's executor wrote (uid 1002: backups, receipts) are handed back before removal.
-        script = ('set -u\n' + self.compose('down', '--volumes', '--remove-orphans', '--timeout', '30')
+        # Release session 2026-11-02 (leftover state between admission runs is a contamination risk); Sol console9:
+        # only volumes this slot owns are touched. Before the down, the volumes mounted by the slot's own containers
+        # (its compose project, and stage four's CaseConsole, labelled honua.corpus.case=<project>) are listed; after
+        # it, any of them still present is removed (an in-use volume is refused by Docker). Another slot's volumes,
+        # dangling or not, are never selected. The clean check fails if a slot container, a project-labelled volume
+        # or one of the slot's own volumes remains. Orphans no container mounts any more cannot be attributed and
+        # are left to the admission preflight's host sweep (inspected before removal).
+        p = self.project
+        owned = 'owned_containers'
+        # Sol console10: an inventory that could not be read is never an empty one; it leaves the teardown dirty.
+        script = ('set -u\ninv_ok=1\n'
+                  + 'owned_containers() {\n'
+                  + '  a="$(docker ps -aq --filter label=com.docker.compose.project=' + p + ')" || return 1\n'
+                  + '  b="$(docker ps -aq --filter label=honua.corpus.case=' + p + ')" || return 1\n'
+                  + '  printf "%s\\n%s\\n" "$a" "$b" | sed "/^$/d" | sort -u\n}\n'
+                  + 'cons="$(' + owned + ')" || inv_ok=0\n'
+                  + 'vols=""\nfor c in $cons; do\n'
+                  + '  m="$(docker inspect --format \'{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}} {{end}}{{end}}\' "$c")" '
+                    '|| { inv_ok=0; continue; }\n'
+                  + '  vols="$vols $m"\ndone\n'
+                  + 'for c in $(docker ps -aq --filter label=honua.corpus.case=' + p + '); do docker rm -f "$c" >/dev/null 2>&1; done\n'
+                  + self.compose('down', '--volumes', '--remove-orphans', '--timeout', '30')
                   + f'\nrc=$?\ndocker run --rm -v {d}:{d} redis:7.4-alpine chown -R "$(id -u):$(id -g)" {d} 2>/dev/null'
-                  + '\ncd /\nrm -rf -- ' + d
-                  + '\nleft="$(docker ps -aq --filter label=com.docker.compose.project=' + self.project + ')"'
-                  + '\n[ -z "$left" ] && [ "$rc" = 0 ]\n')
+                  + '\ncd /\nrm -rf -- ' + d + '\n'
+                  + 'for v in $vols; do docker volume inspect "$v" >/dev/null 2>&1 && docker volume rm "$v" >/dev/null 2>&1; done\n'
+                  + 'left="$(' + owned + ')" || inv_ok=0\n'
+                  + 'leftvol="$(docker volume ls -q --filter label=com.docker.compose.project=' + p + ')" || inv_ok=0\n'
+                  # One listing decides what remains; a listing that fails is dirty, never "nothing left".
+                  + 'allvols="$(docker volume ls -q)" || inv_ok=0\n'
+                  + 'leftown=""; for v in $vols; do printf "%s\\n" "$allvols" | grep -qxF -- "$v" && leftown="$leftown $v"; done\n'
+                  + '[ "$inv_ok" = 1 ] && [ -z "$left" ] && [ -z "$leftvol" ] && [ -z "$leftown" ] && [ "$rc" = 0 ]\n')
         done = self.ssh(script)
         return {'status': 'clean' if done.returncode == 0 else 'dirty',
                 'steps': [{'step': 'compose-down-and-remove', 'exitCode': done.returncode}]}
@@ -296,6 +322,89 @@ def honua_server_file(revision: str, path: str = 'docker-compose.yml') -> bytes:
     if done.returncode:
         raise RuntimeError('honua-server compose could not be read at that revision')
     return done.stdout
+
+
+def slot_compose_files(override: str | None) -> str:
+    """Shell lines (run in the slot directory) exporting COMPOSE_FILE as the slot's own compose files plus
+    ``override``, for compose commands given no -f. The shipped package's .env names its files in COMPOSE_FILE
+    (compose.yaml, compose.executor.yaml, compose.executor.image.yaml); without it, compose.yaml plus
+    compose.executor.yaml when present. An explicit -f list would drop the package's overrides and change honua."""
+    if override is not None and not re.fullmatch(r'[a-z][a-z0-9.-]{0,63}\.yaml', override):
+        raise ValueError('invalid compose override name')
+    return ('files="$(sed -n "s/^COMPOSE_FILE=//p" .env 2>/dev/null | tail -n 1)"\n'
+            'files="${files#\\"}"; files="${files%\\"}"\n'
+            'if [ -z "$files" ]; then files=compose.yaml; '
+            'if [ -f compose.executor.yaml ]; then files="$files:compose.executor.yaml"; fi; fi\n'
+            + (f'export COMPOSE_FILE="$files:{override}" COMPOSE_PATH_SEPARATOR=:\n' if override
+               else 'export COMPOSE_FILE="$files" COMPOSE_PATH_SEPARATOR=:\n'))
+
+
+CONSOLE_DOC = Path(__file__).resolve().parents[1] / 'docs/2026.1-add-console-to-compose-quickstart.md'
+CONSOLE_DIGEST_PLACEHOLDER = '@sha256:<digest from the release lock>'
+
+
+def documented_console(text: str | None = None) -> tuple[str, str]:
+    """The customer doc's Console override file and start command (docs/2026.1-add-console-to-compose-quickstart.md,
+    the docs-validation blocks), verbatim. The arc's Studio stage adds Console exactly as a customer would."""
+    text = CONSOLE_DOC.read_text(encoding='utf-8') if text is None else text
+    override = re.search(r'<!-- docs-validation:console\.override -->\s*```yaml\n(.*?)\n```', text, re.S)
+    start = re.search(r'<!-- docs-validation:console\.start -->\s*```bash\n(.*?)\n```', text, re.S)
+    if override is None or start is None:
+        raise ValueError('the Console doc lacks its override file or start command')
+    return override.group(1) + '\n', start.group(1) + '\n'
+
+
+def stage_documented_console(slot: 'VmSlot', expected: dict, doc: str | None = None) -> dict:
+    """Add Console to the slot exactly as the customer doc says (release session 2026-11-02): its console.yaml with
+    the release lock's Console digest, and its start command (the install's COMPOSE_FILE plus console.yaml,
+    --no-deps). HONUA_CONSOLE_PORT is the only customer variable set (the slot's port). Fail closed: the file must
+    select exactly the arc's Console, the honua container must be the same container before and after, and the
+    running Console container must report the arc's digest."""
+    import hashlib
+    import yaml
+    override, command = documented_console(doc)
+    want = f"{expected['image']}@{expected['imageDigest']}"
+    if (override.count(CONSOLE_DIGEST_PLACEHOLDER) != 1 or not re.fullmatch(r'sha256:[0-9a-f]{64}', expected['imageDigest'])
+            or expected['image'] + CONSOLE_DIGEST_PLACEHOLDER not in override):
+        raise ValueError('the Console doc does not name the Console image by the release-lock digest')
+    override = override.replace(CONSOLE_DIGEST_PLACEHOLDER, '@' + expected['imageDigest'])
+    service = ((yaml.safe_load(override) or {}).get('services') or {}).get('console')
+    if not isinstance(service, dict) or service.get('image') != want or set(yaml.safe_load(override)['services']) != {'console'}:
+        raise ValueError('the documented override must define only the arc Console service')
+    port = slot.http_port + CONSOLE_PORT_OFFSET
+    fence = 'HONUA_CONSOLE_' + pysecrets.token_hex(6)
+    ps = lambda name: ('docker ps -q --filter label=com.docker.compose.project="$project" '  # noqa: E731
+                       f'--filter label=com.docker.compose.service={name}')
+    script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
+              + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
+              + f'export HONUA_CONSOLE_PORT={int(port)}\n'
+              + 'project="$(sed -n "s/^COMPOSE_PROJECT_NAME=//p" .env | tail -n 1)"\n'
+              + 'project="${project#\\"}"; project="${project%\\"}"\n'
+              + '[ -n "$project" ] || { echo "the install names no COMPOSE_PROJECT_NAME" >&2; exit 3; }\n'
+              + 'before="$(' + ps('honua') + ')"\n'
+              + '[ -n "$before" ] || { echo "no honua container before staging Console" >&2; exit 3; }\n'
+              + '(\n' + command + ')\n'          # the customer doc's command, verbatim, in a subshell
+              + 'after="$(' + ps('honua') + ')"\n'
+              + 'if [ "$before" != "$after" ]; then echo "staging Console changed the honua container" >&2; exit 3; fi\n'
+              + 'id="$(' + ps('console') + ')"\n'
+              + 'docker image inspect --format "{{json .RepoDigests}}" "$(docker inspect --format "{{.Image}}" "$id")"\n')
+    done = slot.ssh(script, 600)
+    if done.returncode:
+        err = done.stderr.decode(errors='replace') if isinstance(done.stderr, bytes) else (done.stderr or '')
+        for value in sorted((getattr(slot, 'secrets', None) or {}).values(), key=len, reverse=True):
+            if isinstance(value, str) and len(value) >= 6:
+                err = err.replace(value, '[redacted]')
+        raise RuntimeError(f'Console did not start on the slot (exit {done.returncode}): ' + ' '.join(err.split())[-400:])
+    try:
+        out = done.stdout.decode() if isinstance(done.stdout, bytes) else (done.stdout or '')
+        digests = json.loads(out.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        digests = None
+    if not isinstance(digests, list) or want not in digests:
+        raise RuntimeError('the running Console container does not report the arc Console digest')
+    return {'image': want, 'port': port, 'source': 'customer doc: Add Console to a Compose quickstart install',
+            'docSha256': 'sha256:' + hashlib.sha256(CONSOLE_DOC.read_bytes() if doc is None else doc.encode()).hexdigest(),
+            'observedRepoDigests': digests, 'deployedBy': 'harness, as the customer doc says (stage-4 slot preparation)'}
 
 
 def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, expected: dict,
@@ -331,16 +440,30 @@ def stage_console(slot: 'VmSlot', source_compose: str, revision: str | None, exp
     console.update(image=image, ports=[f'127.0.0.1:{port}:8080'])
     override = yaml.safe_dump({'services': {'console': console}}, sort_keys=True)
     fence = 'HONUA_CONSOLE_' + pysecrets.token_hex(6)
+    # The slot's own compose files plus the Console override. The shipped package's .env names its files in
+    # COMPOSE_FILE (compose.yaml, compose.executor.yaml, compose.executor.image.yaml): an explicit
+    # "-f compose.yaml -f console.yaml" dropped the executor and image overrides, so Compose saw a different honua
+    # service and recreated it as a dependency of console (Studio DEV shakeout 11-02: stage 4 unavailable,
+    # "Console did not start"). Console is started with --no-deps, and the honua container must be the same
+    # container before and after (the harness never changes the candidate deployment it is about to score).
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(slot.remote_dir) + '\n'
               + f"cat > console.yaml <<'{fence}'\n{override}{fence}\n"
-              + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'up', '-d', '--wait', '--wait-timeout', '240',
-                             'console') + '\n'
-              + 'id=$(' + slot.compose('-f', 'compose.yaml', '-f', 'console.yaml', 'ps', '-q', 'console') + ')\n'
+              + slot_compose_files('console.yaml')
+              + 'before="$(' + slot.compose('ps', '-q', 'honua') + ')"\n'
+              + slot.compose('up', '-d', '--no-deps', '--wait', '--wait-timeout', '240', 'console') + '\n'
+              + 'after="$(' + slot.compose('ps', '-q', 'honua') + ')"\n'
+              + 'if [ "$before" != "$after" ]; then echo "staging Console changed the honua container" >&2; exit 3; fi\n'
+              + 'id=$(' + slot.compose('ps', '-q', 'console') + ')\n'
               + 'docker image inspect --format "{{json .RepoDigests}}" '
                 '"$(docker inspect --format "{{.Image}}" "$id")"\n')
     done = slot.ssh(script, 600)
     if done.returncode:
-        raise RuntimeError('Console did not start on the slot')
+        err = done.stderr.decode(errors='replace') if isinstance(done.stderr, bytes) else (done.stderr or '')
+        for value in sorted((getattr(slot, 'secrets', None) or {}).values(), key=len, reverse=True):
+            if isinstance(value, str) and len(value) >= 6:
+                err = err.replace(value, '[redacted]')
+        raise RuntimeError(f'Console did not start on the slot (exit {done.returncode}): '
+                           + ' '.join(err.split())[-400:])
     try:
         out = done.stdout.decode() if isinstance(done.stdout, bytes) else (done.stdout or '')
         digests = json.loads(out.strip().splitlines()[-1])
