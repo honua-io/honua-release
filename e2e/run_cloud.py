@@ -505,16 +505,18 @@ def _journey_blocked_verdict(blockers: list[list[str]], require_real: bool) -> d
 _ISSUE_REF = re.compile(r"\b[a-z][a-z0-9-]*#\d+\b|https://github\.com/[\w.-]+/[\w.-]+/issues/\d+")
 
 
-def _s10_nodes(node):
-    """Every dict inside scenarioCoverage whose scenario is S10 (scenario lines and their receipts)."""
+_S10_LINE_KEYS = frozenset({"scenario", "status", "why", "evidence"})  # large_import._row's scenario line
+
+
+def _dicts(node):
+    """Every dict inside a JSON value, depth first."""
     if isinstance(node, dict):
-        if node.get("scenario") == large_import.SCENARIO:
-            yield node
+        yield node
         for value in node.values():
-            yield from _s10_nodes(value)
+            yield from _dicts(value)
     elif isinstance(node, list):
         for value in node:
-            yield from _s10_nodes(value)
+            yield from _dicts(value)
 
 
 def _bind_s10_disclosures(report: dict, state: dict) -> None:
@@ -522,32 +524,37 @@ def _bind_s10_disclosures(report: dict, state: dict) -> None:
 
     The journey job holds no cloud credential and its upload is not trusted for this field. The trusted
     value is the provision state carried to teardown (state["s10"]["disclosedDeviations"], written by
-    provision_phase from the applied tfvars); it is copied onto the cell report as-is. Every S10 receipt
-    (any S10 dict that is not a scenario line) must carry exactly that list; a provisioned deviation with no
-    S10 receipt at all, or an S10 scenario line stripped of its receipt, fails the cell, so a missing,
-    altered, fabricated or removed disclosure can never leave a passing cell.
+    provision_phase from the applied tfvars); it is copied onto the cell report as-is. No key the journey
+    supplies exempts a node from the check:
+    - every dict anywhere in scenarioCoverage that carries disclosedDeviations must carry exactly the
+      provision record (so a fabricated, altered or contradicting copy fails, whatever its shape);
+    - with a provisioned deviation, every S10 dict must carry it, except a bare scenario line (only the
+      keys large_import._row writes on one) whose evidence is an S10 dict, itself checked the same way;
+      and at least one must carry it, so a dropped receipt or disclosure fails.
     """
     expected = (state.get("s10") or {}).get("disclosedDeviations") if isinstance(state.get("s10"), dict) else None
     expected = expected or []
     if expected:
         report["disclosedDeviations"] = expected
-    problems, receipts = [], 0
-    for node in _s10_nodes(report.get("scenarioCoverage")):
-        if "evidence" in node:  # a scenario line: its receipt is its evidence, visited on its own
-            evidence = node["evidence"]
-            if expected and not (isinstance(evidence, dict) and evidence.get("scenario") == large_import.SCENARIO):
-                problems.append("an S10 scenario line carries no S10 receipt, so the provisioned "
-                                f"disclosure {json.dumps(expected, sort_keys=True)} is not on it")
-            continue
-        receipts += 1
-        observed = node.get("disclosedDeviations") or []
-        if observed != expected:
-            problems.append("S10 receipt disclosedDeviations does not match the provision record "
-                            f"(provisioned {json.dumps(expected, sort_keys=True)}, "
-                            f"receipt {json.dumps(observed, sort_keys=True)})")
-    if expected and not receipts:
-        problems.append(f"provision recorded the disclosed deviation {json.dumps(expected, sort_keys=True)} "
-                        "but scenarioCoverage carries no S10 receipt")
+    rendered = json.dumps(expected, sort_keys=True)
+    problems, carriers = [], 0
+    for node in _dicts(report.get("scenarioCoverage")):
+        if "disclosedDeviations" in node:
+            observed = node["disclosedDeviations"] or []
+            if observed != expected:
+                problems.append("S10 disclosedDeviations does not match the provision record "
+                                f"(provisioned {rendered}, uploaded {json.dumps(observed, sort_keys=True)})")
+            elif expected and node.get("scenario") == large_import.SCENARIO:
+                carriers += 1
+        elif expected and node.get("scenario") == large_import.SCENARIO:
+            evidence = node.get("evidence")
+            # Only a bare scenario line (no receipt field of its own) may defer to the receipt it holds.
+            if not (set(node) <= _S10_LINE_KEYS and isinstance(evidence, dict)
+                    and evidence.get("scenario") == large_import.SCENARIO):
+                problems.append(f"an S10 receipt omits the provisioned disclosure {rendered}")
+    if expected and not carriers:
+        problems.append(f"provision recorded the disclosed deviation {rendered} "
+                        "but scenarioCoverage carries no S10 receipt with it")
     if problems:
         report["disclosureMismatch"] = problems
         prior = report.get("why") if report.get("status") == "fail" and report.get("why") else None
