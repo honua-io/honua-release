@@ -960,6 +960,14 @@
       "effect": "certification/capacity-envelope.v1.json replaces drill.maxRecoverySecondsPerFault with maxRecoverySecondsByDependency {worker 19, database 36, redis 19} and raises the recoveryTimeSeconds bound, the slowest fault's recovery, to 36 s. tools/check_capacity_soak.py judges each fault against its own dependency's bound; any worker, Redis or Postgres fault that recovers later fails the drill.",
       "moved": [],
       "basis": "Founder decision 2026-10-27, relayed by the release coordinator after capacity soak run 40542363841 recovered its database fault in 32.0 s"
+    },
+    "upgrade-gate-ga-deferred-2026-11-02": {
+      "date": "2026-11-02",
+      "authority": "https://github.com/honua-io/honua-release/issues/482",
+      "owner": "Mike McDougall (founder)",
+      "ruling": "gate-upgrade is not required for 2026.1 rc admission. 2026.1-rc.1 was never announced, so no customer upgrades from it. The upgrade gate stays a GA gate: no upgrade workflow, tool or test is removed or disabled, it remains dispatchable and scheduled, and rc.N reports it without requiring it.",
+      "effect": "tools/rc_gate_window.py adds gate-upgrade.yml to GA_DEFERRED (reported, never required for rc). Amends compose-upgrade-gate-d9-2026-10-26 for rc.N only: the Compose upgrade/rollback cell remains the gate's required runtime fragment wherever gate-upgrade is required (GA). release-train.yml still calls gate-upgrade in non-freeze runs.",
+      "basis": "Founder decision 2026-11-02 (rc.2 redo), relayed by the release session"
     }
   },
   "security_findings": [

@@ -335,12 +335,19 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
 
 def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
     """The founder requires the arc while retaining advisory status for the older AI gates."""
-    assert len(w.RC_GATES) == 20
+    assert len(w.RC_GATES) == 19
     assert w.ARC_GATE in w.RC_GATES
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)
     assert w.RC_ADVISORY == w.AI_GATES
-    assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml"}
+    assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml",
+                                  "gate-upgrade.yml"}
+
+
+def test_gate_upgrade_is_ga_deferred_but_still_a_train_gate_and_candidate_bound():
+    """Founder decision 2026-11-02: reported, never required, for rc; still a GA gate with its receipt binding."""
+    assert "gate-upgrade.yml" in w.GA_DEFERRED and "gate-upgrade.yml" not in w.RC_GATES
+    assert "gate-upgrade.yml" in w.TRAIN_GATES and "gate-upgrade.yml" in w.CANDIDATE_BOUND_GATES
 
 
 def test_rc_release_passes_the_candidate_and_enforces_before_publish():
