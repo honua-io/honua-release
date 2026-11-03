@@ -994,6 +994,8 @@ def test_availability_exits_are_finalized(tmp_path, monkeypatch, how):
     ({'status': 200, 'json': {'version': '1'}}, True, None),
 ])
 def test_studio_requires_a_healthy_console_and_a_real_sign_in(tmp_path, monkeypatch, health, signin, expected):
+    # The sign-in check runs only where the Studio browser is installed (CI validate has no Playwright).
+    monkeypatch.setattr(R, 'playwright_installed', lambda: True)
     import types
 
     class Adapter(R.StageModule):
@@ -2698,3 +2700,153 @@ def test_the_arc_spec_names_no_assistant_sonnet_or_bedrock():
         with pytest.raises(ValueError):
             R.validate_arc(doc)
     R.validate_arc(copy.deepcopy(base))
+
+
+def test_a_failed_sign_in_names_its_error_in_the_stage_cause(tmp_path, monkeypatch):
+    # The sign-in check runs only where the Studio browser is installed (CI validate has no Playwright).
+    monkeypatch.setattr(R, 'playwright_installed', lambda: True)
+    """Studio DEV shakeout 7a/7b: the probe returned only {'ok': False}; the failing step's error is now the cause."""
+    import types
+
+    class Adapter(R.StageModule):
+        stage = 'studio'
+
+        def sign_in_probe(self, ctx):
+            return {'ok': False, 'error': 'RuntimeError: CaseConsole did not answer /version.json'}
+    monkeypatch.setitem(sys.modules, 'agent_e2e_studio_arc', types.SimpleNamespace(arc_stage=lambda ctx: Adapter()))
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', facts={'consoleBaseUrl': 'http://127.0.0.1:1'})
+    ctx = R.StageContext(arc=ARC, target='local-docker', arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                         slot=slot, candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
+                         deadline=time.monotonic() + 60,
+                         options={'http': lambda m, u, k: {'status': 200, 'json': {'version': '1'}}})
+    reason = R.StudioStage().unavailable(ctx)
+    assert 'could not sign in' in reason and 'CaseConsole did not answer /version.json' in reason
+
+
+def test_the_sign_in_probe_redacts_the_slots_secrets_in_its_error(monkeypatch):
+    import types
+    import agent_e2e_studio_arc as studio
+    secret = 'S3cr3t-' + 'x' * 20
+    slot = types.SimpleNamespace(harness_secrets=[secret], vm=object())
+    context = types.SimpleNamespace(slot=slot)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError('compose failed with key ' + secret)
+    monkeypatch.setattr(studio, 'provision_local_server', explode)
+    stage = studio.arc_stage(types.SimpleNamespace(target='local-docker'))
+    result = stage.sign_in_probe(context)
+    assert result['ok'] is False and secret not in result['error'] and '[redacted]' in result['error']
+
+
+@pytest.mark.parametrize('host,expected', [('honua-eval-4', 'ssh://honua-eval-4'), ('honua-eval-9', None),
+                                           ('other-vm', None)])
+def test_a_trial_on_an_eval_host_points_stage_fours_case_console_at_it(monkeypatch, host, expected):
+    """Studio DEV shakeout run 8b: CaseConsole accepts only DOCKER_HOST=ssh://honua-eval-[1-4], and nothing set it
+    for a trial; the trial's own approved --docker-host alias now does. Other hosts leave it unset (fail closed)."""
+    import types
+    import ai_arc_local
+    import agent_browser_studio
+    # Sol console7: build_slot writes os.environ directly; setenv first so monkeypatch restores the prior state
+    # (absent or set) after the test, then remove it for the test itself.
+    monkeypatch.setenv('DOCKER_HOST', 'placeholder')
+    monkeypatch.delenv('DOCKER_HOST')
+    monkeypatch.setattr(ai_arc_local, 'resolve_alias', lambda alias: '10.0.0.4')
+    args = types.SimpleNamespace(docker_host='ssh://' + host, ssh_user='ubuntu', ssh_identity='/k', known_hosts='/kh',
+                                 slot_index=0)
+    slot = R.build_slot('local-docker', args)
+    assert slot.kind == 'vm'
+    import os
+    assert os.environ.get('DOCKER_HOST') == expected
+    assert agent_browser_studio.remote_docker_host() == (host if expected else None)
+
+
+def test_studio_names_a_missing_playwright_as_the_cause(tmp_path, monkeypatch):
+    """Studio DEV shakeout: the runner's system python3 had no Playwright, so stage 4 could never sign in."""
+    import importlib.util
+    import types
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name, *a: None if name == 'playwright' else real(name, *a))
+
+    class Adapter(R.StageModule):
+        stage = 'studio'
+
+        def sign_in_probe(self, ctx):
+            raise AssertionError('never probed without the browser')
+    monkeypatch.setitem(sys.modules, 'agent_e2e_studio_arc', types.SimpleNamespace(arc_stage=lambda ctx: Adapter()))
+    slot = R.Slot('local-docker', 'vm', 'arc-abcdef1234', facts={'consoleBaseUrl': 'http://127.0.0.1:1'})
+    ctx = R.StageContext(arc=ARC, target='local-docker', arm=A1, variant='A', run_dir=tmp_path, private_dir=tmp_path,
+                         slot=slot, candidate=CAND_IN, install=ARC['versionPair']['install'], limits=ARC['limits']['studio'],
+                         deadline=time.monotonic() + 60,
+                         options={'http': lambda m, u, k: {'status': 200, 'json': {'version': '1'}}})
+    assert 'Playwright' in R.StudioStage().unavailable(ctx)
+
+
+def test_the_arc_workflow_installs_the_pinned_studio_browser():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / '.github/workflows/ai-arc.yml').read_text()
+    assert 'install --quiet -r tools/requirements-agent-browser.txt' in text
+    assert '-m playwright install chromium' in text and '"$RUNNER_TEMP/arc-venv/bin" >> "$GITHUB_PATH"' in text
+    assert text.index('Install the Studio browser') < text.index('python3 tools/ai_arc_campaign.py')
+
+
+def _sse(result):
+    return ('event: message\ndata: ' + json.dumps({'jsonrpc': '2.0', 'id': '1', 'result': result}) + '\n\n').encode()
+
+
+ELIDED = {'content': [{'type': 'text', 'text': 'Structured result (1,093 chars) returned in structuredContent; text '
+                       'summary elided to conserve context.'}], 'isError': False, 'structuredContent': {'layers': [1]}}
+SUMMARY = {'content': [{'type': 'text', 'text': 'Matched 5 feature(s) in svc-publish-kestrel/1.'}], 'isError': False,
+           'structuredContent': {'features': [{'id': 1}]}}
+FULL = {'content': [{'type': 'text', 'text': json.dumps({'layers': [1]})}], 'isError': False,
+        'structuredContent': {'layers': [1]}}
+BROWSER = {'content': [{'type': 'text', 'text': '- heading "Studio"'}], 'isError': False,
+           'structuredContent': {'text': '- heading "Studio"', 'screenshotSha256': 'a' * 64}}
+ERROR = {'content': [{'type': 'text', 'text': 'denied'}], 'isError': True, 'structuredContent': {'error': {'kind': 'x'}}}
+
+
+@pytest.mark.parametrize('result,visible', [(ELIDED, False), (SUMMARY, False), (FULL, True), (BROWSER, True),
+                                            (ERROR, True), ({'content': [{'type': 'text', 'text': 'ok'}]}, True)])
+def test_a_tool_result_is_visible_to_both_cli_arms_only_if_its_text_carries_the_data(result, visible):
+    """A16: Claude Code shows the model structuredContent, Codex the text content (record/mcp-fairness)."""
+    assert R.mcp_result_visible_in_text(result) is visible
+
+
+def test_recorded_responses_with_hidden_data_are_counted_per_stage(tmp_path):
+    session = tmp_path / 'services' / 'cases' / 'case-1' / 'session-1'
+    session.mkdir(parents=True)
+    (session / 'action-0001.response').write_bytes(_sse(FULL))
+    (session / 'action-0002.response').write_bytes(_sse(ELIDED))
+    (session / 'action-0003.response').write_bytes(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': SUMMARY}).encode())
+    gaps = R.mcp_channel_gaps(tmp_path / 'services')
+    assert gaps == ['cases/case-1/session-1/action-0002.response', 'cases/case-1/session-1/action-0003.response']
+    assert R.mcp_channel_gaps(tmp_path / 'absent') == []
+    receipt = {'stages': [{'stage': 'services', 'mcpChannelGaps': 2}, {'stage': 'studio', 'mcpChannelGaps': 0}]}
+    assert R.mcp_channel_gap_stages(receipt) == ['services']
+    # verify_run recomputes from the evidence: test_admission_recomputes_the_channel_check_from_the_retained_evidence.
+
+
+def test_admission_recomputes_the_channel_check_from_the_retained_evidence(tmp_path):
+    """Sol console11 P2: never trust the receipt's mcpChannelGaps; recompute from the evidence, and the receipt's
+    count must be present and agree. Synthetic evidence only (runs under the custody guard)."""
+    import inspect
+    source = inspect.getsource(R.verify_run)
+    assert 'verify_channel_check(receipt, Path(evidence))' in source
+    assert source.index('retained evidence file is missing or altered') < source.index('verify_channel_check(')
+    evidence = tmp_path / 'evidence'
+    cli = evidence / 'ops' / 'cli'
+    cli.mkdir(parents=True)
+    (cli / 'action-0001.json').write_text(json.dumps({'kind': 'tool_call', 'tool': 'honua_list_layers'}))
+    (cli / 'action-0001.response').write_text(json.dumps({'result': FULL}))
+    receipt = {'stages': [{'stage': 'ops', 'outcome': 'pass', 'mcpChannelGaps': 0}]}
+    R.verify_channel_check(receipt, evidence)                                       # clean evidence passes
+    for record in ({'stage': 'ops', 'outcome': 'pass'}, {'stage': 'ops', 'outcome': 'pass', 'mcpChannelGaps': 3}):
+        with pytest.raises(ValueError, match='lacks or contradicts'):
+            R.verify_channel_check({'stages': [record]}, evidence)                 # missing or wrong count
+    (cli / 'action-0002.json').write_text(json.dumps({'kind': 'tool_call', 'tool': 'honua_query_features'}))
+    (cli / 'action-0002.response').write_bytes(_sse(ELIDED))                       # an elided result in evidence
+    with pytest.raises(ValueError, match='could not see recorded tool results in ops'):
+        R.verify_channel_check(receipt, evidence)                                   # even with a zero in the receipt
+    (cli / 'action-0002.response').unlink()
+    with pytest.raises(ValueError, match='unrecorded'):
+        R.verify_channel_check(receipt, evidence)                                   # a completed stage needs coverage
+    R.verify_channel_check({'stages': [{'stage': 'ops', 'outcome': 'undetermined', 'mcpChannelGaps': 0}]}, evidence)

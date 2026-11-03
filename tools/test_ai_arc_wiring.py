@@ -170,7 +170,8 @@ def test_stage_four_runs_only_the_arm_and_keeps_the_studio_ai_proxy_off(tmp_path
             scripts.append(script)
             return types.SimpleNamespace(returncode=0)
     assert studio.provision_local_server(Slot(), 'k' * 48) == {'studioAiProxy': 'disabled'}
-    assert 'StudioAiProxy__Enabled: \'false\'' in scripts[0] and 'AWS_REGION' not in scripts[0]
+    # The proxy is off by the server's default (StudioAiProxy:Enabled = false); the harness sets no AI setting.
+    assert 'StudioAiProxy' not in scripts[0] and 'AiExecutionAdmission' not in scripts[0] and 'AWS_REGION' not in scripts[0]
     assert 'bedrock' not in scripts[0].lower()
 
 
@@ -930,6 +931,242 @@ def test_an_unserved_stack_is_not_observed_serving_and_other_ports_are_not_probe
     ctx.slot.vm.packaged = False
     R.observe_local_handoff(ctx, 'Manager: http://localhost:18082/')
     assert _Tunnel.opened == []
+
+
+def _run_console_script(tmp_path, env_text, *, executor=True, honua_ids=('h1', 'h1')):
+    """Run stage_console's slot script for real, against a stub docker that logs each call and its COMPOSE_FILE."""
+    import os
+    import stat
+    import subprocess
+    import ai_arc_local as L
+    remote = tmp_path / 'slot'
+    remote.mkdir()
+    (remote / 'compose.yaml').write_text('services: {}\n')
+    if executor:
+        (remote / 'compose.executor.yaml').write_text('services: {}\n')
+    if env_text is not None:
+        (remote / '.env').write_text(env_text)
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log, ids = tmp_path / 'docker.log', tmp_path / 'ids'
+    ids.write_text('\n'.join(honua_ids) + '\n')
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    f'echo "COMPOSE_FILE=$COMPOSE_FILE ARGS=$*" >> {log}\n'
+                    'case "$*" in\n'
+                    f'  *"ps -q honua"*) head -n 1 {ids}; tail -n +2 {ids} > {ids}.n; mv {ids}.n {ids} ;;\n'
+                    '  *"ps -q console"*) echo c1 ;;\n'
+                    '  "inspect --format {{.Image}} c1") echo img ;;\n'
+                    f'  *"image inspect"*) echo \'{json.dumps([CONSOLE_REF])}\' ;;\n'
+                    'esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    class Slot(ConsoleSlot):
+        remote_dir = str(remote)
+
+        def ssh(self, script, timeout=300):
+            self.scripts.append(script)
+            return subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                  env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    src = _console_compose(CONSOLE_REF)
+    slot = Slot([CONSOLE_REF])
+    try:
+        return L.stage_console(slot, src, REV, CONSOLE, source_at=lambda rev: src.encode()), log.read_text()
+    except RuntimeError as exc:
+        return exc, log.read_text()
+
+
+def test_console_staging_keeps_the_packages_compose_files_and_never_touches_honua(tmp_path):
+    """Studio DEV shakeout 11-02: "-f compose.yaml -f console.yaml" dropped the package's executor and image overrides
+    (its .env COMPOSE_FILE), so Compose recreated honua as console's dependency and stage 4 was unavailable."""
+    staged, log = _run_console_script(
+        tmp_path, 'HONUA_IMAGE=x\nCOMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml\n')
+    assert isinstance(staged, dict) and staged['observedRepoDigests'] == [CONSOLE_REF]
+    up = [line for line in log.splitlines() if ' up ' in line]
+    assert up == [line for line in up if 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml'
+                  ':console.yaml ' in line and '--no-deps' in line and line.rstrip().endswith(' console')]
+    assert len(up) == 1 and not any(' -f ' in line for line in log.splitlines())
+
+
+def test_console_staging_without_compose_file_uses_compose_and_executor(tmp_path):
+    staged, log = _run_console_script(tmp_path, 'HONUA_IMAGE=x\n')
+    assert isinstance(staged, dict)
+    assert 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:console.yaml ' in [l for l in log.splitlines() if ' up ' in l][0]
+    staged, log = _run_console_script(tmp_path / 'plain', None, executor=False) if (tmp_path / 'plain').mkdir() is None \
+        else (None, '')
+    assert 'COMPOSE_FILE=compose.yaml:console.yaml ' in [l for l in log.splitlines() if ' up ' in l][0]
+
+
+def test_console_staging_fails_closed_if_honua_changes(tmp_path):
+    staged, _ = _run_console_script(tmp_path, 'COMPOSE_FILE=compose.yaml\n', honua_ids=('h1', 'h2'))
+    assert isinstance(staged, RuntimeError) and 'changed the honua container' in str(staged)
+
+
+def _run_documented_console(tmp_path, env_text, *, honua_ids=('h1', 'h1'), doc=None):
+    """stage_documented_console's script for real (sh), against a stub docker logging each call and COMPOSE_FILE."""
+    import os
+    import stat
+    import subprocess
+    import ai_arc_local as L
+    remote = tmp_path / 'slot'
+    remote.mkdir()
+    (remote / '.env').write_text(env_text)
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log, ids = tmp_path / 'docker.log', tmp_path / 'ids'
+    ids.write_text('\n'.join(honua_ids) + '\n')
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    f'echo "COMPOSE_FILE=$COMPOSE_FILE HONUA_CONSOLE_PORT=$HONUA_CONSOLE_PORT ARGS=$*" >> {log}\n'
+                    'case "$*" in\n'
+                    f'  *"service=honua"*) head -n 1 {ids}; tail -n +2 {ids} > {ids}.n; mv {ids}.n {ids} ;;\n'
+                    '  *"service=console"*) echo c1 ;;\n'
+                    '  "inspect --format {{.Image}} c1") echo img ;;\n'
+                    f'  *"image inspect"*) echo \'{json.dumps([CONSOLE_REF])}\' ;;\n'
+                    'esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+
+    class Slot(ConsoleSlot):
+        remote_dir = str(remote)
+
+        def ssh(self, script, timeout=300):
+            self.scripts.append(script)
+            return subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                  env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    slot = Slot([CONSOLE_REF])
+    try:
+        result = L.stage_documented_console(slot, CONSOLE, doc=doc)
+    except (RuntimeError, ValueError) as exc:
+        result = exc
+    return result, (log.read_text() if log.exists() else ''), slot
+
+
+def test_studio_stage_adds_console_exactly_as_the_customer_doc_says(tmp_path):
+    import ai_arc_local as L
+    override, command = L.documented_console()
+    staged, log, slot = _run_documented_console(
+        tmp_path, 'COMPOSE_PROJECT_NAME=honua-abc\nCOMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml\n')
+    assert isinstance(staged, dict) and staged['image'] == CONSOLE_REF and staged['port'] == 18184
+    script = slot.scripts[0]
+    assert command.strip() in script                                      # the doc's command, verbatim
+    assert override.replace(L.CONSOLE_DIGEST_PLACEHOLDER, '@' + CONSOLE['imageDigest']) in script
+    up = [line for line in log.splitlines() if ' up ' in line]
+    assert len(up) == 1 and 'COMPOSE_FILE=compose.yaml:compose.executor.yaml:compose.executor.image.yaml:console.yaml ' \
+        'HONUA_CONSOLE_PORT=18184 ARGS=compose up -d --no-deps --wait console' in up[0]
+    assert (tmp_path / 'slot' / 'console.yaml').read_text().count(CONSOLE['imageDigest']) == 1
+
+
+@pytest.mark.parametrize('case', ['honua-changed', 'no-project', 'other-image', 'tag'])
+def test_documented_console_fails_closed(tmp_path, case):
+    import ai_arc_local as L
+    env, ids, doc = 'COMPOSE_PROJECT_NAME=honua-abc\nCOMPOSE_FILE=compose.yaml\n', ('h1', 'h1'), None
+    if case == 'honua-changed':
+        ids = ('h1', 'h2')
+    elif case == 'no-project':
+        env = 'COMPOSE_FILE=compose.yaml\n'
+    elif case == 'other-image':
+        doc = L.CONSOLE_DOC.read_text().replace('ghcr.io/honua-io/honua-console@sha256:<digest',
+                                               'ghcr.io/other/console@sha256:<digest')
+    else:
+        doc = L.CONSOLE_DOC.read_text().replace('@sha256:<digest from the release lock>', ':latest')
+    staged, _, _ = _run_documented_console(tmp_path, env, honua_ids=ids, doc=doc)
+    assert isinstance(staged, (RuntimeError, ValueError)), staged
+
+
+def test_the_documented_console_healthcheck_names_the_file_the_pinned_image_ships():
+    """Studio DEV shakeout run 5c: the pinned rc.2 Console image (c63b37fd) ships /app/version.json, not
+    /app/wwwroot/version.json, so the source compose's healthcheck never passed and `--wait` failed."""
+    import yaml
+    import ai_arc_local as L
+    override, _ = L.documented_console()
+    check = yaml.safe_load(override.replace(L.CONSOLE_DIGEST_PLACEHOLDER, '@' + CONSOLE['imageDigest']))
+    # Either path, as honua-server #6899: the rc.2 image's /app/version.json, or an older image's wwwroot copy.
+    assert check['services']['console']['healthcheck']['test'] == [
+        'CMD-SHELL', 'test -s /app/version.json || test -s /app/wwwroot/version.json']
+
+
+def _run_teardown(tmp_path, containers, volumes, *, project_volumes=(), in_use=()):
+    """VmSlot.teardown's script for real (sh) against a stub docker. ``containers`` maps the slot's container ids to
+    the volumes they mount; ``volumes`` are every volume on the host (other slots' included)."""
+    import os
+    import stat
+    import subprocess
+    import ai_arc_local as L
+    remote = tmp_path / 'home' / 'honua-arc' / 'arc-abcdef123456'
+    remote.mkdir(parents=True)
+    vols, cons = tmp_path / 'vols', tmp_path / 'cons'
+    vols.mkdir()
+    cons.mkdir()
+    for v in volumes:
+        (vols / v).write_text('in-use' if v in in_use else '')
+    for c, mounts in containers.items():
+        (cons / c).write_text(''.join(m + '\n' for m in mounts))
+    (tmp_path / 'proj.txt').write_text(''.join(v + '\n' for v in project_volumes))
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    log = tmp_path / 'docker.log'
+    stub = bindir / 'docker'
+    stub.write_text('#!/bin/sh\n'
+                    f'echo "$*" >> {log}\n'
+                    'case "$*" in\n'
+                    f'  "ps -aq --filter label=com.docker.compose.project=arc-abcdef123456") ls {cons} ;;\n'
+                    '  "ps -aq --filter label=honua.corpus.case=arc-abcdef123456") ;;\n'
+                    f'  "inspect --format "*) [ "$4" != c-broken ] || exit 1; cat {cons}/"$4" ;;\n'
+                    f'  *" down "*) rm -f {cons}/* ;;\n'
+                    f'  "volume inspect "*) [ -f {vols}/"$3" ] ;;\n'
+                    f'  "volume rm "*) [ "$(cat {vols}/"$3")" != in-use ] && rm -f {vols}/"$3" ;;\n'
+                    f'  "volume ls -q --filter label=com.docker.compose.project=arc-abcdef123456") cat {tmp_path}/proj.txt ;;\n'                    f'  "volume ls -q") [ ! -f {tmp_path}/ls-fails ] || exit 1; ls {vols} ;;\n'
+                    'esac\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    vm = L.VmSlot(host='h1', user='ubuntu', identity_file='/k', known_hosts='/kh', project='arc-abcdef123456', index=0)
+    vm.remote_dir = str(remote)
+    vm.ssh = lambda script, timeout=300: subprocess.run(['sh', '-s'], input=script.encode(), capture_output=True,
+                                                        env={**os.environ, 'PATH': f'{bindir}:/usr/bin:/bin'}, timeout=60)
+    return vm.teardown(), sorted(p.name for p in vols.iterdir()), log.read_text()
+
+
+def test_teardown_removes_only_the_volumes_its_own_containers_mount(tmp_path):
+    """Release session 2026-11-02 + Sol console9: the slot's anonymous volumes go; another live slot's volumes
+    (even dangling, even newer) and older unrelated volumes are never selected."""
+    result, remaining, log = _run_teardown(
+        tmp_path, {'c-redis': ['slot-anon'], 'c-honua': []},
+        ['slot-anon', 'other-slot-dangling', 'old-unrelated'])
+    assert result['status'] == 'clean'
+    assert remaining == ['old-unrelated', 'other-slot-dangling']
+    assert 'volume rm slot-anon' in log and 'volume rm other-slot-dangling' not in log and 'volume rm old-unrelated' not in log
+
+
+def test_teardown_is_dirty_when_an_owned_or_project_volume_remains(tmp_path):
+    result, _, _ = _run_teardown(tmp_path, {'c-redis': ['slot-anon']}, ['slot-anon'], in_use=('slot-anon',))
+    assert result['status'] == 'dirty'
+    result, _, _ = _run_teardown(tmp_path / 'b', {}, [], project_volumes=['arc-abcdef123456_compose-manager-postgres'])
+    assert result['status'] == 'dirty'
+
+
+def test_teardown_is_dirty_when_the_slot_inventory_cannot_be_read(tmp_path):
+    """Sol console10: a failed inspection must not count as an empty inventory (its volumes would be missed)."""
+    result, remaining, _ = _run_teardown(tmp_path, {'c-broken': ['slot-anon']}, ['slot-anon'])
+    assert result['status'] == 'dirty' and remaining == ['slot-anon']
+
+
+def test_teardown_is_dirty_when_the_volume_listing_fails(tmp_path):
+    """Sol console11: a failed volume inspection or listing never counts as "nothing left"."""
+    (tmp_path / 'ls-fails').write_text('')
+    result, _, _ = _run_teardown(tmp_path, {'c-redis': ['slot-anon']}, ['slot-anon'])
+    assert result['status'] == 'dirty'
+
+
+def test_only_the_studio_action_bound_was_raised_and_it_binds_both_arms():
+    """PREREG A18 (revised): stage four's tool-call bound is 150 (DEV 12a ran out at 60; DEV 13b needed 96 actions
+    to reach both saves and ran out at 100 before its final answer); every other bound is the frozen v1 value, and
+    the limits are per stage, never per arm."""
+    limits = ARC['limits']
+    assert limits['studio']['maxToolCalls'] == 150
+    for stage in ('setup', 'ops', 'services'):
+        assert limits[stage]['maxToolCalls'] == 60
+    for stage, row in limits.items():
+        assert (row['maxTurns'], row['maxSeconds'], row['maxContinueNudges']) == (60, 2700, 1), stage
+        assert not set(row) & {'A1', 'A2', 'claude-cli', 'codex-cli'}, stage
 
 
 FINAL_RC2_SERVER = '8628668794df9f0c22a490e59cedaee409cc1bdd'
