@@ -283,10 +283,17 @@ def runtime_class():
 
         def session(self, stack, prompt, number, **kwargs):
             imports = customer_imports(stack) if number == 1 else None
+            notes = []
             if imports:
                 # The customer's own knowledge of their import, before the case's request (dev and held-out alike;
                 # the goal text itself is unchanged).
-                prompt = customer_import_note(imports) + '\n\n' + prompt
+                notes.append(customer_import_note(imports))
+            seeded_map = stack.extra.get('arcP15Map') if number == 1 else None
+            if seeded_map is not None:
+                # A26: the harness-seeded map and the operators' audience, as the customer knows them.
+                notes.append(customer_map_note(seeded_map))
+            if notes:
+                prompt = '\n\n'.join(notes) + '\n\n' + prompt
             try:
                 output = super().session(stack, prompt, number, **kwargs)
             except runner.SessionInterrupted as exc:
@@ -424,6 +431,28 @@ def customer_import_note(imports: dict) -> str:
             raise ValueError('an imported dataset has no schema or table')
         lines.append(f"- {row['dataset'].replace('_', ' ')}: table {row['table']} in schema {row['schema']}")
     return '\n'.join(lines)
+
+
+# PREREG A26 (rehearsal of record 41722009358): no tool can discover a saved Studio map, and the publication
+# visibility is undocumented free text, so P15's harness-seeded map and the operators' audience are handed over as
+# customer knowledge. Identical for both arms and every case (development and held-out); the goal text is unchanged.
+MAP_NOTE = ('Where our map is: the map we ask you to share is already saved in Honua Studio as item {itemId}, '
+            'version {versionId} (content hash {contentHash}). In Honua, our operators are the team audience '
+            '(visibility `team`).')
+assert MAP_NOTE.endswith('In Honua, our operators are the team audience (visibility `team`).')
+
+
+def customer_map_note(seeded) -> str:
+    """The customer's note about the map they saved (A26). It names the saved version and the audience; no tool."""
+    import re as _re
+    if not isinstance(seeded, dict) or set(seeded) != {'itemId', 'versionId', 'contentHash'}:
+        raise ValueError('the seeded map handoff needs itemId, versionId and contentHash')
+    for key in ('itemId', 'versionId'):
+        if not _re.fullmatch(r'[0-9a-fA-F-]{36}', str(seeded[key])):
+            raise ValueError('the seeded map handoff has an invalid ' + key)
+    if not _re.fullmatch(r'[A-Za-z0-9:_+/=.-]{1,128}', str(seeded['contentHash'])):
+        raise ValueError('the seeded map handoff has an invalid contentHash')
+    return MAP_NOTE.format(**seeded)
 
 
 def run_fixture_services(*, goal, fixture_id, fault, **kwargs):

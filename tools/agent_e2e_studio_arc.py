@@ -250,6 +250,11 @@ def sharing_from_records(records):
             and data['visibility'].strip().casefold() == controller['visibility'].strip().casefold() == visibility)
 
 
+# PREREG A26: the publication visibility is undocumented free text, so the customer names the operators' audience
+# (the same words as the P15 map note); identical for both arms and every case.
+AUDIENCE_NOTE = 'In Honua, our operators are the team audience (visibility `team`).'
+
+
 def probe_sharing(recorder, stack, mint_reader):
     """Use controller audit and reads to locate the real published Studio route."""
     import os
@@ -906,7 +911,8 @@ def arc_stage(ctx):
                     case = {**case, 'prompts': {**case['prompts'], fixture: case['prompts'][fixture] +
                         '\nServices handoff: ' + json.dumps(customer_handoff, sort_keys=True) +
                         '\nUse the existing agent-published layers. Publish any additional map layers yourself '
-                        'from these imported tables and connection; create and save the map through Studio.'}}
+                        'from these imported tables and connection; create and save the map through Studio.'
+                        '\n' + AUDIENCE_NOTE}}
                 fixture_id = context.case['fixtures'] if context.case is not None else 'town-' + fixture
                 requirements = fixture_requirements(fixture_id, 'P08')
                 # Use the P09 authored-render oracle with P08's newly created map.

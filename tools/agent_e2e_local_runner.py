@@ -309,6 +309,13 @@ def case_context(stack, runtime):
             'fingerprint_salt': salt}
 
 
+# Why a step a projection reads can be absent, where the scenario records it only after an agent action (wording only:
+# the assertion fails exactly as before). Rehearsal of record 41722009358: P15's reason named only the step.
+MISSING_STEP_REASONS = {
+    'p15-operator': 'no honua_studio_propose_publication of the seeded map, so the access probes did not run',
+    'p15-anonymous': 'no honua_studio_propose_publication of the seeded map, so the access probes did not run'}
+
+
 def score_assertions(assertions, observations, expected, *, records, roles=None, custody=None, run_facts=None,
                      credentials=(), scenario_id=None, model_actions=None, frozen=None, canaries=None,
                      model_visible=(), customer_files=None, final_answers=(), action_results=(),
@@ -373,7 +380,8 @@ def score_assertions(assertions, observations, expected, *, records, roles=None,
             for step in steps:
                 record = records.get(step)
                 if record is None:
-                    raise ValueError('projection reads an unrecorded step: ' + step)
+                    why = MISSING_STEP_REASONS.get(step)
+                    raise ValueError('projection reads an unrecorded step: ' + step + (f' ({why})' if why else ''))
                 if not record.intact():
                     raise ValueError('retained bytes differ from the recorded digest: ' + step)
                 if reads is not None:
