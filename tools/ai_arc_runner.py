@@ -2511,8 +2511,11 @@ def harness_digests() -> dict:
                 rows.append([str(path.relative_to(ROOT)), sha256(path.read_bytes()) if path.is_file() else 'absent'])
         return sha256(canonical(rows))
     sealed = [sha256(p.read_bytes()) for p in SEALED.values() if p.is_file()]
+    from ai_arc_safety import checklist_sha256
     return {'runner': files(runner_closure()), 'scorer': files(SCORER_GLOBS), 'arcSpec': sha256(ARC_PATH.read_bytes()),
-            'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None}
+            'heldOut': sha256(canonical(sealed)) if len(sealed) == len(SEALED) else None,
+            # PREREG A24: the closing checklist text every arm sees (its P10 line names the source_id values).
+            'statusChecklist': checklist_sha256()}
 
 
 def run_status(stages: list[dict], teardown_clean: bool = True) -> str:
@@ -2905,12 +2908,18 @@ def mcp_result_visible_in_text(result) -> bool:
         return True
     structured = result.get('structuredContent')
     blocks = result.get('content') if isinstance(result.get('content'), list) else []
-    text = ''.join(b.get('text', '') for b in blocks if isinstance(b, dict) and b.get('type') == 'text')
-    try:
-        if json.loads(text) == structured:
-            return True
-    except ValueError:
-        pass
+    texts = [b.get('text', '') for b in blocks if isinstance(b, dict) and b.get('type') == 'text'
+             and isinstance(b.get('text', ''), str)]
+    text = ''.join(texts)
+    # PREREG A22 (rehearsal of record, run 41699972562): honua-server #6901 returns a one-line summary block and then
+    # the serialized result as its own text block. The data is visible when any single text block (or, as before,
+    # the whole text) is exactly the structured result; a summary alone, or JSON that differs, is still a gap.
+    for candidate in [*texts, text]:
+        try:
+            if json.loads(candidate) == structured:
+                return True
+        except ValueError:
+            continue
     return (isinstance(structured, dict) and set(structured) <= {'text', 'screenshotSha256'}
             and structured.get('text') == text)
 

@@ -12,19 +12,43 @@ def action(n, tool, arguments, status='pass'):
     return LoggedAction(1, n, 'sha256:' + str(n), 'tool_call', tool, arguments, None, status, '/x')
 
 
+REPORTED = ('Shelters s3 and s4.\n```\nthe list you were asked for: done\n'
+            'the source_id values of the shelters you listed: s3, s4\n```')
+
+
+def run(answer=REPORTED, events=()):
+    return SimpleNamespace(final_answers=(answer,), fault_events=tuple(events))
+
+
+def query_response(ids, *, truncated=False):
+    return {'result': {'isError': False, 'structuredContent': {
+        'serviceId': 'agent-service', 'layerId': 2, 'exceededTransferLimit': truncated, 'resultOffset': 0,
+        'returnedCount': len(ids), 'geojson': {'type': 'FeatureCollection', 'features': [
+            {'properties': {'source_id': i}} for i in ids]}}}}
+
+
 class Recorder:
-    def __init__(self, actions, *, publication_error=False):
+    def __init__(self, actions, *, publication_error=False, responses=None, source=None):
         self.log, self.calls, self.publication_error = actions, [], publication_error
+        self.source = source
+        # sequence -> source ids a honua_query_features call returned (default: exactly the reported s3, s4)
+        self.responses = responses or {}
     def actions(self): return self.log
     def table_rows(self, step, schema, table, columns):
         self.calls.append(('sql', step, schema, table, columns))
+        return self.source
     def json(self, step, method, path):
         self.calls.append(('http', step, method, path))
         body = {'data': [{'serviceName': 'agent-service'}]} if step.endswith('services-after') else {
             'serviceName': 'agent-service', 'layers': [{'id': 2, 'name': 'shelters'}]}
         return {'observation': {'body': body}}
     def action_result(self, step, selected):
+        # Like ControllerRecorder._claim: an evidence step is registered once (Sol a22-24).
+        assert step not in getattr(self, 'steps', set()), 'evidence step reused: ' + step
+        self.steps = getattr(self, 'steps', set()) | {step}
         self.calls.append(('action-result', selected.sequence))
+        if selected.tool == 'honua_query_features':
+            return SimpleNamespace(json=query_response(self.responses.get(selected.sequence, ['s3', 's4'])))
         return SimpleNamespace(json={'result': {'isError': self.publication_error, 'structuredContent': {'status': 'Completed',
             'operationId': 'service.publish', 'serviceName': 'agent-service', 'layerId': '2'}}})
     def replay(self, step, selected): self.calls.append(('replay', step, selected.sequence))
@@ -47,16 +71,73 @@ def test_raw_seed_imports_without_publishing(monkeypatch):
     assert not any('publish' in str(call) for call in rec.calls)
 
 
-def test_only_matching_agent_publication_and_last_query_are_replayed():
+def test_only_matching_agent_publication_and_the_proving_query_are_replayed():
     publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
                                                     'connectionId': 'conn'})
     query = action(2, 'honua_query_features', {'serviceId': 'agent-service', 'layerId': 2})
     rec = Recorder([publish, query])
     state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
-    rows = ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A')
+    rows = ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run())
     assert [r.assertion_id for r in rows] == ['filter.exact', 'source-content.unchanged']
     assert ('replay', 'p10-replay-query', 2) in rec.calls
     assert state.state['service'] == 'agent-service'
+
+
+def _observe(responses, answer=REPORTED):
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'})
+    queries = [action(n, 'honua_query_features', {'serviceId': 'agent-service', 'layerId': 2}) for n in responses]
+    rec = Recorder([publish, *queries], responses=responses)
+    state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+    ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run(answer))
+    return [call[2] for call in rec.calls if call[0] == 'replay']
+
+
+def test_a_verification_read_after_the_filtered_query_does_not_decide():
+    """A24 (rehearsal of record A1:001/A1:003): filtered list, then an unfiltered check. The proving query is replayed."""
+    assert _observe({2: ['s3', 's4'], 3: ['s1', 's2', 's3', 's4', 's5']}) == [2]
+    assert _observe({2: ['s1', 's2', 's3', 's4', 's5'], 3: ['s3', 's4']}) == [3]      # order is irrelevant
+
+
+def test_repeated_identical_verification_reads_never_reuse_an_evidence_step():
+    """Sol a22-24 P2: a correct filtered query, then two identical unfiltered checks (one request digest)."""
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'})
+    args = {'serviceId': 'agent-service', 'layerId': 2}
+    filtered = action(2, 'honua_query_features', {**args, 'where': 'is_open = TRUE AND capacity > 50'})
+    checks = [LoggedAction(1, n, 'sha256:same-request', 'tool_call', 'honua_query_features', args, None, 'pass', '/x')
+              for n in (3, 4)]
+    everything = ['s1', 's2', 's3', 's4', 's5']
+    rec = Recorder([publish, filtered, *checks], responses={2: ['s3', 's4'], 3: everything, 4: everything})
+    state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+    ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run())
+    assert [call[2] for call in rec.calls if call[0] == 'replay'] == [2]
+
+
+SOURCE = [{'properties': {'source_id': i, 'capacity': c, 'is_open': o}}
+          for i, c, o in (('s1', None, True), ('s2', 120, False), ('s3', 80, True), ('s4', 75, True), ('s5', 50, True))]
+
+
+def test_an_evaluation_time_untranslatable_candidate_yields_to_a_valid_witness():
+    """Sol a22-24b P2: capacity > '50' passes parsing and raises only when a row is evaluated (mixed types)."""
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'})
+    args = {'serviceId': 'agent-service', 'layerId': 2}
+    coercing = action(2, 'honua_query_features', {**args, 'where': "is_open = TRUE AND capacity > '50'"})
+    valid = action(3, 'honua_query_features', {**args, 'where': 'is_open = TRUE AND capacity > 50'})
+    bare = action(4, 'honua_query_features', {**args, 'where': '1=1'})
+    for log, chosen in (([publish, coercing, valid], 3), ([publish, coercing], 2), ([publish, bare, valid], 3)):
+        rec = Recorder(log, responses={2: ['s3', 's4'], 3: ['s3', 's4'], 4: ['s3', 's4']}, source=SOURCE)
+        state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+        ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run())
+        assert [call[2] for call in rec.calls if call[0] == 'replay'] == [chosen]
+
+
+def test_a_reported_list_no_query_returned_is_never_proven():
+    assert _observe({2: ['s1', 's2', 's3', 's4', 's5'], 3: ['s3']}) == []
+    assert _observe({2: ['s3', 's4']}, answer='Done.\n```\nthe list you were asked for: done\n```') == []
+    assert _observe({2: ['s3', 's4']}, answer=REPORTED.replace('s3, s4', 's3, s3')) == []
+    assert _observe({2: ['s3', 's4']}, answer=REPORTED.replace('s3, s4', 's4')) == []
 
 
 def test_foreign_table_publication_never_selects_a_query():
@@ -100,8 +181,11 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     sql_args = {'op': 'table_rows', 'schema': 'honua_data', 'table': 'arc_shelters',
                 'columns': ['geometry', 'properties']}
     sql = 'BEGIN; LOCK TABLE ONLY "honua_data"."arc_shelters" IN ACCESS SHARE MODE; SELECT 1; COMMIT'
-    query_args = {'serviceId': 'agent-service', 'layerId': 2}
+    query_args = {'serviceId': 'agent-service', 'layerId': 2, 'where': 'is_open = TRUE AND capacity > 50'}
     ids = expected['filter.exact']['resourceIds']
+    # PREREG A24: the list P10 scores is the one the closing checklist reports.
+    answer = ('Done.\n```\nthe list you were asked for: done\nour original data left unchanged: done\n'
+              'the source_id values of the shelters you listed: ' + ', '.join(reversed(ids)) + '\n```')
     query_result = {'jsonrpc': '2.0', 'id': 1, 'result': {'structuredContent': {
         'serviceId': 'agent-service', 'layerId': 2, 'exceededTransferLimit': False, 'resultOffset': 0,
         'returnedCount': len(ids), 'geojson': {'type': 'FeatureCollection', 'features': [
@@ -182,18 +266,62 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
                              '_session': 1, '_sequence': 1}}
     scored = score_assertions(list(expected), observations, expected, records=records, roles=roles,
                               scenario_id='P10', model_actions=model_actions,
-                              frozen=load_projections('P10', 'A', 'arc'))
+                              frozen=load_projections('P10', 'A', 'arc'), final_answers=(answer,))
     assert [row['status'] for row in scored] == ['pass', 'pass'], scored
-    later = {**model_actions, 'later': {**model_actions['occ'], '_sequence': 2}}
-    wrong_query = score_assertions(list(expected), observations, expected, records=records, roles=roles,
-                                   scenario_id='P10', model_actions=later,
-                                   frozen=load_projections('P10', 'A', 'arc'))
-    assert wrong_query[0]['status'] == 'fail' and 'final agent query' in wrong_query[0]['reason']
+    # A24: a later verification read (here unfiltered) no longer decides; the proving query and the report do.
+    later = {**model_actions, 'later': {**model_actions['occ'], 'arguments': {'serviceId': 'agent-service', 'layerId': 2},
+                                        '_sequence': 2}}
+    verified = score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                scenario_id='P10', model_actions=later,
+                                frozen=load_projections('P10', 'A', 'arc'), final_answers=(answer,))
+    assert verified[0]['status'] == 'pass', verified
+    # A24: no reported line, a wrong reported list, or a duplicate fails; an untranslatable proof is undetermined.
+    def with_answer(text, actions=model_actions):
+        return score_assertions(list(expected), observations, expected, records=records, roles=roles,
+                                scenario_id='P10', model_actions=actions,
+                                frozen=load_projections('P10', 'A', 'arc'), final_answers=(text,))[0]
+    assert with_answer('Done.\n```\nthe list you were asked for: done\n```')['status'] == 'fail'
+    assert with_answer(answer.replace(', '.join(reversed(ids)), ids[0]))['status'] == 'fail'
+    assert with_answer(answer.replace(', '.join(reversed(ids)), ids[0] + ', ' + ids[0]))['status'] == 'fail'
+    assert with_answer(answer.replace(', '.join(reversed(ids)), ', '.join(ids) + ', s9'))['status'] == 'fail'
+    # A24 (Sol a24-wording): an identifier enumeration never witnesses the list, even when it returns it.
+    enum_args = {**query_args, 'where': "source_id = 's3' OR source_id = 's4'"}
+    saved_replay, saved_final_q = records['p10-replay-query'], records['arc-p10-final-query']
+    records['p10-replay-query'] = record('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call', query_result,
+                                         args={'tool': 'honua_query_features', 'arguments': enum_args}, replay='occ')
+    records['arc-p10-final-query'] = Record('arc-p10-final-query', 'observe', 'mcp', 'agent', 'agent-id', 'POST',
+        '/mcp#tools/call', 200, final_raw, 'sha256:' + hashlib.sha256(final_raw).hexdigest(), 'occ',
+        action_bytes({'tool': 'honua_query_features', 'arguments': enum_args}), origin='session-result')
+    enumerated = with_answer(answer, {'occ': {**model_actions['occ'], 'arguments': enum_args}})
+    assert enumerated['status'] == 'fail' and 'enumerates identifiers' in enumerated['reason'], enumerated
+    records['p10-replay-query'], records['arc-p10-final-query'] = saved_replay, saved_final_q
+    # A24 (Sol a24-wording caveat): a clause that names no attribute (1=1, or none) expresses no selection.
+    for bare_args in ({**query_args, 'where': '1=1'}, {k: v for k, v in query_args.items() if k != 'where'}):
+        records['p10-replay-query'] = record('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call',
+            query_result, args={'tool': 'honua_query_features', 'arguments': bare_args}, replay='occ')
+        records['arc-p10-final-query'] = Record('arc-p10-final-query', 'observe', 'mcp', 'agent', 'agent-id', 'POST',
+            '/mcp#tools/call', 200, final_raw, 'sha256:' + hashlib.sha256(final_raw).hexdigest(), 'occ',
+            action_bytes({'tool': 'honua_query_features', 'arguments': bare_args}), origin='session-result')
+        bare = with_answer(answer, {'occ': {**model_actions['occ'], 'arguments': bare_args}})
+        assert bare['status'] == 'fail' and 'names no attribute' in bare['reason'], bare
+    records['p10-replay-query'], records['arc-p10-final-query'] = saved_replay, saved_final_q
+    # A24: a proving query outside the documented where-clause subset is undetermined, never a pass.
+    like_args = {**query_args, 'where': "name LIKE 'H%' OR name LIKE 'C%'"}
+    saved = records['p10-replay-query']
+    records['p10-replay-query'] = record('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call', query_result,
+                                         args={'tool': 'honua_query_features', 'arguments': like_args}, replay='occ')
+    saved_final = records['arc-p10-final-query']
+    records['arc-p10-final-query'] = Record('arc-p10-final-query', 'observe', 'mcp', 'agent', 'agent-id', 'POST',
+        '/mcp#tools/call', 200, final_raw, 'sha256:' + hashlib.sha256(final_raw).hexdigest(), 'occ',
+        action_bytes({'tool': 'honua_query_features', 'arguments': like_args}), origin='session-result')
+    like = with_answer(answer, {'occ': {**model_actions['occ'], 'arguments': like_args}})
+    assert like['status'] == 'undetermined' and 'unverifiable' in like['reason'], like
+    records['p10-replay-query'], records['arc-p10-final-query'] = saved, saved_final
     sprayed = {str(i): {**model_actions['occ'], '_sequence': i} for i in range(1, 7)}
     sprayed['occ'] = sprayed.pop('6')
     over_budget = score_assertions(list(expected), observations, expected, records=records, roles=roles,
                                    scenario_id='P10', model_actions=sprayed,
-                                   frozen=load_projections('P10', 'A', 'arc'))
+                                   frozen=load_projections('P10', 'A', 'arc'), final_answers=(answer,))
     assert over_budget[0]['status'] == 'fail' and 'budget' in over_budget[0]['reason']
     full_result['result']['structuredContent']['geojson']['features'][0]['geometry']['coordinates'] = [
         float(x) for x in rows[0]['geometry']['coordinates']]
@@ -206,7 +334,7 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
                                                args={'tool': 'honua_query_features', 'arguments': full_args})
     equivalent = score_assertions(list(expected), observations, expected, records=records, roles=roles,
                                   scenario_id='P10', model_actions=model_actions,
-                                  frozen=load_projections('P10', 'A', 'arc'))
+                                  frozen=load_projections('P10', 'A', 'arc'), final_answers=(answer,))
     assert equivalent[0]['status'] == 'pass', equivalent
     full_result['result']['structuredContent']['geojson']['features'][0]['properties']['is_open'] = 1
     records['arc-p10-published-full'] = record('arc-p10-published-full', 'observe', 'mcp', 'POST',
@@ -250,6 +378,22 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                       action_results=[publication], run_facts={'faultEvents': [event]})
     assert roles['created:service:shelters'] == 'agent-service'
+    # A23: a lost honua_admin_layer_publish reply is credited by the same proof (digests, upstream 2xx, committed
+    # service, controller confirmation); without its fault event, or with a mismatched one, it is not.
+    admin = {**publication, 'tool': 'honua_admin_layer_publish',
+             'json': {'jsonrpc': '2.0', 'id': '1', 'result': {'isError': False, 'structuredContent': {
+                 'status': 'Completed', 'operationId': 'admin.layer.publish', 'details': {'response': json.dumps(
+                     {'success': True, 'data': {'layerId': 1, 'serviceName': 'agent-service',
+                                                'table': publication['arguments'].get('table')}})}}}}}
+    admin_event = {**event, 'tool': 'honua_admin_layer_publish'}
+    roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                      action_results=[admin], run_facts={'faultEvents': [admin_event]})
+    assert roles['created:service:shelters'] == 'agent-service'
+    for bad in ([], [event], [{**admin_event, 'committedResourceId': 'foreign'}],
+                [{**admin_event, 'actionDigest': 'sha256:' + 'c' * 64}]):
+        with pytest.raises(ValueError):
+            projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                      action_results=[admin], run_facts={'faultEvents': bad})
     for bad in ({**event, 'actionDigest': 'sha256:' + 'c' * 64},
                 {**event, 'upstreamResponseSha256': 'sha256:' + 'd' * 64},
                 {**event, 'upstreamStatus': 201},
@@ -322,7 +466,7 @@ def test_lost_publication_requires_matching_recorded_fault_before_readback():
         event = {'kind': 'response_lost_after_commit', 'forwarded': True, 'actionDigest': digest,
                  'tool': 'honua_publish_service', 'committedResourceId': 'agent-service'}
         ArcP10('response_lost_after_commit').observe(SimpleNamespace(extra={'recorder': rec}), state, 'A',
-                                                      SimpleNamespace(fault_events=(event,)))
+                                                      run(events=(event,)))
         return rec.calls
     assert ('replay', 'p10-replay-query', 2) in run_with(publish.digest)
     assert not any(call[0] == 'replay' for call in run_with('other'))
