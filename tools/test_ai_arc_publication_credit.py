@@ -200,3 +200,53 @@ def test_only_the_reviewed_publication_trigger_is_accepted():
                              'match': {'tool': 'honua_publish_service'},
                              'commit': {'pointer': '/result/structuredContent/serviceName',
                                         'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}})
+
+
+def _lost_fault(confirm_status=200):
+    """P10's response_lost_after_commit fault, with a controller read that confirms the committed service."""
+    from agent_e2e_local_faults import FaultInjector
+    from agent_e2e_local_scenarios.arc_p10 import ArcP10
+    reads = []
+
+    def confirm(path):
+        reads.append(path)
+        return confirm_status, 'confirm-' + str(len(reads))
+    plan = ArcP10('response_lost_after_commit').fault_plan('A')
+    plan['commit']['confirm'] = dict(plan['commit']['confirm'], attempts=1, intervalSeconds=0)
+    return FaultInjector(plan, confirm=confirm), reads
+
+
+@pytest.mark.parametrize('make, service', [(lambda: _publish_service('kestrel-svc'), 'kestrel-svc'),
+                                           (lambda: _admin_publish('kestrel'), 'kestrel')])
+def test_the_lost_publication_reply_fires_on_either_reviewed_publication_tool(make, service):
+    """A23 (rehearsal of record 41699972562, A1:002): the lost reply armed only on honua_publish_service, so an arm
+    publishing through honua_admin_layer_publish never met the fault. Each tool now loses its reply once, with the
+    committed service read by that tool's own crediting rule and confirmed by a controller read."""
+    fault, reads = _lost_fault()
+    result = make()
+    raw = json.dumps(result['json']).encode()
+    event = fault.lose('tool_call', _call(result['tool'], **result['arguments']), {'status': 'ok'}, 200, raw)
+    assert event is not None and event['tool'] == result['tool'] and event['committedResourceId'] == service
+    assert event['forwarded'] is True and reads == ['/api/v1/admin/services/' + service + '/settings']
+    assert fault.lose('tool_call', _call(result['tool'], **result['arguments']), {'status': 'ok'}, 200, raw) is None
+
+
+@pytest.mark.parametrize('result', [_admin_publish(dry_run=True), _admin_publish(validation=True),
+                                    _admin_publish(completed=False), _admin_publish(is_error=True)])
+def test_the_lost_reply_never_fires_on_an_admin_call_that_published_nothing(result):
+    fault, reads = _lost_fault()
+    raw = json.dumps(result['json']).encode()
+    assert fault.lose('tool_call', _call(result['tool'], **result['arguments']), {'status': 'ok'}, 200, raw) is None
+    assert reads == [] and fault.events == []
+
+
+def test_the_lost_reply_plan_accepts_only_the_reviewed_publication_tools():
+    from agent_e2e_local_faults import PUBLISH_TRIGGER, validate_fault_plan
+    base = {'kind': 'response_lost_after_commit', 'id': 'x', 'after': None,
+            'commit': {'pointer': '/result/structuredContent/serviceName',
+                       'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}}
+    assert validate_fault_plan(dict(base, match=PUBLISH_TRIGGER))['match'] == PUBLISH_TRIGGER
+    for bad in ({'tools': ['honua_publish_service', 'honua_ingest_dataset'], 'skipDryRun': True},
+                {'tools': ['honua_publish_service', 'honua_admin_layer_publish']}):
+        with pytest.raises(ValueError):
+            validate_fault_plan(dict(base, match=bad))

@@ -1118,6 +1118,36 @@ ADMIN_LAYER_PUBLISH = {'tool': 'honua_admin_layer_publish', 'operationId': 'admi
                        'response': '/result/structuredContent/details/response', 'pointer': '/data/serviceName'}
 
 
+def _lost_commit_proven(result, value, tool, spec, run_facts, records) -> bool:
+    """A failed (lost-reply) publication call whose commit the fault engine recorded and confirmed: one forwarded
+    event for this tool with the action's own digests, upstream 2xx, the committed resource equal to ``value``, and a
+    controller confirmation read of that service recorded in the session-confirm phase (A23)."""
+    from urllib.parse import quote
+    if not (isinstance(result.get('_digest'), str) and re.fullmatch(r'sha256:[0-9a-f]{64}', result['_digest'])
+            and isinstance(result.get('_responseSha256'), str)
+            and re.fullmatch(r'sha256:[0-9a-f]{64}', result['_responseSha256'])):
+        return False
+    rows = [e for e in (run_facts or {}).get('faultEvents', [])
+            if e.get('kind') == spec['allowFaultKind'] and e.get('forwarded') is True and e.get('tool') == tool
+            and e.get('actionDigest') == result.get('_digest') and e.get('upstreamOutcome') == 'ok'
+            and type(e.get('upstreamStatus')) is int and 200 <= e['upstreamStatus'] < 300
+            and e['upstreamStatus'] == result.get('_responseHttpStatus')
+            and e.get('upstreamResponseSha256') == result.get('_responseSha256')
+            and str(e.get('committedResourceId')) == str(value)]
+    if len(rows) != 1:
+        return False
+    confirmation = rows[0].get('confirmation') or {}
+    expected_path = '/api/v1/admin/services/' + quote(str(value), safe='') + '/settings'
+    checks = confirmation.get('checks') or []
+    last = checks[-1] if isinstance(checks, list) and checks else {}
+    proof = records.get(last.get('step')) if isinstance(last, dict) else None
+    return bool(confirmation.get('path') == expected_path and last.get('status') == 200
+                and proof is not None and proof.intact() and proof.phase == 'session-confirm'
+                and proof.origin == 'fault-confirmation' and proof.kind == 'http'
+                and proof.principal == 'controller' and proof.method == 'GET'
+                and proof.path == expected_path and proof.status == 200)
+
+
 def admin_layer_publication(result) -> str | None:
     """The service a honua_admin_layer_publish call created, or None. Only an accepted (pass) tool call whose
     operation completed, that was not a dry run (argument dryRun absent or false), and whose embedded admin response
@@ -1678,6 +1708,14 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
                     value = admin_layer_publication(result)
                     if value is not None:
                         authored.add(value)
+                    elif (result.get('status') == 'fail' and spec.get('allowFaultKind') == 'response_lost_after_commit'):
+                        # PREREG A23: a lost admin publication reply is credited exactly like a lost
+                        # honua_publish_service one: the recorded upstream reply is a real publication, and one
+                        # forwarded fault event with the same digests and a controller confirmation proves the commit.
+                        value = admin_layer_publication({**result, 'status': 'pass'})
+                        if value is not None and _lost_commit_proven(result, value, also['tool'], spec, run_facts,
+                                                                     records):
+                            authored.add(value)
                     continue
                 if result.get('tool') == spec['tool']:
                     if spec.get('allowFaultKind') is not None:

@@ -250,6 +250,22 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
                                       action_results=[publication], run_facts={'faultEvents': [event]})
     assert roles['created:service:shelters'] == 'agent-service'
+    # A23: a lost honua_admin_layer_publish reply is credited by the same proof (digests, upstream 2xx, committed
+    # service, controller confirmation); without its fault event, or with a mismatched one, it is not.
+    admin = {**publication, 'tool': 'honua_admin_layer_publish',
+             'json': {'jsonrpc': '2.0', 'id': '1', 'result': {'isError': False, 'structuredContent': {
+                 'status': 'Completed', 'operationId': 'admin.layer.publish', 'details': {'response': json.dumps(
+                     {'success': True, 'data': {'layerId': 1, 'serviceName': 'agent-service',
+                                                'table': publication['arguments'].get('table')}})}}}}}
+    admin_event = {**event, 'tool': 'honua_admin_layer_publish'}
+    roles = projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                      action_results=[admin], run_facts={'faultEvents': [admin_event]})
+    assert roles['created:service:shelters'] == 'agent-service'
+    for bad in ([], [event], [{**admin_event, 'committedResourceId': 'foreign'}],
+                [{**admin_event, 'actionDigest': 'sha256:' + 'c' * 64}]):
+        with pytest.raises(ValueError):
+            projections.resolve_roles(load_roles('P10', 'arc'), records, agent_principal='agent-id',
+                                      action_results=[admin], run_facts={'faultEvents': bad})
     for bad in ({**event, 'actionDigest': 'sha256:' + 'c' * 64},
                 {**event, 'upstreamResponseSha256': 'sha256:' + 'd' * 64},
                 {**event, 'upstreamStatus': 201},

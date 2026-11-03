@@ -54,13 +54,15 @@ class ArcP10(P10):
         return load_roles('P10', 'arc')
 
     def fault_plan(self, variant):
+        from agent_e2e_local_faults import PUBLISH_TRIGGER
         if self.fault == 'response_lost_after_commit':
+            # PREREG A23 (rehearsal of record 41699972562, A1:002): the lost reply arms on either reviewed publication
+            # tool, so an arm that publishes through honua_admin_layer_publish meets the fault like any other.
             return {'kind': self.fault, 'id': 'arc-p10-publish-lost', 'after': None,
-                    'match': {'tool': 'honua_publish_service'}, 'commit': {
+                    'match': dict(PUBLISH_TRIGGER, tools=list(PUBLISH_TRIGGER['tools'])), 'commit': {
                         'pointer': '/result/structuredContent/serviceName',
                         'confirm': {'path': '/api/v1/admin/services/{id}/settings'}}}
         # Either reviewed publication tool arms the 503 (a dry run does not); see agent_e2e_local_faults.
-        from agent_e2e_local_faults import PUBLISH_TRIGGER
         return {'kind': 'http_503_once', 'id': 'arc-p10-query-503',
                 'after': dict(PUBLISH_TRIGGER, tools=list(PUBLISH_TRIGGER['tools'])),
                 'match': {'tool': 'honua_query_features'}}
@@ -79,8 +81,10 @@ class ArcP10(P10):
             args = action.arguments if isinstance(action.arguments, dict) else {}
             lost = [e for e in (run.fault_events if run is not None else ())
                     if e.get('kind') == 'response_lost_after_commit' and e.get('forwarded') is True
-                    and e.get('actionDigest') == action.digest and e.get('tool') == 'honua_publish_service']
-            if (action.kind == 'tool_call' and action.status == 'pass' and action.tool == 'honua_admin_layer_publish'
+                    and e.get('actionDigest') == action.digest
+                    and e.get('tool') in ('honua_publish_service', 'honua_admin_layer_publish')]
+            if (action.kind == 'tool_call' and action.tool == 'honua_admin_layer_publish'
+                    and (action.status == 'pass' or (action.status == 'fail' and len(lost) == 1))
                     and args.get('schema') == state['schema'] and args.get('table') == state['table']
                     and args.get('connectionId') == state['connection']):
                 # The reviewed alternative publication tool (release session 2026-11-02): the same source binding,
@@ -88,9 +92,11 @@ class ArcP10(P10):
                 from agent_e2e_local_projections import admin_layer_publication
                 import json as _json
                 response = rec.action_result('arc-p10-publication-' + str(index), action)
-                service = admin_layer_publication({'kind': action.kind, 'status': action.status, 'arguments': args,
+                # A lost reply (A23): the model saw a 503, but the committed upstream reply is the one recorded.
+                service = admin_layer_publication({'kind': action.kind, 'status': 'pass', 'arguments': args,
                                                    'json': response.json})
-                if service is not None and sum(row.get('serviceName') == service for row in rows) == 1:
+                if (service is not None and sum(row.get('serviceName') == service for row in rows) == 1
+                        and (not lost or str(lost[0].get('committedResourceId')) == service)):
                     embedded = _json.loads(response.json['result']['structuredContent']['details']['response'])
                     publications.append((service, int(embedded['data']['layerId'])))
                 continue
