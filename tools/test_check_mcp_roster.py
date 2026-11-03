@@ -78,8 +78,11 @@ def test_fixture_is_the_s4_roster_shape():
     # at server b6c47e73); at 53bb94a static gained honua_get_job_results and honua_ingest_job_artifact.
     # Re-copied verbatim at the 2026-11-02 rc.2 cut (daf56db2; roster body last changed at a8b4541d):
     # projectedAdmin gained honua_admin_api_key_update_restrictions and a `review` view was added.
-    assert len(r['static']) == 63 and len(r['projectedAdmin']) == 72
-    assert len(r['requiresDurableControlPlane']) == 24
+    # Re-copied verbatim at the rc.2 final candidate (86286687; roster body last changed at daf56db2):
+    # projectedAdmin and requiresDurableControlPlane gained honua_admin_connection_tables_list and
+    # honua_admin_connections_list (honua-server #6889, read-only connection discovery).
+    assert len(r['static']) == 63 and len(r['projectedAdmin']) == 74
+    assert len(r['requiresDurableControlPlane']) == 26
     assert set(r['views']) == {'analyze', 'configure', 'default', 'operate', 'review', 'setup'}
     assert r['retired'] == ['honua_propose_operation']
 
@@ -98,8 +101,10 @@ def test_committed_expected_tools_matches_the_roster_in_both_topologies():
         summary = cmr.check(committed, roster(), topology=topology)
         assert summary['status'] == 'pass', (topology, summary['reasons'])
     durable = committed['fullCatalog']['requiresDurableControlPlane']['tools']
-    # 24 since the 4709145 re-pin added honua_admin_import_upload_object (fixture re-copied at a4bde4b).
-    assert CONNECT_IMPORT <= set(durable) and len(durable) == 24
+    # 24 since the 4709145 re-pin added honua_admin_import_upload_object (fixture re-copied at a4bde4b);
+    # 26 since the rc.2 final candidate 86286687 added honua_admin_connections_list and
+    # honua_admin_connection_tables_list (honua-server #6889).
+    assert CONNECT_IMPORT <= set(durable) and len(durable) == 26
 
 
 def test_missing_tool_fails():
