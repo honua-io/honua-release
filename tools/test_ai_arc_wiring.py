@@ -1154,3 +1154,15 @@ def test_teardown_is_dirty_when_the_volume_listing_fails(tmp_path):
     (tmp_path / 'ls-fails').write_text('')
     result, _, _ = _run_teardown(tmp_path, {'c-redis': ['slot-anon']}, ['slot-anon'])
     assert result['status'] == 'dirty'
+
+
+def test_only_the_studio_action_bound_was_raised_and_it_binds_both_arms():
+    """PREREG A18: stage four's tool-call bound is 100 (DEV 12a: the browser-driven Maputnik path needed more
+    than 60); every other bound is the frozen v1 value, and the limits are per stage, never per arm."""
+    limits = ARC['limits']
+    assert limits['studio']['maxToolCalls'] == 100
+    for stage in ('setup', 'ops', 'services'):
+        assert limits[stage]['maxToolCalls'] == 60
+    for stage, row in limits.items():
+        assert (row['maxTurns'], row['maxSeconds'], row['maxContinueNudges']) == (60, 2700, 1), stage
+        assert not set(row) & {'A1', 'A2', 'claude-cli', 'codex-cli'}, stage
