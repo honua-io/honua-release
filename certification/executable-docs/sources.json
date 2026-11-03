@@ -92,11 +92,11 @@
         {
           "name": "dotnet",
           "runtime": "dotnet",
-          "documentedAt": "docs/geoprocessing/index.md:86-119 \u2014 .NET console project, package and example",
+          "documentedAt": "docs/geoprocessing/index.md:86-119 \u2014 .NET console project, package and example. Since honua-site #367 (928c005a) the tutorial installs the newest public Honua.Sdk, 1.13.1 (the site's registry-claims rule pins install commands to the published version); the certified rc.2 pin stays Honua.Sdk 1.12.0, as the site discloses on client-compatibility.html (\"That package is not the RC pin.\")",
           "blocks": [
             {
               "index": 4,
-              "sha256": "0284ca61a125b19c0f64c92c92fbf9aa283ddba484f0f4383346823e00eca8d6"
+              "sha256": "f16e074ee730de40e09dd0d85c1f338e179e72b86cee6f29dea5731ee5a63fbb"
             },
             {
               "index": 5,

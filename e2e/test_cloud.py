@@ -3624,17 +3624,20 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_24_redis_gated_admin_tools():
+def test_durable_control_plane_roster_is_the_26_redis_gated_admin_tools():
     # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
     # 24 durable-control-plane names (+honua_admin_import_upload_object).
     # RC re-pin #4 (53bb94a, unchanged at a4bde4b): 134 tools (+honua_get_job_results, honua_ingest_job_artifact);
     # durable set unchanged.
     # 2026-11-02 rc.2 cut (daf56db2): 135 tools (+honua_admin_api_key_update_restrictions, read from the
     # booted candidate's full view); durable set unchanged.
-    assert len(_FULL_ROSTER) == 135 and len(set(_FULL_ROSTER)) == 135
-    assert len(_DURABLE_ONLY) == 24 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+    # rc.2 final candidate (86286687): 137 tools and 26 durable-control-plane names
+    # (+honua_admin_connection_tables_list, honua_admin_connections_list; honua-server #6889, read from
+    # the booted candidate's full view).
+    assert len(_FULL_ROSTER) == 137 and len(set(_FULL_ROSTER)) == 137
+    assert len(_DURABLE_ONLY) == 26 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
-                                      "honua_admin_import_")) for n in _DURABLE_ONLY)
+                             "honua_admin_connection_tables_", "honua_admin_import_")) for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
 
