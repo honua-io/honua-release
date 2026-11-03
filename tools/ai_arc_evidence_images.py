@@ -7,7 +7,7 @@ that has closed rejects every later write, so a late worker from one run can nev
 evidence, and opening a new sink never redirects an older producer.
 
 Files are written, never read back: no scorer or observer reads this folder and nothing here reaches the
-model. Rules: PNG bytes only; at most MAX_BYTES per image and MAX_IMAGES per sink (the rest are counted, not
+model. Rules: PNG bytes only; at most MAX_BYTES per image and the sink's cap (images_for: the stage's tool-call bound plus render headroom, at least MAX_IMAGES) (the rest are counted, not
 kept); a page on a sign-in, OAuth, login or credential URL (or an unknown URL) is never kept; a screenshot is
 kept only after the action log sealed its result with the same sha256. Retention never raises: an I/O
 failure is counted and the evidence is dropped, so it cannot change an action's outcome.
@@ -23,6 +23,8 @@ from pathlib import Path
 
 MAX_BYTES = 2 * 1024 * 1024
 MAX_IMAGES = 80
+# Room beyond one screenshot per tool call for the render observers (independent and server-export renders).
+RENDER_HEADROOM = 20
 PNG = b'\x89PNG\r\n\x1a\n'
 CREDENTIAL_PAGE = re.compile(r'(?:^|[/?#&=._-])(?:oauth2?|sign[-_]?in|sign[-_]?on|login|log[-_]?in|logout|auth|'
                              r'authorize|callback|token|password|api[-_]?keys?|credentials?|secrets?)(?:$|[/?#&=._-])',
@@ -40,8 +42,9 @@ def credential_page(url) -> bool:
 class Sink:
     """One stage's image evidence folder. Thread-safe; rejects writes once closed."""
 
-    def __init__(self, directory):
+    def __init__(self, directory, max_images: int = MAX_IMAGES):
         self.directory = Path(directory)
+        self.max_images = max(MAX_IMAGES, int(max_images))
         self.lock = threading.Lock()
         self.closed = False
         self.kept = []
@@ -75,7 +78,7 @@ class Sink:
                     reason = 'size'
                 elif expected_sha256 is not None and expected_sha256 != digest:
                     reason = 'hash-mismatch'
-                elif len(self.kept) >= MAX_IMAGES:
+                elif len(self.kept) >= self.max_images:
                     reason = 'cap'
                 if reason:
                     self.dropped[reason] += 1
@@ -115,7 +118,7 @@ class Sink:
 
     def _manifest(self):
         raw = json.dumps({'schema': 'honua.ai-arc.evidence-images/v1', 'owner': getattr(self, 'owner', None),
-                          'maxBytes': MAX_BYTES, 'maxImages': MAX_IMAGES,
+                          'maxBytes': MAX_BYTES, 'maxImages': self.max_images,
                           'kept': self.kept, 'dropped': self.dropped,
                           'rule': 'evidence only; never read by the scorer; credential pages are never kept'},
                          sort_keys=True, indent=1).encode()
@@ -125,7 +128,14 @@ class Sink:
         tmp.replace(self.directory / 'manifest.json')
 
 
-def open_sink(directory, owner: str = '') -> Sink | None:
+def images_for(max_tool_calls) -> int:
+    """The image cap for a stage: one screenshot per allowed tool call plus the render observers' headroom, never
+    below MAX_IMAGES (rehearsal 9 run 13b: a cap of 80 under a 100-call bound dropped the saves and final state)."""
+    calls = max_tool_calls if type(max_tool_calls) is int and max_tool_calls > 0 else 0
+    return max(MAX_IMAGES, calls + RENDER_HEADROOM)
+
+
+def open_sink(directory, owner: str = '', max_images: int = MAX_IMAGES) -> Sink | None:
     """Open the one evidence sink this process may have (a trial runs in its own process: ai_arc_campaign
     starts one per run), owned by ``owner`` (the run id). Any later open in the same process, for another run
     or stage, gets no sink and retention stays off, so a late producer from an earlier run can only ever find
@@ -137,7 +147,7 @@ def open_sink(directory, owner: str = '') -> Sink | None:
             return None
         _current['opened'] = str(owner)[:120] or 'unnamed'
     try:
-        sink = Sink(directory)
+        sink = Sink(directory, max_images)
         sink.owner = _current['opened']
     except Exception:  # noqa: BLE001
         return None
