@@ -572,3 +572,19 @@ def test_evaluate_scopes_the_replay_rule_by_component():
     verdicts = {row["component"]: row["status"] for row in result["components"]} if "components" in result else \
         {row["component"]: row["status"] for row in result.get("rows", result.get("gates", []))}
     assert verdicts["honua-console"] == "pass" and verdicts["honua-studio"] == "fail"
+
+
+def test_server_validated_examples_advisory_jobs_do_not_decide_but_core_ci_still_does():
+    """Ruling 2026-11-03: honua-server's 'Validated examples (advisory)' matrix jobs are advisory."""
+    names = bt.load_advisory()["honua-server"]["names"]
+    assert {"stac-ops", "mobile-offline", "gp-local-dev"} <= names
+    runs = [{"id": n, "name": name, "status": "completed", "conclusion": conclusion,
+             "started_at": f"2026-11-03T17:{n:02d}:00Z"}
+            for n, (name, conclusion) in enumerate([("Build and tests", "success"), ("stac-ops", "failure"),
+                                                    ("mobile-offline", "failure"), ("gp-local-dev", "failure")], 1)]
+    status, why = bt.classify({"check_runs": runs}, advisory_names=names)
+    assert status == "pass" and "advisory" in why
+    runs[0]["conclusion"] = "failure"
+    assert bt.classify({"check_runs": runs}, advisory_names=names)[0] == "fail"       # core CI still decides
+    only = [r for r in runs if r["name"] != "Build and tests"]
+    assert bt.classify({"check_runs": only}, advisory_names=names)[0] == "blocked"     # never pass on advisory alone
