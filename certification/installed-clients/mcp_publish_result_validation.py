@@ -17,7 +17,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_map_package_validation import (strict_json, same_json, client_observation,
-    anonymous_tool_refusal, resource_refusal)
+    anonymous_tool_refusal, resource_refusal, structured_text_content)
 from mcp_execute_plan_validation import timestamp
 from mcp_render_validation import scenario as fixture_binding
 from mcp_ingest_publish_validation import (OWNED_DATABASE, json_tool_output,
@@ -542,6 +542,13 @@ def preserve_rows(before, after, keys, added):
     return [current[k] for k in added]
 
 
+def new_service_relation(relation):
+    """honua-server PostgreSqlLayerPublishingService.LayerPersistence.cs:819 assigns
+    COALESCE(MAX(layer_order), 0) + 1, so a newly published service's only layer is ordered 1."""
+    if not isinstance(relation, dict) or type(relation.get("layer_order")) is not int or relation["layer_order"] != 1:
+        raise ValueError("new service has an unexpected physical catalog association")
+
+
 def committed_database(initial, current, authored, published):
     """Preserve the entire old catalog, not merely a self-consistent new graph."""
     database_output(initial, authored)
@@ -560,8 +567,7 @@ def committed_database(initial, current, authored, published):
     if service.get("service_name") != authored["serviceName"]:
         raise ValueError("new service catalog selector changed")
     relation, = preserve_rows(initial["serviceLayers"], current["serviceLayers"], ("service_name","layer_id"), [(authored["serviceName"],physical)])
-    if type(relation.get("layer_order")) is not int or relation["layer_order"] != 0:
-        raise ValueError("new service has an unexpected physical catalog association")
+    new_service_relation(relation)
     # Discovery selects nongeometry id/attributes columns; BuildLayerFields
     # preserves those and appends the separate geometry field last.
     added_fields = [(physical,k) for k in ("id","attributes","geom")]
@@ -644,14 +650,10 @@ def shared_snapshot(database, authored):
 
 def query_output(result, published, database):
     if (not isinstance(result,dict) or result.get("isError",False) is not False or not isinstance(result.get("structuredContent"),dict)
-            or not isinstance(result.get("content"),list) or len(result["content"]) != 1):
+            or not isinstance(result.get("content"),list)):
         raise ValueError("fresh query lacks typed content/summary")
-    summary = result["content"][0]; value = result["structuredContent"]
-    if (not isinstance(summary,dict) or set(summary) != {"type","text"} or summary["type"] != "text"
-            or not isinstance(summary["text"],str) or not 0 < len(summary["text"]) <= 16384):
-        raise ValueError("fresh query summary media malformed")
-    if summary["text"].lstrip().startswith(("{","[")) and not same_json(strict_json(summary["text"]),value):
-        raise ValueError("query JSON representations conflict")
+    # honua-server #6901: [json] or [one-line summary, json]; the JSON block must equal structuredContent.
+    value = structured_text_content(result)
     if "geojson" in value and "geoJson" in value and not same_json(value["geojson"],value["geoJson"]):
         raise ValueError("query GeoJSON aliases conflict")
     collection = value.get("geojson",value.get("geoJson")); mapping = database["mappings"][0]["publication"]

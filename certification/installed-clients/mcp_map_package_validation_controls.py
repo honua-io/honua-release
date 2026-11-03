@@ -411,6 +411,46 @@ class MapPackageControls(unittest.TestCase):
                     with self.assertRaises(ValueError): validation.judge(FIXTURE, bootstrap(), bind_controls(value))
 
 
+class StructuredTextContentControls(unittest.TestCase):
+    """honua-server #6901 McpToolHelpers.BuildStructuredSuccess: [json], or [summary, json] at 1024+ chars."""
+
+    @staticmethod
+    def result(value, summary=None):
+        text = json.dumps(value, separators=(",", ":"))
+        lead = [{"type": "text", "text": summary}] if summary and len(text) >= 1024 else []
+        return {"isError": False, "structuredContent": value, "content": lead + [{"type": "text", "text": text}]}
+
+    def test_exact_server_shapes_pass(self):
+        small, large = {"id": 1}, {"items": ["x" * 40 for _ in range(40)]}
+        self.assertEqual(validation.structured_text_content(self.result(small)), small)
+        self.assertEqual(validation.structured_text_content(self.result(large)), large)  # tool without a summarizer
+        self.assertEqual(validation.structured_text_content(self.result(large, "Page returned."), summary="Page returned."), large)
+        self.assertEqual(validation.structured_text_content(self.result(large, "Page returned.")), large)
+        self.assertEqual(validation.structured_text_content(self.result(small), summary=False), small)
+
+    def test_every_other_shape_is_refused(self):
+        small, large = {"id": 1}, {"items": ["x" * 40 for _ in range(40)]}
+        summary = {"type": "text", "text": "Page returned."}
+        cases = {
+            "summary-only": (self.result(large) | {"content": [summary]}, {}),
+            "empty": (self.result(small) | {"content": []}, {}),
+            "three-items": (self.result(large) | {"content": [summary, *self.result(large)["content"], *self.result(large)["content"]]}, {}),
+            "json-mismatch": (self.result(small) | {"content": [{"type": "text", "text": json.dumps({"id": 2})}]}, {}),
+            "json-not-last": (self.result(large) | {"content": [*self.result(large)["content"], summary]}, {}),
+            "summary-below-threshold": (self.result(small) | {"content": [summary, *self.result(small)["content"]]}, {}),
+            "pinned-summary-differs": (self.result(large, "Other summary."), {"summary": "Page returned."}),
+            "pinned-summary-missing": (self.result(large), {"summary": "Page returned."}),
+            "error-summarized": (self.result(large, "Page returned."), {"summary": False}),
+            "non-text": (self.result(small) | {"content": [{"type": "image", "data": "AA==", "mimeType": "image/png"}]}, {}),
+            "extra-member": (self.result(small) | {"content": [{"type": "text", "text": "{\"id\":1}", "annotations": {}}]}, {}),
+            "duplicate-json-key": (self.result(small) | {"content": [{"type": "text", "text": '{"id":1,"id":1}'}]}, {}),
+            "no-structured": ({"isError": False, "content": self.result(small)["content"]}, {}),
+        }
+        for name, (result, options) in cases.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                validation.structured_text_content(result, **options)
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--write-controls":
         directory = Path(sys.argv[2])

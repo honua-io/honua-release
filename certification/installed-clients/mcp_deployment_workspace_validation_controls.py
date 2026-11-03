@@ -23,10 +23,12 @@ def stamp(seconds):
 
 
 def tool_output(value, error=False):
-    text = json.dumps(value)
-    if "items" in value and len(json.dumps(value, separators=(",", ":"))) >= 1024:
-        text = "Deploy operations returned in structuredContent."
-    return {"isError": error, "structuredContent": value, "content": [{"type": "text", "text": text}]}
+    # honua-server #6901 BuildStructuredSuccess: serialized JSON last; DeployOperationsTool's
+    # summary precedes it at 1024+ characters. Error results are never summarized.
+    text = json.dumps(value, separators=(",", ":"))
+    lead = ([{"type": "text", "text": "Deploy operations returned in structuredContent."}]
+            if not error and "items" in value and len(text) >= 1024 else [])
+    return {"isError": error, "structuredContent": value, "content": lead + [{"type": "text", "text": text}]}
 
 
 def encoded(raw):
@@ -204,6 +206,19 @@ def inspector_controls():
 
 
 class DeploymentWorkspaceControls(unittest.TestCase):
+    def test_deploy_operations_text_is_exactly_the_server_shape(self):
+        large = {"items": [{"id": f"op-{n}", "status": "Succeeded", "detail": "x" * 60} for n in range(20)]}
+        result = tool_output(large)
+        self.assertEqual(len(result["content"]), 2)
+        self.assertEqual(validation.deploy_tool_output(copy.deepcopy(result)), large)
+        for change in (lambda r: r.update(content=r["content"][:1]),
+                       lambda r: r.update(content=r["content"][1:]),
+                       lambda r: r["content"].append(dict(r["content"][1])),
+                       lambda r: r["content"][1].update(text=json.dumps({"items": []})),
+                       lambda r: r["content"][0].update(text="Other summary.")):
+            changed = copy.deepcopy(result); change(changed)
+            with self.assertRaises(ValueError): validation.deploy_tool_output(changed)
+
     def refused(self, value):
         with self.assertRaises((ValueError, TypeError, KeyError, AttributeError)):
             validation.judge(FIXTURE, bootstrap(), value)

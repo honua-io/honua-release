@@ -174,7 +174,11 @@ class OriginalOperateContextControls(unittest.TestCase):
         for mutate in (lambda v: v.update(isError=False),
                        lambda v: v["structuredContent"].update(code="unauthenticated", requiresReauthentication=True),
                        lambda v: v["structuredContent"].update(items=[{"eventId": 31}]),
-                       lambda v: v["content"][0].update(text="success")):
+                       lambda v: v["content"][0].update(text="success"),
+                       # Error results are never summarized and carry exactly one JSON block.
+                       lambda v: v["content"].insert(0, {"type": "text", "text": "Permission denied."}),
+                       lambda v: v["content"].append(dict(v["content"][0])),
+                       lambda v: v.update(content=[])):
             value = copy.deepcopy(result); mutate(value)
             with self.assertRaises(ValueError): oracle.limited_refusal(value)
 
@@ -189,8 +193,10 @@ def observations():
 
 
 def response(value, summary="Alert-event page returned in structuredContent."):
-    text = summary if len(json.dumps(value, separators=(",", ":"), ensure_ascii=True)) >= 1024 else json.dumps(value)
-    return {"content": [{"type": "text", "text": text}], "structuredContent": value}
+    """honua-server #6901 BuildStructuredSuccess: serialized JSON last; the summary leads at 1024+ chars."""
+    text = json.dumps(value, separators=(",", ":"))
+    lead = [{"type": "text", "text": summary}] if len(text) >= 1024 else []
+    return {"content": lead + [{"type": "text", "text": text}], "structuredContent": value}
 
 
 def alert_page(*, operate=False, paged=False, empty=False):
@@ -286,6 +292,19 @@ class OperateSemanticControls(unittest.TestCase):
     def test_text_projection_resource_media_and_wrapper_cannot_replace_actual_payload(self):
         value = alert_page(); wrapped = response(value); wrapped["content"][0]["text"] = "success"
         with self.assertRaises(ValueError): oracle.payload(wrapped, "Alert-event page returned in structuredContent.")
+        summary = "Alert-event page returned in structuredContent."
+        page = copy.deepcopy(value); page["items"] = page.get("items", []) * 12 or [{"eventId": n, "title": "x" * 80} for n in range(12)]
+        large = response(page, summary)
+        self.assertEqual(len(large["content"]), 2)
+        self.assertEqual(oracle.payload(copy.deepcopy(large), summary), page)
+        mismatch = json.loads(large["content"][1]["text"]); mismatch["items"] = []
+        for change in (lambda r: r.update(content=r["content"][:1]),                 # pre-#6901 summary only
+                       lambda r: r.update(content=r["content"][1:]),                 # lost the tool's summary
+                       lambda r: r["content"].append(dict(r["content"][1])),          # three blocks
+                       lambda r: r["content"][1].update(text=json.dumps(mismatch)),  # JSON differs
+                       lambda r: r["content"][0].update(text=r["content"][1]["text"])):
+            changed = copy.deepcopy(large); change(changed)
+            with self.assertRaises(ValueError): oracle.payload(changed, summary)
         resource = {"contents": [{"uri": oracle.FINDINGS_URI, "mimeType": "application/json", "text": json.dumps({"findings": []})}]}
         self.assertEqual(oracle.payload(resource, "", resource=True), {"findings": []})
         resource["contents"][0]["uri"] += "/wrong"

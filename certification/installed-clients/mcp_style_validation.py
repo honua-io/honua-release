@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mcp_render_validation import scenario as fixture_binding, positive_output, negative_output
-from mcp_map_package_validation import strict_json, same_json, client_observation, anonymous_tool_refusal
+from mcp_map_package_validation import strict_json, same_json, client_observation, anonymous_tool_refusal, structured_text_content
 from mcp_ingest_publish_validation import invocation_wire
 from render_png import decode_png, render_expectations
 
@@ -46,16 +46,10 @@ def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
 def tool_output(result):
     if (not isinstance(result, dict) or result.get("isError", False) is not False
             or not isinstance(result.get("structuredContent"), dict)
-            or not isinstance(result.get("content"), list) or len(result["content"]) != 1):
+            or not isinstance(result.get("content"), list)):
         raise ValueError("style lacks successful structured output and text")
-    value = result["structuredContent"]
-    text = result["content"][0]
-    if (not isinstance(text, dict) or set(text) != {"type", "text"} or text["type"] != "text"
-            or not isinstance(text["text"], str) or not 0 < len(text["text"]) <= 2 * 1024 * 1024):
-        raise ValueError("style contains unrelated or missing media")
-    if text["text"].lstrip().startswith(("{", "[")) and not same_json(strict_json(text["text"]), value):
-        raise ValueError("style JSON representations conflict")
-    return value
+    # honua-server #6901: [json] or [summary, json]; the JSON block must equal structuredContent.
+    return structured_text_content(result, text_limit=2 * 1024 * 1024)
 
 
 def setup_output(setup, authored):

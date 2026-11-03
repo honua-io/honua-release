@@ -155,7 +155,11 @@ print(json.dumps(value['imageReadback'] if sys.argv[1]=='image' else {key:value[
             value.evidencePosture.sources[0].completeness = "unavailable";
             value.evidencePosture.sources[0].reasonCodes = ["stale"];
           }
-          frame.result.content[0].text = value.items && JSON.stringify(value).length >= 1024 ? "Deploy operations returned in structuredContent." : JSON.stringify(value);
+          // honua-server #6901: serialized JSON last; DeployOperationsTool's summary leads at 1024+ characters.
+          const text = JSON.stringify(value);
+          frame.result.content = [
+            ...(value.items && text.length >= 1024 ? [{ type: "text", text: "Deploy operations returned in structuredContent." }] : []),
+            { type: "text", text }];
         } else if (frame.result?.contents?.[0]?.text) {
           const item = frame.result.contents[0], value = JSON.parse(item.text);
           const label = candidate.seen.find(call => call.params.name === "honua_studio_create_draft").params.arguments.packageKey;
