@@ -1310,6 +1310,46 @@ def _ours(name: str, project: str | None) -> bool:
     return bool(project) and (name == project or name.startswith((project + '-', project + '_')))
 
 
+# curl's --write-out format, unquoted: literal characters and read-only %{variable}s only. No comma and no `..`, so
+# bash brace expansion cannot apply to `{...}`; no backslash, quote, `$`, glob or space (rehearsal 9 runs 12-13).
+WRITE_OUT_UNQUOTED = re.compile(r'(?:[A-Za-z0-9_:=+-]|%\{(?:http_code|response_code|time_total|time_connect|'
+                                r'size_download|size_header|content_type|url_effective|remote_ip|remote_port|'
+                                r'num_redirects)\})+')
+
+
+def curl_write_out_literal(command):
+    """The same curl command with its -w/--write-out format single-quoted, when that format is the only shell
+    construct in it; otherwise None. Only these two spellings are modelled (rehearsal 9 runs 12-13: every A1 setup
+    gap was one of them, e.g. `curl -s -o /dev/null -w "%{http_code}\\n" http://localhost:18080/healthz/ready`):
+      - double-quoted: a WRITE_OUT format; inside double quotes bash keeps `\\n` and `\\t` as written and nothing
+        else is special without `$`, a backquote, `!` or a nested quote, which the format excludes;
+      - unquoted: WRITE_OUT_UNQUOTED (no comma or `..`, so no brace expansion; nothing else special).
+    The rewrite changes no byte the shell would pass to curl. Every other construct still makes the command a gap,
+    and the rewritten command is classified like any other curl (read-only GET, localhost, this slot's ports)."""
+    if not isinstance(command, str) or not command.startswith('curl ') or any(c in command for c in '\n\r\t'):
+        return None
+    words = [m.group(0) for m in re.finditer(r'"[^"]*"|[^\s"]+', command)]
+    if ' '.join(words) != ' '.join(command.split()):
+        return None                              # a quoted word with runs of spaces, or a stray quote
+    out, changed = [], False
+    for index, word in enumerate(words):
+        if index and words[index - 1] in ('-w', '--write-out'):
+            inner = word[1:-1] if len(word) >= 2 and word[0] == word[-1] == '"' else None
+            if inner is not None and not set(inner) & set('$`!\'"') and WRITE_OUT.fullmatch(inner) and '%{' in inner:
+                out.append("'" + inner + "'")
+                changed = True
+                continue
+            if inner is None and WRITE_OUT_UNQUOTED.fullmatch(word) and '%{' in word:
+                out.append("'" + word + "'")
+                changed = True
+                continue
+        out.append(word)
+    if not changed:
+        return None
+    literal = ' '.join(out)
+    return literal if not construct_gaps(literal) else None
+
+
 def classify_command(command: str, *, stdin=None, project: str | None = None, approved_compose=None,
                      ports=None, depth: int = 0, state: dict | None = None) -> list[str]:
     """The prereg categories one shell line falls in (each simple command judged on its own; shell bodies and
@@ -1336,6 +1376,8 @@ def _classify_command(command, stdin, project, approved_compose, ports, depth, s
         return []
     found = []
     state = state if state is not None else {'cwd_outside': False, 'env': {}}
+    if depth == 0:
+        command = curl_write_out_literal(command) or command
     for construct in construct_gaps(command):
         _gap('shell construct ' + construct + ' (not modelled)')
     try:
