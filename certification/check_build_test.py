@@ -215,17 +215,18 @@ def load_full_matrix(path=FULL_MATRIX_PATH) -> dict[str, dict]:
 # count twice in build-test. Only that exact replay shape is dropped, and BEFORE latest-run selection, so a
 # replay can neither hide nor supersede the commit's own schedule, push or pull-request runs of the same
 # job. Missing enrichment keeps the check (core).
-_RELEASE_GATE_REPLAYS = (
-    (".github/workflows/console-live-journey.yml",
-     re.compile(r"Console live studio-customer (release-[0-9a-f]{32})")),
-)
+# Scoped by component: the Studio gate dispatches and judges only honua-io/honua-console.
+_RELEASE_GATE_REPLAYS = {
+    "honua-console": ((".github/workflows/console-live-journey.yml",
+                       re.compile(r"Console live studio-customer (release-[0-9a-f]{32})")),),
+}
 
 
-def _is_release_gate_replay(run: dict) -> bool:
+def _is_release_gate_replay(run: dict, component: str = "") -> bool:
     actions = run.get("_workflow_run")
     if not isinstance(actions, dict) or actions.get("event") != "workflow_dispatch":
         return False
-    for path, title in _RELEASE_GATE_REPLAYS:
+    for path, title in _RELEASE_GATE_REPLAYS.get(component, ()):
         match = title.fullmatch(actions.get("title", ""))
         if (run.get("_workflow_path") == path and match
                 and actions.get("branch") == f"studio-customer-gate/{match.group(1)}"):
@@ -278,7 +279,8 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              governance_names: frozenset[str] = frozenset(),
              advisory_names: frozenset[str] = frozenset(),
              advisory_workflows: frozenset[str] = frozenset(),
-             env_gated_events: frozenset[tuple[str, str]] = frozenset()) -> tuple[str, str]:
+             env_gated_events: frozenset[tuple[str, str]] = frozenset(),
+             component: str = "") -> tuple[str, str]:
     """Map a component's check-runs payload to (status, why). Pure → unit-tested.
 
     `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
@@ -307,9 +309,10 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
         actions = run.get("_workflow_run")
         return (isinstance(actions, dict)
                 and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in env_gated_events)
-    replayed = [r for r in runs if _is_release_gate_replay(r)]
-    event_gated = [r for r in runs if not _is_release_gate_replay(r) and _env_gated_event(r)]
-    runs = _latest_named_runs([r for r in runs if not _is_release_gate_replay(r) and not _env_gated_event(r)])
+    replayed = [r for r in runs if _is_release_gate_replay(r, component)]
+    event_gated = [r for r in runs if not _is_release_gate_replay(r, component) and _env_gated_event(r)]
+    runs = _latest_named_runs([r for r in runs
+                               if not _is_release_gate_replay(r, component) and not _env_gated_event(r)])
     if not runs:
         return "blocked", "only release-gate replay or env-gated scheduled check-runs on the pinned sha"
 
@@ -563,7 +566,8 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                                governance.get(name, frozenset()),
                                advice.get("names", frozenset()),
                                advice.get("workflows", frozenset()),
-                               env_gated_events.get(name, frozenset()))
+                               env_gated_events.get(name, frozenset()),
+                               component=name)
         if name in full_matrix:
             matrix_status, matrix_why = classify_full_matrix(payload, full_matrix[name], sha)
             if matrix_status != "pass":

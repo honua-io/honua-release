@@ -467,12 +467,12 @@ def test_release_gate_replays_are_not_counted_but_independent_studio_ci_stays_co
     PR run of the same job on the pinned Console commit stays core and is never superseded by a replay."""
     replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
                            branch=f"studio-customer-gate/{GATE_ID}")
-    status, why = bt.classify(_console_payload(replay))
+    status, why = bt.classify(_console_payload(replay), component="honua-console")
     assert status == "pass" and "release-gate replay" in why
     scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
     green_replay = _studio_check(9, "success", event="workflow_dispatch",
                                  title=f"Console live studio-customer {GATE_ID}", branch=f"studio-customer-gate/{GATE_ID}")
-    status, _ = bt.classify(_console_payload(scheduled, green_replay))
+    status, _ = bt.classify(_console_payload(scheduled, green_replay), component="honua-console")
     assert status == "fail"        # a later green replay cannot hide the scheduled source-building failure
 
 
@@ -487,7 +487,7 @@ def test_anything_short_of_the_exact_replay_shape_stays_core(change):
                  branch=f"studio-customer-gate/{GATE_ID}")
     path = change.pop("path", ".github/workflows/console-live-journey.yml")
     shape.update(change)
-    status, _ = bt.classify(_console_payload(_studio_check(5, "failure", path=path, **shape)))
+    status, _ = bt.classify(_console_payload(_studio_check(5, "failure", path=path, **shape)), component="honua-console")
     assert status == "fail"
 
 
@@ -496,7 +496,7 @@ def test_unenriched_replay_stays_core():
                            branch=f"studio-customer-gate/{GATE_ID}")
     core = {"id": 1, "name": "Validate Console", "status": "completed", "conclusion": "success",
             "started_at": "2026-11-03T00:00:00Z", "app": {"slug": "github-actions"}}
-    assert bt.classify({"check_runs": [core, run]})[0] == "fail"
+    assert bt.classify({"check_runs": [core, run]}, component="honua-console")[0] == "fail"
 
 
 def _events():
@@ -529,3 +529,22 @@ def test_event_gating_requires_workflow_and_event_and_is_console_only():
     other = _studio_check(3, "failure", event="schedule", title="x", branch="trunk", path=".github/workflows/ci.yml")
     assert bt.classify(_console_payload(other), env_gated_events=_events())[0] == "fail"
     assert set(bt.load_env_gated_events()) == {"honua-console"}
+
+
+@_pytest.mark.parametrize("component", ["honua-studio", "honua-server", ""])
+def test_the_replay_rule_is_scoped_to_honua_console(component):
+    """Sol round 3: the same workflow path, event, title and branch in another component stays core."""
+    replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
+                           branch=f"studio-customer-gate/{GATE_ID}")
+    assert bt.classify(_console_payload(replay), component=component)[0] == "fail"
+    assert bt.classify(_console_payload(replay), component="honua-console")[0] == "pass"
+
+
+def test_evaluate_scopes_the_replay_rule_by_component():
+    replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
+                           branch=f"studio-customer-gate/{GATE_ID}")
+    manifest = {"components": {"honua-console": {"sha": "a" * 40}, "honua-studio": {"sha": "b" * 40}}}
+    result = bt.evaluate(manifest, lambda name, sha: _console_payload(replay), enforcement="strict", env_gated_events={})
+    verdicts = {row["component"]: row["status"] for row in result["components"]} if "components" in result else \
+        {row["component"]: row["status"] for row in result.get("rows", result.get("gates", []))}
+    assert verdicts["honua-console"] == "pass" and verdicts["honua-studio"] == "fail"
