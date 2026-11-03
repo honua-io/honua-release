@@ -384,13 +384,18 @@ def test_the_proving_query_may_address_the_service_by_its_published_id():
     def query(service, status='pass', layer=LAYER, ids=('s3', 's4')):
         return SimpleNamespace(kind='tool_call', tool='honua_query_features', status=status, ids=frozenset(ids),
                                arguments={'serviceId': service, 'layerId': layer, 'where': GOOD_WHERE})
-    def pick(actions):
-        return ArcP10.selected_query(actions, seeded, reported, lambda a: a.ids)
+    def pick(actions, qualifies=lambda a: a.arguments.get('where') == GOOD_WHERE):
+        return ArcP10.selected_query(actions, seeded, reported, lambda a: a.ids, qualifies)
     echoed = query('svc-publish-' + SVC)
-    assert pick([query(SVC), echoed]) is echoed
-    assert pick([query(SVC)]) is not None
+    assert pick([echoed]) is echoed
+    first = query(SVC)
+    assert pick([first, echoed]) is first                          # the earliest qualifying witness is audited
     verify = query(SVC, ids=('s1', 's2', 's3', 's4', 's5'))
     assert pick([echoed, verify]) is echoed                       # a later verification read does not decide
+    enumerating = SimpleNamespace(**{**vars(query(SVC)), 'arguments': {'serviceId': SVC, 'layerId': LAYER,
+                                                                         'where': "source_id = 's3' OR source_id = 's4'"}})
+    assert pick([enumerating, echoed]) is echoed                  # a qualifying witness wins over an enumeration
+    assert pick([enumerating]) is enumerating                     # alone, it is audited (and the projection fails it)
     for bad in (query('svc-publish-other'), query('svc-publish-' + SVC, status='fail'), query(SVC, layer=LAYER + 1),
                 query(SVC, ids=('s3',))):
         assert pick([bad]) is None

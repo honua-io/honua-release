@@ -41,6 +41,9 @@ class Recorder:
             'serviceName': 'agent-service', 'layers': [{'id': 2, 'name': 'shelters'}]}
         return {'observation': {'body': body}}
     def action_result(self, step, selected):
+        # Like ControllerRecorder._claim: an evidence step is registered once (Sol a22-24).
+        assert step not in getattr(self, 'steps', set()), 'evidence step reused: ' + step
+        self.steps = getattr(self, 'steps', set()) | {step}
         self.calls.append(('action-result', selected.sequence))
         if selected.tool == 'honua_query_features':
             return SimpleNamespace(json=query_response(self.responses.get(selected.sequence, ['s3', 's4'])))
@@ -92,6 +95,21 @@ def test_a_verification_read_after_the_filtered_query_does_not_decide():
     """A24 (rehearsal of record A1:001/A1:003): filtered list, then an unfiltered check. The proving query is replayed."""
     assert _observe({2: ['s3', 's4'], 3: ['s1', 's2', 's3', 's4', 's5']}) == [2]
     assert _observe({2: ['s1', 's2', 's3', 's4', 's5'], 3: ['s3', 's4']}) == [3]      # order is irrelevant
+
+
+def test_repeated_identical_verification_reads_never_reuse_an_evidence_step():
+    """Sol a22-24 P2: a correct filtered query, then two identical unfiltered checks (one request digest)."""
+    publish = action(1, 'honua_publish_service', {'schema': 'honua_data', 'table': 'arc_shelters',
+                                                    'connectionId': 'conn'})
+    args = {'serviceId': 'agent-service', 'layerId': 2}
+    filtered = action(2, 'honua_query_features', {**args, 'where': 'is_open = TRUE AND capacity > 50'})
+    checks = [LoggedAction(1, n, 'sha256:same-request', 'tool_call', 'honua_query_features', args, None, 'pass', '/x')
+              for n in (3, 4)]
+    everything = ['s1', 's2', 's3', 's4', 's5']
+    rec = Recorder([publish, filtered, *checks], responses={2: ['s3', 's4'], 3: everything, 4: everything})
+    state = Seeded({'variant': 'A', 'schema': 'honua_data', 'table': 'arc_shelters', 'connection': 'conn'})
+    ArcP10().observe(SimpleNamespace(extra={'recorder': rec}), state, 'A', run())
+    assert [call[2] for call in rec.calls if call[0] == 'replay'] == [2]
 
 
 def test_a_reported_list_no_query_returned_is_never_proven():
@@ -245,6 +263,17 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
     assert with_answer(answer.replace(', '.join(reversed(ids)), ids[0]))['status'] == 'fail'
     assert with_answer(answer.replace(', '.join(reversed(ids)), ids[0] + ', ' + ids[0]))['status'] == 'fail'
     assert with_answer(answer.replace(', '.join(reversed(ids)), ', '.join(ids) + ', s9'))['status'] == 'fail'
+    # A24 (Sol a24-wording): an identifier enumeration never witnesses the list, even when it returns it.
+    enum_args = {**query_args, 'where': "source_id = 's3' OR source_id = 's4'"}
+    saved_replay, saved_final_q = records['p10-replay-query'], records['arc-p10-final-query']
+    records['p10-replay-query'] = record('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call', query_result,
+                                         args={'tool': 'honua_query_features', 'arguments': enum_args}, replay='occ')
+    records['arc-p10-final-query'] = Record('arc-p10-final-query', 'observe', 'mcp', 'agent', 'agent-id', 'POST',
+        '/mcp#tools/call', 200, final_raw, 'sha256:' + hashlib.sha256(final_raw).hexdigest(), 'occ',
+        action_bytes({'tool': 'honua_query_features', 'arguments': enum_args}), origin='session-result')
+    enumerated = with_answer(answer, {'occ': {**model_actions['occ'], 'arguments': enum_args}})
+    assert enumerated['status'] == 'fail' and 'enumerates identifiers' in enumerated['reason'], enumerated
+    records['p10-replay-query'], records['arc-p10-final-query'] = saved_replay, saved_final_q
     # A24: a proving query outside the documented where-clause subset is undetermined, never a pass.
     like_args = {**query_args, 'where': "name LIKE 'H%' OR name LIKE 'C%'"}
     saved = records['p10-replay-query']
