@@ -1,4 +1,4 @@
-"""PREREG A28: stage four scores a map styled and saved in Studio in Console.
+"""PREREG A28 and A30: stage four scores a map styled and saved in Studio in Console.
 
 The body is the real Studio-saved map from the no-model stage-4 check (run8, honua-eval-4, 2026-11-03):
 test_ai_arc_fixtures/studio-saved-map/run8-body.json (only the vendored basemap's GeoJSON features are emptied)."""
@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_browser_studio import (has_saved_view, is_studio_authored_map, normalize_studio_authored_map,
-                                  studio_composition_without_view, style_from_body)
+from agent_browser_studio import (authored_paint_colors, blended_over, has_saved_view, is_studio_authored_map,
+                                  normalize_studio_authored_map, studio_composition_without_view, style_from_body)
 from agent_e2e_errors import PackError
 from agent_e2e_local_recorder import ProjectionError
+from agent_e2e_studio_arc import blue_see_through
 
 BODY = json.loads((Path(__file__).parent / 'test_ai_arc_fixtures/studio-saved-map/run8-body.json').read_text())['body']
 # run8's controller catalog: Studio's source id is the catalog serviceId plus the layer id.
@@ -52,6 +53,7 @@ def test_studio_map_binds_to_fixture_names_through_the_catalog():
     assert BODY['layers'][0]['id'] == 'svc-publish-kestrel/2'
     style = style_from_body(normalized)      # D4: owners resolved through the mapping
     assert (style['floodColor'], style['floodOpacity'], style['labelField']) == ('#0088ff', 0.35, 'name')
+    assert blue_see_through(style['floodColor'], style['floodOpacity'])
 
 
 def test_a_view_less_studio_map_keeps_order_and_visibility_but_no_extent():
@@ -62,6 +64,13 @@ def test_a_view_less_studio_map_keeps_order_and_visibility_but_no_extent():
         'visibility': {'parcels': True, 'flood_zones': True, 'shelters': True}, 'view': None}
     normalized['view'] = {'bbox': [-0.2, -0.05, -0.1, 0.0]}
     assert has_saved_view(normalized)
+
+
+def test_render_colours_derive_from_the_saved_paint():
+    colors = authored_paint_colors(normalize_studio_authored_map(body(), CATALOG, FIXTURES))
+    assert colors == {'parcels': [180, 83, 27, 115], 'flood_zones': [0, 136, 255, 89], 'shelters': [11, 107, 77, 255]}
+    flood = blended_over(colors['flood_zones'], [255, 255, 255, 255])
+    assert all(abs(a - b) <= 1 for a, b in zip(flood, [166, 213, 255, 255]))   # the frozen #0088ff/0.35 composite
 
 
 def _unmapped(value):
@@ -131,3 +140,20 @@ def test_a_bound_or_unstyled_body_is_not_the_studio_shape():
     assert not is_studio_authored_map({k: v for k, v in body().items() if k != 'mapSpec'})
     with pytest.raises(ProjectionError, match='not a Studio-authored map'):
         normalize_studio_authored_map({**body(), 'sourceBindings': []}, CATALOG, FIXTURES)
+
+
+@pytest.mark.parametrize('color, opacity', [('#0088ff', 0.35), ('#1f6fd1', 0.5), ('#0000FF', 0.01), ('#4080ff', 0.99)])
+def test_blue_and_see_through(color, opacity):
+    assert blue_see_through(color, opacity)
+
+
+@pytest.mark.parametrize('color, opacity', [
+    ('#008080', 0.35),           # teal: blue equals green
+    ('#00aaa0', 0.35),           # teal-green: green above blue
+    ('#808080', 0.35),           # grey
+    ('#0088ff', 1), ('#0088ff', 1.0),   # opaque
+    ('#0088ff', 0), ('#0088ff', 0.0),   # invisible
+    ('#0088ff', True), ('#0088ff', None), ('#0088ff', float('nan')), ('#0088ff', '0.35'),
+    ('blue', 0.35), ('#08f', 0.35), (['rgb', 0, 136, 255], 0.35), ({'unsupportedIntermediateColor': 'x'}, 0.35)])
+def test_not_blue_or_not_see_through(color, opacity):
+    assert not blue_see_through(color, opacity)

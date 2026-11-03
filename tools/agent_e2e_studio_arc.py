@@ -363,6 +363,18 @@ def fixture_requirements(fixture_id, scenario, *, path=REQUIREMENTS_PATH):
     return frozenset(found)
 
 
+def blue_see_through(color, opacity) -> bool:
+    """PREREG A30: blue means a literal #rrggbb colour whose blue channel is strictly greater than both red and
+    green; see-through means an opacity strictly between 0 and 1. Anything else (expressions, named colours, a
+    non-number opacity) is not proven blue and fails."""
+    import math
+    if not (isinstance(color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', color)):
+        return False
+    red, green, blue = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return (blue > red and blue > green and type(opacity) in (int, float) and not isinstance(opacity, bool)
+            and math.isfinite(opacity) and 0 < opacity < 1)
+
+
 def score_goal(records, requirements, variant):
     """Score frozen authored properties; explicitly reject unsupported goal features."""
     from agent_browser_studio import package_body, style_from_body, map_spec, label_ids
@@ -379,8 +391,9 @@ def score_goal(records, requirements, variant):
         body = _record(records, 'p08-studio-map') if 'p08-studio-map' in records else package_body(version)
         style = style_from_body(body)
         frozen = load_expected('P09', variant)['map.style']
-        result('goal.authored-style', all(style.get(k) == frozen[k] for k in ('floodColor', 'floodOpacity')),
-               'saved flood rule differs from frozen authored colour or opacity')
+        # PREREG A30: the goal asks for blue, see-through flood zones; any such saved paint satisfies it.
+        result('goal.authored-style', blue_see_through(style.get('floodColor'), style.get('floodOpacity')),
+               'saved flood rule is not blue and see-through (blue channel above red and green, 0 < opacity < 1)')
     except Exception:
         result('goal.authored-style', False, 'authored map style is unavailable or unsupported')
         result('goal.labels', False, 'saved label field or independent label render is unavailable')

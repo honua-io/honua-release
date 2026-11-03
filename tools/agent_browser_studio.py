@@ -1512,6 +1512,30 @@ def studio_composition_without_view(normalized):
     return {'orderedLayerIds': ordered, 'visibility': visibility, 'view': None}
 
 
+def authored_paint_colors(normalized):
+    """PREREG A30: each layer's export colour from its saved literal paint (the render pixel checks derive from the
+    saved paint, not from frozen colours)."""
+    import math
+    colors = {}
+    for row in normalized['mapSpec']['layers']:
+        if row.get('id') not in LAYER_NAMES:
+            continue
+        kind, paint = row.get('type'), row.get('paint', {})
+        require(kind in ('fill', 'circle') and isinstance(paint, dict), 'unsupported authored symbol')
+        color, opacity = paint.get(kind + '-color'), paint.get(kind + '-opacity', 1)
+        require(isinstance(color, str) and re.fullmatch(r'#[0-9a-fA-F]{6}', color) and type(opacity) in (int, float)
+                and math.isfinite(opacity) and 0 <= opacity <= 1, 'unsupported authored color')
+        colors[row['id']] = [int(color[i:i + 2], 16) for i in (1, 3, 5)] + [round(opacity * 255)]
+    require(set(colors) == set(LAYER_NAMES), 'authored paint is incomplete')
+    return colors
+
+
+def blended_over(rgba, background):
+    """The composite colour of one translucent rgba over an opaque background."""
+    alpha = rgba[3] / 255
+    return [round(background[i] * (1 - alpha) + rgba[i] * alpha) for i in range(3)] + [255]
+
+
 def catalog_composition_without_view(body, source_ids):
     """Preserve controller-observed layers when a saved map has no view."""
     require(isinstance(body, dict) and body.get('view') is None and isinstance(body.get('layers'), list)
@@ -1919,7 +1943,8 @@ map.once('idle',async()=>{
         thread.join(timeout=5)
 
 
-def record_independent_render(stack, seeded, prefix, version_step, *, render_body=None, default_colors=None):
+def record_independent_render(stack, seeded, prefix, version_step, *, render_body=None, default_colors=None,
+                              authored_colors=None):
     """Score controller exports and a separate runner-owned composite from saved state."""
     import ai_arc_evidence_images
     evidence = ai_arc_evidence_images.current()       # captured when this observation starts
@@ -1929,7 +1954,8 @@ def record_independent_render(stack, seeded, prefix, version_step, *, render_bod
     contract = json.loads(COMPOSITE_CONTRACT_PATH.read_text(encoding='utf-8'))
     require(variant in ('A', 'B') and isinstance(contract, dict), 'invalid frozen composite contract')
     default = prefix == 'p08' and 'mapSpec' not in package_body(recorder.records[version_step].json)
-    colors = (default_colors or contract['defaultRgba']) if default else contract['authoredRgba']
+    # PREREG A30: a Studio-authored map's expected export colours come from its saved paint.
+    colors = (default_colors or contract['defaultRgba']) if default else (authored_colors or contract['authoredRgba'])
     verify_saved_authored_layers(recorder, version_step, prefix + '-export', fixtures=fixtures,
         expected_rgba=colors, regions={name: [0, 0, 512, 512] for name in LAYER_NAMES},
         minimum_pixels=contract['minimumLayerPixels'], variant=variant, allow_default=default, render_body=render_body)
@@ -1946,7 +1972,8 @@ def record_independent_render(stack, seeded, prefix, version_step, *, render_bod
     except PlaywrightError as exc:
         raise ProjectionError('independent browser render failed') from exc
     color = ([round(255 * (1 - 0.45) + channel * 0.45) for channel in colors['flood_zones'][:3]] + [255]
-             if default_colors else contract['defaultFloodRgba'] if default else contract['floodRgba'])
+             if default_colors else contract['defaultFloodRgba'] if default else
+             blended_over(authored_colors['flood_zones'], contract['background']) if authored_colors else contract['floodRgba'])
     measurement = measure_png(rendering['png'], {'background': contract['background'],
         'backgroundTolerance': contract['backgroundTolerance'], 'regions': [
             {'id': 'flood', 'rect': rendering['sampleRect'], 'rgba': color, 'tolerance': contract['floodTolerance']}]},
@@ -2247,6 +2274,7 @@ def observe_map(stack, seeded, prefix, *, created):
                          'after', variant=seeded.state['variant'])
         from types import SimpleNamespace
         seeded = SimpleNamespace(state={**seeded.state, 'layers': layers})
+    authored_colors = None
     studio_map = stack.extra.get('arcStudioMap') if prefix == 'p08' else None
     if studio_map is not None:
         # PREREG A28: the fixture-bound copy of a Studio-authored map is what stage four scores; it is retained as
@@ -2257,7 +2285,7 @@ def observe_map(stack, seeded, prefix, *, created):
             recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(saved_body)})
             stack.extra[prefix + 'RenderFailure'] = 'saved map has no view (Studio saved none)'
             return
-        render_body = studio_map
+        render_body, authored_colors = studio_map, authored_paint_colors(studio_map)
     if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
         catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
         if saved_body.get('view') is None:
@@ -2291,7 +2319,7 @@ def observe_map(stack, seeded, prefix, *, created):
     if set(layers) == set(LAYER_NAMES):
         try:
             record_independent_render(stack, seeded, prefix, prefix + '-version', render_body=render_body,
-                                      default_colors=default_colors)
+                                      default_colors=default_colors, authored_colors=authored_colors)
         except (ProjectionError, OSError, ValueError) as exc:
             # Keep other assertions observable. The missing render step fails closed.
             stack.extra[prefix + 'RenderFailure'] = str(exc)[:200]

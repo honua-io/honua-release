@@ -747,7 +747,7 @@ def _score(rec, names):
 @pytest.mark.parametrize('count', [0, 3])
 def test_a_studio_authored_map_is_scored_through_its_catalog_binding(arc_partial_case, count):
     """PREREG A28: a map styled and saved in Studio (mapSpec, no sourceBindings, svc-publish ids) reaches
-    map.composition, source-content and the goal style checks."""
+    map.composition, source-content and the goal style checks; A30: its flood paint is blue and see-through."""
     from agent_e2e_studio_arc import score_goal
     run, state = arc_partial_case
     state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
@@ -796,3 +796,18 @@ def test_a_studio_map_that_cannot_be_bound_fails_closed_in_stage_four(arc_partia
     with pytest.raises(ValueError):
         run(3)
 
+
+@pytest.mark.parametrize('color, opacity, status', [
+    ('#0088ff', 0.35, 'pass'), ('#1f6fd1', 0.6, 'pass'),         # PREREG A30: any blue, see-through paint
+    ('#008080', 0.35, 'fail'), ('#808080', 0.35, 'fail'),         # teal, grey
+    ('#0088ff', 1, 'fail'), ('#0088ff', 0, 'fail')])              # opaque, invisible
+def test_goal_style_accepts_blue_see_through_flood_paint(color, opacity, status):
+    from agent_browser_studio import map_spec, label_ids
+    body = {'layers': [{'id': n, 'visible': True} for n in ('parcels', 'flood_zones', 'shelters')],
+            'mapSpec': map_spec(True)}
+    body['mapSpec']['layers'][1]['paint'].update({'fill-color': color, 'fill-opacity': opacity})
+    records = {'p08-version': record({'data': {'envelope': {'body': body}}}, '2026-11-01T00:00:00Z'),
+               'p08-render': record({'visibleLabelSourceIds': label_ids('P09', 'A')}, '2026-11-01T00:00:00Z')}
+    rows = {r['assertion']: r for r in score_goal(records, frozenset({'style', 'labels'}), 'A')}
+    assert rows['goal.authored-style']['status'] == status
+    assert rows['goal.labels']['status'] == 'pass'
