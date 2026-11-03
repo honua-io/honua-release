@@ -234,6 +234,29 @@ def _is_release_gate_replay(run: dict, component: str = "") -> bool:
     return False
 
 
+def _validated_examples_replaced(run: dict, payload: object, component: str) -> bool:
+    """A pin check-run of honua-server's validated-examples workflow that a verified descendant run replaces.
+
+    Only when validated_examples_descendant.resolve verified the descendant run (attached by evaluate as
+    payload["_validated_examples"]), only for honua-server, and only for the workflow's three scenario
+    jobs identified by enriched workflow path AND name. Missing enrichment keeps the check (core)."""
+    import validated_examples_descendant as vx
+    record = payload.get("_validated_examples") if isinstance(payload, dict) else None
+    return (component == vx.COMPONENT and isinstance(record, dict) and record.get("status") == "verified"
+            and run.get("_workflow_path") == vx.WORKFLOW_PATH and str(run.get("name", "")) in vx.SCENARIOS)
+
+
+def _validated_examples_note(payload: object, replaced: int) -> str:
+    record = payload.get("_validated_examples") if isinstance(payload, dict) else None
+    if not isinstance(record, dict):
+        return ""
+    if record.get("status") != "verified":
+        return f"; validated-examples descendant not used ({record.get('reason')})"
+    return (f"; {replaced} validated-examples check(s) on the pin replaced by verified descendant run "
+            f"{record.get('runId')} at {str(record.get('runSha'))[:12]} (paths {record.get('changedPaths')}, "
+            f"image {record.get('imageDigest')}, ruling {record.get('ruling')})")
+
+
 def _latest_named_runs(runs: list[dict]) -> list[dict]:
     """Keep the latest check-run attempt for each named app lane.
 
@@ -309,6 +332,10 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
         actions = run.get("_workflow_run")
         return (isinstance(actions, dict)
                 and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in env_gated_events)
+    vx_replaced = [r for r in runs if _validated_examples_replaced(r, payload, component)]
+    runs = [r for r in runs if not _validated_examples_replaced(r, payload, component)]
+    if not runs:
+        return "blocked", "only replaced validated-examples check-runs on the pinned sha"
     replayed = [r for r in runs if _is_release_gate_replay(r, component)]
     event_gated = [r for r in runs if not _is_release_gate_replay(r, component) and _env_gated_event(r)]
     runs = _latest_named_runs([r for r in runs
@@ -365,7 +392,8 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
                            f"{sorted({str(r.get('name')) + ' [' + str(r['_workflow_run'].get('event')) + ']' for r in event_nongreen})})"
                            if event_nongreen else "")
                         + " — external floating backend, see env-gated-checks.yaml")
-    env_note = env_note + rollup_note + security_note + governance_note + advisory_note + replay_note
+    env_note = (env_note + rollup_note + security_note + governance_note + advisory_note + replay_note
+                + _validated_examples_note(payload, len(vx_replaced)))
 
     if not core:
         # Only excluded lanes ran → no core build/test signal to certify on. Never pass.
@@ -535,6 +563,48 @@ def _default_fetch(repo: str, sha: str) -> object:
         return payload
 
 
+def _github_headers() -> dict[str, str]:
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    return {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "honua-release-gate",
+        **({"Authorization": f"Bearer {token}"} if token else {}),
+    }
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401 - urllib hook
+        return None
+
+
+def _download_artifact(url: str) -> bytes:
+    """Download a GitHub artifact archive. The token goes only to api.github.com; the signed storage
+    URL it redirects to is fetched without it."""
+    if not url.startswith("https://api.github.com/"):
+        raise ValueError("artifact URL is not a GitHub API URL")
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(urllib.request.Request(url, headers=_github_headers()), timeout=30) as response:
+            return response.read()
+    except urllib.error.HTTPError as redirect:
+        location = redirect.headers.get("Location") if redirect.code in (301, 302, 303, 307, 308) else None
+        if not location or not location.startswith("https://"):
+            raise
+    with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": "honua-release-gate"}),
+                                timeout=60) as response:
+        return response.read()
+
+
+def live_validated_examples(name: str, sha: str, component: dict, manifest: dict) -> dict:
+    """Live resolver for the validated-examples descendant rule (GitHub API reads only)."""
+    import validated_examples_descendant as vx
+    sdk = ((manifest.get("components") or {}).get("honua-sdk-python") or {}).get("version")
+    return vx.resolve(sha, component, str(sdk) if sdk else None,
+                      lambda path: _fetch_json("https://api.github.com/" + path, _github_headers()),
+                      _download_artifact)
+
+
 def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              env_gated: dict[str, frozenset[str]] | None = None,
              rollup: dict[str, frozenset[str]] | None = None,
@@ -542,7 +612,11 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              governance: dict[str, frozenset[str]] | None = None,
              full_matrix: dict[str, dict] | None = None,
              advisory: dict[str, dict[str, frozenset[str]]] | None = None,
-             env_gated_events: dict[str, frozenset[tuple[str, str]]] | None = None) -> dict:
+             env_gated_events: dict[str, frozenset[tuple[str, str]]] | None = None,
+             validated_examples: Callable[[str, str, dict, dict], dict] | None = None) -> dict:
+    """`validated_examples(name, sha, component, manifest)` resolves the honua-server validated-examples
+    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide."""
+    import validated_examples_descendant as vx
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
     rollup = rollup or {}
@@ -560,6 +634,10 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                          "why": "no sha pinned in manifest (cannot resolve CI)"})
             continue
         payload = fetch(name, sha)
+        vx_record = None
+        if validated_examples is not None and name == vx.COMPONENT and isinstance(payload, dict):
+            vx_record = validated_examples(name, sha, comp, manifest)
+            payload["_validated_examples"] = vx_record
         advice = advisory.get(name) or {}
         status, why = classify(payload, env_gated.get(name, frozenset()),
                                rollup.get(name, frozenset()), security.get(name, frozenset()),
@@ -574,7 +652,10 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                 status, why = matrix_status, matrix_why
             else:
                 why = f"{why}; {matrix_why}"
-        rows.append({"component": name, "status": status, "sha": sha[:12], "why": why})
+        row = {"component": name, "status": status, "sha": sha[:12], "why": why}
+        if vx_record is not None:
+            row["validatedExamples"] = vx_record
+        rows.append(row)
 
     def decided(s: str) -> str:
         return "fail" if (s == "blocked" and enforcement == "strict") else s
@@ -619,7 +700,7 @@ def main(argv: list[str] | None = None) -> int:
     full_matrix = load_full_matrix(args.full_matrix)
     advisory = load_advisory(args.advisory)
     report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance,
-                      full_matrix, advisory)
+                      full_matrix, advisory, validated_examples=live_validated_examples)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

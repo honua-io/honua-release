@@ -1,0 +1,264 @@
+"""Tests for the honua-server validated-examples descendant rule (validated_examples_descendant.py).
+
+The rule may only ever let a descendant run stand in for the pin when every condition is verified,
+so each refusal is proven here: a non-examples path, no digest, a different digest, not a descendant,
+not on trunk, a red or newer-red run, a local build, a wrong SDK and a mismatched attempt.
+
+Run: python -m pytest certification/test_validated_examples_descendant.py
+"""
+from __future__ import annotations
+
+import copy
+import io
+import json
+import sys
+import zipfile
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import validated_examples_descendant as vx  # noqa: E402
+
+PIN = "8628668794df9f0c22a490e59cedaee409cc1bdd"
+RUN_SHA = "a" * 40
+TRUNK = "b" * 40
+DIGEST = "sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da"
+OTHER_DIGEST = "sha256:" + "c" * 64
+IMAGE = f"ghcr.io/honua-io/honua-server@{DIGEST}"
+COMPONENT = {"image": "ghcr.io/honua-io/honua-server:nightly-8628668", "digest": DIGEST, "sha": PIN}
+SDK = "0.1.19"
+RUN_ID = 4242
+REPO = {"full_name": "honua-io/honua-server"}
+
+
+def _compare(paths=("examples/manifest.json", "docs/internal/ci/workflow-inventory.md",
+                    ".github/workflows/validated-examples-nightly.yml",
+                    "tests/seed/mobile-offline-demo-v1.sql"), **over):
+    value = {"status": "ahead", "ahead_by": 1, "behind_by": 0, "total_commits": 1,
+             "base_commit": {"sha": PIN}, "merge_base_commit": {"sha": PIN},
+             "commits": [{"sha": RUN_SHA}], "files": [{"filename": p} for p in paths]}
+    value.update(over)
+    return value
+
+
+def _run(**over):
+    value = {"id": RUN_ID, "run_attempt": 1, "path": vx.WORKFLOW_PATH, "event": "workflow_dispatch",
+             "status": "completed", "conclusion": "success", "head_sha": RUN_SHA,
+             "created_at": "2026-11-03T20:00:00Z", "display_title": vx.TITLE_PREFIX + IMAGE,
+             "repository": REPO, "head_repository": REPO, "html_url": "https://example.invalid/run"}
+    value.update(over)
+    return value
+
+
+def _evidence(scenario, **over):
+    value = {"schema": vx.EVIDENCE_SCHEMA, "scenario": scenario, "sourceSha": RUN_SHA, "runId": str(RUN_ID),
+             "runAttempt": "1", "event": "workflow_dispatch", "candidateImage": IMAGE,
+             "candidateRepoDigests": [IMAGE], "locallyBuiltServerImages": [],
+             "pythonSdkVersion": SDK if scenario == "gp-local-dev" else None, "jobStatus": "success"}
+    value.update(over)
+    return value
+
+
+def _zip(scenario, evidence):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr(f"validated-examples-{scenario}.json", json.dumps(evidence))
+        archive.writestr(f"validated-examples-{scenario}.txt", "log")
+    return buf.getvalue()
+
+
+class World:
+    """A fake GitHub: REST answers by path and artifact bytes by URL."""
+
+    def __init__(self):
+        self.runs = [_run()]
+        self.compare = _compare()
+        self.trunk = {"status": "ahead", "behind_by": 0, "merge_base_commit": {"sha": RUN_SHA}}
+        self.jobs = {"jobs": [{"name": s, "conclusion": "success", "head_sha": RUN_SHA} for s in vx.SCENARIOS]}
+        self.evidence = {s: _evidence(s) for s in vx.SCENARIOS}
+
+    def get_json(self, path):
+        if path.startswith(f"repos/{vx.REPO}/actions/workflows/{vx.WORKFLOW_FILE}/runs?"):
+            return {"workflow_runs": self.runs}
+        if path == f"repos/{vx.REPO}/compare/{PIN}...{RUN_SHA}":
+            return self.compare
+        if path == f"repos/{vx.REPO}/compare/{RUN_SHA}...trunk":
+            return self.trunk
+        if path.startswith(f"repos/{vx.REPO}/actions/runs/{RUN_ID}/jobs"):
+            return self.jobs
+        if path.startswith(f"repos/{vx.REPO}/actions/runs/{RUN_ID}/artifacts"):
+            return {"artifacts": [{"name": f"validated-examples-{s}", "expired": False,
+                                   "workflow_run": {"id": RUN_ID},
+                                   "archive_download_url": f"https://api.github.com/artifact/{s}"}
+                                  for s in self.evidence]}
+        raise AssertionError(f"unexpected GitHub read {path}")
+
+    def get_bytes(self, url):
+        scenario = url.rsplit("/", 1)[-1]
+        return _zip(scenario, self.evidence[scenario])
+
+    def resolve(self, sdk=SDK, component=COMPONENT):
+        return vx.resolve(PIN, component, sdk, self.get_json, self.get_bytes)
+
+
+def test_verified_descendant_records_pin_run_paths_and_digest():
+    record = World().resolve()
+    assert record["status"] == "verified", record
+    assert record["pinSha"] == PIN and record["runSha"] == RUN_SHA and record["runId"] == RUN_ID
+    assert record["imageDigest"] == DIGEST and record["candidateImage"] == IMAGE
+    assert record["pythonSdkVersion"] == SDK and record["ruling"] == vx.RULING
+    assert record["changedPaths"] == sorted([
+        ".github/workflows/validated-examples-nightly.yml", "docs/internal/ci/workflow-inventory.md",
+        "examples/manifest.json", "tests/seed/mobile-offline-demo-v1.sql"])
+
+
+@pytest.mark.parametrize("path", [
+    "src/Honua.Server/Program.cs",
+    "tests/seed/stac-ops-demo-v1.sql",          # only the one exact seed file, never tests/**
+    "tests/dotnet/Honua.Server.Tests/DatabaseMigrationTests.cs",
+    "scripts/examples/validate-customer-paths.sh",
+    "docker-compose.yml",
+    ".github/workflows/ci.yml",
+    "docs/../src/x.cs",
+])
+def test_non_examples_path_refuses(path):
+    world = World()
+    world.compare = _compare(paths=("examples/manifest.json", path))
+    record = world.resolve()
+    assert record["status"] == "unavailable" and "allowlist" in record["reason"]
+
+
+def test_rename_from_a_product_path_refuses():
+    world = World()
+    world.compare = _compare(paths=())
+    world.compare["files"] = [{"filename": "docs/x.md", "previous_filename": "src/x.cs"}]
+    assert world.resolve()["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("over", [
+    {"status": "diverged", "behind_by": 1},
+    {"status": "behind", "ahead_by": 0, "behind_by": 1},
+    {"status": "identical", "ahead_by": 0},
+    {"merge_base_commit": {"sha": "d" * 40}},
+    {"base_commit": {"sha": "d" * 40}},
+    {"commits": [{"sha": "e" * 40}]},
+])
+def test_not_a_strict_descendant_refuses(over):
+    world = World()
+    world.compare = _compare(**over)
+    record = world.resolve()
+    assert record["status"] == "unavailable", over
+
+
+def test_truncated_compare_refuses():
+    world = World()
+    world.compare = _compare(paths=[f"docs/f{i}.md" for i in range(300)])
+    assert world.resolve()["status"] == "unavailable"
+    world.compare = _compare(total_commits=251)
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_run_commit_not_on_trunk_refuses():
+    world = World()
+    world.trunk = {"status": "diverged", "behind_by": 2, "merge_base_commit": {"sha": PIN}}
+    record = world.resolve()
+    assert record["status"] == "unavailable" and "trunk" in record["reason"]
+
+
+def test_no_digest_dispatch_refuses():
+    world = World()
+    world.runs = [_run(display_title="Validated examples (advisory)")]   # a source-build dispatch
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_title_alone_is_not_trusted_evidence_must_name_the_digest():
+    world = World()
+    world.evidence["stac-ops"] = _evidence("stac-ops", candidateImage=None, candidateRepoDigests=[])
+    record = world.resolve()
+    assert record["status"] == "unavailable" and "candidateImage" in record["reason"]
+
+
+def test_different_digest_refuses():
+    other = f"ghcr.io/honua-io/honua-server@{OTHER_DIGEST}"
+    world = World()
+    world.runs = [_run(display_title=vx.TITLE_PREFIX + other)]
+    assert world.resolve()["status"] == "unavailable"          # not even selected
+    world = World()
+    world.evidence["mobile-offline"] = _evidence("mobile-offline", candidateImage=other,
+                                                 candidateRepoDigests=[other])
+    assert world.resolve()["status"] == "unavailable"
+    world = World()
+    world.evidence["gp-local-dev"] = _evidence("gp-local-dev", candidateRepoDigests=[IMAGE, other])
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_other_repository_image_refuses():
+    world = World()
+    fake = f"ghcr.io/someone/honua-server@{DIGEST}"
+    world.evidence["stac-ops"] = _evidence("stac-ops", candidateImage=fake, candidateRepoDigests=[fake])
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_local_server_build_refuses():
+    world = World()
+    world.evidence["stac-ops"] = _evidence("stac-ops", locallyBuiltServerImages=["honua-server:local"])
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_wrong_python_sdk_refuses():
+    world = World()
+    world.evidence["gp-local-dev"] = _evidence("gp-local-dev", pythonSdkVersion="0.1.20")
+    assert world.resolve()["status"] == "unavailable"
+
+
+@pytest.mark.parametrize("field,value", [("sourceSha", PIN), ("runId", "1"), ("runAttempt", "2"),
+                                         ("event", "schedule"), ("jobStatus", "failure"),
+                                         ("schema", "other"), ("scenario", "stac-ops")])
+def test_evidence_identity_mismatch_refuses(field, value):
+    world = World()
+    evidence = _evidence("mobile-offline")
+    evidence[field] = value
+    world.evidence["mobile-offline"] = evidence
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_red_run_or_job_refuses():
+    world = World()
+    world.runs = [_run(conclusion="failure")]
+    assert world.resolve()["status"] == "unavailable"
+    world = World()
+    world.jobs["jobs"][1]["conclusion"] = "failure"
+    assert world.resolve()["status"] == "unavailable"
+    world = World()
+    world.jobs["jobs"] = world.jobs["jobs"][:2]
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_newest_candidate_run_decides_an_older_green_cannot_hide_a_newer_red():
+    world = World()
+    newer_red = _run(id=RUN_ID + 1, conclusion="failure", created_at="2026-11-03T21:00:00Z")
+    world.runs = [_run(), newer_red]
+    record = world.resolve()
+    assert record["status"] == "unavailable" and str(RUN_ID + 1) in record["reason"]
+
+
+def test_fork_run_refuses():
+    world = World()
+    world.runs = [_run(head_repository={"full_name": "someone/honua-server"})]
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_missing_or_unreadable_artifact_refuses():
+    world = World()
+    del world.evidence["gp-local-dev"]
+    assert world.resolve()["status"] == "unavailable"
+    world = World()
+    world.get_bytes = lambda url: b"not a zip"
+    assert world.resolve()["status"] == "unavailable"
+
+
+def test_manifest_without_pinned_digest_refuses():
+    component = copy.deepcopy(COMPONENT)
+    component["digest"] = ""
+    assert World().resolve(component=component)["status"] == "unavailable"

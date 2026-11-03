@@ -572,3 +572,89 @@ def test_evaluate_scopes_the_replay_rule_by_component():
     verdicts = {row["component"]: row["status"] for row in result["components"]} if "components" in result else \
         {row["component"]: row["status"] for row in result.get("rows", result.get("gates", []))}
     assert verdicts["honua-console"] == "pass" and verdicts["honua-studio"] == "fail"
+
+
+# ---- honua-server validated-examples descendant rule (ruling 2026-11-03, rc.2 redo) -----------------
+VX_PATH = ".github/workflows/validated-examples-nightly.yml"
+VX_VERIFIED = {"status": "verified", "ruling": "validated-examples-descendant-2026-11-03", "pinSha": "8" * 40,
+               "runSha": "a" * 40, "runId": 4242, "changedPaths": ["examples/manifest.json"],
+               "imageDigest": "sha256:" + "2" * 64}
+
+
+def _server_payload(record=None, *, scenario_conclusion="failure", core_conclusion="success", path=VX_PATH,
+                    names=("stac-ops", "mobile-offline", "gp-local-dev"), enrich=True):
+    runs = [{"id": 1, "name": "Restore and Build", "status": "completed", "conclusion": core_conclusion,
+             "started_at": "2026-11-03T00:00:00Z", "app": {"slug": "github-actions"},
+             "details_url": "https://github.com/honua-io/honua-server/actions/runs/900/job/1"}]
+    for index, name in enumerate(names, start=2):
+        runs.append({"id": index, "name": name, "status": "completed", "conclusion": scenario_conclusion,
+                     "started_at": "2026-11-03T10:37:00Z", "app": {"slug": "github-actions"},
+                     "details_url": "https://github.com/honua-io/honua-server/actions/runs/901/job/%d" % index})
+    workflows = [{"id": 900, "workflow_id": 1, "path": ".github/workflows/trunk-sanity.yml", "event": "push"},
+                 {"id": 901, "workflow_id": 2, "path": path, "event": "schedule"}]
+    payload = {"check_runs": runs}
+    if enrich:
+        payload = bt._enrich_action_workflow_ids(payload, {"workflow_runs": workflows})
+    if record is not None:
+        payload["_validated_examples"] = record
+    return payload
+
+
+def test_verified_descendant_replaces_only_the_pins_validated_examples_runs():
+    status, why = bt.classify(_server_payload(VX_VERIFIED), component="honua-server")
+    assert status == "pass"
+    assert "3 validated-examples check(s) on the pin replaced by verified descendant run 4242" in why
+    assert "aaaaaaaaaaaa" in why and "examples/manifest.json" in why and VX_VERIFIED["imageDigest"] in why
+
+
+def test_without_a_verified_descendant_the_pins_red_examples_still_fail():
+    assert bt.classify(_server_payload(None), component="honua-server")[0] == "fail"
+    unavailable = {"status": "unavailable", "reason": "descendant changes a path outside the examples allowlist"}
+    status, why = bt.classify(_server_payload(unavailable), component="honua-server")
+    assert status == "fail" and "validated-examples descendant not used" in why and "allowlist" in why
+
+
+def test_verified_descendant_never_hides_a_core_red():
+    payload = _server_payload(VX_VERIFIED, core_conclusion="failure")
+    assert bt.classify(payload, component="honua-server")[0] == "fail"
+
+
+@_pytest.mark.parametrize("component", ["honua-console", "honua-studio", ""])
+def test_descendant_rule_is_scoped_to_honua_server(component):
+    assert bt.classify(_server_payload(VX_VERIFIED), component=component)[0] == "fail"
+
+
+def test_descendant_rule_needs_the_workflow_path_and_the_scenario_names():
+    other_path = _server_payload(VX_VERIFIED, path=".github/workflows/ci.yml")
+    assert bt.classify(other_path, component="honua-server")[0] == "fail"
+    other_name = _server_payload(VX_VERIFIED, names=("stac-ops", "unit-tests"))
+    assert bt.classify(other_name, component="honua-server")[0] == "fail"
+    unenriched = _server_payload(VX_VERIFIED, enrich=False)
+    assert bt.classify(unenriched, component="honua-server")[0] == "fail"
+
+
+def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record():
+    calls = []
+
+    def resolver(name, sha, component, manifest):
+        calls.append((name, sha))
+        return dict(VX_VERIFIED)
+
+    manifest = {"components": {"honua-server": {"sha": "8" * 40}, "honua-console": {"sha": "c" * 40}}}
+    payloads = {"honua-server": _server_payload(), "honua-console": _runs("success")}
+    report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={},
+                         validated_examples=resolver)
+    rows = {row["component"]: row for row in report["components"]}
+    assert calls == [("honua-server", "8" * 40)]
+    assert rows["honua-server"]["status"] == "pass"
+    assert rows["honua-server"]["validatedExamples"]["runSha"] == "a" * 40
+    assert "validatedExamples" not in rows["honua-console"]
+    # Disabled (the default for pure callers): the pin's own red runs decide.
+    payloads["honua-server"] = _server_payload()
+    report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={})
+    assert {r["component"]: r["status"] for r in report["components"]}["honua-server"] == "fail"
+
+
+def test_main_wires_the_live_resolver():
+    import inspect
+    assert "validated_examples=live_validated_examples" in inspect.getsource(bt.main)
