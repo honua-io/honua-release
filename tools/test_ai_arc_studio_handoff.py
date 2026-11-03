@@ -466,12 +466,39 @@ def test_a_passing_p10_publication_hands_off_even_when_the_corpus_answer_check_f
     http, _ = controller([event()])
     run_cases = cases()
     run_cases[0]['receipt']['status'] = 'fail'                    # the corpus verdict alone
+    run_cases[0]['receipt']['finalAnswerCheck'] = {'status': 'fail', 'false_success': True}
     handoff = R.studio_services_handoff(ctx_for(tmp_path, http), run_cases, 'town-A', START, END)
     assert handoff['layers']['shelters']['service'] == 'kestrel-shelters'
-    assert S.publication_proven({'status': 'fail', 'failure': None, 'assertions': [{'assertion': 'x', 'status': 'pass'}]})
+    assert S.publication_proven(answer_only())
     for receipt in ({'status': 'fail', 'assertions': [{'assertion': 'filter.exact', 'status': 'fail'}]},
                     {'status': 'infrastructure', 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
                     {'status': 'excluded', 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
                     {'status': 'fail', 'failure': {'category': 'model'}, 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
-                    {'status': 'fail', 'assertions': []}):
+                    {'status': 'fail', 'assertions': []},
+                    # status fail with every assertion passing is not enough: the answer check must be the cause
+                    {'status': 'fail', 'failure': None, 'assertions': [{'assertion': 'x', 'status': 'pass'}]},
+                    {**answer_only(), 'finalAnswerCheck': {'status': 'pass'}}):
         assert not S.publication_proven(receipt)
+
+
+def answer_only(**extra):
+    """Run 11b's P10 receipt shape: every assertion passed; the corpus answer check alone failed."""
+    return {'caseId': 'P10:A:local-docker', 'status': 'fail', 'infrastructure': [], 'sessions': [], 'roles': {},
+            'assertions': [{'assertion': 'filter.exact', 'status': 'pass'}],
+            'finalAnswerCheck': {'status': 'fail', 'false_success': True, 'undetermined': False}, **extra}
+
+
+@pytest.mark.parametrize('marker', [
+    {'exportFailure': 'a case credential reached model-visible bytes'},           # Sol p10gate P1
+    {'evidenceExport': [{'status': 'fail', 'reason': 'export failed'}]},
+    {'handoffError': 'synthetic handoff error'},
+    {'failure': {'category': 'model', 'reason': 'x'}},
+    {'infrastructure': [{'phase': 'stack-teardown'}]},
+    {'someFutureMarker': True}])                                                   # whitelist, not blacklist
+def test_only_an_answer_check_only_failure_proves_a_publication(marker):
+    import ai_arc_services as S
+    assert S.publication_proven(answer_only())
+    assert not S.publication_proven(answer_only(**marker))
+    if 'export' in next(iter(marker)).lower():
+        # An export failure also outweighs a corpus pass.
+        assert not S.publication_proven({**answer_only(**marker), 'status': 'pass'})
