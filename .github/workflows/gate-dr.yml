@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: daf56db25c208765f5440e484a7c24fbc5ba81ab
+          ref: 8628668794df9f0c22a490e59cedaee409cc1bdd
           path: gp-qualification
       # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
       # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
@@ -197,7 +197,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: daf56db25c208765f5440e484a7c24fbc5ba81ab
+          ref: 8628668794df9f0c22a490e59cedaee409cc1bdd
           path: gp-qualification
       # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
       # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
