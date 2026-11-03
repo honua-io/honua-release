@@ -61,6 +61,43 @@ def studio_cli_tool_view(tool_view):
         if not row['name'].startswith('honua_studio_') or row['name'] in reads]}
 
 
+def studio_ui_assertion(receipt, stack) -> dict:
+    """goal.studio-ui: the map was created and saved through Studio in Console (runner-observed UI actions, their
+    sealed responses and the operation handles). A session that did not finish was never observed, so the row says
+    so with the session's own failure reason (rehearsal 9 run 13b: reading the action results of an unobserved
+    session raised a recorder-phase error that hid the real cause). It never raises."""
+    failure = receipt.get('failure') if isinstance(receipt, dict) else None
+    if failure or stack is None:
+        reason = 'session did not finish'
+        if isinstance(failure, dict) and failure.get('reason'):
+            reason += ': ' + str(failure['reason'])
+        return {'assertion': 'goal.studio-ui', 'status': 'fail', 'reason': reason[:200]}
+    try:
+        evidence = []
+        for entry in receipt.get('sessions', []):
+            for action in entry.get('actions', []):
+                directory = Path(stack.workdir) / ('session-' + str(action['session']))
+                stem = 'action-' + format(action['sequence'], '04d')
+                evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
+                                 'resultRawPath': str(directory / (stem + '.response'))})
+        recorder = stack.extra['recorder']
+        for action in recorder.actions():
+            if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
+                recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
+
+        def handle_lookup(operation_id):
+            step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
+            if step not in recorder.records:
+                recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
+            return _record(recorder.records, step).get('data')
+        ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
+        receipt['controllerRecords'] = recorder.index()
+        return {'assertion': 'goal.studio-ui', 'status': 'pass'}
+    except Exception as exc:
+        return {'assertion': 'goal.studio-ui', 'status': 'fail',
+                'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]}
+
+
 def ui_provenance(records, session_rows, customer, handle_lookup):
     """Join signed-in browser lifecycle responses to immutable version and customer audit."""
     version = _record(records, 'p08-version')['data']
@@ -855,29 +892,7 @@ def arc_stage(ctx):
                 lineage = bool(stack and stack.extra.get('arcLineageVerified') is True)
                 checks.append({'assertion': 'goal.services-lineage', 'status': 'pass' if lineage else 'fail',
                                **({} if lineage else {'reason': 'map sources lack verified stage-three or stage-four publication lineage'})})
-                try:
-                    evidence = []
-                    for entry in receipt.get('sessions', []):
-                        for action in entry.get('actions', []):
-                            directory = Path(stack.workdir) / ('session-' + str(action['session']))
-                            stem = 'action-' + format(action['sequence'], '04d')
-                            evidence.append({**action, 'logPath': str(directory / (stem + '.json')),
-                                             'resultRawPath': str(directory / (stem + '.response'))})
-                    recorder = stack.extra['recorder']
-                    for action in recorder.actions():
-                        if action.tool in ('studio_ui_create', 'studio_ui_save') and action.status == 'pass':
-                            recorder.action_result(f'studio-ui-response-{action.session}-{action.sequence}', action)
-                    def handle_lookup(operation_id):
-                        step = 'studio-ui-handle-' + hashlib.sha256(operation_id.encode()).hexdigest()[:32]
-                        if step not in recorder.records:
-                            recorder.json(step, 'GET', '/api/v1/operations/handles/' + operation_id)
-                        return _record(recorder.records, step).get('data')
-                    ui_provenance(recorder.records, evidence, stack.extra.get('consoleUserId'), handle_lookup)
-                    receipt['controllerRecords'] = recorder.index()
-                    checks.append({'assertion': 'goal.studio-ui', 'status': 'pass'})
-                except Exception as exc:
-                    checks.append({'assertion': 'goal.studio-ui', 'status': 'fail',
-                                   'reason': 'Studio browser creation/save evidence unavailable: ' + str(exc)[:150]})
+                checks.append(studio_ui_assertion(receipt, stack))
                 # ARC v2 (prereg change 7): false success is judged only from the driver's closing checklist
                 # against readback (the arc re-scores each :finalAnswerCheck row); prose is never scored here.
                 self.integrity[driver] = checks
