@@ -4,7 +4,7 @@
   "substitute": {
     "<your quickstart install directory>": {
       "value": "{session.appDir}",
-      "documentedAt": "docs/get-started/first-dataset.md:16-19 — \"Steps 1–4 of the quickstart write a generated password into `.env` ... Take both from there\" (`cd <your quickstart install directory>`)"
+      "documentedAt": "docs/get-started/first-dataset.md:17-23 — \"Steps 1–4 of the quickstart write a generated admin password into `secrets/honua_admin_password` and publish the server on the `HONUA_HTTP_PORT` that `.env` sets ... Take both from there\" (`cd <your quickstart install directory>`)"
     }
   }
 }
