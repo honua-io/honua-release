@@ -92,7 +92,8 @@ def published_content(records, prefix, name, when='after'):
 def complete_sources(stack, seeded, body):
     """Join actual publishes by either stage's actor to the exact imported source contents."""
     from agent_e2e_studio_arc import _events, _instant
-    from agent_browser_studio import snapshot_sources, observed_fixture_source_ids, normalize_catalog_map
+    from agent_browser_studio import (snapshot_sources, observed_fixture_source_ids, normalize_catalog_map,
+                                      is_studio_authored_map, normalize_studio_authored_map)
     rec, handoff = stack.extra['recorder'], stack.extra['arcServicesHandoff']
     before, after = _events(rec.records, 'before'), _events(rec.records, 'after')
     require(before.keys() <= after.keys() and all(after[k] == v for k, v in before.items()),
@@ -249,6 +250,13 @@ def complete_sources(stack, seeded, body):
     if 'mapSpec' not in body and 'sourceBindings' not in body:
         normalize_catalog_map(body, catalog, layers)
     else:
+        if is_studio_authored_map(body):
+            # PREREG A28: a map styled and saved in Studio in Console has a style document but no sourceBindings,
+            # and its composition ids are Studio's catalog source ids. It is bound to the fixture names through the
+            # observed catalog, with bindings derived from either stage's publication; the bound copy is what stage
+            # four scores (composition, render, style, labels).
+            body = normalize_studio_authored_map(body, catalog, layers)
+            stack.extra['arcStudioMap'] = body
         bindings = body.get('sourceBindings')
         require(isinstance(bindings, list) and len(bindings) == 3, 'map has unbound sources')
         for name, binding in layers.items():

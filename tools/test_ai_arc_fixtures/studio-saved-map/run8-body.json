@@ -1,0 +1,183 @@
+{
+ "_note": "Studio-saved map body (envelope.body) from the no-model stage-4 check run8, honua-eval-4, 2026-11-03: kestrel-map v1 built in Studio in Console (parcels < flood zones < shelters, flood #0088ff at 0.35, shelter-labels {name}). Redacted: the record carried no secret; the vendored offline basemap sources' GeoJSON features are emptied (96 KB of Natural Earth polygons). Nothing else is changed.",
+ "body": {
+  "format": "honua_map_package.v1",
+  "layers": [
+   {
+    "id": "svc-publish-kestrel/2",
+    "sourceId": "svc-publish-kestrel/2",
+    "title": "Kestrel Parcels",
+    "visible": true
+   },
+   {
+    "id": "svc-publish-kestrel/3",
+    "sourceId": "svc-publish-kestrel/3",
+    "title": "Kestrel Flood Zones",
+    "visible": true
+   },
+   {
+    "id": "svc-publish-kestrel/1",
+    "sourceId": "svc-publish-kestrel/1",
+    "title": "Kestrel Shelters",
+    "visible": true
+   }
+  ],
+  "mapPackageId": "kestrel-map",
+  "mapSpec": {
+   "layers": [
+    {
+     "id": "honua-basemap-water",
+     "paint": {
+      "background-color": "#cfdfea"
+     },
+     "type": "background"
+    },
+    {
+     "id": "honua-basemap-land",
+     "paint": {
+      "fill-color": "#eeeade"
+     },
+     "source": "honua-basemap-land",
+     "type": "fill"
+    },
+    {
+     "id": "honua-basemap-graticule",
+     "paint": {
+      "line-color": "#bccbd6",
+      "line-width": 0.6
+     },
+     "source": "honua-basemap-graticule",
+     "type": "line"
+    },
+    {
+     "id": "honua-basemap-coast",
+     "paint": {
+      "line-color": "#8b9a8f",
+      "line-width": 1
+     },
+     "source": "honua-basemap-land",
+     "type": "line"
+    },
+    {
+     "id": "svc-publish-kestrel/2",
+     "layout": {},
+     "metadata": {
+      "honua:compositionLayerId": "svc-publish-kestrel/2",
+      "honua:compositionSourceId": "svc-publish-kestrel/2",
+      "honua:title": "Kestrel Parcels"
+     },
+     "paint": {
+      "fill-color": "#b4531b",
+      "fill-opacity": 0.45
+     },
+     "source": "svc-publish-kestrel/2",
+     "type": "fill"
+    },
+    {
+     "id": "svc-publish-kestrel/2__outline",
+     "layout": {},
+     "paint": {
+      "line-color": "#b4531b",
+      "line-width": 1
+     },
+     "source": "svc-publish-kestrel/2",
+     "type": "line"
+    },
+    {
+     "id": "svc-publish-kestrel/3",
+     "layout": {},
+     "metadata": {
+      "honua:compositionLayerId": "svc-publish-kestrel/3",
+      "honua:compositionSourceId": "svc-publish-kestrel/3",
+      "honua:title": "Kestrel Flood Zones"
+     },
+     "paint": {
+      "fill-color": "#0088ff",
+      "fill-opacity": 0.35
+     },
+     "source": "svc-publish-kestrel/3",
+     "type": "fill"
+    },
+    {
+     "id": "svc-publish-kestrel/3__outline",
+     "layout": {},
+     "paint": {
+      "line-color": "#5c3b8f",
+      "line-width": 1
+     },
+     "source": "svc-publish-kestrel/3",
+     "type": "line"
+    },
+    {
+     "id": "svc-publish-kestrel/1",
+     "layout": {},
+     "metadata": {
+      "honua:compositionLayerId": "svc-publish-kestrel/1",
+      "honua:compositionSourceId": "svc-publish-kestrel/1",
+      "honua:title": "Kestrel Shelters"
+     },
+     "paint": {
+      "circle-color": "#0b6b4d",
+      "circle-radius": 4,
+      "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1
+     },
+     "source": "svc-publish-kestrel/1",
+     "type": "circle"
+    },
+    {
+     "id": "shelter-labels",
+     "layout": {
+      "text-field": "{name}"
+     },
+     "metadata": {
+      "honua:compositionLayerId": "svc-publish-kestrel/1"
+     },
+     "source": "svc-publish-kestrel/1",
+     "type": "symbol"
+    }
+   ],
+   "metadata": {
+    "honua:compositionLayerIds": [
+     "svc-publish-kestrel/2",
+     "svc-publish-kestrel/3",
+     "svc-publish-kestrel/1"
+    ]
+   },
+   "name": "Honua Studio offline basemap",
+   "sources": {
+    "honua-basemap-graticule": {
+     "data": {
+      "features": [],
+      "type": "FeatureCollection"
+     },
+     "type": "geojson"
+    },
+    "honua-basemap-land": {
+     "attribution": "Natural Earth (public domain) \u00b7 vendored offline",
+     "data": {
+      "features": [],
+      "type": "FeatureCollection"
+     },
+     "type": "geojson"
+    },
+    "svc-publish-kestrel/1": {
+     "data": "/rest/services/kestrel/FeatureServer/1/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+     "type": "geojson"
+    },
+    "svc-publish-kestrel/2": {
+     "data": "/rest/services/kestrel/FeatureServer/2/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+     "type": "geojson"
+    },
+    "svc-publish-kestrel/3": {
+     "data": "/rest/services/kestrel/FeatureServer/3/query?where=1%3D1&outFields=*&f=geojson&resultRecordCount=2000",
+     "type": "geojson"
+    }
+   },
+   "version": 8
+  },
+  "styleRefs": [],
+  "view": {},
+  "widgets": []
+ }
+}

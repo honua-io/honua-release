@@ -374,18 +374,29 @@ def score_goal(records, requirements, variant):
                     **({} if predicate else {'reason': reason})})
     try:
         version = _record(records, 'p08-version')
-        body = package_body(version)
+        # PREREG A28: a Studio-authored map is scored through its fixture-bound copy (owners resolved through the
+        # observed catalog, never by literal layer ids); any other shape is scored as saved.
+        body = _record(records, 'p08-studio-map') if 'p08-studio-map' in records else package_body(version)
         style = style_from_body(body)
         frozen = load_expected('P09', variant)['map.style']
         result('goal.authored-style', all(style.get(k) == frozen[k] for k in ('floodColor', 'floodOpacity')),
                'saved flood rule differs from frozen authored colour or opacity')
-        result('goal.labels', style.get('labelField') == frozen['labelField'] and
-               _record(records, 'p08-render').get('visibleLabelSourceIds') == label_ids('P24' if filter_requested else 'P09', variant),
-               'saved label field or independently visible labels differ')
     except Exception:
         result('goal.authored-style', False, 'authored map style is unavailable or unsupported')
         result('goal.labels', False, 'saved label field or independent label render is unavailable')
-        body = {}
+        body = style = None
+    if style is not None:
+        # PREREG A28: the label check has its own readback (the independent render), so a missing render fails
+        # goal.labels alone and never adds a second goal.authored-style row.
+        try:
+            visible = _record(records, 'p08-render').get('visibleLabelSourceIds')
+        except Exception:
+            result('goal.labels', False, 'saved label field or independent label render is unavailable')
+        else:
+            result('goal.labels', style.get('labelField') == frozen['labelField'] and
+                   visible == label_ids('P24' if filter_requested else 'P09', variant),
+                   'saved label field or independently visible labels differ')
+    body = body or {}
     if filter_requested:
         layers = body.get('mapSpec', {}).get('layers', []) if isinstance(body.get('mapSpec'), dict) else []
         wanted = map_spec(True, filtered=True)['layers'][-1]['filter']

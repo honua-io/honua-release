@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -367,6 +368,7 @@ def arc_partial_case(tmp_path, monkeypatch):
     stamp = lambda offset: (now + timedelta(seconds=offset)).isoformat()
     state = {'published': set(names), 'wrong_actor': False, 'wrong_handle': False, 'map_sources': {n: dict(v) for n, v in sources.items()},
              'admin': set()}   # layers published through honua_admin_layer_publish (admin.layer.publish; #6895)
+    catalog_id = lambda n: state.get('catalog_ids', {}).get(n, 'catalog_' + n)  # noqa: E731
     handoff = {'schema': 'honua.ai-arc.studio-services/v1', 'variant': 'A', 'fixtureId': 'town-A',
                'connectionId': 'abcdef01-2345-6789-abcd-ef0123456789',
                'principal': 'api-key:stage3', 'agentKeyId': 'stage3',
@@ -418,8 +420,10 @@ def arc_partial_case(tmp_path, monkeypatch):
                 if any(k not in value['features'][0]['attributes'] for k in requested):
                     return 400, b'{}'
         elif '/versions/' in path:
-            source_ids = {n: 'catalog_' + n + '/' + str(v['layerId']) for n, v in sources.items()}
-            value = {'data': {'envelope': {'body': fixture_map_body('A', state['map_sources'], source_ids, styled=True)}}}
+            source_ids = {n: catalog_id(n) + '/' + str(v['layerId']) for n, v in sources.items()}
+            body = state['studio_body'] if 'studio_body' in state else \
+                fixture_map_body('A', state['map_sources'], source_ids, styled=True)
+            value = {'data': {'envelope': {'body': body}}}
         else:
             rows = [] if rec.phase == 'seed' else [{'itemId': 'map', 'currentVersionId': 'version', 'ownerId': 'stage4'}]
             value = {'data': {'items': rows, 'total': len(rows)}}
@@ -436,7 +440,7 @@ def arc_partial_case(tmp_path, monkeypatch):
         def call_tool(self, tool, arguments):
             import base64
             assert tool == 'honua_list_layers'
-            rows = [{'serviceName': b['service'], 'layerId': b['layerId'], 'serviceId': 'catalog_' + n}
+            rows = [{'serviceName': b['service'], 'layerId': b['layerId'], 'serviceId': catalog_id(n)}
                     for n, b in sources.items()]
             result = {'structuredContent': {'offset': 0, 'hasMore': False, 'layers': rows, 'layerCount': 3}}
             raw = json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': result}).encode()
@@ -711,3 +715,84 @@ def test_raw_table_baseline_compares_like_with_like_with_the_featureserver_read(
     assert stored == plain
     assert table_content(snapshot({'type': 'MultiPolygon', 'coordinates': [[ring], [ring]]})) != plain
     assert table_content(snapshot({'type': 'Polygon', 'coordinates': [ring]}, zone='R2')) != plain
+
+
+def _studio_saved_body(view):
+    """PREREG A28: the real run8 Studio-saved body, its catalog ids translated to this case's catalog."""
+    raw = json.dumps(json.loads((Path(__file__).parent / 'test_ai_arc_fixtures/studio-saved-map/run8-body.json')
+                                .read_text())['body'])
+    for old, new in (('svc-publish-kestrel/2', '@P'), ('svc-publish-kestrel/3', '@F'), ('svc-publish-kestrel/1', '@S')):
+        raw = raw.replace(old, new)
+    for old, new in (('@P', 'svc-publish-svc_parcels/0'), ('@F', 'svc-publish-svc_flood_zones/1'),
+                     ('@S', 'svc-publish-svc_shelters/2')):
+        raw = raw.replace(old, new)
+    body = json.loads(raw)
+    body['view'] = view
+    return body
+
+
+def _score(rec, names):
+    from agent_e2e_local_expectations import load_roles, load_projections, load_expected
+    from agent_e2e_local_projections import resolve_roles
+    from agent_e2e_local_runner import score_assertions
+    from agent_e2e_local_api import Observation
+    roles = resolve_roles(load_roles('P08', 'studio-arc'), rec.records, agent_principal='stage4',
+                          custody={'agentKeyId': 'stage4', 'agentUserId': 'customer', 'agentKeyOwnerUserId': 'customer'})
+    return {row['assertion']: row for row in score_assertions(
+        list(names), [Observation(n, None, {'projection': 'extract/v1'}) for n in names],
+        {n: load_expected('P08', 'A')[n] for n in names}, records=rec.records, roles=roles,
+        frozen=load_projections('P08', 'A', 'studio-arc'))}
+
+
+@pytest.mark.parametrize('count', [0, 3])
+def test_a_studio_authored_map_is_scored_through_its_catalog_binding(arc_partial_case, count):
+    """PREREG A28: a map styled and saved in Studio (mapSpec, no sourceBindings, svc-publish ids) reaches
+    map.composition, source-content and the goal style checks."""
+    from agent_e2e_studio_arc import score_goal
+    run, state = arc_partial_case
+    state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
+    state['studio_body'] = _studio_saved_body({'bbox': [-0.1815, -0.0468, -0.167, -0.0404]})
+    stack, seeded, rec = run(count)
+    assert stack.extra['arcLineageVerified']
+    bound = rec.records['p08-studio-map'].json
+    assert [r['id'] for r in bound['layers']] == ['parcels', 'flood_zones', 'shelters']
+    assert rec.records['p08-composition'].json['orderedLayerIds'] == ['parcels', 'flood_zones', 'shelters']
+    scores = _score(rec, ('map.composition', 'source-content.unchanged'))
+    assert all(row['status'] == 'pass' for row in scores.values()), scores
+    rows = score_goal(rec.records, frozenset({'layers', 'style', 'labels'}), 'A')
+    goal = {row['assertion']: row for row in rows}
+    assert len(rows) == len(goal) == 2       # one row per goal check, even when the render is missing
+    assert goal['goal.authored-style']['status'] == 'pass'
+    assert goal['goal.labels']['status'] == 'fail'     # no independent render in this test
+
+
+def test_a_view_less_studio_map_fails_only_on_its_extent(arc_partial_case):
+    """D6 (product finding): Studio in Console saved no view; order and visibility are recorded, the extent is
+    unproven and the render is not attempted. Source content and the authored style are still scored."""
+    run, state = arc_partial_case
+    state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
+    state['studio_body'] = _studio_saved_body({})
+    stack, seeded, rec = run(0)
+    assert rec.records['p08-composition'].json == {
+        'orderedLayerIds': ['parcels', 'flood_zones', 'shelters'],
+        'visibility': {'parcels': True, 'flood_zones': True, 'shelters': True}, 'view': None}
+    assert stack.extra['p08RenderFailure'].startswith('saved map has no view')
+    scores = _score(rec, ('map.composition', 'source-content.unchanged'))
+    assert scores['map.composition']['status'] == 'fail'
+    assert scores['source-content.unchanged']['status'] == 'pass', scores
+
+
+@pytest.mark.parametrize('fault', ['unknown-owner', 'fourth-layer'])
+def test_a_studio_map_that_cannot_be_bound_fails_closed_in_stage_four(arc_partial_case, fault):
+    run, state = arc_partial_case
+    state['catalog_ids'] = {n: 'svc-publish-svc_' + n for n in ('parcels', 'flood_zones', 'shelters')}
+    body = _studio_saved_body({'bbox': [-0.1815, -0.0468, -0.167, -0.0404]})
+    if fault == 'unknown-owner':
+        next(r for r in body['mapSpec']['layers'] if r['id'] == 'shelter-labels')['metadata'][
+            'honua:compositionLayerId'] = 'svc-publish-svc_other/7'
+    else:
+        body['layers'].append({**body['layers'][0], 'id': 'svc-publish-svc_x/9', 'sourceId': 'svc-publish-svc_x/9'})
+    state['studio_body'] = body
+    with pytest.raises(ValueError):
+        run(3)
+

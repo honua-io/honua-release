@@ -1415,6 +1415,103 @@ def normalize_catalog_map(body, source_ids, fixtures):
     return normalized, colors
 
 
+STUDIO_COMPOSITION_ID = re.compile(r'svc-publish-[A-Za-z0-9_-]{1,80}/[0-9]{1,10}')
+STUDIO_LAYER_KEYS = {'id', 'title', 'visible', 'sourceId', 'metadata'}
+OWNER_KEY = 'honua:compositionLayerId'
+
+
+def is_studio_authored_map(body):
+    """PREREG A28: the shape Studio in Console saves after Edit map style: a style document (mapSpec) and no
+    sourceBindings. Its composition ids are Studio's catalog source ids (svc-publish-<service>/<layer>)."""
+    return isinstance(body, dict) and 'mapSpec' in body and 'sourceBindings' not in body
+
+
+def normalize_studio_authored_map(body, source_ids, fixtures):
+    """PREREG A28: bind a Studio-authored map to the fixture names through the controller-observed catalog.
+
+    ``source_ids`` maps each fixture name to its observed catalog source id; ``fixtures`` maps each fixture name to
+    its published {service, layerId} (from either stage). Returns a copy whose composition layers and owned style
+    rows carry the fixture names, with sourceBindings derived from the fixtures. The authored paint and layout are
+    unchanged. Fails closed on an unmapped, duplicate or fourth layer, a style row owned by an unknown layer, and an
+    ownership contradiction (a row's metadata, id and source naming different layers)."""
+    require(is_studio_authored_map(body), 'not a Studio-authored map')
+    require(isinstance(source_ids, dict) and isinstance(fixtures, dict) and set(source_ids) == set(fixtures) == set(LAYER_NAMES)
+            and len(set(source_ids.values())) == len(LAYER_NAMES), 'invalid Studio map catalog binding')
+    reverse = {value: name for name, value in source_ids.items()}
+    layers, spec = body.get('layers'), body.get('mapSpec')
+    require(isinstance(layers, list) and len(layers) == len(LAYER_NAMES), 'Studio map has a missing or additional layer')
+    require(isinstance(spec, dict) and spec.get('version') == 8 and isinstance(spec.get('layers'), list)
+            and isinstance(spec.get('sources'), dict), 'Studio map style document is incomplete')
+    names = {}                       # Studio composition id -> fixture name
+    for row in layers:
+        require(isinstance(row, dict) and set(row) <= STUDIO_LAYER_KEYS, 'unsupported Studio composition layer')
+        old, source = row.get('id'), row.get('sourceId')
+        require(isinstance(old, str) and STUDIO_COMPOSITION_ID.fullmatch(old) and old == source,
+                'Studio composition layer is not a catalog source')
+        require(source in reverse, 'Studio map layer is absent from the fixture catalog')
+        require(old not in names and reverse[source] not in names.values(), 'Studio map layer is duplicated')
+        names[old] = reverse[source]
+    normalized = copy.deepcopy(body)
+    primary = {}
+    for row in normalized['mapSpec']['layers']:
+        require(isinstance(row, dict) and isinstance(row.get('id'), str), 'invalid Studio style row')
+        metadata = row.get('metadata', {})
+        require(isinstance(metadata, dict), 'invalid Studio style row ownership')
+        declared, ident, source = metadata.get(OWNER_KEY), row['id'], row.get('source')
+        require(ident not in LAYER_NAMES, 'Studio style row claims a fixture name')
+        owners = set()
+        if declared is not None:
+            require(declared in names, 'Studio style row is owned by an unknown layer')
+            owners.add(names[declared])
+        if ident in names:
+            owners.add(names[ident])
+        if source in reverse:
+            owners.add(reverse[source])
+        elif isinstance(source, str) and (STUDIO_COMPOSITION_ID.fullmatch(source) or declared is not None):
+            raise ProjectionError('Studio style row draws an unknown source')
+        require(len(owners) <= 1, 'Studio style row ownership contradicts its source or id')
+        if not owners:
+            continue                 # basemap rows: drawn from Studio's vendored basemap, owned by no layer
+        owner = owners.pop()
+        if ident in names:
+            require(owner not in primary, 'Studio map layer has two primary style rows')
+            primary[owner] = row
+            row['id'] = owner
+        row['metadata'] = {**metadata, OWNER_KEY: owner}
+    require(set(primary) == set(LAYER_NAMES), 'Studio map layer has no style row')
+    listed = normalized['mapSpec'].get('metadata', {}).get('honua:compositionLayerIds') \
+        if isinstance(normalized['mapSpec'].get('metadata'), dict) else None
+    if listed is not None:
+        require(isinstance(listed, list) and all(item in names for item in listed) and len(set(listed)) == len(listed),
+                'Studio style document lists an unknown layer')
+        normalized['mapSpec']['metadata'] = {**normalized['mapSpec']['metadata'],
+                                             'honua:compositionLayerIds': [names[item] for item in listed]}
+    for row in normalized['layers']:
+        name = names[row['id']]
+        row['id'], row['type'] = name, primary[name].get('type')
+    normalized['sourceBindings'] = [
+        {'sourceId': source_ids[name], 'protocol': 'geoservices_feature_service',
+         'locator': {'url': f"/rest/services/{fixtures[name]['service']}/FeatureServer/{fixtures[name]['layerId']}",
+                     'layerId': fixtures[name]['layerId']}} for name in LAYER_NAMES]
+    return normalized
+
+
+def has_saved_view(body):
+    view = body.get('view') if isinstance(body, dict) else None
+    return isinstance(view, dict) and isinstance(view.get('bbox'), list) and len(view['bbox']) == 4
+
+
+def studio_composition_without_view(normalized):
+    """PREREG A28 / D6: a Studio-authored map saved with no view (Studio in Console has no customer view control):
+    order and visibility are recorded; the extent stays unproven, so map.composition fails on it."""
+    ordered, visibility = [], {}
+    for row in normalized['layers']:
+        require(type(row.get('visible')) is bool and row['id'] not in visibility, 'invalid Studio composition layer')
+        ordered.append(row['id'])
+        visibility[row['id']] = row['visible']
+    return {'orderedLayerIds': ordered, 'visibility': visibility, 'view': None}
+
+
 def catalog_composition_without_view(body, source_ids):
     """Preserve controller-observed layers when a saved map has no view."""
     require(isinstance(body, dict) and body.get('view') is None and isinstance(body.get('layers'), list)
@@ -2150,6 +2247,17 @@ def observe_map(stack, seeded, prefix, *, created):
                          'after', variant=seeded.state['variant'])
         from types import SimpleNamespace
         seeded = SimpleNamespace(state={**seeded.state, 'layers': layers})
+    studio_map = stack.extra.get('arcStudioMap') if prefix == 'p08' else None
+    if studio_map is not None:
+        # PREREG A28: the fixture-bound copy of a Studio-authored map is what stage four scores; it is retained as
+        # a derived record so the goal checks read the same bound document.
+        recorder.store_derived(prefix + '-studio-map', studio_map)
+        if not has_saved_view(studio_map):
+            recorder.store_derived(prefix + '-composition', studio_composition_without_view(studio_map))
+            recorder.store_derived(prefix + '-saved', {'documentSha256': saved_digest(saved_body)})
+            stack.extra[prefix + 'RenderFailure'] = 'saved map has no view (Studio saved none)'
+            return
+        render_body = studio_map
     if prefix == 'p08' and 'mapSpec' not in saved_body and 'sourceBindings' not in saved_body:
         catalog = observed_fixture_source_ids(recorder, layers, step='p08-source-catalog')
         if saved_body.get('view') is None:
