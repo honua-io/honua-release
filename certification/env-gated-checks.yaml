@@ -28,6 +28,18 @@
 # Keyed by component name (must match platform-manifest.yaml components).
 
 honua-console:
+  - workflow: ".github/workflows/console-live-journey.yml"
+    events: [schedule]
+    why: >-
+      Scheduled runs only (matched by workflow AND event, never by name; the same workflow's
+      pull_request and push runs stay core). Console Live Publish Journey's nightly boots the
+      FLOATING honua-server nightly image (on 2026-11-03 nightly-a5e593b), not the pinned candidate.
+      That nightly is deliberately stale while the server nightly workflow is paused for the rc.2
+      release, which is why run 41662759544 stopped at "Server image predates a required agent
+      operation". honua-release gate-studio-customer-journey.yml runs the same journey against the
+      pinned candidate images, stays required, and is the authoritative verdict. Same rationale as
+      the "Live Integration (Testcontainers)" entry below (external moving backend, not a Console
+      build or unit lane). Release-session ruling 2026-11-03; honua-release#482.
   - name: "Live Integration (Testcontainers)"
     why: >-
       Nightly live-integration lane (Console Nightly Live Integration) that boots an EXTERNAL
