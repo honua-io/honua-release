@@ -6430,3 +6430,68 @@ def test_s10_disclosure_mismatch_fails_the_cell_through_teardown(monkeypatch):
         report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None,
                                           cost_report=Path(directory) / "run-cost.json")
     assert report["status"] == "fail" and report["disclosureMismatch"]
+
+
+# Sol delta review of #1262 (P1): a provisioned deviation can't be dropped by removing or reshaping the S10 receipt.
+def _s10_row_without_evidence():
+    return {"name": "large-import", "status": "pass", "why": "S10 ok",
+            "evidence": {"scenarios": [{"scenario": run_cloud.large_import.SCENARIO, "status": "pass"}]}}
+
+
+def _s10_row_unlabelled(deviations):
+    row = _s10_row(deviations)
+    evidence = row["evidence"]["scenarios"][0]["evidence"]
+    evidence.pop("topology"), evidence.pop("variant")
+    return row
+
+
+@pytest.mark.parametrize("coverage, provisioned, ok", [
+    ([], [_DEVIATION], False),                                                   # no S10 receipt at all
+    ([{"name": "health", "status": "pass"}], [_DEVIATION], False),               # S10 removed from coverage
+    ([_s10_row_without_evidence()], [_DEVIATION], False),                        # S10 line stripped of receipt
+    ([{"name": "large-import", "status": "pass", "evidence": {"scenarios": [
+        {"scenario": run_cloud.large_import.SCENARIO, "status": "pass", "evidence": None}]}}], [_DEVIATION], False),
+    ([_s10_row_unlabelled(None)], [_DEVIATION], False),                          # receipt without topology/variant
+    ([_s10_row_unlabelled([_DEVIATION])], [_DEVIATION], True),                   # honest, discriminators removed
+    ([_s10_row_unlabelled([_DEVIATION])], None, False),                          # fabricated on an unlabelled receipt
+    ([], None, True),                                                            # no deviation, no S10: unchanged
+    ([_s10_row_without_evidence()], None, True),
+])
+def test_s10_provisioned_deviation_requires_its_receipt(coverage, provisioned, ok):
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True}}
+    if provisioned is not None:
+        state["s10"]["disclosedDeviations"] = provisioned
+    report = {"status": "pass", "scenarioCoverage": coverage}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert (report["status"] == "pass") is ok
+    assert report.get("disclosedDeviations") == (provisioned or None)  # the trusted record, never the upload
+    if not ok:
+        assert report["disclosureMismatch"] and report["why"] == "; ".join(report["disclosureMismatch"])
+
+
+def test_s10_disclosure_check_keeps_an_earlier_failure_cause():
+    state = {"s10": {"scenario": run_cloud.large_import.SCENARIO, "disclosedDeviations": [_DEVIATION]}}
+    report = {"status": "fail", "why": "journey failed: S7", "scenarioCoverage": []}
+    run_cloud._bind_s10_disclosures(report, state)
+    assert report["status"] == "fail" and report["why"].startswith("journey failed: S7; provision recorded")
+
+
+@pytest.mark.parametrize("coverage", [
+    [], [_s10_row_without_evidence()], [_s10_row_unlabelled(None)], [{"name": "health", "status": "pass"}]])
+def test_s10_omitted_receipt_fails_the_cell_through_teardown(monkeypatch, coverage):
+    cj = run_cloud.cloud_journey
+    stub = _ServingStub()
+    monkeypatch.setattr(stub, "teardown", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cj, "cleanup", lambda cell: None)
+    passing = [{"name": n, "status": "pass", "why": "ok"} for n in ("health", "capability-manifest")]
+    state = {"cell": "aws-ecs/redis-on", "redis": "redis-on", "requireReal": True, "provisionAttempted": True,
+             "startedAt": cj.now(), "s10": {"scenario": run_cloud.large_import.SCENARIO, "staged": True,
+                                            "disclosedDeviations": [_DEVIATION]},
+             "report": {"cell": "aws-ecs/redis-on", "endpoint": "https://cell.invalid", "checks": passing,
+                        "canaryProbes": [], "readiness": {"ready": True}, "journeyAttempts": []}}
+    journey = {"status": "pass", "journeyAttempts": [], "scenarioCoverage": coverage}
+    with tempfile.TemporaryDirectory() as directory:
+        report = run_cloud.teardown_phase(state, journey, stub, reference_endpoint=None,
+                                          cost_report=Path(directory) / "run-cost.json")
+    assert report["status"] == "fail" and report["disclosureMismatch"]
+    assert report["disclosedDeviations"] == [_DEVIATION]
