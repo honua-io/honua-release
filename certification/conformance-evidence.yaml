@@ -64,7 +64,7 @@ releaseScope:
     reason: "operator ruling 2026-10-22: GeoServices desktop and QGIS client certification deferred past rc"
     reportAs: "not certified for 2026.1"
 
-esri:
+esri: {}   # retired 2026-11-02 (see below); an explicit empty mapping, never null
   # honua-esri-compat's license-free lanes (ArcGIS API for Python, ArcGIS Maps SDK for .NET, and the
   # SDK-driven GeoServices/OGC/auth/geoprocessing lanes) emit per-service `.cert.json` evidence.
   # Desktop results are referenced only by their private producer evidence identifiers.
@@ -79,8 +79,10 @@ esri:
   #
   # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
   # is the backstop: a bundle for the wrong image fails rather than silently certifying.
-  evidenceRepo: honua-io/honua-esri-compat
-  evidenceRef: ece4c3a2f68557fe8329e9932de36193d0732894   # 2026-08-27 refresh: trunk HEAD, honua-esri-compat#76 (live fixture evidence bound to a candidate)
+  # RETIRED 2026-11-02 with its platform-manifest.yaml evidence source (founder ruling 2026-10-30; the
+  # GeoServices compatibility producer repository no longer exists). The previous evidenceRepo and
+  # evidenceRef (ece4c3a2f68557fe8329e9932de36193d0732894, 2026-08-27 refresh) are in git history at c2fc0aa5.
+  # With no pinned producer, the advisory GeoServices conformance lane reports BLOCKED, never a pass.
 
 demos:
   # e2e S9 drives the five backend-facing honua-site demos against the booted candidate. The demos

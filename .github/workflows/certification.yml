@@ -306,6 +306,9 @@ jobs:
       # one the checkout fails and the lane reports BLOCKED (honest) rather than a fake pass.
       - name: Check out the pinned Esri certification evidence
         id: evidence
+        # Retired 2026-11-02: with no pinned producer there is nothing to check out or record, and the
+        # lane reports BLOCKED (advisory for 2026.1).
+        if: ${{ steps.pin.outputs.repo != '' }}
         continue-on-error: true
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -317,7 +320,7 @@ jobs:
       # release#231 WI-8: record the fixture revision git reports for each checkout, for the lock's
       # $.fixtures. Recording never changes this gate's verdict; a missing record refuses the mint.
       - name: Record the fixture revisions this job checked out
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.pin.outputs.repo != '' }}
         continue-on-error: true
         shell: bash
         env:
@@ -330,7 +333,7 @@ jobs:
           --out "$RUNNER_TEMP/fixture-revisions/fixture-revisions.json"
           "$EVIDENCE_REPO=_conformance/esri-compat"
       - name: Upload the fixture revision record
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.pin.outputs.repo != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

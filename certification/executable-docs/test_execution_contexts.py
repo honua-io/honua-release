@@ -34,30 +34,49 @@ def execute(doc, text, parent):
     return run_document(doc, text, parent, {"_pins": {}}, {"env": {}, "substitute": {}}, "sha256:test", [], set())[0]
 
 
+FROZEN = HERE / "fixtures/site-geoprocessing-frozen"
+
+
 def gp_source():
-    sources = json.loads((HERE / "sources.json").read_text())
-    doc = next(d for d in sources["documents"] if d["repo"] == "honua-io/honua-site"
-               and d["path"] == "docs/geoprocessing/index.md")
+    """The mixed-language geoprocessing guide as last executed (honua-site 477350e5): its reviewed
+    binding and page bytes are frozen here as test data, because the live page is out of scope for
+    rc.2 (sources.json outOfScope; honua-io/honua-release#1250)."""
+    doc = json.loads((FROZEN / "declaration.json").read_text())
     return doc, (HERE / "fixtures/site-geoprocessing-b56533b9fd2c.md").read_text()
 
 
-def test_actual_guide_binds_all_six_frozen_blocks_and_only_documented_key():
+def test_frozen_guide_binds_all_six_blocks_and_only_documented_key():
     doc, text = gp_source()
-    # Published geoprocessing page bytes are the b56533b9fd2c fixture. The inventory
-    # revision is the last commit on the default branch that changed the file.
-    # The two shell install blocks are @honua/sdk-js@0.2.10 and honua-sdk==0.1.19.
+    # Page bytes at honua-site 477350e5 (the b56533b9fd2c fixture). The two shell install blocks
+    # are @honua/sdk-js@0.2.10 and honua-sdk==0.1.19, the .NET one Honua.Sdk 1.12.0.
     assert hashlib.sha256(text.encode()).hexdigest() == "6a10734164314cb3c85ee9e82756488f842ff86f8bf50c8639e9197cb14f2f20"
-    plan = compile_plan(doc, extract(text, "markdown"))
-    frozen = json.loads((HERE / "inventory.json").read_text())
-    row = next(d for d in frozen["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
-    assert row["revision"] == "477350e54f7a29ee63cbea112e317de3ba6a2b15"
-    assert [b.sha256 for b in extract(text, "markdown")] == [b["sha256"] for b in row["blocks"]]
+    blocks = extract(text, "markdown")
+    plan = compile_plan(doc, blocks)
+    assert [b["sha256"] for c in doc["executionContexts"] for b in c["blocks"]] == [b.sha256 for b in blocks]
     assert [plan[i]["runtime"] for i in range(6)] == ["node", "node", "python", "python", "dotnet", "dotnet"]
-    variables = load_vars(HERE / "vars", row["id"])
+    variables = load_vars(FROZEN / "vars", "honua-site-docs-geoprocessing-index")
     assert set(variables["substitute"]) == {"<your-api-key>"}
     assert render(variables["substitute"]["<your-api-key>"]["value"], {"candidate.apiKey": "owned"}) == "owned"
-    assert {p for b in extract(text, "markdown") for p in needs(b, set())["placeholders"]} == {"<your-api-key>"}
-    assert len(frozen["documents"]) == 37
+    assert {p for b in blocks for p in needs(b, set())["placeholders"]} == {"<your-api-key>"}
+
+
+def test_live_geoprocessing_page_is_out_of_scope_for_rc2_with_its_reason():
+    """honua-site #367 (928c005a) moved the page's .NET tab to the newest public Honua.Sdk 1.13.1;
+    rc.2 certifies 1.12.0 and the guarded registry serves only manifest pins, so the page leaves
+    scope whole (release-session ruling) and nothing else moves with it."""
+    sources = json.loads((HERE / "sources.json").read_text())
+    key = ("honua-io/honua-site", "docs/geoprocessing/index.md")
+    assert key not in {(d["repo"], d["path"]) for d in sources["documents"]}
+    entry = next(o for o in sources["outOfScope"] if (o["repo"], o["path"]) == key)
+    assert "1.13.1" in entry["reason"] and "1.12.0" in entry["reason"] and "honua-io/honua-release#1250" in entry["reason"]
+    assert [(o["repo"], o["path"]) for o in sources["outOfScope"]] == [
+        ("honua-io/honua-server", "docs/get-started/linux-packages.md"),
+        ("honua-io/honua-server", "docs/get-started/windows-packages.md"), key]
+    frozen = json.loads((HERE / "inventory.json").read_text())
+    assert "honua-site-docs-geoprocessing-index" not in {d["id"] for d in frozen["documents"]}
+    assert entry in frozen["outOfScope"]
+    assert not (HERE / "vars/honua-site-docs-geoprocessing-index.json").exists()
+    assert len(frozen["documents"]) == 36
 
 
 @pytest.mark.parametrize("mutation", ["absent-block", "unknown-key", "runtime", "wrong-language", "hash", "bool-index",
