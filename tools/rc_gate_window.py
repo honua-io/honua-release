@@ -84,7 +84,7 @@ AI_GATES: tuple[str, ...] = (
 # GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
 # gate-protocol-certification is workflow_call-only: it runs inside the train and never has a standalone
 # trunk run this window could admit. It is reported, never required, for rc until a dispatchable wrapper
-# publishes a candidate-bound receipt (release-session ruling 2026-11-04).
+# publishes a candidate-bound receipt.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
@@ -1012,9 +1012,12 @@ def _bound_verdict(name: str, rec: dict, admission: Admission) -> dict:
 
 
 def _gate_verdict(name: str, rec: dict, admission: Admission) -> dict:
+    receiptless = name in admission.unbound
     if rec.get("complete") is False:
-        return {"reason": "the run history back to the re-run horizon is incomplete; the latest execution is unknown"}
-    if name in admission.unbound:
+        marks = {"candidate_bound": False, "limitation": admission.unbound[name]} if receiptless else {}
+        return {**marks, "reason": "the run history back to the re-run horizon is incomplete; "
+                                   "the latest execution is unknown"}
+    if receiptless:
         return _unbound_verdict(rec, admission.unbound[name], admission)
     if name == ARC_GATE:
         return _arc_verdict(rec, admission)
