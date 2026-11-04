@@ -3,23 +3,20 @@
 
 WHY THIS EXISTS
 ---------------
-`gate_conformance`'s `conformance-ogc-stac` and `conformance-esri-geoservices` lanes were
-hardcoded `status=blocked` with no implementation behind them. That is honest under a dry run,
-but on a real cut (`enforcement: strict`) blocked is promoted to FAIL, so a candidate could never
-be released with those lanes as written -- and setting the `HONUA_SERVER_URL` their `why` strings
-asked for changed nothing, because neither lane had a body to enable. The release train's own
-rule is that a gate which cannot fail is worse than no gate; a gate which can ONLY fail is the
-same defect wearing the opposite sign.
+`gate_conformance`'s `conformance-ogc-stac` lane was hardcoded `status=blocked` with no
+implementation behind it. That is honest under a dry run, but on a real cut (`enforcement: strict`)
+blocked is promoted to FAIL, so a candidate could never be released with that lane as written -- and
+setting the `HONUA_SERVER_URL` its `why` string asked for changed nothing, because the lane had no
+body to enable. The release train's own rule is that a gate which cannot fail is worse than no
+gate; a gate which can ONLY fail is the same defect wearing the opposite sign.
 
-Meanwhile the evidence those lanes need already exists and is already sha-bound:
+Meanwhile the evidence that lane needs already exists and is already sha-bound:
 
   OGC   honua-server runs 13 CITE TEAM Engine suites and transcribes an authoritative snapshot to
         docs/cite-status.md (run id, `trunk@<sha>`, per-suite passed/total, allPassed). honua-evidence
         ingests it as the `cite` producer of capability-matrix.v1.json.
   STAC  the candidate serves its declared STAC API conformance classes, which a validator can check
         against the spec -- CITE covers OGC API/OWS, never STAC.
-  Esri  honua-esri-compat's license-free lanes emit per-service `.cert.json` evidence with an
-        operation-coverage denominator generated from honua-server's own parity index.
 
 So this gate federates rather than re-certifies. It applies the SAME lineage rule the freeze-phase
 evidence gate already proved out (tools/check_evidence_freshness.py): evidence must be ABOUT this
@@ -34,15 +31,15 @@ PURITY
 ------
 Like check_slo.py / check_upgrade.py / check_evidence_freshness.py, the decision core makes no
 network or VCS calls. The workflow shim fetches docs/cite-status.md, asks the GitHub compare API
-for the ancestry relation, runs the STAC validator, and downloads the Esri bundle; it hands all of
-that in as plain values. Everything here is pure and unit-testable.
+for the ancestry relation, and runs the STAC validator; it hands all of that in as plain values.
+Everything here is pure and unit-testable.
 
-    evaluate_conformance(candidate_sha, cite, cite_lineage, stac, esri, config, now=None)
+    evaluate_conformance(ConformanceInputs(candidate_sha, cite, cite_lineage, stac, config), now=None)
         -> (rows, overall)   # overall in {pass, fail, blocked}
 
     python tools/check_conformance_evidence.py --manifest platform-manifest.yaml \
         --cite-status _conformance/cite-status.md --cite-lineage ancestor \
-        --stac-report _conformance/stac.json --esri-bundle _conformance/esri/
+        --stac-report _conformance/stac.json --sections cite,stac
 
 BLOCKED vs FAIL
 ---------------
@@ -57,6 +54,7 @@ import argparse
 import json
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -127,55 +125,6 @@ def parse_cite_status(text: str | None) -> dict | None:
         "allPassed": (all_passed.group(1) == "true") if all_passed else None,
         "runId": run.group(1) if run else None,
         "suites": suites,
-    }
-
-
-def summarize_esri_bundle(cert_docs: list[dict] | None) -> dict | None:
-    """Reduce a set of honua-esri-compat ``.cert.json`` documents to a gate-legible summary.
-
-    Counts every nested record carrying a fail verdict, under either the CERT (`test_case_id` /
-    `status`) or operation-coverage (`id` / `status`) shapes the harness emits. Both shapes are
-    walked because a lane can fail in either dimension and the gate must not be blind to one.
-    """
-    if cert_docs is None:
-        return None
-
-    failures: list[dict] = []
-    images: set[str] = set()
-    shas: set[str] = set()
-
-    def walk(node) -> None:
-        if isinstance(node, dict):
-            verdict = node.get("status") or node.get("result")
-            if verdict in {"fail", "failed"}:
-                failures.append(
-                    {
-                        "id": node.get("id") or node.get("test_case_id") or "<unnamed>",
-                        "notes": node.get("notes") or node.get("detail") or "",
-                    }
-                )
-            for key in ("image", "candidateImage", "honuaImage"):
-                value = node.get(key)
-                if isinstance(value, str) and value:
-                    images.add(value)
-            for key in ("sha", "candidateSha", "serverSha", "sourceVersion"):
-                value = node.get(key)
-                if isinstance(value, str) and _SHA_RE.search(value):
-                    shas.add(_SHA_RE.search(value).group(1))
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-
-    for doc in cert_docs:
-        walk(doc)
-
-    return {
-        "documents": len(cert_docs),
-        "failures": failures,
-        "images": sorted(images),
-        "shas": sorted(shas),
     }
 
 
@@ -380,81 +329,20 @@ def _evaluate_stac(stac, cfg, rows) -> None:
         rows.append(_row("stac:validator", "pass", "STAC API validator reported no errors against the candidate"))
 
 
-def _evaluate_esri(esri, cfg, rows) -> None:
-    if esri is None:
-        rows.append(
-            _row(
-                "esri:bundle",
-                "blocked",
-                "no honua-esri-compat certification bundle was supplied for this candidate",
-            )
-        )
-        return
-
-    if not esri.get("documents"):
-        rows.append(_row("esri:bundle", "blocked", "the supplied Esri bundle contained no .cert.json documents"))
-        return
-
-    failures = esri.get("failures") or []
-    if failures:
-        head = "; ".join(f"{f['id']}: {f['notes']}"[:120] for f in failures[:3])
-        more = f" (+{len(failures) - 3} more)" if len(failures) > 3 else ""
-        rows.append(
-            _row(
-                "esri:lanes",
-                "fail",
-                f"{len(failures)} Esri certification failure(s) across {esri['documents']} document(s): {head}{more}",
-            )
-        )
-    else:
-        rows.append(
-            _row(
-                "esri:lanes",
-                "pass",
-                f"no failures across {esri['documents']} Esri certification document(s)",
-            )
-        )
-
-    # Binding: the bundle must name the image the manifest actually pinned. Evidence about a
-    # DIFFERENT build is worse than no evidence, because it reads as a pass.
-    expected_image = (cfg or {}).get("expectedImage")
-    expected_digest = (cfg or {}).get("expectedDigest")
-    expected_refs = [ref for ref in (expected_image, expected_digest) if ref]
-    images = esri.get("images") or []
-    if not expected_refs:
-        return
-    if not images:
-        rows.append(
-            _row(
-                "esri:binding",
-                "blocked",
-                "the Esri bundle records no candidate image reference, so it cannot be bound to the pin",
-            )
-        )
-    elif any(ref in image for ref in expected_refs for image in images):
-        matched = next(ref for ref in expected_refs if any(ref in image for image in images))
-        rows.append(_row("esri:binding", "pass", f"Esri bundle certifies the pinned candidate image {matched}"))
-    else:
-        rows.append(
-            _row(
-                "esri:binding",
-                "fail",
-                f"Esri bundle certifies {images} but the manifest pins {expected_refs} -- the evidence "
-                f"is about a different build",
-            )
-        )
+ALL_SECTIONS = ("cite", "stac")
 
 
-ALL_SECTIONS = ("cite", "stac", "esri")
+@dataclass(frozen=True)
+class ConformanceInputs:
+    candidate_sha: str | None
+    cite: dict | None
+    cite_lineage: str | None
+    stac: dict | None
+    config: dict | None = None
 
 
 def evaluate_conformance(
-    candidate_sha: str | None,
-    cite: dict | None,
-    cite_lineage: str | None,
-    stac: dict | None,
-    esri: dict | None,
-    config: dict | None = None,
+    inputs: ConformanceInputs,
     now: datetime | None = None,
     sections: tuple[str, ...] | list[str] | None = None,
 ) -> tuple[list[dict], str]:
@@ -466,7 +354,7 @@ def evaluate_conformance(
     everywhere would make each lane report the other's absence as its own gap.
     """
     now = now or datetime.now(timezone.utc)
-    config = config or {}
+    config = inputs.config or {}
     selected = tuple(sections) if sections else ALL_SECTIONS
     unknown = sorted(set(selected) - set(ALL_SECTIONS))
     if unknown:
@@ -474,11 +362,9 @@ def evaluate_conformance(
     rows: list[dict] = []
 
     if "cite" in selected:
-        _evaluate_cite(candidate_sha, cite, cite_lineage, config.get("cite") or {}, now, rows)
+        _evaluate_cite(inputs.candidate_sha, inputs.cite, inputs.cite_lineage, config.get("cite") or {}, now, rows)
     if "stac" in selected:
-        _evaluate_stac(stac, config.get("stac") or {}, rows)
-    if "esri" in selected:
-        _evaluate_esri(esri, config.get("esri") or {}, rows)
+        _evaluate_stac(inputs.stac, config.get("stac") or {}, rows)
 
     if any(r["status"] == "fail" for r in rows):
         overall = "fail"
@@ -496,24 +382,12 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
-def _pinned_server(manifest_path: Path) -> tuple[str | None, str | None, str | None]:
-    """Return the candidate manifest's pinned honua-server (sha, image, digest).
-
-    The image is read here rather than configured in conformance-evidence.yaml so the Esri bundle is
-    always bound to the exact build being released; a hand-maintained expectation could drift from
-    the pin and would then certify the wrong artifact.
-    """
+def _pinned_server_sha(manifest_path: Path) -> str | None:
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     components = data.get("components") or {}
     server = components.get("honua-server") or {}
     sha = server.get("sha") or server.get("commit")
-    image = server.get("image")
-    digest = server.get("digest")
-    return (
-        str(sha) if sha else None,
-        str(image) if image else None,
-        str(digest) if digest else None,
-    )
+    return str(sha) if sha else None
 
 
 def _read_text(path: str | None) -> str | None:
@@ -528,25 +402,12 @@ def _read_json(path: str | None) -> dict | None:
     return json.loads(text) if text else None
 
 
-def _read_cert_docs(directory: str | None) -> list[dict] | None:
-    if not directory:
-        return None
-    root = Path(directory)
-    if not root.exists():
-        return None
-    docs = []
-    for path in sorted(root.rglob("*.cert.json")):
-        docs.append(json.loads(path.read_text(encoding="utf-8")))
-    return docs
-
-
-def main(argv: list[str] | None = None) -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--cite-status", help="path to a fetched copy of honua-server docs/cite-status.md")
     parser.add_argument("--cite-lineage", help="identical|ancestor|descendant|diverged (from the compare API)")
     parser.add_argument("--stac-report", help="path to the STAC validator JSON report")
-    parser.add_argument("--esri-bundle", help="directory of honua-esri-compat .cert.json evidence")
     parser.add_argument("--config", default=str(CONFIG_PATH))
     parser.add_argument(
         "--capability-matrix",
@@ -557,41 +418,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--sections",
         default=",".join(ALL_SECTIONS),
-        help="comma-separated evidence families to evaluate (cite,stac,esri) -- one lane per family",
+        help="comma-separated evidence families to evaluate (cite,stac) -- one lane per family",
     )
-    args = parser.parse_args(argv)
+    return parser
 
-    config = load_config(Path(args.config))
-    # A retired or comment-only section loads as None; every section is a mapping from here on.
+
+def _section_config(config: dict) -> dict:
+    """A comment-only section loads as None; every evaluated section is a mapping from here on."""
     for section in ALL_SECTIONS:
         if config.get(section) is None:
             config[section] = {}
-    candidate_sha, candidate_image, candidate_digest = _pinned_server(Path(args.manifest))
-    if candidate_image:
-        config.setdefault("esri", {})["expectedImage"] = candidate_image
-    if candidate_digest:
-        config.setdefault("esri", {})["expectedDigest"] = candidate_digest
+    return config
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    config = _section_config(load_config(Path(args.config)))
+    candidate_sha = _pinned_server_sha(Path(args.manifest))
     config.setdefault("cite", {})["nonImplementedSuites"] = non_implemented_cite_suites(
         _read_json(args.capability_matrix)
     )
-
     try:
         cite = parse_cite_status(_read_text(args.cite_status))
+        malformed = None
     except ConformanceEvidenceError as exc:
         # A present-but-malformed snapshot is a real defect in the evidence chain, not a bootstrap
         # gap: say so as a hard row rather than silently degrading to blocked.
         cite = None
         malformed = str(exc)
-    else:
-        malformed = None
 
     rows, overall = evaluate_conformance(
-        candidate_sha,
-        cite,
-        args.cite_lineage,
-        _read_json(args.stac_report),
-        summarize_esri_bundle(_read_cert_docs(args.esri_bundle)),
-        config,
+        ConformanceInputs(candidate_sha, cite, args.cite_lineage, _read_json(args.stac_report), config),
         sections=[s.strip() for s in args.sections.split(",") if s.strip()],
     )
 

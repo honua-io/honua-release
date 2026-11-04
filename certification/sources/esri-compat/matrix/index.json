@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "contract_pin": "a795f5b019974804c4eca978651af9c03caf79dc",
   "source_parity_reviewed": "2026-07-15",
   "services": [
     {

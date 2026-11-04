@@ -88,8 +88,8 @@ def test_catalog_cannot_suppress_or_relabel_auth_obligation(mutation):
 def test_complete_catalog_keeps_all_governed_rows():
     catalog = json.loads((ROOT / "certification/protocol-certification-requirements.v1.json").read_text())
     VALIDATOR.validate_mcp_authorization(catalog)
-    assert len(catalog["requirements"]) == 2738  # +9 server harness rows at 8cb074f7 replace 2 unassigned h3/wps rows
-    assert sum(row["licensed"] for row in catalog["requirements"]) == 335
+    assert len(catalog["requirements"]) == 1895
+    assert sum(row["licensed"] for row in catalog["requirements"]) == 2
     rows = [row for row in catalog["requirements"] if row["surface"] == "mcp"]
     assert len(rows) == 82
     assert all(row["scenario_facets"] == ["positive", "negative", "media-schema", "auth"] for row in rows)

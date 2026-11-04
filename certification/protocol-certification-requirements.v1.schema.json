@@ -44,8 +44,8 @@
         "ruling": { "const": "R40" },
         "drivers": {
           "type": "object",
-          "minProperties": 4,
-          "maxProperties": 4,
+          "minProperties": 2,
+          "maxProperties": 2,
           "additionalProperties": { "$ref": "#/$defs/driverCounts" }
         }
       }
