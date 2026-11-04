@@ -4,6 +4,7 @@ on:
     paths:
       - 'tools/*capacity*'
       - 'tools/test_workflow_contracts.py'
+      - 'tools/digests.py'
       - 'certification/capacity-envelope.v1.json'
       - '.github/workflows/capacity-*.yml'
   workflow_dispatch:
