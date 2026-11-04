@@ -12,6 +12,8 @@ import shutil
 import subprocess
 import time
 
+from digests import ascii_canonical_bytes, sha256_hex
+
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "certification/cloud-cell-inventory"
 ROLE = "honua-release-cicd"
@@ -59,7 +61,7 @@ def require(condition, message):
 
 
 def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return sha256_hex(ascii_canonical_bytes(value))
 
 
 def write_receipt(path, value):

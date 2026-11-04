@@ -444,6 +444,11 @@ def test_nightly_refuses_a_same_pin_run_this_nightly_did_not_dispatch(tmp_path):
     detached = synthetic_modern_night()["ledger"]
     detached["cells"][2]["evidence_receipt"]["identity"]["producer_run"]["run_id"] = 36000000
     assert "evidence_digest is not the digest of its receipt" in refusal(ledger=detached)
+    non_finite = synthetic_modern_night()
+    non_finite["ledger"]["cells"][0]["evidence_receipt"]["measure"] = [float("nan")]
+    non_finite["ledger"]["cells"][0]["evidence_digest"] = None
+    assert "evidence_digest is not the digest of its receipt" in refusal(
+        ledger=non_finite["ledger"], catalog=non_finite["catalog"])
     readdressed = synthetic_modern_night()["ledger"]
     readdressed["cells"][2]["evidence_uri"] = "https://evidence.honua.io/data/sha256/" + "9" * 64
     assert "evidence_uri does not address its receipt" in refusal(ledger=readdressed)
