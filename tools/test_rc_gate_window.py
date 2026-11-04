@@ -36,8 +36,11 @@ def _report(*, sha=SHA, digest=DIGEST, lock=LOCK, status="pass", certifying=True
 
 def _run(days_ago: float, conclusion: str = "success", report: dict | None = None,
          sha: str = "abc123def456", run_id: int = 1):
-    at = (NOW - dt.timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    started = NOW - dt.timedelta(days=days_ago)
+    at = started.strftime("%Y-%m-%dT%H:%M:%SZ")
+    finished = (started + dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {"id": run_id, "html_url": f"https://x/run/{run_id}", "created_at": at,
+            "run_started_at": at, "updated_at": finished, "run_attempt": 1,
             "conclusion": conclusion, "status": "completed", "event": "schedule",
             "head_sha": sha, "report": report}
 
@@ -321,10 +324,10 @@ def test_gate_partition_covers_every_train_and_ai_gate_once():
 
 
 def test_gate_list_matches_release_train_uses():
-    """Every reusable workflow release-train.yml calls is in TRAIN_GATES, and nothing extra."""
-    train = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release-train.yml"
-    called = set(re.findall(r"uses:\s*\./\.github/workflows/([\w.-]+\.yml)", train.read_text()))
+    """Every reusable workflow release-train.yml calls, local or pinned, is in TRAIN_GATES, and nothing extra."""
+    called = set(re.findall(r"^\s+uses:\s*\S*\.github/workflows/([\w.-]+\.yml)", w.RELEASE_TRAIN.read_text(), re.M))
     assert called == set(w.TRAIN_GATES), (called ^ set(w.TRAIN_GATES))
+    assert "gate-protocol-certification.yml" in w.TRAIN_GATES
 
 
 def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
@@ -341,7 +344,7 @@ def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
     assert not set(w.AI_GATES) & set(w.RC_GATES)
     assert w.RC_ADVISORY == w.AI_GATES
     assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml",
-                                  "gate-upgrade.yml"}
+                                  "gate-upgrade.yml", "gate-protocol-certification.yml"}
 
 
 def test_gate_upgrade_is_ga_deferred_but_still_a_train_gate_and_candidate_bound():

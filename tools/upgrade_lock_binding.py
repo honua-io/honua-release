@@ -169,6 +169,7 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
         "timings": evidence.get("timings") or {},
         "workflow": evidence.get("workflow") or {},
         "classification": "exact-lock-upgrade-rollback-certified",
+        "status": "pass",
     }
 
 

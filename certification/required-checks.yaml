@@ -1,0 +1,100 @@
+# The build and test lanes each component's pinned commit must have run and passed.
+#
+# A lane is identified by its Actions workflow path and job (check-run) name. The gate takes each lane's
+# latest attempt on the pinned commit, and only `success` satisfies it; missing, skipped, neutral or
+# cancelled leaves the component blocked. honua-server's lanes are its full-matrix policy
+# (full-matrix-checks.yaml), so it is not listed here. Every manifest component is in exactly one of the two.
+honua-console:
+  .github/workflows/ci.yml: [Validate Console]
+  .github/workflows/console-e2e.yml: [Playwright smoke]
+  .github/workflows/console-live-integration.yml: ["Live Integration (Testcontainers, pinned server image)"]
+honua-sdk-dotnet:
+  .github/workflows/ci.yml:
+    - .NET SDK (Abstractions)
+    - .NET SDK (Admin)
+    - .NET SDK (Catalogs)
+    - .NET SDK (Cli)
+    - .NET SDK (ConsoleShare)
+    - .NET SDK (Field)
+    - .NET SDK (GeoServices)
+    - .NET SDK (Geometry)
+    - .NET SDK (Grpc)
+    - .NET SDK (Meta)
+    - .NET SDK (Offline)
+    - .NET SDK (OgcFeatures)
+    - .NET SDK (Processes)
+    - .NET SDK (Scenes)
+    - .NET SDK (Spec)
+    - .NET SDK (Studio)
+    - API Compatibility
+  .github/workflows/conformance.yml: [Contract Conformance (pinned)]
+honua-sdk-js:
+  .github/workflows/ci.yml: [JS SDK, MCP SDK]
+  .github/workflows/integration.yml: [Integration + Conformance]
+  .github/workflows/sdk-verification.yml:
+    - SDK build (producer)
+    - Unit coverage (1/4)
+    - Unit coverage (2/4)
+    - Unit coverage (3/4)
+    - Unit coverage (4/4)
+    - "Verify: core, types, style, coverage"
+    - "Verify: MCP"
+    - "Verify: package, publish surface, bundles"
+    - "Verify: examples, demos, scaffolds"
+    - "Verify: merged unit coverage"
+    - Browser (examples)
+    - Browser (map)
+    - Browser (offline)
+    - Browser (realtime)
+    - SDK verified
+honua-sdk-python:
+  .github/workflows/ci.yml:
+    - lint
+    - typecheck (3.11)
+    - typecheck (3.12)
+    - typecheck (3.13)
+    - test (ubuntu-latest, 3.11, grpc)
+    - test (ubuntu-latest, 3.11, grpc,geopandas)
+    - test (ubuntu-latest, 3.12, grpc)
+    - test (ubuntu-latest, 3.12, grpc,geopandas)
+    - test (ubuntu-latest, 3.13, grpc)
+    - test (ubuntu-latest, 3.13, grpc,geopandas)
+    - test (macos-latest, 3.11, grpc,geopandas)
+    - test (windows-latest, 3.11, grpc,geopandas)
+    - package
+    - compatibility
+    - grpc-interop
+  .github/workflows/conformance.yml: [conformance]
+geospatial-grpc:
+  .github/workflows/ci.yml:
+    - Lint and Validate Protobuf
+    - Validate Protocol Schemas
+    - Generate Code (aggregate buf.gen.yaml)
+    - Generate Code (csharp)
+    - Generate Code (go)
+    - Generate Code (java)
+    - Generate Code (javascript)
+    - Generate Code (python)
+    - Build .NET Example
+    - Build JavaScript Example
+    - Build Python Example
+    - Conformance Fixtures
+    - Pack .NET Protocol Package
+    - Pack Python Generated Client
+    - Pack TypeScript Generated Client
+geospatial-mcp:
+  .github/workflows/docs.yml: [Conformance checks, Markdown lint, Relative link check]
+honua-iac:
+  .github/workflows/terraform-ci.yml:
+    - Static Terraform Validate
+    - Terraform 1.5 Floor Validate
+    - Terraform Policy Gates
+    - Standing certification encrypted packet controls (synthetic keys)
+    - Standing certification private plan controls (offline)
+  .github/workflows/attest-source-archive.yml: [Archive verifier tests]
+honua-helm:
+  .github/workflows/ci.yml:
+    - lint-chart
+    - install-upgrade-rollback-smoke
+    - Development quick start on kind
+    - GP on Kubernetes Jobs kind smoke
