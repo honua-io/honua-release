@@ -10,6 +10,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "certification"))
 import check_build_test as bt  # noqa: E402
+from build_test_policy import BuildTestPolicy, ComponentPolicy  # noqa: E402
+from required_lanes import load_required_lanes  # noqa: E402
 
 CI = ".github/workflows/ci.yml"
 LANES = frozenset({(CI, "build"), (CI, "test")})
@@ -31,8 +33,9 @@ def _in_workflow(check, workflow):
 
 
 def _verdict(*checks, lanes=LANES):
-    report = bt.evaluate({"components": {"lib": {"sha": SHA}}}, lambda *_: {"check_runs": list(checks)},
-                         "strict", env_gated_events={}, required_lanes={"lib": lanes})
+    policy = BuildTestPolicy({"lib": ComponentPolicy(component="lib", required_lanes=lanes)})
+    report = bt.BuildTestGate(lambda *_: {"check_runs": list(checks)}, policy).evaluate(
+        {"components": {"lib": {"sha": SHA}}}, "strict")
     row = report["components"][0]
     return row["status"], row["why"]
 
@@ -93,8 +96,8 @@ def test_a_component_without_declared_lanes_is_blocked():
 
 
 def test_an_unknown_component_is_blocked_by_the_default_policy():
-    report = bt.evaluate({"components": {"not-a-component": {"sha": SHA}}},
-                         lambda *_: {"check_runs": [_check("build")]}, "strict", env_gated_events={})
+    report = bt.BuildTestGate(lambda *_: {"check_runs": [_check("build")]}, BuildTestPolicy.load()).evaluate(
+        {"components": {"not-a-component": {"sha": SHA}}}, "strict")
     assert report["components"][0]["status"] == "blocked"
 
 
@@ -111,29 +114,29 @@ def test_a_malformed_requirement_is_rejected(tmp_path, document):
     path = tmp_path / "required.yaml"
     path.write_text(document, encoding="utf-8")
     with pytest.raises(ValueError):
-        bt.load_required_lanes(path)
+        load_required_lanes(path)
 
 
 def test_the_requirement_file_parses_to_workflow_and_job_pairs(tmp_path):
     path = tmp_path / "required.yaml"
     path.write_text("lib:\n  .github/workflows/ci.yml: [build, test]\n", encoding="utf-8")
-    assert bt.load_required_lanes(path) == {"lib": LANES}
+    assert load_required_lanes(path) == {"lib": LANES}
 
 
 def test_every_manifest_component_declares_its_lanes_exactly_once():
     manifest = yaml.safe_load((ROOT / "platform-manifest.yaml").read_text(encoding="utf-8"))
-    required, full_matrix = bt.load_required_lanes(), bt.load_full_matrix()
-    assert set(manifest["components"]) == set(required) | set(full_matrix)
-    assert not set(required) & set(full_matrix)
+    components = BuildTestPolicy.load().components
+    required = {name for name, policy in components.items() if policy.required_lanes}
+    full_matrix = {name for name, policy in components.items() if policy.full_matrix is not None}
+    assert set(manifest["components"]) == required | full_matrix
+    assert not required & full_matrix
 
 
 def test_no_required_lane_is_also_excluded_from_the_verdict():
-    exclusions = (bt.load_env_gated(), bt.load_rollup(), bt.load_security(), bt.load_governance())
-    advisory, events = bt.load_advisory(), bt.load_env_gated_events()
-    for component, lanes in bt.load_required_lanes().items():
-        excluded = set().union(*(names.get(component, frozenset()) for names in exclusions))
-        advice = advisory.get(component) or {}
-        gated_workflows = {workflow for workflow, _ in events.get(component, frozenset())}
-        for workflow, name in lanes:
-            assert name not in excluded | set(advice.get("names", ())), (component, name)
-            assert workflow not in set(advice.get("workflows", ())) | gated_workflows, (component, workflow)
+    for component, policy in BuildTestPolicy.load().components.items():
+        excluded = (policy.env_gated_names | policy.rollup_names | policy.security_names
+                    | policy.governance_names | policy.advisory_names)
+        gated_workflows = {workflow for workflow, _ in policy.env_gated_events}
+        for workflow, name in policy.required_lanes:
+            assert name not in excluded, (component, name)
+            assert workflow not in policy.advisory_workflows | gated_workflows, (component, workflow)

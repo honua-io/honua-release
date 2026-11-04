@@ -30,6 +30,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'certification'))
+from build_test_github import enrich_with_workflow_runs
+from build_test_policy import BuildTestPolicy
 import check_build_test as ci
 from component_versions import version_map
 from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER, artifact_version, stamp_platform_version
@@ -194,11 +196,10 @@ class GitHub:
     def green(self, name, repository, sha):
         checks = list(self.pages(f'repos/{repository}/commits/{sha}/check-runs', 'check_runs'))
         runs = list(self.pages(f'repos/{repository}/actions/runs?head_sha={sha}', 'workflow_runs'))
-        payload = ci._enrich_action_workflow_ids({'check_runs': checks}, {'workflow_runs': runs})
-        payload['_workflow_runs'] = runs
-        policies = ci.load_full_matrix()
-        policy = policies.get(name)
-        if policy:
+        payload = enrich_with_workflow_runs({'check_runs': checks}, runs)
+        gate_policy = BuildTestPolicy.load()
+        full_matrix = gate_policy.component(name).full_matrix
+        if full_matrix:
             import full_matrix_evidence as matrix
             def api_path(url):
                 prefix = 'https://api.github.com/'
@@ -208,18 +209,15 @@ class GitHub:
             def collection(url, headers, key, *, page_size=100):
                 return {key: list(self.pages(api_path(url), key, page_size=page_size))}
             try:
-                selected = matrix.selected_run(payload, policy, sha)
-                payload['_matrix_execution'] = matrix.collect(repository, sha, selected, policy, {}, collection,
+                selected = matrix.selected_run(payload, full_matrix, sha)
+                payload['_matrix_execution'] = matrix.collect(repository, sha, selected, full_matrix, {}, collection,
                                                               lambda url, headers: self.json(api_path(url)))
             except (ValueError, ResolutionError):
                 # The same evaluator must refuse absent producer observations, including historical
                 # captured runs. Never manufacture jobs/selection to preserve a prior green result.
                 pass
-        result = ci.evaluate({'components': {name: {'sha': sha}}}, lambda *_: payload,
-                             enforcement='strict', env_gated=ci.load_env_gated(),
-                             rollup=ci.load_rollup(), security=ci.load_security(),
-                             governance=ci.load_governance(), full_matrix=policies,
-                             advisory=ci.load_advisory())
+        result = ci.BuildTestGate(lambda *_: payload, gate_policy).evaluate({'components': {name: {'sha': sha}}},
+                                                                            'strict')
         row = result['components'][0]
         return CiVerdict(row['decided'] == 'pass', row['why'], checks)
 

@@ -13,7 +13,9 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "certification"))
+import build_test_github as github  # noqa: E402
 import check_build_test as bt  # noqa: E402
+from build_test_policy import BuildTestPolicy, ComponentPolicy  # noqa: E402
 
 
 PINNED_SHA = "a" * 40
@@ -120,11 +122,8 @@ def test_evaluate_rejects_green_subset_when_full_matrix_evidence_is_absent():
         "status": "completed",
         "conclusion": "success",
     }]}
-    report = bt.evaluate(
-        manifest,
-        lambda _repo, _sha: green_subset,
-        full_matrix={"honua-server": FULL_MATRIX_POLICY},
-    )
+    policy = BuildTestPolicy({"honua-server": ComponentPolicy(component="honua-server", full_matrix=FULL_MATRIX_POLICY)})
+    report = bt.BuildTestGate(lambda _repo, _sha: green_subset, policy).evaluate(manifest)
     row = report["components"][0]
     assert report["overallStatus"] == "fail"
     assert row["status"] == "fail"
@@ -132,7 +131,7 @@ def test_evaluate_rejects_green_subset_when_full_matrix_evidence_is_absent():
 
 
 def test_full_matrix_policy_names_the_stable_server_lanes():
-    policy = bt.load_full_matrix()["honua-server"]
+    policy = BuildTestPolicy.load().component("honua-server").full_matrix
     assert policy["workflow"] == ".github/workflows/ci.yml"
     assert policy["events"] == frozenset({"schedule", "workflow_dispatch"})
     assert FULL_MATRIX_POLICY["requiredChecks"] == policy["requiredChecks"]
@@ -150,8 +149,8 @@ def test_github_collection_fetch_follows_every_page(monkeypatch):
         page = int(request.full_url.rsplit("page=", 1)[1])
         return io.BytesIO(json.dumps(pages[page]).encode())
 
-    monkeypatch.setattr(bt.urllib.request, "urlopen", fake_urlopen)
-    payload = bt._fetch_paginated_collection("https://api.github.test/check-runs", {}, "check_runs")
+    monkeypatch.setattr(github.urllib.request, "urlopen", fake_urlopen)
+    payload = github.fetch_paginated_collection("https://api.github.test/check-runs", {}, "check_runs")
 
     assert len(payload["check_runs"]) == 101
     assert requested == [
@@ -230,17 +229,18 @@ def test_default_adapter_collects_pinned_source_and_all_job_attempts(monkeypatch
             value = {'type': 'file', 'encoding': 'base64', 'sha': evidence['registryBlobSha'], 'content': base64.b64encode(raw).decode()}
         else: pytest.fail('unexpected API route: ' + url)
         return io.BytesIO(json.dumps(value).encode())
-    monkeypatch.setattr(bt.urllib.request, 'urlopen', urlopen)
-    loaded = bt._default_fetch('honua-server', PINNED_SHA)
-    assert bt.classify_full_matrix(loaded, bt.load_full_matrix()['honua-server'], PINNED_SHA)[0] == 'pass'
+    monkeypatch.setattr(github.urllib.request, 'urlopen', urlopen)
+    policy = BuildTestPolicy.load()
+    loaded = github.github_fetcher(policy)('honua-server', PINNED_SHA)
+    assert bt.classify_full_matrix(loaded, policy.component('honua-server').full_matrix, PINNED_SHA)[0] == 'pass'
     assert any('/actions/runs/12345/jobs?filter=all&per_page=20&page=1' in url for url in called)
 
 
 @pytest.mark.parametrize('response', [{'jobs': []}, {'total_count': 2, 'jobs': [{}]}, {'total_count': 0, 'wrong': []}])
 def test_incomplete_or_unbounded_job_api_collection_fails_closed(monkeypatch, response):
-    monkeypatch.setattr(bt.urllib.request, 'urlopen', lambda *a, **k: io.BytesIO(json.dumps(response).encode()))
+    monkeypatch.setattr(github.urllib.request, 'urlopen', lambda *a, **k: io.BytesIO(json.dumps(response).encode()))
     with pytest.raises(ValueError):
-        bt._fetch_paginated_collection('https://api.github.com/repos/honua-io/honua-server/actions/runs/1/jobs', {}, 'jobs')
+        github.fetch_paginated_collection('https://api.github.com/repos/honua-io/honua-server/actions/runs/1/jobs', {}, 'jobs')
 
 
 @pytest.mark.parametrize('field,value', [('app', None), ('app', []), ('check_suite', None), ('check_suite', []), ('steps', None)])
