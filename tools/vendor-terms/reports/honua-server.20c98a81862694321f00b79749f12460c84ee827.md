@@ -57,10 +57,10 @@ Counts only: 239 files. The repository's own lint lists each hit.
 ## Most frequent avoidable tokens
 | Token | Hits |
 | --- | ---: |
-| `Esri` | 3166 |
+| `Esri` | 3200 |
 | `ArcGIS` | 1710 |
 | `arcgis` | 1506 |
-| `esri` | 1446 |
+| `esri` | 1480 |
 | `esriPaths` | 395 |
 | `arcgis_compat_scoped` | 248 |
 | `arcgis_compat_protected` | 228 |
@@ -141,14 +141,14 @@ Counts only: 239 files. The repository's own lint lists each hit.
 ## Files with the most avoidable hits
 | File | Hits |
 | --- | ---: |
-| `docs/gis/data/client-certification-checklist.v1.json` | 528 |
+| `docs/gis/data/client-certification-checklist.v1.json` | 527 |
 | `docs/gis/data/client-certification-results.v1.json` | 465 |
 | `docs/internal/evidence/catalog-authority-548b7a5-2026-09-15-transcript.json` | 454 |
 | `docs/gis/data/geoservices-parity-judgment.json` | 319 |
 | `docs/gis/data/geoservices-rest-parity.json` | 319 |
 | `docs/gis/data/feature-catalog.json` | 189 |
 | `docs/gis/CLIENT_CERTIFICATION_ROSTER.md` | 176 |
-| `scripts/certification/build-client-checklist.py` | 158 |
+| `scripts/certification/build-client-checklist.py` | 157 |
 | `docs/gis/data/client-certification-roster.v1.json` | 157 |
 | `src/Honua.Core/Honua.Core.xml` | 137 |
 | `docs/gis/data/capability-matrix.v1.json` | 124 |

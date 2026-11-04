@@ -43,8 +43,8 @@ Counts only: 143 files. The repository's own lint lists each hit.
 ## Most frequent avoidable tokens
 | Token | Hits |
 | --- | ---: |
-| `Esri` | 630 |
-| `esri` | 579 |
+| `Esri` | 636 |
+| `esri` | 585 |
 | `ArcGIS` | 491 |
 | `ArcGIS Server` | 156 |
 | `arcgis` | 156 |
@@ -89,7 +89,7 @@ Counts only: 143 files. The repository's own lint lists each hit.
 ## Files with the most avoidable hits
 | File | Hits |
 | --- | ---: |
-| `llms-full.txt` | 328 |
+| `llms-full.txt` | 324 |
 | `assets/sdk-samples/0.1.2-beta.0/ec58b44/browser/honua-sdk.browser-artifacts.v1.json` | 79 |
 | `assets/sdk-samples/0.1.0-beta.0/88dd067/browser/honua-sdk.browser-artifacts.v1.json` | 76 |
 | `assets/sdk-samples/0.1.0-beta.0/cc7cc4f/browser/honua-sdk.browser-artifacts.v1.json` | 76 |

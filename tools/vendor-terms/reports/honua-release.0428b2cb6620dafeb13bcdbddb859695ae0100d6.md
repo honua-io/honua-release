@@ -43,26 +43,23 @@ Counts only: 19 files. The repository's own lint lists each hit.
 ## Most frequent avoidable tokens
 | Token | Hits |
 | --- | ---: |
-| `esri_path` | 353 |
 | `esriAssess` | 109 |
 | `arcgis` | 41 |
 | `esri_census_states` | 40 |
-| `ArcGIS` | 39 |
 | `esri_military_ops_area_z` | 38 |
 | `esri_military_ops_line_zm` | 38 |
 | `esri_usa_cities` | 38 |
 | `esri_usa_highways` | 38 |
 | `esri_wildfire_lines` | 38 |
+| `ArcGIS` | 28 |
 | `GOOD_ESRI` | 12 |
 | `summarize_esri_bundle` | 8 |
-| `ArcGIS Maps SDK for .NET` | 6 |
+| `ArcGIS Maps SDK for .NET` | 4 |
 | `ArcGIS Maps SDK` | 3 |
 | `_is_esri_error_envelope` | 3 |
 | `esrijson` | 3 |
 | `esri_index` | 2 |
 | `esri_clients` | 2 |
-| `ArcGIS Server` | 2 |
-| `esriMapCacheStorageModeCompactV2` | 2 |
 | `esri_client_compat` | 2 |
 ## Most frequent spec identifiers
 | Identifier | Hits |
@@ -87,8 +84,8 @@ Counts only: 19 files. The repository's own lint lists each hit.
 | `docs/2026.1-release-decision-overrides.json` | 51 |
 | `tools/fixtures/client-artifacts/npm.json` | 46 |
 | `tools/check_conformance_evidence.py` | 45 |
-| `.github/workflows/certification.yml` | 31 |
 | `tools/test_check_conformance_evidence.py` | 30 |
+| `.github/workflows/certification.yml` | 29 |
 | `certification/generate-protocol-requirements.py` | 22 |
 | `docs/TEST-STRATEGY.md` | 22 |
 | `e2e/drivers/demos/drive.mjs` | 14 |

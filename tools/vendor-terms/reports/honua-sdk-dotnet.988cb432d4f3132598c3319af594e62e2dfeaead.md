@@ -39,7 +39,7 @@ Counts only: 5 files. The repository's own lint lists each hit.
 | Token | Hits |
 | --- | ---: |
 | `arcgis` | 127 |
-| `Esri` | 97 |
+| `Esri` | 98 |
 | `esriCode` | 69 |
 | `ArcGIS` | 64 |
 | `ArcGisSourceCredential` | 47 |
@@ -56,7 +56,7 @@ Counts only: 5 files. The repository's own lint lists each hit.
 | `ArcObjects` | 11 |
 | `ArcGisSourcePreservationTests` | 10 |
 | `ArcGIS Online` | 4 |
-| `ESRI` | 3 |
+| `ESRI` | 4 |
 | `WriteRingInEsriOrientation` | 3 |
 | `esriGeometry` | 3 |
 | `ArcGisSourceCredentialHandler_DefaultInnerHandler_IsDisposedWithHandler` | 2 |
@@ -113,7 +113,7 @@ Counts only: 5 files. The repository's own lint lists each hit.
 | `certification/geoservices-source-import/consumer/Program.cs` | 29 |
 | `src/Honua.Sdk.GeoServices/FeatureServer/ArcGisSourceCredentialHandler.cs` | 27 |
 | `tests/Honua.Sdk.Admin.Tests/MigrationImportLifecycleTests.cs` | 27 |
-| `contracts/fixtures/capability-keys.fixture.json` | 23 |
+| `contracts/fixtures/capability-keys.fixture.json` | 22 |
 | `src/Honua.Sdk.Admin/Models/MigrationImportLifecycle.cs` | 17 |
 | `src/Honua.Sdk.Geometry/Vector/EsriJsonVectorPayloadReader.cs` | 17 |
 | `src/Honua.Sdk.GeoServices/FeatureServer/ArcGisServiceRoot.cs` | 16 |

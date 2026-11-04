@@ -41,29 +41,29 @@ Counts only: 0 files. The repository's own lint lists each hit.
 ## Most frequent avoidable tokens
 | Token | Hits |
 | --- | ---: |
-| `arcgis` | 2831 |
-| `esri` | 1447 |
-| `ArcGIS` | 961 |
+| `arcgis` | 2805 |
+| `esri` | 2003 |
+| `ArcGIS` | 867 |
 | `esriLeaflet` | 174 |
-| `esriConfig` | 94 |
 | `unhandledArcGisModules` | 93 |
 | `filesWithArcGisImports` | 86 |
 | `arcGisModules` | 83 |
+| `esriConfig` | 75 |
 | `arcGisJsApi` | 61 |
 | `scanArcGisUsage` | 53 |
-| `arcgisonline` | 50 |
-| `esriRequest` | 44 |
 | `esriLeafletImportCount` | 44 |
 | `EsriGeometryType` | 40 |
 | `ArcGISFeatureLayer` | 39 |
-| `esriGeometryToGeoJSON` | 38 |
+| `arcgisonline` | 37 |
+| `esriRequest` | 37 |
+| `esriGeometryToGeoJSON` | 36 |
 | `EsriSpatialRel` | 31 |
 | `HonuaEsriLeaflet` | 30 |
-| `EsriGeometry` | 29 |
 | `removedArcGisImports` | 29 |
 | `arcgisRest` | 28 |
 | `ArcGIS Server` | 27 |
 | `ArcGisScanReport` | 25 |
+| `EsriGeometry` | 15 |
 ## Most frequent spec identifiers
 | Identifier | Hits |
 | --- | ---: |
@@ -119,11 +119,11 @@ Counts only: 0 files. The repository's own lint lists each hit.
 ## Files with the most avoidable hits
 | File | Hits |
 | --- | ---: |
-| `test/migration-codemod.test.ts` | 770 |
-| `src/migration/codemod.ts` | 504 |
-| `llms-full.txt` | 468 |
+| `test/migration-codemod.test.ts` | 647 |
+| `src/migration/codemod.ts` | 499 |
+| `llms-full.txt` | 464 |
 | `docs/widget-survival-guide.md` | 361 |
-| `test/migration-integration.test.ts` | 255 |
+| `test/migration-integration.test.ts` | 251 |
 | `src/migration/oss-corpus.ts` | 153 |
 | `test/migration-scanner.test.ts` | 131 |
 | `examples/migration-workbench/public/artifacts/v1/maplibre-assessment.v1.json` | 130 |
@@ -134,18 +134,18 @@ Counts only: 0 files. The repository's own lint lists each hit.
 | `src/migration/widget-dispositions.ts` | 114 |
 | `src/migration/runtime-matrix.ts` | 110 |
 | `src/migration/sample-corpus.ts` | 98 |
-| `api-report/stable-api.json` | 95 |
+| `api-report/stable-api.json` | 92 |
 | `docs/oss-arcgis-corpus-readiness.md` | 91 |
-| `test/migration-report.test.ts` | 91 |
 | `src/migration/scanner.ts` | 89 |
+| `test/migration-report.test.ts` | 87 |
 | `samples/evidence/migration-workbench/runs/e7cd0348-1cb7-4081-8236-5913d7f9504d/artifacts/packed-sample-dist/assets/migrated-main-DJ5uYW8M.js` | 85 |
 | `scripts/generate-comparison-page.mjs` | 84 |
-| `src/migration/sample-corpus-evidence.ts` | 76 |
 | `test/migration-oss-corpus.test.ts` | 73 |
 | `docs/oss-arcgis-corpus.md` | 72 |
+| `src/migration/sample-corpus-evidence.ts` | 71 |
 | `test/migration-widget-scanner.test.ts` | 68 |
-| `src/migration/cli.ts` | 67 |
 | `src/migration/oss-corpus-deep.ts` | 67 |
+| `src/migration/cli.ts` | 64 |
 | `test/migration-cli-matrix.test.ts` | 64 |
 ## Every avoidable hit
 `path:line  category  token` (line 0 = the path itself; `[excepted]` = allowlisted).

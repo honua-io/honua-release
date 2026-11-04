@@ -816,6 +816,18 @@ def test_published_sdk_observations_no_longer_carry_vendor_terms():
         assert not any(path in entry.paths for entry in entries)
 
 
+def test_manifest_paths_leave_unrelated_identifiers_and_endorsement_unexcepted():
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    widget = "@honua/" + "esri" + "-widget"
+    paths = ("platform-manifest.yaml", "docs/2026.1-release-decision-overrides.json")
+    for path in paths:
+        assert not any(
+            entry.covers("honua-release", path, "Esri", category="endorsement-claim")
+            for entry in entries
+        )
+        assert not any(entry.covers("honua-release", path, "esri", widget) for entry in entries)
+
+
 def test_retired_compat_term_rejects_a_package_and_keeps_the_matrix_path():
     package = "esri" + "-compat"
     matrix = "certification/sources/" + package + "/matrix/gp-server.matrix.json"

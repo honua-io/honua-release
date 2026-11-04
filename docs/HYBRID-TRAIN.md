@@ -50,10 +50,6 @@ candidate (AGENTS.md: "Both humans and AI use this one workflow_dispatch"). It d
 things depending on the lane:
 - For lanes it CAN run itself (canonical checks, terraform-provisioned cloud cells, contract/SBOM/
   security scans) — it runs them **for real**, live, every cut.
-  the pushed envelope with an explicit **freshness bound** (`certification/evidence-freshness.yaml`,
-  `tools/check_evidence_freshness.py`, honua-release#60) and a **lineage check** (is this evidence
-  actually about the candidate's pinned commit, not a stale/unrelated snapshot?). Missing, stale, or
-  lineage-diverged evidence is `blocked` (bootstrap) / `fail` (a real cut) — **never a fake pass**.
 
 `demo-canary.yml` runs on its own 6-hour schedule against `https://demo.honua.io`, independent
 of any specific release candidate, and writes a versioned `live-canary-evidence.json` envelope for
