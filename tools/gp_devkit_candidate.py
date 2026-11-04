@@ -16,26 +16,27 @@ import xml.etree.ElementTree as ET
 
 import gp_devkit_artifacts as gate
 import gp_fetch_sdk
+from digests import file_sha256_hex
 
 
 def prepare(options):
     packages = list(options.package_directory.glob("*.nupkg"))
     gate.require(len(packages) == 1, "Exactly one downloaded CLI package is required")
     package = packages[0].resolve(strict=True)
-    gate.require(gate.sha256(package) == options.package_sha256, "Downloaded package differs from the producer hash")
+    gate.require(file_sha256_hex(package) == options.package_sha256, "Downloaded package differs from the producer hash")
     version, _ = gate.package_identity(package, options.source_sha)
     gate.require(re.fullmatch(r"[0-9a-f]{40}", options.source_sha), "Full source SHA required")
     gate.require(re.fullmatch(r"(?:docker\.io/library/)?python@sha256:[0-9a-f]{64}", options.python_image), "Immutable Python base required")
     sdk_input = options.sdk_directory.resolve(strict=True)
     sdk_receipt = gate.load(sdk_input / "official-receipt.json")
     metadata = sdk_input / "official-metadata.json"
-    gate.require(gate.sha256(metadata) == sdk_receipt["metadataSha256"], "Official SDK metadata changed")
+    gate.require(file_sha256_hex(metadata) == sdk_receipt["metadataSha256"], "Official SDK metadata changed")
     url, sha512 = gp_fetch_sdk.select(gate.load(metadata), sdk_receipt["version"])
     gate.require(url == sdk_receipt["url"] and sha512 == sdk_receipt["sha512"], "SDK receipt differs from official metadata")
     sdk = sdk_input / f'dotnet-sdk-{sdk_receipt["version"]}-linux-x64.tar.gz'
     with sdk.open("rb") as stream:
         actual_sha512 = hashlib.file_digest(stream, "sha512").hexdigest()
-    gate.require(actual_sha512 == sha512 and gate.sha256(sdk) == sdk_receipt["sha256"], "Complete SDK archive bytes changed")
+    gate.require(actual_sha512 == sha512 and file_sha256_hex(sdk) == sdk_receipt["sha256"], "Complete SDK archive bytes changed")
     root = options.output.resolve()
     root.mkdir(parents=True, exist_ok=False)
     initial = root / "initial-install"
@@ -68,7 +69,7 @@ def prepare(options):
     provenance = gate.load(bootstrap / "workspace-provenance.json")
     for name, expected in provenance["files"].items():
         path = bootstrap / name
-        gate.require(path.resolve().is_relative_to(bootstrap) and gate.sha256(path) == expected, "Installed bootstrap bytes changed")
+        gate.require(path.resolve().is_relative_to(bootstrap) and file_sha256_hex(path) == expected, "Installed bootstrap bytes changed")
     assembly = root / "assembly"
     # The one canonical assembler is installed from the package; no script is copied from server source.
     subprocess.run([sys.executable, str(bootstrap / "assemble_workspace_image.py"),

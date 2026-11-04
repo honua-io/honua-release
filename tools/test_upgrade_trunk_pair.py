@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 import upgrade_trunk_pair as pair
+from digests import sha256_digest
 
 A, B, C = "a" * 40, "b" * 40, "c" * 40
 HELM = "d" * 40
@@ -54,8 +55,8 @@ def test_explicit_prior_manifest_is_labelled_and_its_bytes_bind_the_identity_dig
     out = pair.resolve(candidate, b"candidate", prior_manifest=prior, prior_bytes=prior_bytes,
                        prior_label="honua-2026.1 pre-release snapshot")
     assert out["prior_selected_from"] == "honua-2026.1 pre-release snapshot"
-    assert out["prior_manifest_digest"] == pair._bytes_digest(prior_bytes)
-    assert out["candidate_manifest_digest"] == pair._bytes_digest(b"candidate")
+    assert out["prior_manifest_digest"] == sha256_digest(prior_bytes)
+    assert out["candidate_manifest_digest"] == sha256_digest(b"candidate")
 
 
 @pytest.mark.parametrize("prior, message", [

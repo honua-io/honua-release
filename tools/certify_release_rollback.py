@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import re
 import sys
 from pathlib import Path
@@ -16,15 +14,12 @@ from image_platforms import verify_image_platform_digests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 import release_rollback as rollback  # noqa: E402
+from digests import file_sha256_digest
 
 
 def write(path: Path, value: dict) -> Path:
     rollback.atomic_write(path, value)
     return path
-
-
-def file_digest(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def artifact_path(lock: dict, component: str, kind: str, field: str) -> str:
@@ -37,7 +32,7 @@ def artifact_path(lock: dict, component: str, kind: str, field: str) -> str:
 
 
 def verify_frozen_sources(candidate: dict, manifest: Path, matrix: Path) -> dict[str, str]:
-    observed = {"platformManifest": file_digest(manifest), "compatibilityMatrix": file_digest(matrix)}
+    observed = {"platformManifest": file_sha256_digest(manifest), "compatibilityMatrix": file_sha256_digest(matrix)}
     declared = candidate.get("sourceInputs") or {}
     for name, digest in observed.items():
         if (declared.get(name) or {}).get("sha256") != digest:
@@ -94,7 +89,7 @@ def environment(root: Path, name: str, a: dict, b: dict, a_path: Path, source_in
 
 def certify(args, report: dict) -> int:
     a, b = rollback.load(args.from_lock), rollback.load(args.to_lock)
-    candidate_digest, target_digest = file_digest(args.to_lock), file_digest(args.from_lock)
+    candidate_digest, target_digest = file_sha256_digest(args.to_lock), file_sha256_digest(args.from_lock)
     first = report.get("first_lock_bearing_release", False)
     if first:
         if (report.get("no_earlier_lock_exists") is not True

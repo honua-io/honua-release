@@ -1,6 +1,5 @@
 import copy
 import hashlib
-import json
 import sys
 from pathlib import Path
 
@@ -8,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import upgrade_recovery as recovery  # noqa: E402
+from digests import file_sha256_digest
 
 
 def _digest(seed: str) -> str:
@@ -19,7 +19,7 @@ def _evidence(tmp_path: Path) -> dict[str, str]:
     for name in recovery.REQUIRED_EVIDENCE:
         path = tmp_path / name
         path.write_text(f"evidence:{name}\n", encoding="utf-8")
-        result[name] = recovery.sha256_bytes(path)
+        result[name] = file_sha256_digest(path)
     return result
 
 

@@ -9,7 +9,8 @@ import os
 from pathlib import Path
 import re
 import stat
-from devops_provisioning_contract import Refusal,require,sha256
+from devops_provisioning_contract import Refusal, require
+from digests import sha256_hex
 
 ALLOWED_KINDS=frozenset({'plan','plan-metadata','approval','apply','handoff','verification-evidence',
     'verification-receipt','provision-binding','runtime-observation','cleanup-execution','cleanup-claim',
@@ -54,7 +55,7 @@ def read_reference(evidence_root: Path, reference: dict, *, expected_kind: str) 
                         ==(after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns),
                         'evidence-original-changed')
                 data=b''.join(blocks)
-                require(len(data)==length and sha256(data)==digest,'evidence-original-digest')
+                require(len(data)==length and sha256_hex(data)==digest,'evidence-original-digest')
                 return data
             finally:os.close(fd)
         finally:os.close(root_fd)

@@ -8,6 +8,7 @@ import pytest
 
 import prepare_mcp_source_context as context
 import resolve_trunk_candidate as resolver
+from digests import sha256_digest
 
 SOURCE = 'a' * 40
 HEAD = 'b' * 40
@@ -87,7 +88,7 @@ def test_real_generator_stages_complete_context_and_keeps_red_selector_refusal(t
     assert not (output / 'customer-install-manifest.json').exists()
     inventory = json.loads((output / 'source-context-inventory.json').read_bytes())
     for path, expected in inventory.items():
-        assert context.digest((output / path).read_bytes()) == expected
+        assert sha256_digest((output / path).read_bytes()) == expected
     for path in context.FILES:
         assert (output / 'certification/sources/geospatial-mcp' / Path(path).name).read_bytes() == github.snapshots[path]
     with pytest.raises(resolver.ResolutionError, match='no qualifying trunk commit.*Protocol Certification failed'):

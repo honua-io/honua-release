@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import json
 import shutil
 import subprocess
@@ -15,14 +14,11 @@ import yaml
 import convergence_rebind as convergence
 import propose_client_artifact as proposal
 import resolve_trunk_candidate as resolver
+from digests import sha256_digest
 
 
 class PreviewError(ValueError):
     pass
-
-
-def digest(data):
-    return 'sha256:' + hashlib.sha256(data).hexdigest()
 
 
 def replace_mappings(text, replacements):
@@ -56,7 +52,7 @@ def project_manifest(raw, proposals, github):
         client = item.get('client')
         if (item.get('schema') != 'honua.client-artifact-adoption-proposal/v1'
                 or item.get('state') != 'review-required' or item.get('candidateQualification') != 'pending'
-                or item.get('manifestSha256') != digest(raw) or client in seen):
+                or item.get('manifestSha256') != sha256_digest(raw) or client in seen):
             raise PreviewError('proposal schema/state/manifest hash or duplicate client mismatch')
         seen.add(client)
         if item.get('previousArtifact') != original.get('clientArtifacts', {}).get(client):
@@ -174,10 +170,10 @@ def generate(root, output, proposals, github=None, stage_github=None):
         if (root / 'platform-manifest.yaml').read_bytes() != raw:
             raise PreviewError('source manifest changed during generation')
         report = {'schema': 'honua.client-artifact-adoption-preview/v1', 'state': 'review-required',
-                  'candidateAdmission': False, 'manifestSha256': digest(raw),
+                  'candidateAdmission': False, 'manifestSha256': sha256_digest(raw),
                   'proposalClients': [item['client'] for item in proposals], 'requirements': comparison,
                   'sourceTierObligations': tiers, 'normalPreparationPlan': plan,
-                  'customerRehearsalSha256': digest(rehearsal),
+                  'customerRehearsalSha256': sha256_digest(rehearsal),
                   'next': 'review exact source/semantic drift; normal protected PR and actual certification remain required'}
         output.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='.artifact-preview-', dir=output.parent) as staging:
@@ -193,7 +189,7 @@ def generate(root, output, proposals, github=None, stage_github=None):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
             (destination / 'preview-inventory.json').write_text(json.dumps(
-                {path: digest(data) for path, data in sorted(files.items())}, indent=2) + '\n')
+                {path: sha256_digest(data) for path, data in sorted(files.items())}, indent=2) + '\n')
             if output.exists():
                 raise PreviewError('output appeared during generation')
             destination.rename(output)

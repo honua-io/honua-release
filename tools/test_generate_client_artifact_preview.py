@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 import generate_client_artifact_preview as preview
+from digests import sha256_digest
 
 
 class GitHub:
@@ -29,7 +30,7 @@ def context(monkeypatch):
     newer = {**artifact, 'version': '1.1.1', 'sourceSha': 'b' * 40,
              'filename': 'honua.sdk.1.1.1.nupkg', 'digest': 'sha256:' + '2' * 64}
     item = {'schema': 'honua.client-artifact-adoption-proposal/v1', 'state': 'review-required',
-            'candidateQualification': 'pending', 'client': 'sdk', 'manifestSha256': preview.digest(raw),
+            'candidateQualification': 'pending', 'client': 'sdk', 'manifestSha256': sha256_digest(raw),
             'previousArtifact': copy.deepcopy(artifact), 'proposedArtifact': newer,
             'verifiedIdentity': {'version': '1.1.1', 'sourceRevision': 'b' * 40, 'sha256': newer['digest']}}
     monkeypatch.setattr(preview.proposal, 'propose', lambda *args: copy.deepcopy(item))

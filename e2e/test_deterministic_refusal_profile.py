@@ -1,6 +1,5 @@
 """The off profile proves actual refusal and fixture serving, never full GP completion."""
 import copy
-import hashlib
 import json
 import sys
 from datetime import datetime, timezone
@@ -11,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deterministic_refusal_profile as profile
+from digests import ascii_canonical_bytes, sha256_hex
 
 STAMP = '2026-10-17T10:00:00Z'
 AFTER = '2026-10-17T10:01:00Z'
@@ -34,7 +34,7 @@ def sample(tmp_path):
     fixture = profile.oracle().fixture_binding(seed)
     raw = {'mode': 'live', 'status': 'blocked', 'generatedAt': STAMP, 'server': SERVER,
            'roster': {'status': 'pass'}, 'target': {'baseUrl': 'https://cell.example',
-               'configSha256': profile.sha(target_path.read_bytes())},
+               'configSha256': sha256_hex(target_path.read_bytes())},
            'stages': [{'number': n, 'status': 'pass' if n <= 2 else 'blocked',
                        'evidence': {'uri': 'urn:actual#honua-run=123/2', 'source': 'live-aws-ecs',
                            'freshness': 'verified-current', 'completeness': 'complete', 'observedAt': STAMP}}
@@ -46,16 +46,16 @@ def sample(tmp_path):
     raw_path = tmp_path / 'receipt-1.json'
     raw_path.write_bytes(raw_bytes)
     record = {'cell': 'aws-ecs/redis-off', 'number': 1, 'runId': '123', 'runAttempt': '2',
-              'candidateDigest': 'c' * 64, 'receiptSha256': profile.sha(raw_bytes),
+              'candidateDigest': 'c' * 64, 'receiptSha256': sha256_hex(raw_bytes),
               'profileObservation': {'source': 'aws-control-plane', 'before': SERVER, 'after': SERVER,
                                      'observedAt': AFTER, 'seedManifestSha256': fixture['seedManifestSha256']}}
     public_fixture = {k: v for k, v in fixture.items() if k != 'expectedFeatures'}
     proof = {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': profile.PROFILE,
         'mode': 'deterministic', 'status': 'pass', 'executionOutcome': 'refused', 'functionalGpExecuted': False,
         'cleanup': 'pass', 'cell': record['cell'], 'attempt': 1, 'runId': '123', 'runAttempt': '2',
-        'candidateDigest': record['candidateDigest'], 'server': SERVER, 'rawReceiptSha256': profile.sha(raw_bytes),
-        'targetConfigSha256': profile.sha(target_path.read_bytes()), 'sourceStatus': 'blocked',
-        'planSha256': profile.sha(profile.canonical(profile.plan(target, '123', 1))), 'generatedAt': AFTER,
+        'candidateDigest': record['candidateDigest'], 'server': SERVER, 'rawReceiptSha256': sha256_hex(raw_bytes),
+        'targetConfigSha256': sha256_hex(target_path.read_bytes()), 'sourceStatus': 'blocked',
+        'planSha256': sha256_hex(ascii_canonical_bytes(profile.plan(target, '123', 1))), 'generatedAt': AFTER,
         'servingProof': {'fixtureBinding': public_fixture, 'featureCount': 2, 'featureIds': ['1', '2'],
                          'independentReadMatches': True, 'featuresSha256': 'd' * 64},
         'assertions': dict.fromkeys(profile.ASSERTIONS, 'pass'), 'refusalProof': REFUSAL}
@@ -249,8 +249,8 @@ def test_refusal_cannot_claim_model_credit_or_forge_fixture_execution(sample, mu
     else:
         value = json.loads(target.read_bytes()); value['execution']['buffer']['distance'] = 200
         target.write_text(json.dumps(value))
-        proof['targetConfigSha256'] = raw['target']['configSha256'] = profile.sha(target.read_bytes())
-        proof['planSha256'] = profile.sha(profile.canonical(profile.plan(value, '123', 1)))
+        proof['targetConfigSha256'] = raw['target']['configSha256'] = sha256_hex(target.read_bytes())
+        proof['planSha256'] = sha256_hex(ascii_canonical_bytes(profile.plan(value, '123', 1)))
     with pytest.raises(ValueError): validate(sample)
 
 
@@ -270,7 +270,7 @@ def attach_fixture_profile(directory, raw, record):
     seed.write_text(json.dumps({'slice1': {'e2e_src_fs': {'service': 'e2e', 'layerId': 7}},
                                 'layers': {'e2e_src_fs': 7}}))
     fixture = profile.oracle().fixture_binding(seed)
-    raw['target'].update(baseUrl='https://cell.invalid', redisTopology='redis-off', configSha256=profile.sha(target_path.read_bytes()))
+    raw['target'].update(baseUrl='https://cell.invalid', redisTopology='redis-off', configSha256=sha256_hex(target_path.read_bytes()))
     if raw['status'] == 'pass':
         gp = raw['stages'][4]
         for key in ('jobId', 'operationId', 'operationInstanceId', 'jobStatus', 'resourceUri', 'jobCreatedAt'):
@@ -278,22 +278,22 @@ def attach_fixture_profile(directory, raw, record):
         gp['topologyRefusal'] = {**REFUSAL, 'ruling': 'redis-governed-control-plane-2026-10-08',
                                  'deploymentEnvironment': 'test'}
     raw_bytes = json.dumps(raw).encode()
-    record['receiptSha256'] = profile.sha(raw_bytes)
+    record['receiptSha256'] = sha256_hex(raw_bytes)
     proof = {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': profile.PROFILE,
         'mode': 'deterministic', 'cell': cell, 'runId': record['runId'], 'runAttempt': record['runAttempt'],
         'attempt': number, 'candidateDigest': record['candidateDigest'], 'server': raw['server'],
         'status': 'pass' if raw['status'] == 'pass' else 'fail', 'sourceStatus': raw['status'],
         'executionOutcome': 'refused', 'functionalGpExecuted': False, 'cleanup': 'pass',
-        'generatedAt': raw['generatedAt'], 'rawReceiptSha256': profile.sha(raw_bytes),
-        'targetConfigSha256': profile.sha(target_path.read_bytes()),
-        'planSha256': profile.sha(profile.canonical(profile.plan(target, record['runId'], number))),
+        'generatedAt': raw['generatedAt'], 'rawReceiptSha256': sha256_hex(raw_bytes),
+        'targetConfigSha256': sha256_hex(target_path.read_bytes()),
+        'planSha256': sha256_hex(ascii_canonical_bytes(profile.plan(target, record['runId'], number))),
         'assertions': dict.fromkeys(profile.ASSERTIONS, 'pass'), 'refusalProof': REFUSAL,
         'servingProof': {'fixtureBinding': {k:v for k,v in fixture.items() if k != 'expectedFeatures'},
                         'featureCount': 2, 'featureIds': ['1','2'], 'independentReadMatches': True,
                         'featuresSha256': 'd'*64}}
     path = directory / f'serving-refusal-{number}.json'
     path.write_text(json.dumps(proof))
-    record['servingRefusal'] = {'file': path.name, 'sha256': profile.sha(path.read_bytes())}
+    record['servingRefusal'] = {'file': path.name, 'sha256': sha256_hex(path.read_bytes())}
     record['profileObservation'] = {'source': 'aws-control-plane', 'before': raw['server'], 'after': raw['server'],
         'observedAt': raw['generatedAt'], 'seedManifestSha256': fixture['seedManifestSha256']}
     return raw_bytes
@@ -310,7 +310,7 @@ def test_adjacent_profile_artifacts_cannot_be_symlinks(sample, artifact, tmp_pat
     proof, record, raw, raw_bytes, target = sample
     sidecar = tmp_path / 'serving-refusal-1.json'
     sidecar.write_text(json.dumps(proof))
-    record['servingRefusal'] = {'file': sidecar.name, 'sha256': profile.sha(sidecar.read_bytes())}
+    record['servingRefusal'] = {'file': sidecar.name, 'sha256': sha256_hex(sidecar.read_bytes())}
     file = tmp_path / artifact
     outside = tmp_path.parent / (tmp_path.name + '-external.json')
     outside.write_bytes(file.read_bytes()); file.unlink(); file.symlink_to(outside)
@@ -335,7 +335,7 @@ def test_real_profile_driver_setup_and_execute_receive_only_private_tenant_conte
     manifest = cloud.manifest(); image = cloud.candidate_image(target['id'], manifest)
     deployment = tmp_path / 'deployment.json'
     deployment.write_text(json.dumps({'status': 'pass', 'target': {'id': target['id'],
-        'baseUrl': target['replicaBaseUrl'], 'configSha256': profile.sha(path.read_bytes())},
+        'baseUrl': target['replicaBaseUrl'], 'configSha256': sha256_hex(path.read_bytes())},
         'server': {'sourceSha': manifest['components']['honua-server']['sha'], 'image': image},
         'stages': [{'number': 1, 'status': 'pass', 'checks': [{'id': '1.1-candidate-image', 'status': 'pass'}],
                     'evidence': {'source': 'live-aws-ecs', 'freshness': 'verified-current'}}]}))
@@ -366,8 +366,8 @@ def test_real_profile_driver_setup_and_execute_receive_only_private_tenant_conte
          mock.patch.object(adapter.local_fixture, 'revoke', return_value=([], [])):
         with driver.pins.candidate_sandbox(), cloud.tenant_application_key(key):
             setup = adapter.op_setup({'target': str(path), 'profile': profile.PROFILE,
-                'deploymentReceipt': {'path': str(deployment), 'sha256': profile.sha(deployment.read_bytes())},
-                'servingFixture': {'path': str(seed), 'sha256': profile.sha(seed.read_bytes())}})
+                'deploymentReceipt': {'path': str(deployment), 'sha256': sha256_hex(deployment.read_bytes())},
+                'servingFixture': {'path': str(seed), 'sha256': sha256_hex(seed.read_bytes())}})
             assert setup['status'] == 'ready'
             with pytest.raises(RuntimeError, match='real execution credential handoff'):
                 adapter.op_execute({'workspaceId': setup['workspaceId'], 'profile': profile.PROFILE,
@@ -393,7 +393,7 @@ def test_inadmissible_prerequisite_of_a_roster_blocked_receipt_is_a_documented_b
     assert proof['status'] == 'blocked' and 'not green' in proof['why']
     sidecar = tmp_path / 'serving-refusal-1.json'
     sidecar.write_text(json.dumps(proof))
-    record['servingRefusal'] = {'file': sidecar.name, 'sha256': profile.sha(sidecar.read_bytes())}
+    record['servingRefusal'] = {'file': sidecar.name, 'sha256': sha256_hex(sidecar.read_bytes())}
     # Never a qualifying success, and distinguishable from a profile that ran and failed.
     assert profile.failed_record(record, raw, raw_path) is True
     assert profile.blocked_record(record, raw_path) is True

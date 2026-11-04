@@ -10,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gp_devkit_artifacts as gate
+from digests import file_sha256_hex
 
 SOURCE = "1" * 40
 IMAGE = "sha256:" + "2" * 64
@@ -33,7 +34,7 @@ def evidence(tmp_path):
     root = tmp_path / "assembly"
     payload = {"workspace.py": "3" * 64}
     assembly = {"schema": "honua.gp.workspace-assembly/v1", "qualified": True,
-                "image": IMAGE, "nupkg": {"version": VERSION, "sha256": gate.sha256(package)},
+                "image": IMAGE, "nupkg": {"version": VERSION, "sha256": file_sha256_hex(package)},
                 "sdk": {"version": "10.0.302", "archiveSha256": "4" * 64},
                 "pythonBase": "python@sha256:" + "5" * 64,
                 "nuget": {"package/1.0": {"contentHash": "locked"}},
@@ -52,7 +53,7 @@ def evidence(tmp_path):
                          "snapshotDigest": f"{index * 3 + step + 1:064x}", "artifacts": []}
         output = root / "fixture-qualification/runs" / run["corrected"]["runId"] / "output/result/artifacts/features.geojson"
         write(output, {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": None, "properties": {}}]})
-        artifact = {"path": "result/artifacts/features.geojson", "sha256": gate.sha256(output), "bytes": output.stat().st_size}
+        artifact = {"path": "result/artifacts/features.geojson", "sha256": file_sha256_hex(output), "bytes": output.stat().st_size}
         run["corrected"]["artifacts"] = [artifact]
         run["geoJsonArtifact"] = artifact | {"sourceSnapshotDigest": run["corrected"]["snapshotDigest"], "absolutePath": "/ignored"}
         fixtures["runs"].append(run)
@@ -65,7 +66,7 @@ def evidence(tmp_path):
 def test_binds_both_language_outputs_and_package(evidence):
     root, package = evidence
     candidate = gate.qualify(root, package, SOURCE)
-    assert candidate["package"]["sha256"] == gate.sha256(package)
+    assert candidate["package"]["sha256"] == file_sha256_hex(package)
     assert candidate["imageConfigDigest"] == IMAGE
     assert {a["language"] for a in candidate["qualification"]["geoJsonArtifacts"]} == {"python", "dotnet"}
 

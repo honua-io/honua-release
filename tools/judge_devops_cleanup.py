@@ -20,8 +20,8 @@ from devops_aws_resource_fate import (OriginalRead, Resource, judge_fate,
                                      tag_census, verdict)
 from devops_cleanup_attempt import AttemptContext, verify_attempt
 from devops_mcp_observation_contract import field, operation_result, verify_call
-from devops_provisioning_contract import (CELLS, SHA, canonical, document,
-                                         require, sha256, timestamp)
+from devops_provisioning_contract import CELLS, SHA, document, require, timestamp
+from digests import ascii_canonical_bytes, sha256_hex
 
 
 def _unqualified():
@@ -32,14 +32,14 @@ def _unqualified():
 def _custody(originals: Mapping[str, bytes], hashes: Mapping[str, str]):
     require(set(originals) == set(hashes) and bool(originals), 'judge-original-closure')
     require(all(type(raw) is bytes and type(hashes[name]) is str
-                and SHA.fullmatch(hashes[name]) and sha256(raw) == hashes[name]
+                and SHA.fullmatch(hashes[name]) and sha256_hex(raw) == hashes[name]
                 for name, raw in originals.items()), 'judge-original-custody')
 
 
 def _reference(row, kind, raw):
     require(type(row) is dict and set(row) == {'kind', 'reference', 'sha256', 'byteLength'}
-            and row['kind'] == kind and row['sha256'] == sha256(raw)
-            and row['reference'] == 'urn:sha256:' + sha256(raw)
+            and row['kind'] == kind and row['sha256'] == sha256_hex(raw)
+            and row['reference'] == 'urn:sha256:' + sha256_hex(raw)
             and type(row['byteLength']) is int and row['byteLength'] == len(raw),
             'judge-production-reference')
 
@@ -114,9 +114,9 @@ def verify_retained_origin(origin_bytes: bytes, originals: Mapping[str, bytes],
     require(set(originals) == {'plan', 'plan-metadata', 'approval',
                               'cleanup-plan-schema', 'cleanup-exec-schema'} | recovery_kinds,
             'origin-original-kinds')
-    require(sha256(originals['plan']) == attempt.original_hashes['saved-plan']
-            and sha256(originals['plan-metadata']) == attempt.original_hashes['metadata']
-            and sha256(originals['approval']) == attempt.original_hashes['approval'], 'origin-attempt-originals')
+    require(sha256_hex(originals['plan']) == attempt.original_hashes['saved-plan']
+            and sha256_hex(originals['plan-metadata']) == attempt.original_hashes['metadata']
+            and sha256_hex(originals['approval']) == attempt.original_hashes['approval'], 'origin-attempt-originals')
     value = document(origin_bytes)
     require(set(value) == {'SchemaVersion', 'ProvisioningOperationId', 'Stack', 'Environment',
             'HostBinding', 'PlanPath', 'IacRoot', 'ApplyScript', 'ApplyScriptSha256',
@@ -139,14 +139,14 @@ def verify_retained_origin(origin_bytes: bytes, originals: Mapping[str, bytes],
     require(value['PlanPath'] == attempt.plan_path
             and value['ClaimDirectory'] == attempt.claim_directory
             and attempt.claim_directory.endswith('/cleanup-obligations/'
-                + sha256(attempt.plan.operation_id.encode()) + '/claim'), 'origin-durable-coordinates')
+                + sha256_hex(attempt.plan.operation_id.encode()) + '/claim'), 'origin-durable-coordinates')
     projection = _metadata_projection(originals['plan-metadata'])
     observed = value['Metadata']
     require(type(observed) is dict and set(observed) == set(projection), 'origin-metadata-shape')
     require(timestamp(observed['ExpiresAtUtc']) == timestamp(projection['ExpiresAtUtc']),
             'origin-metadata-expiry')
-    require(canonical({key: item for key, item in observed.items() if key != 'ExpiresAtUtc'})
-            == canonical({key: item for key, item in projection.items() if key != 'ExpiresAtUtc'}),
+    require(ascii_canonical_bytes({key: item for key, item in observed.items() if key != 'ExpiresAtUtc'})
+            == ascii_canonical_bytes({key: item for key, item in projection.items() if key != 'ExpiresAtUtc'}),
             'origin-metadata-original')
     _references(value['EvidenceRefs'], originals)
     if recovery_kinds:
@@ -154,10 +154,10 @@ def verify_retained_origin(origin_bytes: bytes, originals: Mapping[str, bytes],
         recovery = document(originals['destroy-recovery'])
         require(recovery.get('SchemaVersion') == 'honua.devops.destroy-recovery/v1'
                 and recovery.get('ProvisioningOperationId') == attempt.plan.operation_id
-                and recovery.get('PlanSha256') == sha256(originals['plan'])
+                and recovery.get('PlanSha256') == sha256_hex(originals['plan'])
                 and recovery.get('PlanMetadataDigest') == projection['PlanMetadataDigest']
                 and document(originals['approval']).get('recoveryContextSha256')
-                    == sha256(originals['destroy-recovery']), 'origin-signed-recovery')
+                    == sha256_hex(originals['destroy-recovery']), 'origin-signed-recovery')
     else:
         require(type(projection['ActorId']) is str
                 and not projection['ActorId'].startswith('honua-devops:destroy-recovery:')
@@ -165,7 +165,7 @@ def verify_retained_origin(origin_bytes: bytes, originals: Mapping[str, bytes],
                 'origin-missing-signed-recovery')
     _schema_original(originals['plan-metadata'], originals['cleanup-plan-schema'])
     return {'status': 'retained-origin-joined', 'operationId': attempt.plan.operation_id,
-            'originSha256': sha256(origin_bytes), **_unqualified()}
+            'originSha256': sha256_hex(origin_bytes), **_unqualified()}
 
 
 def verify_cleanup_inspection(request_bytes: bytes, response_bytes: bytes, *, request_id,
@@ -200,12 +200,12 @@ def verify_cleanup_inspection(request_bytes: bytes, response_bytes: bytes, *, re
     expected = {'provisioningOperationId': attempt.plan.operation_id, 'state': expected_state,
                 'action': attempt.plan.action,
                 'planMetadataDigest': document(originals['metadata'])['plan_metadata_digest'],
-                'planSha256': sha256(originals['saved-plan']), 'approvalSha256': sha256(originals['approval']),
+                'planSha256': sha256_hex(originals['saved-plan']), 'approvalSha256': sha256_hex(originals['approval']),
                 'cleanupOutstanding': True, 'candidateQualified': False}
     for name, value in expected.items():
         require(type(field(inspection, name)) is type(value) and field(inspection, name) == value,
                 'inspection-original-binding')
-    receipt_hash = (sha256(originals['execution-receipt']) if 'execution-receipt' in originals else None)
+    receipt_hash = (sha256_hex(originals['execution-receipt']) if 'execution-receipt' in originals else None)
     require(field(inspection, 'executionReceiptSha256') == receipt_hash, 'inspection-receipt-binding')
     if receipt_hash is not None:
         _schema_original(originals['execution-receipt'], originals['cleanup-exec-schema'])
@@ -309,21 +309,21 @@ def verify_destroy_recovery(originals: Mapping[str, bytes], context: RecoveryCon
     expected = {'SchemaVersion': 'honua.devops.destroy-recovery/v1',
         'RootProvisioningOperationId': context.root_operation_id,
         'ParentProvisioningOperationId': previous.plan.operation_id,
-        'ParentObligationSha256': sha256(originals['parent-obligation']),
+        'ParentObligationSha256': sha256_hex(originals['parent-obligation']),
         'ParentRecoveryContextSha256': None if parent_recovery is None else parent_recovery['sha256'],
         'ParentPlanMetadataDigest': prior_metadata['plan_metadata_digest'],
-        'ParentApprovalSha256': sha256(previous_originals['approval']),
-        'ParentExecutionReceiptSha256': (sha256(previous_originals['execution-receipt'])
+        'ParentApprovalSha256': sha256_hex(previous_originals['approval']),
+        'ParentExecutionReceiptSha256': (sha256_hex(previous_originals['execution-receipt'])
                                        if 'execution-receipt' in previous_originals else None),
-        'ParentClaimSha256': sha256(previous_originals['claim']),
+        'ParentClaimSha256': sha256_hex(previous_originals['claim']),
         'HostBinding': parent_origin_context.host_binding, 'Stack': 'aws-ecs',
         'Environment': previous.environment, 'ParentMetadata': origin['Metadata'],
         'ProvisioningOperationId': successor.plan.operation_id,
-        'PlanSha256': sha256(successor_originals['saved-plan']),
+        'PlanSha256': sha256_hex(successor_originals['saved-plan']),
         'PlanMetadataDigest': next_metadata['plan_metadata_digest'],
         'StateLineage': prior_state['lineage'], 'MinimumStateSerial': minimum_serial}
     require(set(value) == set(expected) | {'ParentOriginals'}
-            and canonical({key: value[key] for key in expected}) == canonical(expected),
+            and ascii_canonical_bytes({key: value[key] for key in expected}) == ascii_canonical_bytes(expected),
             'recovery-original-parent-context')
     retained = dict(parent_origins, **{'recovery-parent-obligation': originals['parent-obligation'],
                                      'recovery-parent-claim': previous_originals['claim']})
@@ -334,7 +334,7 @@ def verify_destroy_recovery(originals: Mapping[str, bytes], context: RecoveryCon
         (context.root_operation_id, previous.plan.operation_id, successor.plan.operation_id))
     require(next_metadata['actor_id'] == successor.plan.actor_id == actor,
             'recovery-signed-operation-actor')
-    digest = sha256(originals['recovery-context'])
+    digest = sha256_hex(originals['recovery-context'])
     require(document(successor_originals['approval']).get('recoveryContextSha256') == digest,
             'recovery-fresh-approved-context')
     # Every ordinary identity, owner, backend and toolchain coordinate remains
@@ -343,8 +343,8 @@ def verify_destroy_recovery(originals: Mapping[str, bytes], context: RecoveryCon
         (previous_originals['metadata'], successor_originals['metadata']))
     varying = {'PlanMetadataDigest', 'SavedPlanSha256', 'ActorId', 'ExpiresAtUtc',
                'InputDigest', 'StateSerialBefore', 'AssumedRoleArn'}
-    require(canonical({key: item for key, item in old_projection.items() if key not in varying})
-            == canonical({key: item for key, item in new_projection.items() if key not in varying})
+    require(ascii_canonical_bytes({key: item for key, item in old_projection.items() if key not in varying})
+            == ascii_canonical_bytes({key: item for key, item in new_projection.items() if key not in varying})
             and old_projection['AssumedRoleArn'].rsplit('/', 1)[0]
                 == new_projection['AssumedRoleArn'].rsplit('/', 1)[0], 'recovery-owner-input-source')
     # The generated per-plan varfile moves, but every actual input byte stays.
@@ -379,7 +379,7 @@ def verify_destroy_recovery(originals: Mapping[str, bytes], context: RecoveryCon
     approval_request = field(head['Response'], 'approvalRequest')
     require(type(approval_request) is dict and all(approval_request.get(key) == item for key, item in {
         'provisioningOperationId': successor.plan.operation_id,
-        'planSha256': sha256(successor_originals['saved-plan']),
+        'planSha256': sha256_hex(successor_originals['saved-plan']),
         'planMetadataDigest': next_metadata['plan_metadata_digest'], 'action': 'destroy',
         'stack': 'aws-ecs', 'environment': successor.environment,
         'receiptSchemaVersion': 'honua.devops.provision-approval/v1',
@@ -461,7 +461,7 @@ def verify_terminal123(record_bytes: bytes, receipt_bytes: bytes, manifest_bytes
             and not parsed_endpoint.username and not parsed_endpoint.password
             and not parsed_endpoint.query and not parsed_endpoint.fragment, 'terminal-https-endpoint')
     record, receipt = document(record_bytes), document(receipt_bytes)
-    require(record.get('receiptSha256') == sha256(receipt_bytes)
+    require(record.get('receiptSha256') == sha256_hex(receipt_bytes)
             and receipt.get('target', {}).get('baseUrl') == context.endpoint, 'terminal-original-cell-endpoint')
     # The complete supported workflow runs with its durable infrastructure.
     # The separately maintained redis-off refusal profile does not replace it.
@@ -478,8 +478,8 @@ def verify_terminal123(record_bytes: bytes, receipt_bytes: bytes, manifest_bytes
     for stage in receipt['stages']:
         require(context.applied_at <= timestamp(stage['evidence']['observedAt'])
                 <= generated, 'terminal-stage-outside-cell-lifetime')
-    return {'status': 'original-terminal123-joined', 'recordSha256': sha256(record_bytes),
-            'receiptSha256': sha256(receipt_bytes), 'manifestSha256': sha256(manifest_bytes),
+    return {'status': 'original-terminal123-joined', 'recordSha256': sha256_hex(record_bytes),
+            'receiptSha256': sha256_hex(receipt_bytes), 'manifestSha256': sha256_hex(manifest_bytes),
             **_unqualified()}
 
 
@@ -535,7 +535,7 @@ def verify_owned_scope(original_bytes: bytes, context: ScopeContext, *, native_t
     require(type(original) is dict and type(original.get('capturedAt')) is str
             and context.observed_not_before <= timestamp(original.get('capturedAt'))
                 <= context.observed_not_after, 'scope-observed-owned-lifetime')
-    request = canonical({'original': original, 'expected': dict(context.expected)})
+    request = ascii_canonical_bytes({'original': original, 'expected': dict(context.expected)})
     require(len(request) <= 65 * 1024 * 1024, 'scope-consumer-input-bound')
     # No shell, caller-selected module, command arguments or process signal.
     # Observation/verification expiry must never terminate an admitted actor.
@@ -608,11 +608,11 @@ def verify_install_handoff(originals: Mapping[str, bytes], attempt: AttemptConte
                   'approval': originals['approval'], 'apply': originals['execution-receipt']}
     lineage = dict(context.apply_lineage)
     for key, expected in {'provisioningOperationId': attempt.plan.operation_id,
-            'planSha256': sha256(originals['saved-plan']),
+            'planSha256': sha256_hex(originals['saved-plan']),
             'planMetadataDigest': metadata['plan_metadata_digest'],
             'approvalReceiptId': approval['approvalReceiptId'],
-            'approvalReceiptSha256': sha256(originals['approval']),
-            'actuatorReceiptReference': 'urn:sha256:' + sha256(originals['execution-receipt'])}.items():
+            'approvalReceiptSha256': sha256_hex(originals['approval']),
+            'actuatorReceiptReference': 'urn:sha256:' + sha256_hex(originals['execution-receipt'])}.items():
         require(lineage.get(key) == expected, 'handoff-original-apply-lineage')
     require(type(lineage.get('applyAuditEventId')) is str and len(lineage['applyAuditEventId']) == 32
             and all(char in '0123456789abcdef' for char in lineage['applyAuditEventId'])
@@ -627,7 +627,7 @@ def verify_install_handoff(originals: Mapping[str, bytes], attempt: AttemptConte
                 'endpoint': endpoint, 'adminKeySecretRef': context.secret_reference}
     handoff = document(originals['handoff'])
     _schema_original(originals['handoff'], originals['handoff-schema'])
-    require(canonical(handoff) == canonical({'schemaVersion': 'honua.mcp-proxy.handoff/v1',
+    require(ascii_canonical_bytes(handoff) == ascii_canonical_bytes({'schemaVersion': 'honua.mcp-proxy.handoff/v1',
         'rootProvisioningOperationId': attempt.plan.operation_id,
         'provisioningLineage': lineage, 'candidateReference': context.candidate_reference,
         'endpointSource': 'operator-contract', 'adminKeySecretRefSource': 'operator-contract',
@@ -651,11 +651,11 @@ def verify_install_handoff(originals: Mapping[str, bytes], attempt: AttemptConte
             'handoff-complete-observed-roster')
     fixed = {'schemaVersion': 'honua.devops.install-handoff-verification/v1',
         'provisioningOperationId': attempt.plan.operation_id,
-        'handoffSha256': sha256(originals['handoff']), 'candidateReference': context.candidate_reference,
+        'handoffSha256': sha256_hex(originals['handoff']), 'candidateReference': context.candidate_reference,
         'proxyPackage': context.proxy_package, 'proxyIntegrity': context.proxy_integrity,
-        'secretReferenceSha256': sha256(context.secret_reference.encode()),
-        'serverIdentity': context.server_identity_sha256, 'serverEndpointIdentity': sha256(endpoint.encode()),
-        'observedRosterSha256': sha256('\n'.join(tools).encode()),
+        'secretReferenceSha256': sha256_hex(context.secret_reference.encode()),
+        'serverIdentity': context.server_identity_sha256, 'serverEndpointIdentity': sha256_hex(endpoint.encode()),
+        'observedRosterSha256': sha256_hex('\n'.join(tools).encode()),
         'verifierOutcome': 'install-handoff-verified', 'childReaped': True, 'secretScanPassed': True}
     require(all(type(core[key]) is type(value) and core[key] == value for key, value in fixed.items())
             and type(core['childExitCode']) is int
@@ -663,23 +663,23 @@ def verify_install_handoff(originals: Mapping[str, bytes], attempt: AttemptConte
             <= timestamp(core['verifiedAtUtc']) <= context.verified_not_after,
             'handoff-original-verification-result')
     # The core's original bytes, not reserialized evidence JSON, earn the URN.
-    core_sha = sha256(originals['verification-evidence'])
+    core_sha = sha256_hex(originals['verification-evidence'])
     receipt = document(originals['verification-receipt'])
     require(receipt == {'receiptId': 'urn:sha256:' + core_sha,
         'receiptSha256': core_sha, 'evidence': core}, 'handoff-original-core-address')
     _schema_original(originals['verification-receipt'], originals['verification-schema'])
     binding = document(originals['provision-binding'])
     _schema_original(originals['provision-binding'], originals['binding-schema'])
-    completed = dict(lineage, handoffReceiptSha256=sha256(originals['handoff']),
+    completed = dict(lineage, handoffReceiptSha256=sha256_hex(originals['handoff']),
         handoffVerificationReceiptId=receipt['receiptId'], handoffVerificationReceiptSha256=core_sha,
         rootProvisioningOperationId=attempt.plan.operation_id,
         evidenceRefs=[*lineage['evidenceRefs'], *[{'kind': kind,
-            'reference': 'urn:sha256:' + sha256(originals[kind]), 'sha256': sha256(originals[kind]),
+            'reference': 'urn:sha256:' + sha256_hex(originals[kind]), 'sha256': sha256_hex(originals[kind]),
             'byteLength': len(originals[kind])} for kind in ('handoff', 'verification-evidence')]])
     backend, identity, before, after = (metadata['backend'], metadata['identity'],
                                        execution['state_before'], execution['state_after'])
     expected_execution = {'planMetadataDigest': metadata['plan_metadata_digest'],
-        'savedPlanSha256': sha256(originals['saved-plan']), 'terraformRoot': context.terraform_root_name,
+        'savedPlanSha256': sha256_hex(originals['saved-plan']), 'terraformRoot': context.terraform_root_name,
         'iacRevision': metadata['source']['iac_revision'], 'iacTreeDigest': metadata['source']['iac_tree_digest'],
         'terraformVersion': metadata['toolchain']['terraform_version'],
         'providerLockDigest': metadata['toolchain']['provider_lock_digest'],
@@ -704,14 +704,14 @@ def verify_install_handoff(originals: Mapping[str, bytes], attempt: AttemptConte
         'stateSerial': after.get('serial'), 'accountId': identity['account_id'], 'region': backend.get('region')}
     require(execution['output_contract']['digest'] == context.operator_contract_digest,
             'handoff-applied-operator-contract')
-    require(canonical(binding) == canonical({'schemaVersion': 'honua.devops.aws-ecs-provision-binding/v1',
+    require(ascii_canonical_bytes(binding) == ascii_canonical_bytes({'schemaVersion': 'honua.devops.aws-ecs-provision-binding/v1',
         'lineage': completed, 'endpoint': endpoint, 'endpointSource': 'operator-contract',
         'adminKeySecretRefSource': 'operator-contract', 'candidateReference': context.candidate_reference,
-        'proxyArtifact': proxy, 'secretReferenceSha256': sha256(context.secret_reference.encode()),
-        'handoffSha256': sha256(originals['handoff']), 'verificationReceiptId': receipt['receiptId'],
+        'proxyArtifact': proxy, 'secretReferenceSha256': sha256_hex(context.secret_reference.encode()),
+        'handoffSha256': sha256_hex(originals['handoff']), 'verificationReceiptId': receipt['receiptId'],
         'verificationReceiptSha256': core_sha, 'operatorContract': {key: operator[key] for key in
             ('digest', 'status', 'endpoint')}, 'iacExecution': expected_execution,
-        'execReceiptSha256': sha256(originals['execution-receipt']), 'execReceipt': execution,
+        'execReceiptSha256': sha256_hex(originals['execution-receipt']), 'execReceipt': execution,
         'teardownHandle': expected_teardown}), 'handoff-complete-provision-binding')
     request, response = document(request_bytes), document(response_bytes)
     require(type(request_id) in (str, int) and type(request.get('id')) is type(request_id)
@@ -726,5 +726,5 @@ def verify_install_handoff(originals: Mapping[str, bytes], attempt: AttemptConte
     require(status == 'install-handoff-verified'
             and field(result, 'provisioningLineage') == completed, 'handoff-observed-completed-lineage')
     return {'status': 'install-handoff-originals-joined', 'operationId': attempt.plan.operation_id,
-            'handoffSha256': sha256(originals['handoff']), 'verificationCoreSha256': core_sha,
-            'bindingSha256': sha256(originals['provision-binding']), **_unqualified()}
+            'handoffSha256': sha256_hex(originals['handoff']), 'verificationCoreSha256': core_sha,
+            'bindingSha256': sha256_hex(originals['provision-binding']), **_unqualified()}

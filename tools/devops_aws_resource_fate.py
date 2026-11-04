@@ -9,7 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 from typing import Mapping
-from devops_provisioning_contract import Refusal, document, require, sha256
+from devops_provisioning_contract import Refusal, document, require
+from digests import sha256_hex
 
 
 @dataclass(frozen=True)
@@ -140,7 +141,7 @@ def verdict(resource: Resource, original: OriginalRead):
     require(type(stdout) is bytes and type(stderr) is bytes and len(stdout)<=8*1024*1024
             and len(stderr)<=1024*1024, 'resource-original-bound')
     result = {'arn':resource.arn, 'kind':resource.kind, 'ownership':resource.ownership,
-              'stdoutSha256':sha256(stdout), 'stderrSha256':sha256(stderr), 'verdict':'unverified'}
+              'stdoutSha256':sha256_hex(stdout), 'stderrSha256':sha256_hex(stderr), 'verdict':'unverified'}
     if resource.kind not in READS:
         return result
     require(original.command==expected_command(resource), 'resource-original-command')
