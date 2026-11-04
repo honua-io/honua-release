@@ -1143,6 +1143,17 @@ def aggregate(reports, reports_root, *, require_real, full_scope, run_id, run_at
             "finalCost": final_cost, "priorRunCosts": prior_runs, "generatedAt": now()}
 
 
+def candidate_binding(pinned: dict, lock_digest: str) -> dict:
+    """The identity rc admission binds: the manifest's honua-server pin and the platform lock the candidate job
+    verified. A run dispatched without a lock names no lock, so it binds no candidate."""
+    if not lock_digest:
+        return {}
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", lock_digest):
+        raise ValueError("platform lock digest is not sha256:<64 hex>")
+    server = pinned["components"]["honua-server"]
+    return {"honua-server": {"sha": server["sha"], "digest": server["digest"]}, "platformLockDigest": lock_digest}
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Validate cloud artifacts and assemble the GA gate")
@@ -1155,6 +1166,8 @@ def main():
     parser.add_argument("--cost-ceiling-usd", default=os.environ.get("HONUA_CLOUD_COST_CEILING_USD", "20"))
     parser.add_argument("--prior-run-costs", type=Path,
                         help="cost_meter.py prior-runs output: Cost Explorer actuals of earlier runs")
+    parser.add_argument("--platform-lock-digest", default="",
+                        help="the platform lock the candidate job verified against the manifest; empty binds none")
     args = parser.parse_args()
     prior_runs = None
     if args.prior_run_costs is not None:
@@ -1187,6 +1200,7 @@ def main():
         run_id=os.environ.get("GITHUB_RUN_ID", "local"),
         run_attempt=os.environ.get("GITHUB_RUN_ATTEMPT", "1"), final_cost=final_cost,
         prior_runs=prior_runs)
+    report.update(candidate_binding(manifest(), args.platform_lock_digest))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     return 0

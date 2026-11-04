@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from candidate_lock import resolve_pins, validate_lock
+
 REQUIRED_STAGES = frozenset({
     'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
     'two-layers-filter-widget', 'session-expiry-recovery', 'authored-style-labels', 'save-reload-reopen',
@@ -26,42 +28,8 @@ WORKFLOW = 'console-live-journey.yml'
 # under e2e/. The Console image stays the lock's pinned digest and source; the receipt records both shas
 # and the changed paths. Any other difference keeps the equality rule (suite == pinned Console sha).
 SUITE_EXCEPTION_PREFIX = 'e2e/'
+STUDIO_COMPONENTS = ('console', 'server')
 SUITE_EXCEPTION_RULING = 'studio-suite-harness-exception-2026-11-03'
-
-
-def resolve_pins(manifest: dict) -> dict:
-    result = {}
-    for component in ('console', 'server'):
-        pin = manifest['components'][f'honua-{component}']
-        digest, sha = pin.get('digest', ''), pin.get('sha', '')
-        if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest) or not re.fullmatch(r'[0-9a-f]{40}', sha):
-            raise ValueError(f'{component} requires an immutable digest and source SHA')
-        image = pin.get('image', '')
-        prefix = rf'ghcr\.io/honua-io/honua-{component}(?::[A-Za-z0-9_.-]+)?'
-        if not re.fullmatch(prefix + r'(?:@sha256:[0-9a-f]{64})?', image):
-            raise ValueError(f'{component} must use its own GHCR repository')
-        if '@' in image and image.split('@')[1] != digest:
-            raise ValueError(f'{component} image disagrees with the manifest digest')
-        result[component] = {'image': image.split('@')[0] + '@' + digest, 'sha': sha, 'digest': digest}
-    return result
-
-
-def validate_lock(raw: bytes, expected_digest: str, manifest: bytes, pins: dict) -> None:
-    if 'sha256:' + hashlib.sha256(raw).hexdigest() != expected_digest:
-        raise ValueError('platform lock bytes do not match the supplied digest')
-    lock = json.loads(raw)
-    if lock.get('sourceInputs', {}).get('platformManifest', {}).get('sha256') != 'sha256:' + hashlib.sha256(manifest).hexdigest():
-        raise ValueError('platform lock does not bind this manifest')
-    for name, pin in pins.items():
-        artifacts = lock.get('components', {}).get(f'honua-{name}', {}).get('artifacts', [])
-        images = [item for item in artifacts if isinstance(item, dict) and item.get('kind') == 'image']
-        if len(images) != 1:
-            raise ValueError(f'platform lock must contain exactly one {name} image')
-        image = images[0]
-        repository = pin['image'].split('@')[0].rsplit(':', 1)[0]
-        if (image.get('coordinate', '').removeprefix('oci://') != repository or
-                image.get('digest') != pin['digest'] or image.get('sourceRevision') != pin['sha']):
-            raise ValueError(f'platform lock {name} image differs from manifest')
 
 
 def suite_exception(pinned: str, suite: str, compare: dict) -> list[str]:
@@ -153,7 +121,7 @@ def main() -> int:
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', args.platform_lock):
         parser.error('--platform-lock must identify the candidate platform-lock.json')
     manifest_bytes = Path(args.manifest).read_bytes()
-    pins = resolve_pins(yaml.safe_load(manifest_bytes))
+    pins = resolve_pins(yaml.safe_load(manifest_bytes), STUDIO_COMPONENTS)
     validate_lock(Path(args.lock_file).read_bytes(), args.platform_lock, manifest_bytes, pins)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

@@ -58,7 +58,7 @@ def test_lock_artifact_defaults_name_the_release_train_artifact():
 
 def test_lock_must_bind_exact_bytes_manifest_and_both_component_pins():
     manifest = b"candidate manifest bytes"
-    selected = g.resolve_pins({"components": pins()})
+    selected = g.resolve_pins({"components": pins()}, g.STUDIO_COMPONENTS)
     lock = {"sourceInputs": {"platformManifest": {"sha256": "sha256:" + hashlib.sha256(manifest).hexdigest()}},
             "components": {f"honua-{name}": {"artifacts": [{"kind": "image", "coordinate": f"ghcr.io/honua-io/honua-{name}",
                 "digest": value["digest"], "sourceRevision": value["sha"]}]} for name, value in selected.items()}}
@@ -84,7 +84,7 @@ def pins():
 
 
 def evidence():
-    selected = g.resolve_pins({"components": pins()})
+    selected = g.resolve_pins({"components": pins()}, g.STUDIO_COMPONENTS)
     runtime = {name: {"requested": value["image"], "sourceRevision": value["sha"]}
                for name, value in selected.items()}
     runtime["suiteSourceRevision"] = selected["console"]["sha"]
@@ -140,11 +140,11 @@ def test_tag_only_or_mismatched_digest_is_rejected():
         components = pins()
         components["honua-console"]["digest"] = digest
         with pytest.raises(ValueError):
-            g.resolve_pins({"components": components})
+            g.resolve_pins({"components": components}, g.STUDIO_COMPONENTS)
     components = pins()
     components["honua-console"]["image"] += "@sha256:" + "c" * 64
     with pytest.raises(ValueError):
-        g.resolve_pins({"components": components})
+        g.resolve_pins({"components": components}, g.STUDIO_COMPONENTS)
 
 
 def test_zero_tests_and_wrong_suite_revision_are_rejected():
@@ -179,7 +179,7 @@ def test_dispatch_uses_verified_tag_at_exact_console_commit(monkeypatch):
             return ''
         raise AssertionError(args)
     monkeypatch.setattr(g, 'gh', fake_gh)
-    selected = g.resolve_pins({'components': pins()})
+    selected = g.resolve_pins({'components': pins()}, g.STUDIO_COMPONENTS)
     g.dispatch_customer(selected, 'release-test')
     assert any(call[:2] == ('workflow', 'run') for call in calls)
 
@@ -193,7 +193,7 @@ def test_dispatch_rejects_tag_pointing_to_another_commit(monkeypatch):
         raise AssertionError('must not dispatch a mismatched tag')
     monkeypatch.setattr(g, 'gh', fake_gh)
     with pytest.raises(ValueError, match='tag'):
-        g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test')
+        g.dispatch_customer(g.resolve_pins({'components': pins()}, g.STUDIO_COMPONENTS), 'release-test')
 
 
 # Release-session ruling 2026-11-03: harness-only suite exception (e2e/** descendants of the pinned Console sha).
@@ -265,11 +265,11 @@ def test_dispatch_tags_the_suite_commit_when_the_exception_applies(monkeypatch):
             return {'object': {'type': 'commit', 'sha': refs['refs/' + args[1].split('/git/ref/', 1)[1]]}}
         if args[:2] == ('workflow', 'run'):
             assert refs[args[args.index('--ref') + 1]] == SUITE
-            assert any(x == f'console_image={g.resolve_pins({"components": pins()})["console"]["image"]}' for x in args)
+            assert any(x == f'console_image={g.resolve_pins({"components": pins()}, g.STUDIO_COMPONENTS)["console"]["image"]}' for x in args)
             return ''
         raise AssertionError(args)
     monkeypatch.setattr(g, 'gh', fake_gh)
-    g.dispatch_customer(g.resolve_pins({'components': pins()}), 'release-test', SUITE)
+    g.dispatch_customer(g.resolve_pins({'components': pins()}, g.STUDIO_COMPONENTS), 'release-test', SUITE)
 
 
 def test_workflow_passes_the_optional_suite_sha_and_studio_job_is_advisory_for_build_test():
