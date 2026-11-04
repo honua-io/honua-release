@@ -49,13 +49,8 @@ def test_malformed_decision_is_refused(field, value):
         scope.scope_for({"releaseScope": {"lane-a": entry}}, "2026.1")
 
 
-def test_committed_policy_is_valid_and_scopes_only_the_geoservices_lane():
+def test_committed_policy_has_no_advisory_lane():
     root = Path(__file__).resolve().parents[1]
     config = yaml.safe_load((root / "certification" / "conformance-evidence.yaml").read_text(encoding="utf-8"))
-    got = scope.scope_for(config, "2026.1-rc.2")
-    assert len(got) == 1
-    (lane,) = got
-    assert lane.startswith("conformance-") and lane.endswith("-geoservices")
-    assert got[lane]["decidedOn"] == "2026-10-22"
-    # The OGC/CITE/STAC and MCP lanes stay required.
-    assert "conformance-ogc-stac" not in got and "conformance-mcp" not in got
+    assert config["releaseScope"] == {}
+    assert scope.scope_for(config, "2026.1-rc.2") == {}

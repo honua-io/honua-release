@@ -62,15 +62,7 @@ SOURCE_HOST_LANE = "server-protocol-harness"
 SOURCE_HOST_PROFILE = "source-test-host-http-adapter"
 # R40 (honua-release#376): a desktop ledger cell names the driver that produced it, and the receipt
 # identity binds that same driver. Buckets are the cut obligation, not a second result vocabulary.
-# The licensed scripting driver id is the suffix of the lane prefix already listed below.
-_LICENSED_DESKTOP_LANE_PREFIXES = (
-    "arcgis-", "esri-", "desktop-arcpy", "raw-geoservices",
-    "desktop-arcgis", "arcgis-stub", "ci-desktop",
-)
-SCRIPTING_DRIVER = next(
-    prefix.split("-", 1)[1] for prefix in _LICENSED_DESKTOP_LANE_PREFIXES if prefix.endswith("py")
-)
-CLIENT_DRIVERS = {SCRIPTING_DRIVER, "pyqgis", "pro-ui", "qgis-ui"}
+CLIENT_DRIVERS = {"pyqgis", "qgis-ui"}
 RELEASE_BUCKETS = {"must-fix-before-cut", "prove-against-candidate"}
 # R38 (honua-release#376): a client_version of the form <major>.<minor>.x names a release line. Any
 # patch release of the line satisfies it; the receipt records the exact version it observed.
@@ -126,10 +118,6 @@ def _owned_source_name(cell: dict) -> str:
         return "geospatial-grpc"
     if lane.startswith("mcp-"):
         return "geospatial-mcp"
-    # The production map assigns the governed licensed desktop target to one producer by deployment
-    # target, keeping desktop-client lanes unnamed (R30).
-    if cell.get("deployment_target") == "windows-licensed" or lane.startswith(_LICENSED_DESKTOP_LANE_PREFIXES):
-        return "esri-compat"
     return "server"
 REQUIREMENT_ID_FIELDS = REQUIREMENT_FIELDS - {"fixture_revision"}
 # D7 (2026-10-26): the .NET certification producer records the installed NuGet package's

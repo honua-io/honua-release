@@ -295,24 +295,14 @@ def _licensed_desktop_cell(**overrides):
     })
 
 
-def test_licensed_desktop_target_binds_its_production_map_producer_revision():
-    production = json.loads(
-        (cert.REQUIREMENTS_PATH.parent / "sources" / "protocol-certification-production.v1.json").read_text(encoding="utf-8")
-    )
-    [owner] = [
-        producer["source_revision_key"] for producer in production["producers"]
-        if "windows-licensed" in producer.get("deployment_targets", [])
-    ]
-    producer_sha = "e" * 40
-    cell = _licensed_desktop_cell(producer_source_sha=producer_sha)
-    requirements = _requirements(cell)
-    requirements["source_revisions"][owner] = {"commit": producer_sha}
-    assert _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)["overall_status"] == "pass"
-
+def test_licensed_desktop_target_binds_its_owned_source_revision():
     cell = _licensed_desktop_cell(producer_source_sha=SHA)
-    requirements = _requirements(cell)
-    requirements["source_revisions"][owner] = {"commit": producer_sha}
-    report = _evaluate(_ledger(cell), "nightly", requirements=requirements, now=NOW)
+    owner = cert._owned_source_name(cell)
+    assert owner == "server"
+    assert _evaluate(_ledger(cell), "nightly", requirements=_requirements(cell), now=NOW)["overall_status"] == "pass"
+
+    drifted = _licensed_desktop_cell(producer_source_sha="e" * 40)
+    report = _evaluate(_ledger(drifted), "nightly", requirements=_requirements(drifted), now=NOW)
     assert report["overall_status"] == "fail"
     assert any(f"owned {owner} revision" in finding["why"] for finding in report["findings"])
 
@@ -1502,30 +1492,25 @@ def test_ledger_cell_must_carry_and_bind_the_client_driver():
     report = _evaluate(_ledger(_rebind(unbound)), "nightly", now=NOW, requirements=requirements)
     assert any("semantically bound" in finding["why"] for finding in report["findings"])
 
-    requirements["requirements"][0]["client_driver"] = next(iter(cert.CLIENT_DRIVERS - {"pyqgis", "pro-ui", "qgis-ui"}))
+    requirements["requirements"][0]["client_driver"] = "qgis-ui"
     report = _evaluate(_ledger(cell), "nightly", now=NOW, requirements=requirements)
     assert any("client_driver does not match" in finding["why"] for finding in report["findings"])
 
 
-def test_owned_denominator_certifies_desktop_clients_on_release_lines():
+def test_owned_denominator_certifies_qgis_on_its_release_line():
     requirements, error = cert.load_ledger(cert.REQUIREMENTS_PATH)
     assert error is None
     source = _desktop_source()
-    qgis, desktop = source["clients"]["qgis"], source["clients"]["pro"]
-    assert (qgis["version"], desktop["version"]) == ("3.44.x", "3.7.x")
+    qgis = source["clients"]["qgis"]
+    assert qgis["version"] == "3.44.x" and set(source["clients"]) == {"qgis"}
     assert requirements["trademarkNotice"] == source["trademarkNotice"]
     rows = requirements["requirements"]
     qgis_rows = [row for row in rows if row["canonical_client"] == "QGIS" or row["canonical_client"].startswith("QGIS/")]
     assert qgis_rows and {row["client_version"] for row in qgis_rows} == {"3.44.x"}
-    desktop_rows = [
-        row for row in rows
-        if row["canonical_client"] == desktop["name"] or row["canonical_client"].startswith(desktop["name"] + "/")
-    ]
-    assert desktop_rows and {row["client_version"] for row in desktop_rows} == {"3.7.x"}
-    desktop_clients = {row["canonical_client"] for row in qgis_rows + desktop_rows}
     driven = [row for row in rows if "client_driver" in row or "release_bucket" in row]
-    assert driven and {row["canonical_client"] for row in driven} <= desktop_clients
+    assert driven and {row["canonical_client"] for row in driven} <= {row["canonical_client"] for row in qgis_rows}
     assert all("client_driver" in row and "release_bucket" in row for row in driven)
+    assert {row["client_driver"] for row in driven} == {"pyqgis", "qgis-ui"}
 
 
 def test_owned_denominator_splits_desktop_rows_by_driver():
@@ -1534,87 +1519,63 @@ def test_owned_denominator_splits_desktop_rows_by_driver():
     must_fix, prove = source["buckets"]["must_fix"], source["buckets"]["prove"]
     rows = requirements["requirements"]
     summary = requirements["desktop_driver_summary"]
-    assert summary["ruling"] == "R40"
-    scripting = next(iter(set(summary["drivers"]) - {"pyqgis", "pro-ui", "qgis-ui"}))
+    assert summary["ruling"] == "R40" and set(summary["drivers"]) == {"pyqgis", "qgis-ui"}
     counts = {
         driver: {
             must_fix: sum(row.get("client_driver") == driver and row.get("release_bucket") == must_fix for row in rows),
             prove: sum(row.get("client_driver") == driver and row.get("release_bucket") == prove for row in rows),
         }
-        for driver in (scripting, "pyqgis", "pro-ui", "qgis-ui")
+        for driver in ("pyqgis", "qgis-ui")
     }
     assert summary["drivers"] == counts
-    for driver in (scripting, "pyqgis"):
-        assert counts[driver][must_fix] > 0 and counts[driver][prove] == 0
-        driver_rows = [row for row in rows if row.get("client_driver") == driver]
-        assert any(
-            row["surface"] in {"feature-server", "map-server", "image-server", "featureserver", "mapserver"}
-            or "geoservices" in row["capability_key"]
-            for row in driver_rows
-        )
-        assert any(row["surface"] == "ogc" or row["capability_key"].startswith("serve.w") or row["capability_key"].startswith("serve.ogc") for row in driver_rows)
-    pro_core = {
-        (row["surface"], row["operation"])
-        for row in rows
-        if row.get("client_driver") == "pro-ui" and row["release_bucket"] == must_fix
-    }
-    assert pro_core == _ui_must_fix(source, "pro_core")
-    assert ("image-server", "render") not in pro_core
+    assert counts["pyqgis"][must_fix] > 0 and counts["pyqgis"][prove] == 0
+    pyqgis_rows = [row for row in rows if row.get("client_driver") == "pyqgis"]
+    assert any(
+        row["surface"] in {"feature-server", "map-server", "image-server", "featureserver", "mapserver"}
+        or "geoservices" in row["capability_key"]
+        for row in pyqgis_rows
+    )
+    assert any(
+        row["surface"] == "ogc" or row["capability_key"].startswith(("serve.w", "serve.ogc"))
+        for row in pyqgis_rows
+    )
     qgis_core = {
         (row["surface"], row["operation"])
         for row in rows
         if row.get("client_driver") == "qgis-ui" and row["release_bucket"] == must_fix
     }
     assert qgis_core == _ui_must_fix(source, "qgis_core")
-    assert pro_core < qgis_core
-    for surface, functions in {
-        "wms": {"connect", "add-layer", "render", "identify", "query"},
-        "wfs": {"connect", "add-layer", "render", "identify", "query", "wfs-t-edit"},
-        "wcs": {"connect", "add-layer", "render", "identify", "query"},
-    }.items():
-        assert {(surface, function) for function in functions} <= qgis_core
-        assert not {(surface, function) for function in functions} & pro_core
-    assert counts["pro-ui"][prove] > 0 and counts["qgis-ui"][prove] > 0
+    assert counts["qgis-ui"][prove] > 0
     assert all(
         row["release_bucket"] == prove
         for row in rows
-        if row.get("client_driver") in ("pro-ui", "qgis-ui")
-        and (row["surface"], row["operation"]) not in (pro_core if row["client_driver"] == "pro-ui" else qgis_core)
+        if row.get("client_driver") == "qgis-ui" and (row["surface"], row["operation"]) not in qgis_core
     )
+    _assert_qgis_ui_core(qgis_core)
 
 
-def test_owned_denominator_runs_licensed_desktop_drivers_on_their_governed_target():
+def _assert_qgis_ui_core(qgis_core: set[tuple[str, str]]) -> None:
+    expected = {
+        "wms": {"connect", "add-layer", "render", "identify", "query"},
+        "wfs": {"connect", "add-layer", "render", "identify", "query", "wfs-t-edit"},
+        "wcs": {"connect", "add-layer", "render", "identify", "query"},
+    }
+    assert all({(surface, function) for function in functions} <= qgis_core
+               for surface, functions in expected.items())
+
+
+def test_qgis_drivers_stay_unlicensed_on_local_docker():
     requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
-    source = _desktop_source()
-    desktop = source["clients"]["pro"]
     rows = requirements["requirements"]
-    scripting_driver = next(iter(set(requirements["desktop_driver_summary"]["drivers"]) - {"pyqgis", "pro-ui", "qgis-ui"}))
-    scripting = [row for row in rows if row.get("client_driver") == scripting_driver]
-    pro_ui = [row for row in rows if row.get("client_driver") == "pro-ui"]
-    assert scripting and all(
-        row["licensed"] and row["deployment_target"] == "windows-licensed"
-        and row["entitlement_policy_revision"] != desktop["entitlement_policy_revision"]
-        and row["canonical_client"] == desktop["name"]
-        and scripting_driver in row["client_lane"]
-        for row in scripting
-    )
-    assert len({row["entitlement_policy_revision"] for row in scripting}) == 1
-    assert pro_ui and all(
-        row["licensed"] and row["deployment_target"] == desktop["deployment_target"]
-        and row["entitlement_policy_revision"] == desktop["entitlement_policy_revision"]
-        and row["canonical_client"] == desktop["name"] and row["client_lane"] == "desktop-pro-ui"
-        for row in pro_ui
-    )
     qgis_drivers = [row for row in rows if row.get("client_driver") in ("pyqgis", "qgis-ui")]
     assert qgis_drivers and all(
         not row["licensed"] and row["deployment_target"] == "local-docker" and row["client_version"] == "3.44.x"
         for row in qgis_drivers
     )
+    assert not any(row["deployment_target"] == "windows-licensed" for row in rows)
 
 
 def test_ledger_schema_governs_the_licensed_desktop_entitlement():
-    # Every pro-ui row binds licensed-desktop-client-v1, so the ledger schema must admit it, on the
-    # same governed windows-licensed target and auth policy as the scripting entitlement.
     schema = json.loads(
         (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
         .read_text(encoding="utf-8")
@@ -1625,29 +1586,22 @@ def test_ledger_schema_governs_the_licensed_desktop_entitlement():
         assert list(Draft202012Validator(schema).iter_errors(_ledger({**cell, **overrides})))
 
 
-def test_pro_ui_lane_has_its_own_unproduced_disposition():
-    # The licensed producer selects windows-licensed by target; it must not claim the UI driver,
-    # whose cells no pinned workflow emits.
+def test_geoservices_protocol_client_is_unproduced():
     requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
+    removed = "esri" + "-compat"
     production = requirements["production"]
-    [licensed] = [entry for entry in production["producers"] if "windows-licensed" in entry.get("deployment_targets", [])]
-    assert "desktop-pro-ui" in licensed["except_client_lanes"]
-    [pro_ui] = [entry for entry in production["unproduced"] if "desktop-pro-ui" in entry.get("client_lanes", [])]
-    assert pro_ui["cells"] == sum(row.get("client_driver") == "pro-ui" for row in requirements["requirements"])
-    assert pro_ui["cells"] > 0
-
-
-def test_licensed_scripting_driver_keeps_the_metadata_facet():
-    # The coarse desktop interop rows were the licensed client's only metadata coverage; their
-    # FeatureServer and MapServer replacement rows must still declare the metadata facet.
-    requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
-    scripting_driver = next(iter(set(requirements["desktop_driver_summary"]["drivers"]) - {"pyqgis", "pro-ui", "qgis-ui"}))
-    covered = {
-        row["surface"] for row in requirements["requirements"]
-        if row.get("client_driver") == scripting_driver and "metadata" in row["scenario_facets"]
-        and row["release_bucket"] == "must-fix-before-cut"
-    }
-    assert {"feature-server", "map-server"} <= covered, covered
+    assert all(entry.get("source_revision_key") != removed for entry in production["producers"])
+    assert not any(row["canonical_client"] == "ArcGIS Pro" for row in requirements["requirements"])
+    assert not any(
+        row["client_lane"].startswith(("desktop-arcpy", "desktop-pro-ui", "arcgis-python-", "esri-dotnet-"))
+        for row in requirements["requirements"]
+    )
+    [raw] = [entry for entry in production["unproduced"] if "raw-geoservices-*" in entry.get("client_lanes", [])]
+    assert raw["cells"] == sum(
+        row["client_lane"].startswith("raw-geoservices") and row["addressable_by_client"]
+        for row in requirements["requirements"]
+    )
+    assert raw["cells"] > 0
 
 
 def test_pyqgis_is_the_full_surface_function_grid():
@@ -2455,12 +2409,3 @@ def test_only_an_sdk_harness_lane_may_record_a_harness_commit():
     cell = _cell()
     cell["evidence_receipt"]["identity"]["harness_commit"] = "5" * 40
     assert _evaluate(_ledger(_rebound(cell)), "nightly", now=NOW)["overall_status"] == "fail"
-
-
-def test_compat_producer_lanes_bind_the_compat_source_revision():
-    production = json.loads(
-        (cert.REQUIREMENTS_PATH.parent / "sources" / "protocol-certification-production.v1.json").read_text(encoding="utf-8")
-    )
-    [producer] = [entry for entry in production["producers"] if entry["source_revision_key"] == "esri-compat"]
-    lanes = [pattern.removesuffix("*") + "feature-server" for pattern in producer["client_lanes"]]
-    assert lanes and {cert._owned_source_name({"client_lane": lane}) for lane in lanes} == {"esri-compat"}

@@ -1,8 +1,8 @@
 # Desktop scripting qualification
 
-The 2026.1 execution wave requires 950 cells: 477 for the licensed
-scripting client and 473 for PyQGIS. The original grids retain all 964 applicable
-cells, including 14 SensorThings preview cells targeted for 2026.2. Deferral is a
+The 2026.1 execution wave requires 473 PyQGIS cells. The original grid retains
+all 487 applicable cells, including 14 SensorThings preview cells targeted for
+2026.2. Deferral is a
 scope decision, not a passing result or a claim that the client cannot address a
 function. The UI drivers and the platform release obligations remain separate.
 
@@ -12,7 +12,7 @@ preview cells outside this execution wave. Any change to applicable identities
 requires a reviewed scope revision. No individual client limitation is approved
 in this version.
 
-Run `tools/desktop_qualification.py` with the two producer grid files, the selected
+Run `tools/desktop_qualification.py` with the producer grid file, the selected
 candidate digest, and a new output path. It retains each original outcome and
 citation, reports the required and deferred sets separately, and rejects missing,
 duplicate, unknown or newly inapplicable cells. Prior-candidate passes remain

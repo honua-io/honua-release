@@ -3,7 +3,7 @@
   "display_name": "VectorTileServer (Esri adapter)",
   "prefix": "VTS",
   "source_doc": "src/Honua.Hosting (per-service VectorTileServer protocol)",
-  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "generated_from": "curated, live-cross-checked",
   "parity": "partial",
   "counts": {
     "implemented": 0,
