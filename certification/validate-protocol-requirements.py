@@ -161,12 +161,7 @@ def _supported_geometry_operations() -> set[str]:
 
 
 def _protocol_client_lanes() -> list[str]:
-    spec = importlib.util.spec_from_file_location(
-        "protocol_generator_config", ROOT / "generate-protocol-requirements.py"
-    )
-    config = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(config)
-    return [client[2] for client in config.protocol_clients()]
+    return [client[2] for client in _generator_module().protocol_clients()]
 
 
 def validate_raw_geometry_lane(catalog: dict) -> None:
