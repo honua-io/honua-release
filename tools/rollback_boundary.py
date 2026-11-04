@@ -38,14 +38,40 @@ def _reasons_by_stem(refusal: str) -> dict[str, str] | None:
     return found
 
 
-def declaration_reasons(refusal: str) -> dict[str, str] | None:
-    stems = script_stems(refusal)
-    parsed = _reasons_by_stem(refusal)
+def refusal_records(text: str) -> tuple[str, ...]:
+    starts = [match.start() for match in re.finditer(r"schema_reader_incompatible\b", text)]
+    if not starts:
+        return ()
+    chunks = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(text)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+    return tuple(chunks)
+
+
+def _record_reasons(record: str) -> dict[str, str] | None:
+    stems = script_stems(record)
+    parsed = _reasons_by_stem(record)
     if not stems or parsed is None:
         return None
     if any(parsed.get(stem) != READER_PHRASE for stem in stems):
         return None
     return {stem: READER_PHRASE for stem in stems}
+
+
+def declaration_reasons(refusal: str) -> dict[str, str] | None:
+    records = refusal_records(refusal)
+    if not records:
+        return None
+    accepted: dict[str, str] = {}
+    for record in records:
+        reasons = _record_reasons(record)
+        if reasons is None:
+            return None
+        accepted.update(reasons)
+    return accepted or None
 
 
 def note_names_stem(note: str, stem: str) -> bool:

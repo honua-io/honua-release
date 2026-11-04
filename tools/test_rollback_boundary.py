@@ -90,6 +90,39 @@ def test_separate_log_records_reject_a_hash_mismatch():
     assert boundary_for(refusal, note, {STEM: REVIEWED, OTHER: REVIEWED}) is None
 
 
+def _reasonless(stem: str) -> str:
+    return f"schema_reader_incompatible: applied migration Honua.Server.Migrations.{stem}.sql."
+
+
+def _combined_without_a_reason(stem: str) -> str:
+    return (
+        "schema_reader_incompatible: this server cannot verify compatibility with applied "
+        f"migration(s): Honua.Server.Migrations.{stem}.sql. "
+        "Forward-compatibility declaration(s) refused: "
+        f"Honua.Server.Migrations.{stem}.sql."
+    )
+
+
+@pytest.mark.parametrize("records", [
+    (REFUSAL, _reasonless(STEM)),
+    (_reasonless(STEM), REFUSAL),
+    (REFUSAL, _combined_without_a_reason(STEM)),
+    (_combined_without_a_reason(STEM), REFUSAL),
+])
+def test_a_record_without_a_reason_rejects_the_same_script(records):
+    note = f"Restore across `{STEM}`."
+    assert boundary_for("\n".join(records), note, {STEM: REVIEWED}) is None
+
+
+def test_two_complete_records_for_different_scripts_stay_a_boundary():
+    note = f"Restore across {STEM} and {OTHER}."
+    other = (
+        "schema_reader_incompatible: applied migration "
+        f"Honua.Server.Migrations.{OTHER}.sql ({PHRASE})."
+    )
+    assert boundary_for(f"{REFUSAL}\n{other}", note, {STEM: REVIEWED, OTHER: REVIEWED}) == BOUNDARY
+
+
 def test_a_listed_migration_without_a_reason_is_not_a_boundary():
     note = f"Restore across {STEM} and {OTHER}."
     refusal = (
