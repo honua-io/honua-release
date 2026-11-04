@@ -153,7 +153,7 @@ def validate_mcp_authorization(catalog: dict) -> None:
 
 def _supported_geometry_operations() -> set[str]:
     matrix = json.loads(
-        (ROOT / "sources" / "esri-compat" / "matrix" / "geometry-service.matrix.json").read_text(
+        (ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json").read_text(
             encoding="utf-8"
         )
     )

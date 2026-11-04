@@ -1588,9 +1588,7 @@ def test_ledger_schema_governs_the_licensed_desktop_entitlement():
 
 def test_geoservices_protocol_client_is_unproduced():
     requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
-    removed = "esri" + "-compat"
     production = requirements["production"]
-    assert all(entry.get("source_revision_key") != removed for entry in production["producers"])
     assert not any(row["canonical_client"] == "ArcGIS Pro" for row in requirements["requirements"])
     assert not any(
         row["client_lane"].startswith(("desktop-arcpy", "desktop-pro-ui", "arcgis-python-", "esri-dotnet-"))

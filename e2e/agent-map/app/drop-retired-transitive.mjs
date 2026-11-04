@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export const retiredPackage = "@honua/sdk-" + "esri" + "-compat";
+export const retiredPackage = "@honua/sdk-esri-compat";
 
 export function dropRetiredDependency(manifest) {
   const dependencies = manifest?.dependencies;

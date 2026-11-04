@@ -155,7 +155,7 @@ PACKAGE_DECLARATION = re.compile(
     r"\bname\s*=\s*['\"]|^\s*module\s+\S", re.IGNORECASE)
 PACKAGE_MANIFEST = re.compile(r"(?:^|/)(?:package\.json|pyproject\.toml|setup\.py|setup\.cfg|go\.mod|"
                               r"[^/]+\.(?:csproj|fsproj|vbproj|nuspec)|Directory\.Build\.props|Cargo\.toml)$")
-REPO_NAME = re.compile("honua-" + "esri" + "-compat|" + "esri" + "-compat", re.IGNORECASE)
+REPO_NAME = re.compile(r"honua-esri-compat|esri-compat", re.IGNORECASE)
 # A Honua-owned repository, package, module or namespace carrying a mark: honua-esri-assess, Honua.Esri.*
 HONUA_NAME = re.compile(r"honua[-_./]?(?:[A-Za-z0-9]+[-_./])*(?:esri|arcgis)", re.IGNORECASE)
 # Third-party packages and modules we depend on or drive by their published names.
@@ -705,12 +705,8 @@ class Classifier:
                 heading = _heading_leads_with_mark(context, line, lines[number] if number < len(lines) else "")
                 cls, category = self._classify(context, number, line, start, end, token, detail, in_fence,
                                                block_open, comment_at, heading)
-                left, right = start, end
-                while left > 0 and re.fullmatch(r"[A-Za-z0-9@._/-]", line[left - 1]):
-                    left -= 1
-                while right < len(line) and re.fullmatch(r"[A-Za-z0-9@._/-]", line[right]):
-                    right += 1
-                exception = self._exception(path, token, line[left:right], category) if cls == "avoidable" else None
+                identifier = _allowlist_identifier(line, start, end)
+                exception = self._exception(path, token, identifier, category) if cls == "avoidable" else None
                 hits.append(Hit(path, number, token, term, cls, category, exception))
         return hits
 
@@ -1075,7 +1071,8 @@ def _check_ledgers(root: Path, base_ref: str) -> list[str]:
     return problems
 
 
-_RETIRED_COMPAT_TERM = re.compile("esri" + r"[-_ ]?" + "compat", re.IGNORECASE)
+_RETIRED_COMPAT_TERM = re.compile(r"esri[-_ ]?compat(?![A-Za-z])", re.IGNORECASE)
+_MATRIX_PATH_PREFIX = "sources/"
 _UNREAD_PREFIXES = ("certification/ai-arc/heldout", "certification/agent-e2e/")
 
 
@@ -1083,31 +1080,72 @@ def skips_unread_custody(relative: str) -> bool:
     return relative.startswith(_UNREAD_PREFIXES)
 
 
+_ALLOWLIST_IDENTIFIER_CHAR = re.compile(r"[A-Za-z0-9@._/-]")
+
+
+def _allowlist_identifier(line: str, start: int, end: int) -> str:
+    while start > 0 and _ALLOWLIST_IDENTIFIER_CHAR.fullmatch(line[start - 1]):
+        start -= 1
+    while end < len(line) and _ALLOWLIST_IDENTIFIER_CHAR.fullmatch(line[end]):
+        end += 1
+    return line[start:end]
+
+
 def _is_retained_matrix_path(line: str, match: re.Match[str]) -> bool:
     prefix = line[: match.start()]
-    for marker in ("sources/", '"sources" / "'):
-        if not prefix.endswith(marker):
+    marker = _MATRIX_PATH_PREFIX
+    if not prefix.endswith(marker):
+        return False
+    return len(prefix) == len(marker) or not prefix[-len(marker) - 1].isalnum()
+
+
+def _retired_term_is_allowlisted(
+    path: str, line: str, match: re.Match[str], allowlist: list[Exception_]
+) -> bool:
+    identifier = _allowlist_identifier(line, match.start(), match.end())
+    return any(
+        entry.identifiers and entry.covers("honua-release", path, "esri", identifier)
+        for entry in allowlist
+    )
+
+
+def _utf8_text(content: bytes | None) -> str | None:
+    if content is None:
+        return None
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _retired_line_hit(path: str, number: int, line: str, allowlist: list[Exception_]) -> str | None:
+    for match in _RETIRED_COMPAT_TERM.finditer(line):
+        if _is_retained_matrix_path(line, match) or _retired_term_is_allowlisted(path, line, match, allowlist):
             continue
-        return len(prefix) == len(marker) or not prefix[-len(marker) - 1].isalnum()
-    return False
+        return f"{path}:{number}"
+    return None
 
 
-def retired_compat_terms(files: Iterator[tuple[str, bytes | None]]) -> list[str]:
-    """Paths whose text contains the compatibility term outside a retained matrix path."""
+def _retired_hits_in(path: str, text: str, allowlist: list[Exception_]) -> list[str]:
+    hits = []
+    for number, line in enumerate(text.splitlines(), 1):
+        hit = _retired_line_hit(path, number, line, allowlist)
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def retired_compat_terms(
+    files: Iterator[tuple[str, bytes | None]], allowlist: list[Exception_] | None = None
+) -> list[str]:
+    """Paths whose text names the retired package outside a matrix path or an exact allowlisted identifier."""
+    exemptions = allowlist or []
     found = []
     for path, content in files:
-        if content is None:
+        text = _utf8_text(content)
+        if text is None:
             continue
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-        for number, line in enumerate(text.splitlines(), 1):
-            if any(
-                not _is_retained_matrix_path(line, match)
-                for match in _RETIRED_COMPAT_TERM.finditer(line)
-            ):
-                found.append(f"{path}:{number}")
+        found.extend(_retired_hits_in(path, text, exemptions))
     return found
 
 
@@ -1116,7 +1154,8 @@ def _lint_repo(args, report: dict, default_baseline: Path) -> int:
     if args.repo != "honua-release":
         return status
     root = Path(args.root).resolve()
-    retired = retired_compat_terms(working_tree_files(root, skip=skips_unread_custody))
+    allowlist = load_allowlist(Path(args.allowlist))
+    retired = retired_compat_terms(working_tree_files(root, skip=skips_unread_custody), allowlist)
     for row in retired:
         print(f"::error::retired compat term: {row}")
     if retired:

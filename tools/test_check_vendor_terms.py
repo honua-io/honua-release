@@ -149,8 +149,7 @@ def test_a_wrapped_notice_is_the_attribution_not_a_claim():
 
 
 def test_mark_inside_a_compound_name_is_never_nominative():
-    retired = "esri" + "-compat"
-    hits = classify("docs/clients.md", f"Honua works with the {retired} harness.\n\n{ATTRIBUTION}\n")
+    hits = classify("docs/clients.md", f"Honua works with the esri-compat harness.\n\n{ATTRIBUTION}\n")
     hit = only(hits, "esri")
     assert (hit.cls, hit.category) == ("avoidable", "repo-or-package-name")
 
@@ -766,8 +765,8 @@ def test_the_gate_pins_its_tooling_and_fails_on_known_confidential_uses():
 
 
 def test_identifier_exception_is_exact_and_preserves_prose_and_path_failures(tmp_path):
-    package = "@honua/sdk-" + "esri" + "-compat"
-    archive = "sdk-" + "esri" + "-compat" + "-0.1.14.tgz"
+    package = "@honua/sdk-esri-compat"
+    archive = "sdk-esri-compat-0.1.14.tgz"
     allowlist = vt.load_allowlist(_allowlist(tmp_path, [{
         "repo": "honua-test", "paths": ["pins.yaml"], "tokens": ["esri"],
         "identifiers": [package, archive],
@@ -779,8 +778,8 @@ def test_identifier_exception_is_exact_and_preserves_prose_and_path_failures(tmp
         ("other.yaml", f'package: "{package}"', False),
         ("pins.yaml", f'package: "{package}-extra"', False),
         ("pins.yaml", f'package: "prefix{package}"', False),
-        ("pins.yaml", 'filename: "' + "sdk-" + "esri" + "-compat" + '-0.1.15.tgz"', False),
-        ("pins.yaml", "description: " + "Esri" + " compatibility package", False),
+        ("pins.yaml", 'filename: "sdk-esri-compat-0.1.15.tgz"', False),
+        ("pins.yaml", "description: Esri compatibility package", False),
         ("pins.yaml", f'description: "endorsed by {package}"', False),
     ]
     for path, text, excepted in cases:
@@ -818,7 +817,7 @@ def test_published_sdk_observations_no_longer_carry_vendor_terms():
 
 def test_manifest_paths_leave_unrelated_identifiers_and_endorsement_unexcepted():
     entries = vt.load_allowlist(vt.ALLOWLIST)
-    widget = "@honua/" + "esri" + "-widget"
+    widget = "@honua/esri-widget"
     paths = ("platform-manifest.yaml", "docs/2026.1-release-decision-overrides.json")
     for path in paths:
         assert not any(
@@ -829,17 +828,35 @@ def test_manifest_paths_leave_unrelated_identifiers_and_endorsement_unexcepted()
 
 
 def test_retired_compat_term_rejects_a_package_and_keeps_the_matrix_path():
-    package = "esri" + "-compat"
-    matrix = "certification/sources/" + package + "/matrix/gp-server.matrix.json"
-    joined = '(ROOT / "sources" / "' + package + '" / "matrix")\n'
-    stray = "src/" + package + "/portal.ts\n"
     files = [
-        ("notes.md", f"see {package}\n".encode()),
-        ("floor.json", json.dumps({"source": matrix}).encode()),
-        ("validator.py", joined.encode()),
-        ("portal.ts", stray.encode()),
+        ("notes.md", b"see esri-compat\n"),
+        ("floor.json", b'{"source": "certification/sources/esri-compat/matrix/gp-server.matrix.json"}\n'),
+        ("validator.py", b'(ROOT / "sources" / "esri-compat" / "matrix")\n'),
+        ("geometry.py", b'(ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json")\n'),
+        ("portal.ts", b"src/esri-compat/portal.ts\n"),
     ]
-    assert vt.retired_compat_terms(files) == ["notes.md:1", "portal.ts:1"]
+    assert vt.retired_compat_terms(files) == ["notes.md:1", "validator.py:1", "portal.ts:1"]
+
+
+def test_retired_compat_term_keeps_an_allowlisted_published_package(tmp_path):
+    allowlist = vt.load_allowlist(_allowlist(tmp_path, [{
+        "repo": "honua-release",
+        "paths": ["e2e/agent-map/app/drop-retired-transitive.mjs"],
+        "tokens": ["esri"],
+        "identifiers": ["@honua/sdk-esri-compat"],
+        "reason": "published dependency",
+        "owner": "@owner",
+    }]))
+    kept = b'export const retiredPackage = "@honua/sdk-esri-compat";\n'
+    longer = b'export const archive = "sdk-esri-compat-0.1.15.tgz";\n'
+    files = [
+        ("e2e/agent-map/app/drop-retired-transitive.mjs", kept + longer),
+        ("other.mjs", kept),
+    ]
+    assert vt.retired_compat_terms(files, allowlist) == [
+        "e2e/agent-map/app/drop-retired-transitive.mjs:2",
+        "other.mjs:1",
+    ]
 
 
 def test_unread_custody_paths_stay_out_of_the_term_scan():
@@ -851,7 +868,8 @@ def test_unread_custody_paths_stay_out_of_the_term_scan():
 
 def test_retired_compat_term_is_absent_from_this_checkout():
     files = vt.working_tree_files(vt.ROOT, skip=vt.skips_unread_custody)
-    assert vt.retired_compat_terms(files) == []
+    allowlist = vt.load_allowlist(vt.ALLOWLIST)
+    assert vt.retired_compat_terms(files, allowlist) == []
 
 
 def test_immutable_gp_guide_exception_is_exact_and_remains_visible():

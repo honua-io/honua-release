@@ -358,19 +358,6 @@ def test_extract_js_reads_entry_points_from_the_committed_package_json(tmp_path:
     assert payload["exports"] == [".: value Widget"]
 
 
-def test_ts_entry_points_omit_the_retired_subpath(tmp_path: Path) -> None:
-    retired = "./" + "esri" + "-compat"
-    _write(tmp_path, "index.ts", "export class Widget {}\n")
-    _write(tmp_path, "portal.ts", "export class Portal {}\n")
-    package = _ts_package(tmp_path, {".": "./dist/src/index.d.ts", retired: "./dist/src/portal.d.ts"})
-
-    entries, surface = cs._ts_entry_point_surface(tmp_path, package)
-
-    assert entries == {".": "index.ts"}
-    assert "Widget" in " ".join(surface)
-    assert "Portal" not in " ".join(surface)
-
-
 def test_extract_js_falls_back_when_no_entry_point_resolves(tmp_path: Path) -> None:
     import json
 

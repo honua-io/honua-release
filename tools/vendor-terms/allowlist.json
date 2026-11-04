@@ -280,6 +280,59 @@
     {
       "repo": "honua-release",
       "paths": [
+        "e2e/agent-map/app/drop-retired-transitive.mjs",
+        "tools/test_check_vendor_terms.py",
+        "tools/vendor-terms/allowlist.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "@honua/sdk-esri-compat"
+      ],
+      "reason": "Published @honua/honua-migrate@0.3.0-beta.0 still names \"@honua/sdk-esri-compat\". The agent map removes that dependency from the installed manifest before the source-build identity snapshot. Remove when the honua-migrate pin moves past 0.3.0-beta.0.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#1287"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "tools/check_vendor_terms.py",
+        "tools/test_check_vendor_terms.py",
+        "tools/vendor-terms/allowlist.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "esri-compat",
+        "honua-esri-compat"
+      ],
+      "reason": "The retired-package scan's own pattern, the tests that prove it, and this allowlist name the package in plain text. This entry covers those exact identifiers on these paths. Remove when that scan is removed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#1287"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "tools/test_check_vendor_terms.py",
+        "tools/vendor-terms/allowlist.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "sdk-esri-compat-0.1.14.tgz",
+        "sdk-esri-compat-0.1.15.tgz",
+        "src/esri-compat/portal.ts"
+      ],
+      "reason": "The retired-package tests name these plain fixtures so the scan can reject them. This entry covers those exact identifiers on the test and on this allowlist. Remove when that scan is removed.",
+      "owner": "@mikemcdougall",
+      "issue": "honua-io/honua-release#1287"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
         "tools/check_vendor_terms.py",
         "tools/test_check_vendor_terms.py",
         "tools/vendor-terms/**"
