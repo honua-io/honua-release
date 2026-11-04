@@ -852,7 +852,7 @@ def test_capability_lifecycle_rejects_unknown_status_and_vocabulary_drift():
     assert any("lifecycle must define exactly" in e for e in f.errors), f.errors
 
 
-# R22: imaged components carry the label's platform version (#231 WI-2)
+# R22: imaged components carry the label's platform version.
 def _stamped_manifest():
     from platform_version import stamp_platform_version
     manifest, matrix = _real_files()
@@ -946,7 +946,7 @@ def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
     assert len(errors) == 2 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
 
 
-# expected-GA observation bound to the candidate server (honua-release#183)
+# expected-GA observation bound to the candidate server
 def _committed_manifest_and_snapshot():
     manifest = vp._load_yaml(vp.MANIFEST_PATH)
     return manifest, vp._load_json(vp.EXPECTED_GA_MANIFEST_PATH), vp._load_json(vp.EXPECTED_GA_OBSERVATION_PATH)

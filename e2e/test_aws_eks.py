@@ -630,7 +630,7 @@ def test_eks_diagnostics_admit_the_runner_and_redact(cell, monkeypatch):
     assert all(cell._db_password not in line for s in report["sections"] for line in s["lines"])
 
 
-# workload identity (honua-iac#233): Pod Identity by default, IRSA only from the root's outputs
+# workload identity: Pod Identity by default, IRSA only from the root's outputs
 SERVER_ROLE = "arn:aws:iam::111111111111:role/honuaeksr-server"
 JOB_ROLE = "arn:aws:iam::111111111111:role/honuaeksr-gp-job"
 IDENTITY_OUTPUTS = (aws_eks.WORKLOAD_IDENTITY_OUTPUT, aws_eks.NAMESPACE_OUTPUT, aws_eks.SERVER_SA_OUTPUT,

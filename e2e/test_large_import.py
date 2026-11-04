@@ -752,7 +752,7 @@ def test_async_publish_completion_still_requires_actual_published_row_count():
     assert receipt["publishJobStatus"] == "completed"
 
 
-# The worker's failure reason from diagnostics-eks.json (honua-release#1059)
+# The worker's failure reason from diagnostics-eks.json
 
 _JOB = "e6623f57766c4df6866498e1ef94cda8"
 

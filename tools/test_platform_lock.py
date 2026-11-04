@@ -771,7 +771,7 @@ def test_generator_false_does_not_allow_empty_version_sets(tmp_path):
         assert any(f"mobile.{group}: must be a non-empty mapping" in item for item in refusals)
 
 
-# R22: imaged components take the lock's platform version (#231 WI-2)
+# R22: imaged components take the lock's platform version.
 
 AMD64, ARM64 = "sha256:" + "c" * 64, "sha256:" + "d" * 64
 

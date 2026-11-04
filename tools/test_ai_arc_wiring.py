@@ -32,8 +32,6 @@ def ctx_for(tmp_path, target, stage, **options):
                           deadline=time.monotonic() + 60, options=options)
 
 
-# AWS setup through #1165
-
 def test_aws_setup_requires_the_release_cell_inputs(tmp_path):
     pytest.importorskip('agent_e2e_aws_install')
     import ai_arc_devops

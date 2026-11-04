@@ -1077,7 +1077,7 @@ def test_reaper_retries_only_state_lock_contention_then_fails_closed():
     assert broken.calls == 1
 
 
-# honua-release#128: the ECS cell's ALB must admit the runner, and an unreachable endpoint is red
+# The ECS cell's ALB must admit the runner, and an unreachable endpoint is red.
 def test_ecs_opens_the_alb_to_the_runner_only(monkeypatch):
     # The aws-ecs module defaults its ALB security group to VPC-only HTTP ingress when neither
     # allow_http_ingress_cidrs nor a certificate is supplied, so the GitHub runner's requests were
@@ -2164,7 +2164,7 @@ def test_cost_and_teardown_still_run_when_receipt_persistence_fails(monkeypatch)
 
 
 
-# honua-release#381: the receipt's server is observed, and the cell runs as three jobs
+# The receipt's server is observed, and the cell runs as three jobs.
 def _manifest_server():
     server = run_cloud.cloud_journey.manifest()["components"]["honua-server"]
     return server["sha"], f"{server['image']}@{server['digest']}"
@@ -4510,7 +4510,7 @@ def test_serverless_migration_failure_is_a_redacted_reason_and_the_container_is_
         target.migrate(run=_Docker(), probe=lambda url: 200, sleep=lambda _s: None)
 
 
-# honua-server#6750: the Lambda cell stays closed until the pre-serving migration is Ready
+# The Lambda cell stays closed until the pre-serving migration is Ready.
 def _closing_target(monkeypatch, base, *declared, migration_ready=True):
     """A serverless target on a fake pinned root that records every terraform and docker call in
     order; `show -json` answers with the cell's connection secret for the migration."""
@@ -5385,7 +5385,7 @@ def test_model_canary_step_is_green_only_on_a_pass_or_an_unbound_blocked_row(mon
     assert ("::notice::genuine-model canary blocked" in capsys.readouterr().out) is notice
 
 
-# honua-release#450: per-run HTTPS hostname + demo CORS origin on the ECS cells
+# Per-run HTTPS hostname and the demo CORS origin on the ECS cells.
 CELL_ZONE = "Z089181827C9GKIKHXUTT"
 _DOMAIN_ROOT_VARS = ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs",
                      "allow_http_ingress_cidrs", "cors_allowed_origins")

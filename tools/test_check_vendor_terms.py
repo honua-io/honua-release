@@ -460,7 +460,7 @@ def test_committed_allowlist_loads():
     assert entries and all(entry.reason and entry.owner for entry in entries)
 
 
-# confidential (R30)
+# Confidential terms covered by requirement R30.
 
 @pytest.mark.parametrize("path, line, token, category", [
     ("tools/replay.py", f"import {SCRIPTING}", SCRIPTING, "desktop-scripting"),

@@ -87,7 +87,7 @@ def test_parse_metric_does_not_match_prefixed_name():
     assert harness.parse_metric_total(body, "honua_geoservices_error_total") is None
 
 
-# real honua-server exposition: trailing timestamps + histogram _count (honua-release#5)
+# real honua-server exposition: trailing timestamps + histogram _count
 # Verbatim shape emitted by honua-server's OpenTelemetry Prometheus exporter. Every sample carries a
 # trailing millisecond timestamp; the pre-#5 parser anchored the value at end-of-line and therefore
 # returned None for ALL of these — the SLO gate could not have read a single metric off a live

@@ -514,7 +514,7 @@ class TerraformTarget(DeployTarget):
         return ["-var=file_storage_provider=AwsS3", f"-var=file_storage_aws_s3_bucket_name={bucket}",
                 f"-var={FILE_STORAGE_KEY_PREFIX_VAR}={cell_file_storage_prefix(name_prefix)}"]
 
-    # per-run HTTPS cell hostname (honua-release#450)
+    # per-run HTTPS cell hostname
     def cell_domain_label(self, redis_enabled: bool) -> str:
         """The DNS label naming this cell in this run: `<run id>-<target>-redis-<on|off>`.
 

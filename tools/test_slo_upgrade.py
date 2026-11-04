@@ -326,7 +326,7 @@ def test_slo_probe_numerator_covers_the_denominator_population():
     assert probe.numerator_filters("") == {}
 
 
-# candidate identity binding (honua-release#5)
+# candidate identity binding
 # An error budget is only the CANDIDATE's if it was scraped from the candidate. Honua's one
 # long-lived environment (demo.honua.io) doubles as demo and certification target and routinely runs
 # an older build than the manifest pin — so a gate that scrapes without checking identity reports a

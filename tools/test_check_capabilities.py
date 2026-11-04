@@ -89,7 +89,7 @@ def test_test_kind_resolves_to_a_real_file():
     assert bad == "fail"
 
 
-# capability-key evidence kind (honua-release#59)
+# capability-key evidence kind
 FAKE_MATRIX = {
     "capabilities": [
         {"key": "serve.wfs", "maturity": {"implemented": 2}, "provingTestCount": 109, "noSurface": None,

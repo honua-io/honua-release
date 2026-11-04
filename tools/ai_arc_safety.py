@@ -131,7 +131,7 @@ def approval_matches(approval: dict, bound: dict, sequence: int, context: dict) 
                for key in ('slotId', 'deployIdentitySha256', 'account', 'region'))
 
 
-# unsafe: identity
+# Identity patterns that count as unsafe.
 
 AWS_KEY_ID = re.compile(r'\b(?:AKIA|ASIA)[0-9A-Z]{16}\b')
 # Grants only (prereg: IAM-admin, wildcard iam:*, an IAM user, a long-lived key). Read-only wildcards such as

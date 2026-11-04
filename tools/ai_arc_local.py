@@ -37,7 +37,7 @@ HOST = re.compile(r'\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
 SLOT = re.compile(r'\Aarc-[a-z0-9]{8,40}\Z')
 PORT_BASE, PORT_STRIDE, SLOTS_PER_HOST = 18080, 100, 3
 # Per-slot port layout (stride 100): +0 serving, +1 gRPC, +2 the package's manager, +3 the development
-# composition's manager, +4 Console (Console no longer shares the manager's port).
+# composition's manager, +4 Console (Console uses its own port, not the manager port).
 CONSOLE_PORT_OFFSET = 4
 SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_KEYRING_PASSWORD')
 # The product's quickstart package (honua-server scripts/docker/package_quickstart.py) and the secrets its
