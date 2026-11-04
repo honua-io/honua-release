@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 from pathlib import Path
 
 SHA256_PREFIX = "sha256:"
@@ -38,17 +37,17 @@ def canonical_bytes(value) -> bytes:
     ).encode("utf-8")
 
 
-def _contains_non_finite(value) -> bool:
-    if isinstance(value, float):
-        return not math.isfinite(value)
-    if isinstance(value, dict):
-        return any(_contains_non_finite(item) for item in value.values())
-    if isinstance(value, (list, tuple)):
-        return any(_contains_non_finite(item) for item in value)
-    return False
+def _canonical_receipt(value) -> bytes | None:
+    try:
+        return canonical_bytes(value)
+    except ValueError:
+        return None
 
 
 def receipt_digest(value) -> str | None:
-    if not isinstance(value, dict) or _contains_non_finite(value):
+    if not isinstance(value, dict):
         return None
-    return sha256_digest(canonical_bytes(value))
+    body = _canonical_receipt(value)
+    if body is None:
+        return None
+    return sha256_digest(body)

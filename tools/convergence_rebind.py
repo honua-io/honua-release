@@ -1011,7 +1011,7 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"{label}: receipt driver {identity.get('client_driver')!r} is not the cell driver "
                             f"{cell.get('client_driver')!r}")
         digest = receipt_digest(receipt)
-        if cell.get("evidence_digest") != digest:
+        if digest is None or cell.get("evidence_digest") != digest:
             problems.append(f"{label}: evidence_digest is not the digest of its receipt")
         elif cell.get("evidence_uri") != EVIDENCE_URI + digest.removeprefix("sha256:"):
             problems.append(f"{label}: evidence_uri does not address its receipt")
