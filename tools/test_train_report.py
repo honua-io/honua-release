@@ -97,16 +97,18 @@ def test_cli_a_real_cut_rejects_a_skip_and_a_rehearsal_does_not(tmp_path, monkey
     assert tuple(row["status"] for row in document["gates"]) == case.statuses
 
 
-def test_train_feeds_semantic_verdicts_for_gates_that_publish_one():
+def test_train_keeps_a_published_verdict_only_when_the_job_succeeded():
     workflow = yaml.safe_load((ROOT / ".github/workflows/release-train.yml").read_text())
     env = next(step["env"] for step in workflow["jobs"]["report"]["steps"]
                if step.get("name") == "Assemble platform gate-report.json")
-    assert env["S_BUILD"] == (
-        "${{ needs.gate_build_test.outputs.overall_status || needs.gate_build_test.result }}")
-    assert env["S_CONTRACT"] == (
-        "${{ needs.gate_contract.outputs.overall_status || needs.gate_contract.result }}")
-    assert env["S_CONFORMANCE"] == (
-        "${{ needs.gate_conformance.outputs.overall_status || needs.gate_conformance.result }}")
+    for key, job in (
+        ("S_BUILD", "gate_build_test"),
+        ("S_CONTRACT", "gate_contract"),
+        ("S_CONFORMANCE", "gate_conformance"),
+    ):
+        assert env[key] == (
+            "${{ needs.%s.result == 'success' && "
+            "needs.%s.outputs.overall_status || needs.%s.result }}" % (job, job, job))
     run = next(step["run"] for step in workflow["jobs"]["report"]["steps"]
                if step.get("name") == "Assemble platform gate-report.json")
     assert "python tools/train_report.py" in run

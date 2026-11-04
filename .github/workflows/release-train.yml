@@ -576,17 +576,18 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           DRY_RUN: ${{ inputs.dry_run }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Each gate contributes its reusable-workflow overall_status where it publishes one
-          # (pass|fail|blocked|skipped). The job result is only the fallback. A successful job that
-          # reported blocked must stay blocked; tools/train_report.py does that normalisation.
+          # A published verdict counts only when that job succeeded. Failure and
+          # cancellation stay the job result, so a side job cannot hide behind a pass
+          # report. A successful job that reported blocked stays blocked.
+          # tools/train_report.py normalises the signal.
           S_MANIFEST: ${{ needs.gate_manifest.result }}
           S_ARTIFACT: ${{ needs.gate_artifact_consume.outputs.overall_status || needs.gate_artifact_consume.result }}
           S_E2E: ${{ needs.gate_e2e.result }}
           S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
-          S_BUILD: ${{ needs.gate_build_test.outputs.overall_status || needs.gate_build_test.result }}
-          S_CONTRACT: ${{ needs.gate_contract.outputs.overall_status || needs.gate_contract.result }}
+          S_BUILD: ${{ needs.gate_build_test.result == 'success' && needs.gate_build_test.outputs.overall_status || needs.gate_build_test.result }}
+          S_CONTRACT: ${{ needs.gate_contract.result == 'success' && needs.gate_contract.outputs.overall_status || needs.gate_contract.result }}
           S_CONTRACT_LIVE: ${{ needs.gate_contract_live.result == 'success' && needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
-          S_CONFORMANCE: ${{ needs.gate_conformance.outputs.overall_status || needs.gate_conformance.result }}
+          S_CONFORMANCE: ${{ needs.gate_conformance.result == 'success' && needs.gate_conformance.outputs.overall_status || needs.gate_conformance.result }}
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SECURITY_FINDINGS: ${{ needs.gate_security.outputs.findings_status || 'fail' }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
