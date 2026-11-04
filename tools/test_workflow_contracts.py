@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_contract_suppression as ccs  # noqa: E402
 import check_release_promotion_approval as cpa  # noqa: E402
+import train_report  # noqa: E402
 
 
 def _workflow(name: str) -> dict:
@@ -205,7 +206,9 @@ def test_generator_refusal_stops_every_gate_feeding_workflow(tmp_path):
 def test_live_release_aggregate_fails_on_any_skipped_required_gate():
     report = _workflow("release-train.yml")["jobs"]["report"]
     commands = "\n".join(_step_text(step) for step in report["steps"])
-    assert '($dry=="false" and any(.[]; .status=="skipped")) then "fail"' in commands
+    assert "python tools/train_report.py" in commands
+    assert '--dry-run "$DRY_RUN"' in commands
+    assert train_report.strict_overall(["pass", "skipped"]) == "fail"
     assert "best-effort" not in commands
     assert not any(_neutralised(step) for step in report["steps"])
 
