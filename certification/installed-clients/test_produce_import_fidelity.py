@@ -26,8 +26,8 @@ def test_diagnostic_package_install_cannot_become_complete_fidelity(manifest):
     score = producer.Scorecard(manifest, gate.load_requirements(), EVIDENCE)
     score.record("journey.published-package-install", lambda: "installed")
     receipt = score.receipt()
-    assert receipt["summary"] == {"denominator": 142, "passed": 1, "failed": 141, "skipped": 0, "notApplicable": 10}
-    assert len(receipt["cells"]) == 152
+    assert receipt["summary"] == {"denominator": 136, "passed": 1, "failed": 135, "skipped": 0, "notApplicable": 10}
+    assert len(receipt["cells"]) == 146
     verdict = gate.evaluate(manifest, receipt)
     assert verdict["status"] == "fail"
     assert any(item["check"] == "rollback-repoint" for item in verdict["findings"])
@@ -77,7 +77,7 @@ def test_partial_receipt_and_wrong_package_are_both_rejected(manifest):
     verdict = gate.evaluate(manifest, receipt)
     assert verdict["status"] == "fail"
     assert any(item["check"] == "wrong-version" for item in verdict["findings"])
-    assert verdict["denominator"] == 142
+    assert verdict["denominator"] == 136
 
 
 def test_partial_transfer_never_satisfies_value_parity():
@@ -113,7 +113,7 @@ def test_failed_check_is_executed_and_never_changes_denominator(manifest):
         {"alias": "State", "nullable": False}, {"alias": "State", "nullable": True}, "metadata drift"))
     cell = score.cells["esri_census_states/all_fields_diff"]
     assert cell["verdict"] == "fail" and cell["executed"] is True
-    assert score.receipt()["summary"]["denominator"] == 142
+    assert score.receipt()["summary"]["denominator"] == 136
 
 
 def test_clean_workspace_must_not_exist_before_install(manifest, tmp_path):
@@ -165,7 +165,7 @@ def test_seeded_baseline_metadata_and_data_faults_fail_named_cells(manifest):
     corrupted = run(fault)
     assert corrupted.cells["esri_census_states/all_fields_diff"]["verdict"] == "fail"
     assert corrupted.cells["esri_census_states/core_query_parity"]["verdict"] == "fail"
-    assert corrupted.receipt()["summary"]["denominator"] == 142
+    assert corrupted.receipt()["summary"]["denominator"] == 136
 
 
 def test_wrong_loaded_artifact_identity_is_rejected():

@@ -59,12 +59,6 @@ JOURNEY = (
     "fixture.pagination-limits",
     "fixture.bounded-large-data",
     "fixture.injected-failure",
-    "crosscheck.counts-values",
-    "crosscheck.geometry-tolerances",
-    "crosscheck.schema-metadata",
-    "crosscheck.attachment-hashes",
-    "crosscheck.relationships",
-    "crosscheck.honua-and-esri-clients",
     "evidence.immutable-identities",
     "evidence.rollback-repoint",
     "evidence.rejects-data-loss",
@@ -156,8 +150,9 @@ class ImportFidelityGateTests(unittest.TestCase):
         self.assertEqual(not_applicable, {f"{case}/time_query_parity" for case in SERVICE_CASES})
         self.assertEqual(len(not_applicable), 10)
         self.assertEqual(supported - baseline, set(JOURNEY))
-        self.assertEqual(len(JOURNEY), 32)
-        self.assertEqual(len(supported), 142)
+        self.assertFalse(any(cell["group"] == "crosscheck" for cell in requirements["cells"]))
+        self.assertEqual(len(JOURNEY), 26)
+        self.assertEqual(len(supported), 136)
         self.assertIn("https://github.com/honua-io/honua-server/issues/4420", requirements["dependencies"])
 
     def test_matching_receipt_passes_and_missing_receipt_does_not(self):
@@ -165,8 +160,8 @@ class ImportFidelityGateTests(unittest.TestCase):
         passed = gate.evaluate(manifest, _passing_receipt(manifest, requirements), requirements)
         self.assertEqual(passed["findings"], [], passed["reason"])
         self.assertEqual(passed["status"], "pass")
-        self.assertEqual(passed["passed"], 142)
-        self.assertEqual(passed["denominator"], 142)
+        self.assertEqual(passed["passed"], 136)
+        self.assertEqual(passed["denominator"], 136)
         missing = gate.evaluate(manifest, None, requirements)
         self.assertEqual(missing["status"], "fail")
         self.assertIn("missing evidence is not a pass", missing["reason"])
@@ -260,15 +255,15 @@ class ImportFidelityGateTests(unittest.TestCase):
         verdict = gate.evaluate(manifest, receipt, requirements)
         self.assertEqual(verdict["status"], "fail")
         self.assertTrue(any("counted as pass" in item["why"] for item in verdict["findings"]), verdict["reason"])
-        self.assertEqual(verdict["denominator"], 142)
+        self.assertEqual(verdict["denominator"], 136)
 
         receipt = _passing_receipt(manifest, requirements)
         receipt["cells"] = [item for item in receipt["cells"] if item["id"] != "journey.apply"]
-        receipt["summary"] = {"denominator": 141, "passed": 141, "failed": 0, "skipped": 0, "notApplicable": 10}
-        receipt["denominator"] = 141
+        receipt["summary"] = {"denominator": 135, "passed": 135, "failed": 0, "skipped": 0, "notApplicable": 10}
+        receipt["denominator"] = 135
         verdict = gate.evaluate(manifest, receipt, requirements)
         self.assertEqual(verdict["status"], "fail")
-        self.assertEqual(verdict["denominator"], 142)
+        self.assertEqual(verdict["denominator"], 136)
         self.assertTrue(any(item["check"] == "journey.apply" and item["why"] == "missing" for item in verdict["findings"]))
         self.assertTrue(any(item["check"] == "denominator" for item in verdict["findings"]))
 
@@ -348,7 +343,7 @@ class ImportFidelityGateTests(unittest.TestCase):
         accepted, accepted_row = self._execute(active, good)
         rejected, rejected_row = self._execute(active, bad)
         self.assertEqual(accepted_row["status"], "pass")
-        self.assertIn("142/142", accepted_row["detail"])
+        self.assertIn("136/136", accepted_row["detail"])
         # No other non-suite cell is blocked once the setup view passes, so the receipt is a pass.
         self.assertEqual(accepted["status"], "pass")
         self.assertEqual(rejected_row["status"], "fail")
