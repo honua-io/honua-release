@@ -43,6 +43,7 @@ import yaml
 
 from check_protocol_certification import (NUGET_IDENTITY_FIELDS, NUGET_SDK_LANE, _valid_nuget_identity,
                                          _valid_python_wheel)
+from digests import receipt_digest
 from protocol_preview import active_preview_producers, preview_owner
 from normalize_capability_matrix_snapshot import normalize_vendored as normalize_capability_matrix
 
@@ -852,14 +853,6 @@ def _timestamp(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else None
 
 
-def receipt_digest(receipt: Any) -> str | None:
-    """The digest honua-evidence content-addresses a receipt by (check_protocol_certification)."""
-    if not isinstance(receipt, dict):
-        return None
-    encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
-
-
 def dispatched_run(run: dict[str, Any], dispatch_id: str) -> dict[str, Any]:
     """The identity a receipt must carry to be evidence from `run`, as this nightly dispatched it."""
     return {"repository": run.get("repository"), "workflow": run.get("workflow"), "run_id": run.get("run_id"),
@@ -1018,7 +1011,7 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"{label}: receipt driver {identity.get('client_driver')!r} is not the cell driver "
                             f"{cell.get('client_driver')!r}")
         digest = receipt_digest(receipt)
-        if cell.get("evidence_digest") != digest:
+        if digest is None or cell.get("evidence_digest") != digest:
             problems.append(f"{label}: evidence_digest is not the digest of its receipt")
         elif cell.get("evidence_uri") != EVIDENCE_URI + digest.removeprefix("sha256:"):
             problems.append(f"{label}: evidence_uri does not address its receipt")

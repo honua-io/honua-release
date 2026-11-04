@@ -27,11 +27,12 @@ committed environment state alone is not evidence of live activation.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+from digests import canonical_bytes as finite_canonical_bytes, sha256_digest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMAS = REPO_ROOT / "schemas"
@@ -62,12 +63,15 @@ def load_json(path: str | Path) -> dict:
 
 
 def canonical_bytes(document: dict) -> bytes:
-    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    try:
+        return finite_canonical_bytes(document)
+    except ValueError as error:
+        raise GateError("document contains a non-finite number") from error
 
 
 def digest(document: dict) -> str:
     """Digest of the canonical JSON form, so whitespace and key order cannot change identity."""
-    return "sha256:" + hashlib.sha256(canonical_bytes(document)).hexdigest()
+    return sha256_digest(canonical_bytes(document))
 
 
 def schema_errors(schema_id: str, document: dict) -> list[str]:

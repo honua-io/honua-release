@@ -2,7 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from digests import ascii_canonical_bytes, file_sha256_digest, file_sha256_hex, sha256_digest, sha256_hex
+from digests import (
+    ascii_canonical_bytes,
+    canonical_bytes,
+    file_sha256_digest,
+    file_sha256_hex,
+    receipt_digest,
+    sha256_digest,
+    sha256_hex,
+)
 
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
@@ -33,3 +41,21 @@ def test_ascii_canonical_bytes_sort_keys_compact_and_escape_non_ascii():
 def test_ascii_canonical_bytes_refuses_non_finite_numbers(value):
     with pytest.raises(ValueError):
         ascii_canonical_bytes({"value": value})
+
+
+def test_canonical_bytes_preserve_non_ascii():
+    assert canonical_bytes({"a": "café", "b": [1, 2.5]}) == '{"a":"café","b":[1,2.5]}'.encode()
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_canonical_bytes_and_receipt_digest_refuse_non_finite_numbers(value):
+    with pytest.raises(ValueError):
+        canonical_bytes({"value": value})
+    assert receipt_digest({"value": [value]}) is None
+
+
+def test_receipt_digest_matches_canonical_bytes_for_an_object_only():
+    value = {"a": "café"}
+    assert receipt_digest(value) == sha256_digest(canonical_bytes(value))
+    assert receipt_digest(["not", "an", "object"]) is None
+    assert receipt_digest(None) is None

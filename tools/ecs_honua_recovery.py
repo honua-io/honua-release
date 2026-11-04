@@ -24,6 +24,7 @@ IMAGE = re.compile(r"ghcr\.io/honua-io/honua-server@sha256:[0-9a-f]{64}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
+from digests import ascii_canonical_bytes, sha256_digest  # noqa: E402
 from release_rollback import atomic_write  # noqa: E402
 from image_platforms import registry_image_platform_digests, verify_image_platform_digests  # noqa: E402
 
@@ -35,7 +36,10 @@ class QualificationError(ValueError):
 
 
 def digest(value) -> str:
-    return "sha256:" + hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    try:
+        return sha256_digest(ascii_canonical_bytes(value))
+    except ValueError as error:
+        raise QualificationError("scope contains a non-finite number") from error
 
 
 def require(condition, message):
