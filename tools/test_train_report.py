@@ -3,6 +3,7 @@ import io
 import json
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -68,22 +69,32 @@ def test_assemble_records_the_raw_signal_and_the_folded_verdict(tmp_path):
     assert json.loads(out.read_text())["overallStatus"] == "fail"
 
 
-@pytest.mark.parametrize("dry_run,expected", [("true", "pass"), ("false", "fail")])
-def test_cli_a_real_cut_rejects_a_skip_and_a_rehearsal_does_not(tmp_path, monkeypatch, dry_run, expected):
-    monkeypatch.setattr(sys, "stdin", io.StringIO("cloud|skipped\nbuild-test|blocked\n"))
+class ReportCase(NamedTuple):
+    dry_run: str
+    rows: str
+    overall: str
+    statuses: tuple[str, ...]
+
+
+REPORT_CASES = (
+    ReportCase("true", "cloud|skipped\nbuild-test|blocked\n", "blocked", ("skipped", "blocked")),
+    ReportCase("false", "cloud|skipped\nbuild-test|blocked\n", "blocked", ("skipped", "blocked")),
+    ReportCase("true", "cloud|skipped\n", "pass", ("skipped",)),
+    ReportCase("false", "cloud|skipped\n", "fail", ("skipped",)),
+)
+
+
+@pytest.mark.parametrize("case", REPORT_CASES)
+def test_cli_a_real_cut_rejects_a_skip_and_a_rehearsal_does_not(tmp_path, monkeypatch, case):
+    monkeypatch.setattr(sys, "stdin", io.StringIO(case.rows))
     out = tmp_path / "gate-report.json"
-    assert main(["--label", "2026.1-rc.1", "--dry-run", dry_run,
-                 "--generated-at", "2026-11-04T00:00:00Z", "--run-url", "https://example.test/run/1",
-                 "--out", str(out)]) == 0
+    assert main(["--label", "2026.1-rc.1", "--dry-run", case.dry_run,
+                 "--generated-at", "2026-11-04T00:00:00Z",
+                 "--run-url", "https://example.test/run/1", "--out", str(out)]) == 0
     document = json.loads(out.read_text())
-    assert document["dry_run"] is (dry_run == "true")
-    assert document["overallStatus"] == "blocked"
-    assert [row["status"] for row in document["gates"]] == ["skipped", "blocked"]
-    monkeypatch.setattr(sys, "stdin", io.StringIO("cloud|skipped\n"))
-    assert main(["--label", "2026.1-rc.1", "--dry-run", dry_run,
-                 "--generated-at", "2026-11-04T00:00:00Z", "--run-url", "https://example.test/run/1",
-                 "--out", str(out)]) == 0
-    assert json.loads(out.read_text())["overallStatus"] == expected
+    assert document["dry_run"] is (case.dry_run == "true")
+    assert document["overallStatus"] == case.overall
+    assert tuple(row["status"] for row in document["gates"]) == case.statuses
 
 
 def test_train_feeds_semantic_verdicts_for_gates_that_publish_one():
