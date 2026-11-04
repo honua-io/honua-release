@@ -1012,9 +1012,12 @@ def _bound_verdict(name: str, rec: dict, admission: Admission) -> dict:
 
 
 def _gate_verdict(name: str, rec: dict, admission: Admission) -> dict:
+    receiptless = name in admission.unbound
     if rec.get("complete") is False:
-        return {"reason": "the run history back to the re-run horizon is incomplete; the latest execution is unknown"}
-    if name in admission.unbound:
+        marks = {"candidate_bound": False, "limitation": admission.unbound[name]} if receiptless else {}
+        return {**marks, "reason": "the run history back to the re-run horizon is incomplete; "
+                                   "the latest execution is unknown"}
+    if receiptless:
         return _unbound_verdict(rec, admission.unbound[name], admission)
     if name == ARC_GATE:
         return _arc_verdict(rec, admission)

@@ -169,3 +169,12 @@ def test_a_deciding_run_without_a_valid_creation_time_is_red(created):
     assert result["gates"]["e2e-cloud-aws.yml"]["verdict"] == "red"
     assert result["gates"]["gate-docs.yml"]["verdict"] == "red"
     assert "created_at" in result["gates"]["gate-docs.yml"]["reason"]
+
+
+def test_an_incomplete_history_keeps_the_receipt_limitation_of_an_unbound_gate():
+    incomplete = {"runs": [], "complete": False}
+    default = _eval({"gate-docs.yml": incomplete}, pin_at=NOW)["gates"]["gate-docs.yml"]
+    assert default["candidate_bound"] is False and default["limitation"] == w.UNBOUND_GATE_LIMITATIONS["gate-docs.yml"]
+    overridden = _eval({"e2e-cloud-aws.yml": incomplete}, unbound={"e2e-cloud-aws.yml": "no receipt"})["gates"]
+    assert overridden["e2e-cloud-aws.yml"]["candidate_bound"] is False
+    assert overridden["e2e-cloud-aws.yml"]["limitation"] == "no receipt"
