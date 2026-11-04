@@ -866,6 +866,22 @@ def test_unread_custody_paths_stay_out_of_the_term_scan():
     assert not vt.skips_unread_custody("tools/check_vendor_terms.py")
 
 
+def test_retired_scan_follows_the_selected_commit(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "kept.md").write_text("see esri-compat\n")
+    held = repo / "certification" / "agent-e2e"
+    held.mkdir(parents=True)
+    (held / "note.md").write_text("see esri-compat\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "seed")
+    (repo / "kept.md").write_text("plain\n")
+    (repo / "extra.md").write_text("see esri-compat\n")
+    assert vt.retired_compat_terms(vt._retired_scan_files(repo, "HEAD")) == ["kept.md:1"]
+    assert vt.retired_compat_terms(vt._retired_scan_files(repo, None)) == ["extra.md:1"]
+
+
 def test_retired_compat_term_is_absent_from_this_checkout():
     files = vt.working_tree_files(vt.ROOT, skip=vt.skips_unread_custody)
     allowlist = vt.load_allowlist(vt.ALLOWLIST)

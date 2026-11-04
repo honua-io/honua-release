@@ -358,9 +358,11 @@ def working_tree_files(
             yield relative, full.read_bytes()
 
 
-def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes | None]]:
+def git_ref_files(
+    root: Path, ref: str, skip: Callable[[str], bool] | None = None
+) -> Iterator[tuple[str, bytes | None]]:
     """Blobs of ``ref`` (tracked content only), read through one ``git cat-file --batch``; symlinks as in
-    ``working_tree_files``."""
+    ``working_tree_files``. ``skip`` drops a path before its blob is read."""
     entries = []
     links = []
     for record in _git(root, "ls-tree", "-r", "-z", "--full-tree", ref, binary=True).split(b"\0"):
@@ -368,10 +370,13 @@ def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes | None]]:
             continue
         meta, _, name = record.partition(b"\t")
         mode, kind, sha = meta.decode().split()
+        path = name.decode("utf-8", "surrogateescape")
+        if skip is not None and skip(path):
+            continue
         if kind == "blob" and mode == "120000":
-            links.append(name.decode("utf-8", "surrogateescape"))
+            links.append(path)
         elif kind == "blob":
-            entries.append((name.decode("utf-8", "surrogateescape"), sha))
+            entries.append((path, sha))
     yield from ((path, None) for path in sorted(links))
     process = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE)
@@ -1099,10 +1104,7 @@ def _is_retained_matrix_path(line: str, match: re.Match[str]) -> bool:
     return len(prefix) == len(marker) or not prefix[-len(marker) - 1].isalnum()
 
 
-def _retired_term_is_allowlisted(
-    path: str, line: str, match: re.Match[str], allowlist: list[Exception_]
-) -> bool:
-    identifier = _allowlist_identifier(line, match.start(), match.end())
+def _retired_term_is_allowlisted(path: str, identifier: str, allowlist: list[Exception_]) -> bool:
     return any(
         entry.identifiers and entry.covers("honua-release", path, "esri", identifier)
         for entry in allowlist
@@ -1118,21 +1120,29 @@ def _utf8_text(content: bytes | None) -> str | None:
         return None
 
 
-def _retired_line_hit(path: str, number: int, line: str, allowlist: list[Exception_]) -> str | None:
+def _line_names_retired_package(path: str, line: str, allowlist: list[Exception_]) -> bool:
     for match in _RETIRED_COMPAT_TERM.finditer(line):
-        if _is_retained_matrix_path(line, match) or _retired_term_is_allowlisted(path, line, match, allowlist):
+        if _is_retained_matrix_path(line, match):
             continue
-        return f"{path}:{number}"
-    return None
+        identifier = _allowlist_identifier(line, match.start(), match.end())
+        if _retired_term_is_allowlisted(path, identifier, allowlist):
+            continue
+        return True
+    return False
 
 
 def _retired_hits_in(path: str, text: str, allowlist: list[Exception_]) -> list[str]:
-    hits = []
-    for number, line in enumerate(text.splitlines(), 1):
-        hit = _retired_line_hit(path, number, line, allowlist)
-        if hit is not None:
-            hits.append(hit)
-    return hits
+    return [
+        f"{path}:{number}"
+        for number, line in enumerate(text.splitlines(), 1)
+        if _line_names_retired_package(path, line, allowlist)
+    ]
+
+
+def _retired_scan_files(root: Path, git_ref: str | None) -> Iterator[tuple[str, bytes | None]]:
+    if git_ref:
+        return git_ref_files(root, git_ref, skip=skips_unread_custody)
+    return working_tree_files(root, skip=skips_unread_custody)
 
 
 def retired_compat_terms(
@@ -1155,7 +1165,7 @@ def _lint_repo(args, report: dict, default_baseline: Path) -> int:
         return status
     root = Path(args.root).resolve()
     allowlist = load_allowlist(Path(args.allowlist))
-    retired = retired_compat_terms(working_tree_files(root, skip=skips_unread_custody), allowlist)
+    retired = retired_compat_terms(_retired_scan_files(root, args.git_ref), allowlist)
     for row in retired:
         print(f"::error::retired compat term: {row}")
     if retired:
