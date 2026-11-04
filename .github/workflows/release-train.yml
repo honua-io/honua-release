@@ -576,18 +576,17 @@ jobs:
           PLATFORM_LABEL: ${{ inputs.platform_label }}
           DRY_RUN: ${{ inputs.dry_run }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Each gate contributes: its reusable-workflow `overall_status` output (already pass|fail|
-          # blocked|skipped) where the gate exposes one, else its raw job `result` (normalised below).
-          # Preferring the machine-readable output is what lets a self-SKIP (e.g. cloud-creds-unset) show
-          # as `skipped` instead of being green-washed to `pass` just because the job exited 0.
+          # Each gate contributes its reusable-workflow overall_status where it publishes one
+          # (pass|fail|blocked|skipped). The job result is only the fallback. A successful job that
+          # reported blocked must stay blocked; tools/train_report.py does that normalisation.
           S_MANIFEST: ${{ needs.gate_manifest.result }}
           S_ARTIFACT: ${{ needs.gate_artifact_consume.outputs.overall_status || needs.gate_artifact_consume.result }}
           S_E2E: ${{ needs.gate_e2e.result }}
           S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
-          S_BUILD: ${{ needs.gate_build_test.result }}
-          S_CONTRACT: ${{ needs.gate_contract.result }}
+          S_BUILD: ${{ needs.gate_build_test.outputs.overall_status || needs.gate_build_test.result }}
+          S_CONTRACT: ${{ needs.gate_contract.outputs.overall_status || needs.gate_contract.result }}
           S_CONTRACT_LIVE: ${{ needs.gate_contract_live.result == 'success' && needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
-          S_CONFORMANCE: ${{ needs.gate_conformance.result }}
+          S_CONFORMANCE: ${{ needs.gate_conformance.outputs.overall_status || needs.gate_conformance.result }}
           S_SECURITY: ${{ needs.gate_security.outputs.overall_status || needs.gate_security.result }}
           S_SECURITY_FINDINGS: ${{ needs.gate_security.outputs.findings_status || 'fail' }}
           S_SBOM: ${{ needs.gate_sbom.outputs.overall_status || needs.gate_sbom.result }}
@@ -605,9 +604,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          # rows: gate-id | status-signal. The signal is either a gate verdict (pass|fail|blocked|
-          # skipped) from the reusable workflow's output, or a raw job result normalised as:
-          #   success->pass  failure->fail  cancelled->blocked  skipped->skipped (job-level skip).
+          # rows: gate-id | status-signal. train_report.py keeps a verdict and folds a job result.
           rows=$(cat <<EOF
           manifest|$S_MANIFEST
           artifact-consume|$S_ARTIFACT
@@ -633,37 +630,12 @@ jobs:
           installed-clients|$S_INSTALLED
           EOF
           )
-          echo "$rows" | jq -R 'split("|") | {gate:.[0], signal:.[1]}
-            | .status = (
-                if   (.signal|IN("pass","fail","blocked","skipped")) then .signal
-                elif .signal=="success"   then "pass"
-                elif .signal=="cancelled" then "blocked"
-                elif .signal=="skipped"   then "skipped"
-                else "fail" end)
-            | {gate, status, why:("job/gate signal: " + .signal), evidence_url:env.RUN_URL}' \
-            | jq -s \
-              --arg label "$PLATFORM_LABEL" \
-              --arg dry "$DRY_RUN" \
-              --arg ts "$(date -u +%FT%TZ)" \
-              --arg run "$RUN_URL" '
-              {
-                platform_label: $label,
-                dry_run: ($dry=="true"),
-                generatedAt: $ts,
-                evidence_url: $run,
-                gates: .,
-                summary: {
-                  pass:    ([.[]|select(.status=="pass")]|length),
-                  fail:    ([.[]|select(.status=="fail")]|length),
-                  blocked: ([.[]|select(.status=="blocked")]|length),
-                  skipped: ([.[]|select(.status=="skipped")]|length)
-                },
-                overallStatus: (
-                  if   any(.[]; .status=="fail")    then "fail"
-                  elif any(.[]; .status=="blocked") then "blocked"
-                  elif ($dry=="false" and any(.[]; .status=="skipped")) then "fail"
-                  else "pass" end)
-              }' > out/gate-report.json
+          printf '%s\n' "$rows" | python tools/train_report.py \
+            --label "$PLATFORM_LABEL" \
+            --dry-run "$DRY_RUN" \
+            --generated-at "$(date -u +%FT%TZ)" \
+            --run-url "$RUN_URL" \
+            --out out/gate-report.json
 
           # Attach the documented, issue-linked exception (if any) to each gate row. This is purely
           # annotation: statuses, the summary counts and overallStatus above are already computed and
