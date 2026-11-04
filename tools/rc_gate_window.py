@@ -84,7 +84,7 @@ AI_GATES: tuple[str, ...] = (
 # GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
 # gate-protocol-certification is workflow_call-only: it runs inside the train and never has a standalone
 # trunk run this window could admit. It is reported, never required, for rc until a dispatchable wrapper
-# publishes a candidate-bound receipt (release-session ruling 2026-11-04).
+# publishes a candidate-bound receipt.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
