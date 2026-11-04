@@ -544,7 +544,6 @@ class AwsEksTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: {FILE_STORAGE_BUCKET_ENV} is not an S3 bucket name")
         return bucket
 
-    # per-run HTTPS cell hostname (as on the ECS cells)
     def cell_domain_label(self, redis_enabled: bool) -> str:
         """`<run id>-aws-eks-redis-<on|off>`, under the same rules as the ECS cells' label."""
         return _tt.TerraformTarget.cell_domain_label(self, redis_enabled)

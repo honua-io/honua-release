@@ -313,7 +313,6 @@ def test_resolver_source_passes_the_advisory_list_into_evaluate():
     assert ".github/workflows/ci.yml" not in bt.load_advisory()["honua-server"]["workflows"]
 
 
-# Resolver refusals recorded on nightly-certification run 37819830412.
 def _runs_named(*pairs):
     return {"check_runs": [{"name": name, "status": "completed", "conclusion": conclusion}
                            for name, conclusion in pairs]}
