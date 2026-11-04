@@ -78,7 +78,7 @@ Evidence is invalidated by a change to the server image digest, protocol contrac
 
 | Surface | Required canonical proof |
 |---|---|
-| GeoServices REST and SOAP discovery | ArcGIS Pro/arcpy, ArcGIS API for Python, ArcGIS Maps SDK for .NET, raw REST; explicit SOAP catalog, public URL, auth, service-open, and REST-handoff cells |
+| GeoServices REST and SOAP discovery | Licensed desktop scripting client, ArcGIS API for Python, ArcGIS Maps SDK for .NET, raw REST; explicit SOAP catalog, public URL, auth, service-open, and REST-handoff cells |
 | OGC Features/WFS | OGC CITE plus GDAL/OGR and QGIS; first-party SDKs where shipped |
 | OGC Maps/Tiles/Styles and WMS/WMTS | OGC CITE plus QGIS and OpenLayers or MapLibre according to advertised output |
 | OGC Coverages/WCS | OGC CITE plus GDAL and OWSLib |
@@ -173,7 +173,7 @@ Aggregate percentages never override a failed required cell. The target for rele
 | Cloud-native lane repair/clients | honua-server #3377 | PR/nightly/release | #158, #22 | green pinned workflow and normalized receipts |
 | Kerchunk | honua-server #3378 | nightly/release after promotion | raster/storage security design | implemented surface and client receipts |
 | COPC | honua-server #2442/#3289/#3290 | nightly/release after promotion | 3D capability work | PDAL-verified range-serving receipts |
-| Esri and SOAP discovery | honua-esri-compat #74 | PR/nightly/release | Windows licensed runner, #158 | zero required skips and exact-candidate cert JSON |
+| GeoServices REST and SOAP discovery | honua-esri-compat #74 | PR/nightly/release | Licensed private runner, #158 | zero required skips and exact-candidate cert JSON |
 | SDK matrices | sdk-js #39/#1113, sdk-python #21/#197, sdk-dotnet #31/#294, server #3381 | PR/nightly/release | server candidate and #158 | versioned SDK coverage snapshots |
 | gRPC | geospatial-grpc #88 (parent #18) | PR/nightly/release | generated clients and shared fixtures | fixture-versioned client receipts |
 | MCP | geospatial-mcp #78 (parent #1/#5) | PR/nightly/release | conformance corpus | deterministic transport/eval receipts |

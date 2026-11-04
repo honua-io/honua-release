@@ -2455,3 +2455,12 @@ def test_only_an_sdk_harness_lane_may_record_a_harness_commit():
     cell = _cell()
     cell["evidence_receipt"]["identity"]["harness_commit"] = "5" * 40
     assert _evaluate(_ledger(_rebound(cell)), "nightly", now=NOW)["overall_status"] == "fail"
+
+
+def test_compat_producer_lanes_bind_the_compat_source_revision():
+    production = json.loads(
+        (cert.REQUIREMENTS_PATH.parent / "sources" / "protocol-certification-production.v1.json").read_text(encoding="utf-8")
+    )
+    [producer] = [entry for entry in production["producers"] if entry["source_revision_key"] == "esri-compat"]
+    lanes = [pattern.removesuffix("*") + "feature-server" for pattern in producer["client_lanes"]]
+    assert lanes and {cert._owned_source_name({"client_lane": lane}) for lane in lanes} == {"esri-compat"}
