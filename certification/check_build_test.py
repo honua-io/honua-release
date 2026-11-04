@@ -28,10 +28,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import urllib.error
-import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, NamedTuple
 
@@ -40,17 +38,12 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
 
-from required_lanes import REQUIRED_PATH, classify_required_lanes, load_required_lanes
+from build_test_github import NOT_FOUND, Fetcher, github_fetcher, live_validated_examples
+from build_test_policy import BuildTestPolicy, ComponentPolicy, PolicyFiles
+from required_lanes import classify_required_lanes
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
-ENV_GATED_PATH = REPO_ROOT / "certification" / "env-gated-checks.yaml"
-ROLLUP_PATH = REPO_ROOT / "certification" / "rollup-checks.yaml"
-SECURITY_PATH = REPO_ROOT / "certification" / "security-checks.yaml"
-GOVERNANCE_PATH = REPO_ROOT / "certification" / "governance-checks.yaml"
-ADVISORY_PATH = REPO_ROOT / "certification" / "advisory-checks.yaml"
-FULL_MATRIX_PATH = REPO_ROOT / "certification" / "full-matrix-checks.yaml"
-ORG = "honua-io"
 
 GREEN = {"success", "neutral", "skipped"}
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
@@ -60,155 +53,6 @@ RED = {"failure", "timed_out", "action_required", "startup_failure"}
 # bootstrap and surfaced under strict. A real failing sibling (matrix fail-fast) is itself `failure`
 # and is still caught, so downgrading cancelled cannot mask a genuine red.
 FLAKE = {"cancelled"}
-
-# A check-runs payload is either the parsed dict, or one of these sentinels.
-NOT_FOUND = "not_found"     # sha/repo not resolvable (404 / no access)
-
-
-def _load_check_names(path) -> dict[str, frozenset[str]]:
-    """Shared loader: YAML keyed by component -> [{name, why}, ...] -> {component: frozenset(names)}.
-    Missing file => empty map."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    out: dict[str, frozenset[str]] = {}
-    for comp, entries in data.items():
-        names = {str((e or {}).get("name", "")).strip() for e in (entries or [])}
-        out[comp] = frozenset(n for n in names if n)
-    return out
-
-
-def load_rollup(path=ROLLUP_PATH) -> dict[str, frozenset[str]]:
-    """Load per-component AGGREGATE / roll-up check-run NAMES (see rollup-checks.yaml).
-
-    These are pure `needs:`-based summary jobs (e.g. honua-server's "CI Gate" and "Test Suite
-    Summary") that run NO tests of their own — they only mirror the collective result of the leaf
-    shards. They therefore go RED whenever a leaf shard is starvation-CANCELLED, even though no test
-    actually failed. The gate excludes them from the decisive verdict so a roll-up "follows its leaf
-    shards": every genuine failure still surfaces on a leaf shard (which IS evaluated), so excluding a
-    redundant aggregator can never mask a real red — while a leaf-cancellation artifact no longer
-    manufactures a false fail. Missing file => empty map => original behaviour (roll-ups counted)."""
-    return _load_check_names(path)
-
-
-def load_security(path=SECURITY_PATH) -> dict[str, frozenset[str]]:
-    """Load per-component DEPENDENCY-SECURITY check-run NAMES (see security-checks.yaml).
-
-    These are supply-chain signals — Dependabot dependency updates, SCA/advisory scanners — that run
-    NO build/compile/unit/integration of the component. Whether a dependency has an available update
-    or an open advisory is the security gate's (gate_security) concern, not a statement about whether
-    the pinned commit builds or its tests pass, so the build/test gate EXCLUDES them from the decisive
-    verdict and decides on the component's real build/unit/integration lanes only. A genuine build/test
-    red still surfaces on a core lane (which stays in the verdict), so excluding a security signal can
-    never mask it. Missing file => empty map => original behaviour (security checks counted)."""
-    return _load_check_names(path)
-
-
-def load_env_gated(path=ENV_GATED_PATH) -> dict[str, frozenset[str]]:
-    """Load the per-component env-gated integration check-run NAMES (see env-gated-checks.yaml).
-
-    These are live/staging-integration lanes that hard-depend on an external backend the gate does
-    not provision; a red on them is an absent-environment verdict, not a build/test verdict, so the
-    gate reclassifies them to `skipped` and decides on the CORE (build+unit) check-runs. Missing file
-    => empty map => the gate keys on ALL check-runs (original behaviour). Never list a build/unit lane
-    here (guardrail proven in test_build_test.py)."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    out: dict[str, frozenset[str]] = {}
-    for comp, entries in data.items():
-        names = {str((e or {}).get("name", "")).strip() for e in (entries or [])}
-        out[comp] = frozenset(n for n in names if n)
-    return out
-
-
-def load_env_gated_events(path=ENV_GATED_PATH) -> dict[str, frozenset[tuple[str, str]]]:
-    """Per-component env-gated (workflow path, event) pairs from env-gated-checks.yaml `workflow:` entries.
-
-    A run is dropped only when BOTH its Actions workflow path and its event match, so pull_request and
-    push runs of the same workflow stay core. Names are never matched here. Missing enrichment keeps
-    the check (core)."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    out: dict[str, frozenset[tuple[str, str]]] = {}
-    for comp, entries in data.items():
-        pairs = set()
-        for entry in entries or []:
-            workflow = str((entry or {}).get("workflow", "")).strip()
-            events = [str(e).strip() for e in ((entry or {}).get("events") or []) if str(e).strip()]
-            if workflow.startswith(".github/workflows/") and events:
-                pairs |= {(workflow, event) for event in events}
-        if pairs:
-            out[comp] = frozenset(pairs)
-    return out
-
-
-def load_governance(path=GOVERNANCE_PATH) -> dict[str, frozenset[str]]:
-    """Load non-build policy/attestation check names.
-
-    These lanes inspect PR/review state and run no component build or tests. They
-    remain visible in the verdict explanation but cannot be mistaken for a red
-    compile/unit lane on an already-merged candidate SHA.
-    """
-    return _load_check_names(path)
-
-
-def load_advisory(path=ADVISORY_PATH) -> dict[str, dict[str, frozenset[str]]]:
-    """Load checks that are filed on a SHA but do not judge that SHA.
-
-    An entry is either a job `name` or an Actions `workflow` path. A workflow entry
-    excludes every check-run of that workflow. That is how a workflow_run observer
-    which GitHub files on the default-branch SHA, while the job checks out a
-    different revision, stays out of the core verdict. Missing file => empty map.
-    Never list a build, test, security, or contract job of the pinned source.
-    """
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    out: dict[str, dict[str, frozenset[str]]] = {}
-    for comp, entries in data.items():
-        names: set[str] = set()
-        workflows: set[str] = set()
-        for entry in entries or []:
-            entry = entry or {}
-            name = str(entry.get("name", "")).strip()
-            workflow = str(entry.get("workflow", "")).strip()
-            if name:
-                names.add(name)
-            if workflow:
-                workflows.add(workflow)
-        out[str(comp)] = {"names": frozenset(names), "workflows": frozenset(workflows)}
-    return out
-
-
-def load_full_matrix(path=FULL_MATRIX_PATH) -> dict[str, dict]:
-    """Load components whose release pin requires an authoritative full-matrix Actions run."""
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    policies: dict[str, dict] = {}
-    for component, raw in data.items():
-        policy = raw or {}
-        workflow = str(policy.get("workflow", "")).strip()
-        events = frozenset(str(event).strip() for event in (policy.get("events") or []) if str(event).strip())
-        required = frozenset(
-            str(entry.get("name", "")).strip()
-            for entry in (policy.get("requiredChecks") or [])
-            if isinstance(entry, dict) and str(entry.get("name", "")).strip()
-        )
-        if workflow and events and required:
-            inventory = policy.get("shardInventory")
-            if not isinstance(inventory, dict) or set(inventory) != {"path", "jobName", "testStep"}:
-                raise ValueError("full-matrix policy needs an explicit pinned shard inventory")
-            policies[str(component)] = {"workflow": workflow, "events": events, "requiredChecks": required,
-                                        "repository": f"{ORG}/{component}", "shardInventory": inventory}
-    return policies
 
 
 # Release-gate replays (release-session ruling 2026-11-03, rc.2 redo). honua-release's Studio customer gate
@@ -307,119 +151,104 @@ class RunPartition(NamedTuple):
     event_gated: list[dict]    # env-gated (workflow, event) runs
 
 
-def _partition_runs(payload: object, component: str,
-                    env_gated_events: frozenset[tuple[str, str]]) -> RunPartition:
+def _partition_runs(payload: object, policy: ComponentPolicy) -> RunPartition:
     runs = (payload.get("check_runs") or []) if isinstance(payload, dict) else []
 
     def env_gated_event(run: dict) -> bool:
         actions = run.get("_workflow_run")
         return (isinstance(actions, dict)
-                and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in env_gated_events)
+                and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in policy.env_gated_events)
 
-    replaced = [r for r in runs if _validated_examples_replaced(r, payload, component)]
-    runs = [r for r in runs if not _validated_examples_replaced(r, payload, component)]
-    replayed = [r for r in runs if _is_release_gate_replay(r, component)]
-    runs = [r for r in runs if not _is_release_gate_replay(r, component)]
+    replaced = [r for r in runs if _validated_examples_replaced(r, payload, policy.component)]
+    runs = [r for r in runs if not _validated_examples_replaced(r, payload, policy.component)]
+    replayed = [r for r in runs if _is_release_gate_replay(r, policy.component)]
+    runs = [r for r in runs if not _is_release_gate_replay(r, policy.component)]
     event_gated = [r for r in runs if env_gated_event(r)]
     selected = _latest_named_runs([r for r in runs if not env_gated_event(r)])
     return RunPartition(selected, replaced, replayed, event_gated)
 
 
-def classify(payload, env_gated_names: frozenset[str] = frozenset(),
-             rollup_names: frozenset[str] = frozenset(),
-             security_names: frozenset[str] = frozenset(),
-             governance_names: frozenset[str] = frozenset(),
-             advisory_names: frozenset[str] = frozenset(),
-             advisory_workflows: frozenset[str] = frozenset(),
-             env_gated_events: frozenset[tuple[str, str]] = frozenset(),
-             component: str = "") -> tuple[str, str]:
-    """Map a component's check-runs payload to (status, why). Pure → unit-tested.
+class Exclusion(NamedTuple):
+    """A category of check-runs kept out of the core verdict, and how a non-green one is reported."""
+    applies: Callable[[ComponentPolicy, dict], bool]
+    kind: str
+    disposition: str
+    reason: str
 
-    `env_gated_names` are check-run names to treat as env-gated live/staging-integration lanes: they
-    are excluded from the core verdict and, when non-green, reported as skipped (backend not
-    provisioned). `rollup_names` are pure aggregate/summary check-runs (`needs:`-only jobs that run no
-    tests of their own — e.g. "CI Gate", "Test Suite Summary"); they are ALSO excluded from the core
-    verdict because they merely mirror the leaf shards and go red on a starvation-cancelled leaf.
-    `security_names` are dependency-security check-runs (Dependabot updates, SCA/advisory scanners)
-    that run no build/unit/integration of the component; they too are excluded from the core verdict
-    because they are the security gate's concern (gate_security), not a build/test verdict.
-    `governance_names` are non-build review and attestation jobs. `advisory_names` and
-    `advisory_workflows` are jobs, or whole Actions workflows, that GitHub files on a SHA but
-    that do not judge that SHA. A workflow exclusion applies only when enrichment recorded
-    `_workflow_path`; a missing path stays core. The pass/fail/blocked decision is made on the
-    CORE (remaining) check-runs only, so a real compile/unit-test red still fails (it surfaces
-    on a leaf shard that stays in core); env-gated, roll-up, security, governance and advisory
-    lanes can never mask it."""
+
+def _run_name(run: dict) -> str:
+    return str(run.get("name", ""))
+
+
+EXCLUSIONS = (
+    Exclusion(lambda policy, run: _run_name(run) in policy.env_gated_names,
+              "env-gated integration lane(s)", "skipped", "backend not provisioned"),
+    Exclusion(lambda policy, run: _run_name(run) in policy.rollup_names,
+              "aggregate roll-up check(s)", "excluded", "follows leaf shards"),
+    Exclusion(lambda policy, run: _run_name(run) in policy.security_names,
+              "dependency-security check(s)", "excluded", "owned by gate_security"),
+    Exclusion(lambda policy, run: _run_name(run) in policy.governance_names,
+              "non-build governance check(s)", "excluded", "no build/test work"),
+    Exclusion(ComponentPolicy.is_advisory, "advisory check(s)", "excluded", "not a verdict on this sha"),
+)
+
+
+def _is_excluded(policy: ComponentPolicy, run: dict) -> bool:
+    return any(exclusion.applies(policy, run) for exclusion in EXCLUSIONS)
+
+
+def _is_green(run: dict) -> bool:
+    return run.get("status") == "completed" and str(run.get("conclusion")) in GREEN
+
+
+def _exclusion_notes(runs: list[dict], policy: ComponentPolicy) -> str:
+    """Audit notes for excluded runs that did not finish green; a green excluded run needs no note."""
+    notes = []
+    for exclusion in EXCLUSIONS:
+        non_green = [r for r in runs if exclusion.applies(policy, r) and not _is_green(r)]
+        if non_green:
+            notes.append(f"; {len(non_green)} {exclusion.kind} {exclusion.disposition} "
+                         f"({sorted({str(r.get('name')) for r in non_green})}) — {exclusion.reason}")
+    return "".join(notes)
+
+
+def _partition_notes(partition: RunPartition, payload: object) -> str:
+    notes = (f"; {len(partition.replayed)} release-gate replay check(s) excluded (judged by their own gate)"
+             if partition.replayed else "")
+    if partition.event_gated:
+        non_green = [r for r in partition.event_gated if r.get("conclusion") not in GREEN]
+        lanes = sorted({f"{r.get('name')} [{r['_workflow_run'].get('event')}]" for r in non_green})
+        notes += (f"; {len(partition.event_gated)} env-gated scheduled check(s) skipped"
+                  + (f" ({len(non_green)} not green: {lanes})" if non_green else "")
+                  + " — external floating backend, see env-gated-checks.yaml")
+    return notes + _validated_examples_note(payload, len(partition.replaced))
+
+
+def classify(payload: object, policy: ComponentPolicy = ComponentPolicy()) -> tuple[str, str]:
+    """Map a component's check-runs payload to (status, why). Pure, so unit-tested.
+
+    The decision is made on the CORE check-runs only: every run that no EXCLUSIONS category of `policy`
+    names. A real compile/unit-test red surfaces on a lane that stays core, so an excluded lane can never
+    mask it; excluded runs that did not finish green are reported in `why` for audit."""
     if payload == NOT_FOUND:
         return "blocked", "pinned sha or repo not resolvable (404 / no access)"
     if not isinstance(payload, dict):
         return "blocked", "no check-runs payload"
-    runs = payload.get("check_runs") or []
-    if not runs:
+    if not payload.get("check_runs"):
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
-    runs, vx_replaced, replayed, event_gated = _partition_runs(payload, component, env_gated_events)
-    if not runs and not (replayed or event_gated):
+    partition = _partition_runs(payload, policy)
+    if not partition.selected:
+        if partition.replayed or partition.event_gated:
+            return "blocked", "only release-gate replay or env-gated scheduled check-runs on the pinned sha"
         return "blocked", "only replaced validated-examples check-runs on the pinned sha"
-    if not runs:
-        return "blocked", "only release-gate replay or env-gated scheduled check-runs on the pinned sha"
-
-    def _advisory(run: dict) -> bool:
-        # A workflow exclusion applies only when enrichment recorded the path. Without
-        # that path the run stays core, so a missing metadata read cannot hide a red.
-        if str(run.get("name", "")) in advisory_names:
-            return True
-        path = str(run.get("_workflow_path") or "").strip()
-        return bool(path) and path in advisory_workflows
-
-    excluded = env_gated_names | rollup_names | security_names | governance_names
-    core = [r for r in runs if str(r.get("name", "")) not in excluded and not _advisory(r)]
-    env = [r for r in runs if str(r.get("name", "")) in env_gated_names]
-    # env-gated lanes that did not finish green — the ones we deliberately skip (env not provisioned).
-    env_skipped = [r for r in env
-                   if r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN]
-    env_note = (f"; {len(env_skipped)} env-gated integration lane(s) skipped "
-                f"({sorted({str(r.get('name')) for r in env_skipped})}) — backend not provisioned"
-                if env_skipped else "")
-    # roll-up aggregators that went non-green (they follow their leaves; a red here without a red leaf
-    # is a cancelled-leaf artifact, already reflected by the leaf's own flake/verdict in core).
-    rollup_nongreen = [r for r in runs if str(r.get("name", "")) in rollup_names
-                       and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
-    rollup_note = (f"; {len(rollup_nongreen)} aggregate roll-up check(s) excluded "
-                   f"({sorted({str(r.get('name')) for r in rollup_nongreen})}) — follows leaf shards"
-                   if rollup_nongreen else "")
-    # dependency-security checks that went non-green (excluded — owned by gate_security, not build/test).
-    security_nongreen = [r for r in runs if str(r.get("name", "")) in security_names
-                         and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
-    security_note = (f"; {len(security_nongreen)} dependency-security check(s) excluded "
-                     f"({sorted({str(r.get('name')) for r in security_nongreen})}) — owned by gate_security"
-                     if security_nongreen else "")
-    governance_nongreen = [r for r in runs if str(r.get("name", "")) in governance_names
-                           and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
-    governance_note = (f"; {len(governance_nongreen)} non-build governance check(s) excluded "
-                       f"({sorted({str(r.get('name')) for r in governance_nongreen})}) — no build/test work"
-                       if governance_nongreen else "")
-    advisory_nongreen = [r for r in runs if _advisory(r)
-                         and (r.get("status") != "completed" or str(r.get("conclusion")) not in GREEN)]
-    advisory_note = (f"; {len(advisory_nongreen)} advisory check(s) excluded "
-                     f"({sorted({str(r.get('name')) for r in advisory_nongreen})}) — not a verdict on this sha"
-                     if advisory_nongreen else "")
-    replay_note = (f"; {len(replayed)} release-gate replay check(s) excluded (judged by their own gate)"
-                   if replayed else "")
-    event_nongreen = [r for r in event_gated if r.get("conclusion") not in ("success", "neutral", "skipped")]
-    if event_gated:
-        replay_note += (f"; {len(event_gated)} env-gated scheduled check(s) skipped"
-                        + (f" ({len(event_nongreen)} not green: "
-                           f"{sorted({str(r.get('name')) + ' [' + str(r['_workflow_run'].get('event')) + ']' for r in event_nongreen})})"
-                           if event_nongreen else "")
-                        + " — external floating backend, see env-gated-checks.yaml")
-    env_note = (env_note + rollup_note + security_note + governance_note + advisory_note + replay_note
-                + _validated_examples_note(payload, len(vx_replaced)))
-
+    core = [r for r in partition.selected if not _is_excluded(policy, r)]
     if not core:
-        # Only excluded lanes ran → no core build/test signal to certify on. Never pass.
         return "blocked", ("only env-gated / roll-up / security / governance / advisory "
                            "check-runs present; no core build/test signal")
+    return _core_verdict(core, _exclusion_notes(partition.selected, policy) + _partition_notes(partition, payload))
 
+
+def _core_verdict(core: list[dict], notes: str) -> tuple[str, str]:
     # A CORE (build/unit) red is decisive and is evaluated FIRST — before "still in progress" — so a
     # real failure is never masked as blocked-in-progress just because sibling shards are still
     # running (that mid-run window is exactly when a live train read could otherwise tolerate a red).
@@ -429,22 +258,18 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     if reds:
         red_names = sorted({str(r.get("name") or "(unnamed)") for r in completed
                             if str(r.get("conclusion")) in RED})
-        return "fail", (f"{len(reds)}/{len(core)} core check-run(s) red "
-                        f"({sorted(set(reds))}: {red_names}){env_note}")
-
+        return "fail", f"{len(reds)}/{len(core)} core check-run(s) red ({sorted(set(reds))}: {red_names}){notes}"
     incomplete = [r for r in core if r.get("status") != "completed"]
     if incomplete:
-        return "blocked", f"CI still in progress ({len(incomplete)}/{len(core)} core not completed){env_note}"
+        return "blocked", f"CI still in progress ({len(incomplete)}/{len(core)} core not completed){notes}"
     flakes = [c for c in conclusions if c in FLAKE]
     if flakes:
-        # Cancelled core lane(s) with no real red — re-runnable flake (runner starvation), not a
-        # build/test failure. Blocked (tolerated under bootstrap; re-run to certify under strict).
         return "blocked", (f"{len(flakes)}/{len(core)} core check-run(s) cancelled "
-                           f"(runner-starvation flake; re-runnable, not a failure){env_note}")
+                           f"(runner-starvation flake; re-runnable, not a failure){notes}")
     non_green = [c for c in conclusions if c not in GREEN]
     if non_green:
         return "blocked", f"unrecognised core check conclusions {sorted(set(non_green))}"
-    return "pass", f"all {len(core)} core check-run(s) green{env_note}"
+    return "pass", f"all {len(core)} core check-run(s) green{notes}"
 
 
 def classify_full_matrix(payload: object, policy: dict, expected_sha: str | None = None) -> tuple[str, str]:
@@ -465,6 +290,13 @@ def classify_full_matrix(payload: object, policy: dict, expected_sha: str | None
                     "with authentic expected lanes and complete pinned shard execution")
 
 
+def _proof_of_execution(payload: object, policy: ComponentPolicy, sha: str) -> tuple[str, str]:
+    """A component proves its builds and tests ran through its full-matrix policy, or else its required lanes."""
+    if policy.full_matrix is not None:
+        return classify_full_matrix(payload, policy.full_matrix, sha)
+    return classify_required_lanes(_partition_runs(payload, policy).selected, policy.required_lanes)
+
+
 _SEVERITY = {"pass": 0, "blocked": 1, "fail": 2}
 
 
@@ -474,222 +306,40 @@ def _worst(verdict: tuple[str, str], requirement: tuple[str, str]) -> tuple[str,
     return status, f"{verdict[1]}; {requirement[1]}"
 
 
-Fetcher = Callable[[str, str], object]  # (repo, sha) -> payload | NOT_FOUND
+ValidatedExamplesResolver = Callable[[str, str, dict, dict], dict]
 
 
-_ACTIONS_RUN_URL = re.compile(r"/actions/runs/(\d+)(?:/|$)")
-_GITHUB_PAGE_SIZE = 100
-
-
-def _fetch_paginated_collection(url: str, headers: dict[str, str], key: str, *, page_size: int = _GITHUB_PAGE_SIZE) -> dict:
-    """Fetch every page of a GitHub REST collection, preserving first-page metadata."""
-    items: list[dict] = []
-    first_page: dict | None = None
-    page = 1
-    while True:
-        separator = "&" if "?" in url else "?"
-        page_url = f"{url}{separator}per_page={page_size}&page={page}"
-        request = urllib.request.Request(page_url, headers=headers)
-        with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8", "replace"))
-        if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
-            raise ValueError(f"GitHub response did not contain a {key} collection")
-        if first_page is None:
-            first_page = payload
-        batch = payload[key]
-        items.extend(batch)
-        total = payload.get("total_count")
-        if type(total) is not int or total < 0:
-            raise ValueError("GitHub response did not declare its collection count")
-        if len(items) >= total:
-            break
-        if len(batch) < page_size:
-            raise ValueError("GitHub collection ended before its declared count")
-        page += 1
-
-    result = dict(first_page or {})
-    result[key] = items
-    return result
-
-
-def _fetch_json(url: str, headers: dict) -> dict:
-    request = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(request, timeout=20) as response:
-        value = json.loads(response.read().decode("utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("GitHub API response is not an object")
-    return value
-
-
-def _enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
-    """Attach stable workflow IDs to Actions check-runs so same-named jobs stay independent."""
-    workflows = {}
-    paths = {}
-    replays = {}
-    for run in (workflow_payload.get("workflow_runs") or []):
-        if run.get("id") is None:
-            continue
-        run_id = int(run["id"])
-        workflows[run_id] = str(run.get("workflow_id") or run.get("path") or "")
-        if run.get("path"):
-            paths[run_id] = str(run.get("path"))
-        replays[run_id] = {"event": str(run.get("event") or ""), "title": str(run.get("display_title") or ""),
-                           "branch": str(run.get("head_branch") or "")}
-    for run in payload.get("check_runs") or []:
-        app = run.get("app") or {}
-        if not isinstance(app, dict) or app.get("slug") != "github-actions":
-            continue
-        match = _ACTIONS_RUN_URL.search(str(run.get("details_url") or ""))
-        if not match:
-            continue
-        actions_run_id = int(match.group(1))
-        workflow_id = workflows.get(actions_run_id)
-        if workflow_id:
-            run["_workflow_id"] = workflow_id
-        path = paths.get(actions_run_id)
-        if path:
-            run["_workflow_path"] = path
-        if actions_run_id in replays:
-            run["_workflow_run"] = replays[actions_run_id]
-    return payload
-
-
-def _default_fetch(repo: str, sha: str) -> object:
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    url = f"https://api.github.com/repos/{ORG}/{repo}/commits/{sha}/check-runs"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "honua-release-gate",
-        **({"Authorization": f"Bearer {token}"} if token else {}),
-    }
-    try:
-        payload = _fetch_paginated_collection(url, headers, "check_runs")
-    except urllib.error.HTTPError as e:
-        if e.code in (404, 403, 422):
-            return NOT_FOUND
-        raise
-    except (urllib.error.URLError, OSError, ValueError):
-        return NOT_FOUND
-
-    # One additional request identifies the Actions workflow behind each job. This lets the
-    # classifier supersede attempts of one workflow without merging an unrelated workflow that uses
-    # the same generic job name. If metadata cannot be read, the classifier conservatively keys
-    # Actions runs by check-suite ID and retains every suite.
-    actions_url = f"https://api.github.com/repos/{ORG}/{repo}/actions/runs?head_sha={sha}"
-    try:
-        workflow_payload = _fetch_paginated_collection(actions_url, headers, "workflow_runs")
-        payload["_workflow_runs"] = workflow_payload.get("workflow_runs") or []
-        _enrich_action_workflow_ids(payload, workflow_payload)
-        policy = load_full_matrix().get(repo)
-        if policy:
-            import full_matrix_evidence as matrix
-            selected = matrix.selected_run(payload, policy, sha)
-            payload["_matrix_execution"] = matrix.collect(f"{ORG}/{repo}", sha, selected, policy, headers,
-                                                          _fetch_paginated_collection, _fetch_json)
-        return payload
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError, ValueError):
-        return payload
-
-
-def _github_headers() -> dict[str, str]:
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    return {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "honua-release-gate",
-        **({"Authorization": f"Bearer {token}"} if token else {}),
-    }
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401 - urllib hook
-        return None
-
-
-def _download_artifact(url: str) -> bytes:
-    """Download a GitHub artifact archive. The token goes only to api.github.com; the signed storage
-    URL it redirects to is fetched without it."""
-    if not url.startswith("https://api.github.com/"):
-        raise ValueError("artifact URL is not a GitHub API URL")
-    opener = urllib.request.build_opener(_NoRedirect)
-    try:
-        with opener.open(urllib.request.Request(url, headers=_github_headers()), timeout=30) as response:
-            return response.read()
-    except urllib.error.HTTPError as redirect:
-        location = redirect.headers.get("Location") if redirect.code in (301, 302, 303, 307, 308) else None
-        if not location or not location.startswith("https://"):
-            raise
-    with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": "honua-release-gate"}),
-                                timeout=60) as response:
-        return response.read()
-
-
-def live_validated_examples(name: str, sha: str, component: dict, manifest: dict) -> dict:
-    """Live resolver for the validated-examples descendant rule (GitHub API reads only)."""
-    import validated_examples_descendant as vx
-    sdk = ((manifest.get("components") or {}).get("honua-sdk-python") or {}).get("version")
-    return vx.resolve(sha, component, str(sdk) if sdk else None,
-                      lambda path: _fetch_json("https://api.github.com/" + path, _github_headers()),
-                      _download_artifact)
-
-
-def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
-             env_gated: dict[str, frozenset[str]] | None = None,
-             rollup: dict[str, frozenset[str]] | None = None,
-             security: dict[str, frozenset[str]] | None = None,
-             governance: dict[str, frozenset[str]] | None = None,
-             full_matrix: dict[str, dict] | None = None,
-             advisory: dict[str, dict[str, frozenset[str]]] | None = None,
-             env_gated_events: dict[str, frozenset[tuple[str, str]]] | None = None,
-             validated_examples: Callable[[str, str, dict, dict], dict] | None = None,
-             required_lanes: dict[str, frozenset[tuple[str, str]]] | None = None) -> dict:
+@dataclass(frozen=True)
+class BuildTestGate:
     """`validated_examples(name, sha, component, manifest)` resolves the honua-server validated-examples
-    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide.
-    A component proves its builds and tests ran through its full-matrix policy, or else through its
-    `required_lanes` (default: required-checks.yaml); a component with neither is blocked."""
-    import validated_examples_descendant as vx
-    components = manifest.get("components") or {}
-    env_gated = env_gated or {}
-    rollup = rollup or {}
-    security = security or {}
-    governance = governance or {}
-    full_matrix = full_matrix or {}
-    advisory = advisory or {}
-    env_gated_events = load_env_gated_events() if env_gated_events is None else env_gated_events
-    required_lanes = load_required_lanes() if required_lanes is None else required_lanes
-    rows = []
-    for name, comp in components.items():
-        comp = comp or {}
-        sha = str(comp.get("sha", "")).strip()
-        if not sha:
-            rows.append({"component": name, "status": "blocked",
-                         "why": "no sha pinned in manifest (cannot resolve CI)"})
-            continue
-        payload = fetch(name, sha)
-        vx_record = None
-        if validated_examples is not None and name == vx.COMPONENT and isinstance(payload, dict):
-            vx_record = validated_examples(name, sha, comp, manifest)
-            payload["_validated_examples"] = vx_record
-        advice = advisory.get(name) or {}
-        status, why = classify(payload, env_gated.get(name, frozenset()),
-                               rollup.get(name, frozenset()), security.get(name, frozenset()),
-                               governance.get(name, frozenset()),
-                               advice.get("names", frozenset()),
-                               advice.get("workflows", frozenset()),
-                               env_gated_events.get(name, frozenset()),
-                               component=name)
-        if name in full_matrix:
-            requirement = classify_full_matrix(payload, full_matrix[name], sha)
-        else:
-            selected = _partition_runs(payload, name, env_gated_events.get(name, frozenset())).selected
-            requirement = classify_required_lanes(selected, required_lanes.get(name, frozenset()))
-        status, why = _worst((status, why), requirement)
-        row = {"component": name, "status": status, "sha": sha[:12], "why": why}
-        if vx_record is not None:
-            row["validatedExamples"] = vx_record
-        rows.append(row)
+    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide."""
+    fetch: Fetcher
+    policy: BuildTestPolicy
+    validated_examples: ValidatedExamplesResolver | None = None
 
+    def evaluate(self, manifest: dict, enforcement: str = "bootstrap") -> dict:
+        rows = [self._component_row(name, component or {}, manifest)
+                for name, component in (manifest.get("components") or {}).items()]
+        return _report(rows, enforcement)
+
+    def _component_row(self, name: str, component: dict, manifest: dict) -> dict:
+        import validated_examples_descendant as vx
+        sha = str(component.get("sha", "")).strip()
+        if not sha:
+            return {"component": name, "status": "blocked", "why": "no sha pinned in manifest (cannot resolve CI)"}
+        payload = self.fetch(name, sha)
+        record = None
+        if self.validated_examples is not None and name == vx.COMPONENT and isinstance(payload, dict):
+            record = payload["_validated_examples"] = self.validated_examples(name, sha, component, manifest)
+        policy = self.policy.component(name)
+        status, why = _worst(classify(payload, policy), _proof_of_execution(payload, policy, sha))
+        row = {"component": name, "status": status, "sha": sha[:12], "why": why}
+        if record is not None:
+            row["validatedExamples"] = record
+        return row
+
+
+def _report(rows: list[dict], enforcement: str) -> dict:
     def decided(s: str) -> str:
         return "fail" if (s == "blocked" and enforcement == "strict") else s
 
@@ -706,37 +356,41 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
     }
 
 
-def main(argv: list[str] | None = None) -> int:
+def _policy_files(args: argparse.Namespace) -> PolicyFiles:
+    return PolicyFiles(env_gated=Path(args.env_gated), rollup=Path(args.rollup), security=Path(args.security),
+                       governance=Path(args.governance), advisory=Path(args.advisory),
+                       full_matrix=Path(args.full_matrix), required=Path(args.required))
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
+    files = PolicyFiles()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--enforcement", choices=["bootstrap", "strict"], default="bootstrap")
     ap.add_argument("--manifest", default=str(MANIFEST_PATH))
-    ap.add_argument("--env-gated", default=str(ENV_GATED_PATH),
-                    help="YAML of per-component env-gated integration check-run names")
-    ap.add_argument("--rollup", default=str(ROLLUP_PATH),
+    ap.add_argument("--env-gated", default=str(files.env_gated),
+                    help="YAML of per-component env-gated integration check-run names and workflow events")
+    ap.add_argument("--rollup", default=str(files.rollup),
                     help="YAML of per-component aggregate/roll-up check-run names (excluded from the verdict)")
-    ap.add_argument("--security", default=str(SECURITY_PATH),
+    ap.add_argument("--security", default=str(files.security),
                     help="YAML of per-component dependency-security check-run names (excluded from the verdict)")
-    ap.add_argument("--governance", default=str(GOVERNANCE_PATH),
+    ap.add_argument("--governance", default=str(files.governance),
                     help="YAML of per-component non-build governance check-run names")
-    ap.add_argument("--full-matrix", default=str(FULL_MATRIX_PATH),
+    ap.add_argument("--full-matrix", default=str(files.full_matrix),
                     help="YAML of components requiring a completed full-matrix Actions run")
-    ap.add_argument("--advisory", default=str(ADVISORY_PATH),
+    ap.add_argument("--advisory", default=str(files.advisory),
                     help="YAML of per-component advisory check names and workflow paths")
-    ap.add_argument("--required", default=str(REQUIRED_PATH),
+    ap.add_argument("--required", default=str(files.required),
                     help="YAML of per-component required build/test lanes (workflow path -> job names)")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
-    args = ap.parse_args(argv)
+    return ap.parse_args(argv)
 
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     manifest = yaml.safe_load(Path(args.manifest).read_text(encoding="utf-8")) or {}
-    env_gated = load_env_gated(args.env_gated)
-    rollup = load_rollup(args.rollup)
-    security = load_security(args.security)
-    governance = load_governance(args.governance)
-    full_matrix = load_full_matrix(args.full_matrix)
-    advisory = load_advisory(args.advisory)
-    report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance,
-                      full_matrix, advisory, validated_examples=live_validated_examples,
-                      required_lanes=load_required_lanes(args.required))
+    policy = BuildTestPolicy.load(_policy_files(args))
+    gate = BuildTestGate(github_fetcher(policy), policy, validated_examples=live_validated_examples)
+    report = gate.evaluate(manifest, args.enforcement)
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "

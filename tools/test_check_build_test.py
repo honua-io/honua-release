@@ -15,6 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "certification"))
 import check_build_test as bt  # noqa: E402
+from build_test_github import enrich_action_workflow_ids, enrich_with_workflow_runs  # noqa: E402
+from build_test_policy import BuildTestPolicy, ComponentPolicy  # noqa: E402
+
+POLICY = BuildTestPolicy.load()
+SERVER = POLICY.component("honua-server")
+SDK_JS = POLICY.component("honua-sdk-js")
 
 FIXTURES = ROOT / "tools" / "fixtures" / "candidate-resolution-2026-10-06"
 THREE_ENGINE = "Three-engine smoke and source-packed parity"
@@ -33,23 +39,11 @@ JS_ADVISORY = (
 def _fixture(name: str) -> tuple[dict, dict]:
     data = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
     payload = {"check_runs": copy.deepcopy(data["check_runs"])}
-    workflows = {"workflow_runs": data.get("workflow_runs") or []}
-    enriched = bt._enrich_action_workflow_ids(payload, workflows)
-    enriched["_workflow_runs"] = copy.deepcopy(data.get("workflow_runs") or [])
-    return data, enriched
+    return data, enrich_with_workflow_runs(payload, copy.deepcopy(data.get("workflow_runs") or []))
 
 
 def _classify(component: str, payload: dict) -> tuple[str, str]:
-    advice = bt.load_advisory().get(component) or {}
-    return bt.classify(
-        payload,
-        bt.load_env_gated().get(component, frozenset()),
-        bt.load_rollup().get(component, frozenset()),
-        bt.load_security().get(component, frozenset()),
-        bt.load_governance().get(component, frozenset()),
-        advice.get("names", frozenset()),
-        advice.get("workflows", frozenset()),
-    )
+    return bt.classify(payload, POLICY.component(component))
 
 
 def _red_names(why: str) -> str:
@@ -71,7 +65,7 @@ def test_dotnet_certify_pin_lag_is_advisory_on_the_published_source():
     assert status == "pass", why
     assert why.startswith("all 38 core check-run(s) green")
     assert "advisory" in why and "certify" in why
-    assert "certify" in bt.load_advisory()["honua-sdk-dotnet"]["names"]
+    assert "certify" in POLICY.component("honua-sdk-dotnet").advisory_names
 
 
 def test_js_three_engine_firefox_red_is_advisory_and_the_rest_stays_core():
@@ -116,7 +110,7 @@ def test_build_site_and_release_please_ci_are_superseded_not_excluded():
     assert any(run["id"] == 112234412516 and run["conclusion"] == "failure" for run in raw)
     assert any(run["id"] == 112236298922 and run["conclusion"] == "failure" for run in raw)
     assert any(run["id"] == 112237235014 and run["conclusion"] == "failure" for run in raw)
-    advice = bt.load_advisory()["honua-sdk-js"]["names"]
+    advice = SDK_JS.advisory_names
     assert "Build site" not in advice
     assert "release-please-ci" not in advice
 
@@ -132,17 +126,8 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
     for name in PREBUILD:
         assert name in why
 
-    report = bt.evaluate(
-        {"components": {"honua-server": {"sha": data["sha"]}}},
-        lambda *_: payload,
-        "strict",
-        bt.load_env_gated(),
-        bt.load_rollup(),
-        bt.load_security(),
-        bt.load_governance(),
-        bt.load_full_matrix(),
-        bt.load_advisory(),
-    )
+    report = bt.BuildTestGate(lambda *_: payload, POLICY).evaluate(
+        {"components": {"honua-server": {"sha": data["sha"]}}}, "strict")
     row = report["components"][0]
     # Preserve historical captured bytes. They contain check metadata but no authoritative
     # job/attempt + immutable shard inventory observations required by the strengthened gate.
@@ -185,7 +170,7 @@ PARITY_WORKFLOW = ".github/workflows/server-test-prebuild-parity.yml"
 
 def _parity_payload() -> tuple[dict, dict]:
     data = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))
-    payload = bt._enrich_action_workflow_ids({"check_runs": copy.deepcopy(data["check_runs"])},
+    payload = enrich_action_workflow_ids({"check_runs": copy.deepcopy(data["check_runs"])},
                                              {"workflow_runs": data["workflow_runs"]})
     return data, payload
 
@@ -204,7 +189,7 @@ def test_server_prebuild_parity_observer_is_advisory_on_the_trunk_sha_it_is_file
     assert status == "pass", why
     for name in PARITY_RED:
         assert name in why
-    assert PARITY_WORKFLOW in bt.load_advisory()["honua-server"]["workflows"]
+    assert PARITY_WORKFLOW in SERVER.advisory_workflows
 
 
 def test_server_prebuild_parity_checks_stay_core_without_a_workflow_path_or_on_ci_yml():
@@ -238,7 +223,7 @@ def test_feature_server_shard_uses_the_latest_attempt_and_stays_core():
     }
 
     both = {"check_runs": [build, *copy.deepcopy(shard["check_runs"])]}
-    enriched = bt._enrich_action_workflow_ids(both, {"workflow_runs": [shard["workflow_run"]]})
+    enriched = enrich_action_workflow_ids(both, {"workflow_runs": [shard["workflow_run"]]})
     assert {run["_workflow_id"] for run in enriched["check_runs"] if run["name"] == FEATURE_SHARD} == {"216825513"}
     status, why = bt.classify(enriched)
     assert status == "pass", why
@@ -247,7 +232,7 @@ def test_feature_server_shard_uses_the_latest_attempt_and_stays_core():
     failure_only = {
         "check_runs": [build, copy.deepcopy(shard["check_runs"][0])],
     }
-    enriched_failure = bt._enrich_action_workflow_ids(
+    enriched_failure = enrich_action_workflow_ids(
         failure_only, {"workflow_runs": [shard["workflow_run"]]}
     )
     status, why = bt.classify(enriched_failure)
@@ -268,9 +253,9 @@ def test_claude_review_budget_miss_is_governance_and_not_a_build():
         {"id": 2, "name": "Post exact-head Claude review evidence",
          "status": "completed", "conclusion": "failure"},
     ]}
-    governance = bt.load_governance()["honua-server"]
+    governance = SERVER.governance_names
     assert "Post exact-head Claude review evidence" in governance
-    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), governance)
+    status, why = bt.classify(payload, ComponentPolicy(governance_names=governance))
     assert status == "pass", why
     assert "Post exact-head Claude review evidence" in why
     assert bt.classify(payload)[0] == "fail"
@@ -285,9 +270,9 @@ def test_cancelled_pr_identity_job_is_governance_and_not_a_core_flake():
     # Red: unlisted, the superseded run is counted as a cancelled core lane.
     assert bt.classify(payload)[0] != "pass"
     # Green: listed, it is excluded and the real build lane decides.
-    governance = bt.load_governance()["honua-server"]
+    governance = SERVER.governance_names
     assert "Resolve pull request identity" in governance
-    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), governance)
+    status, why = bt.classify(payload, ComponentPolicy(governance_names=governance))
     assert status == "pass", why
 
 
@@ -295,22 +280,18 @@ def test_only_advisory_checks_are_blocked_never_pass():
     payload = {"check_runs": [
         {"name": "Shadow parity", "status": "completed", "conclusion": "failure"},
     ]}
-    advice = bt.load_advisory()["honua-sdk-js"]
-    status, why = bt.classify(
-        payload, frozenset(), frozenset(), frozenset(), frozenset(),
-        advice["names"], advice["workflows"],
-    )
+    advisory_only = ComponentPolicy(advisory_names=SDK_JS.advisory_names,
+                                    advisory_workflows=SDK_JS.advisory_workflows)
+    status, why = bt.classify(payload, advisory_only)
     assert status == "blocked"
     assert "no core build/test signal" in why
 
 
-def test_resolver_source_passes_the_advisory_list_into_evaluate():
+def test_resolver_evaluates_with_the_whole_loaded_policy():
     source = (ROOT / "tools" / "resolve_trunk_candidate.py").read_text(encoding="utf-8")
-    assert "advisory=ci.load_advisory()" in source
-    assert ".github/workflows/server-test-prebuild-observe.yml" in (
-        bt.load_advisory()["honua-server"]["workflows"]
-    )
-    assert ".github/workflows/ci.yml" not in bt.load_advisory()["honua-server"]["workflows"]
+    assert "BuildTestPolicy.load()" in source
+    assert ".github/workflows/server-test-prebuild-observe.yml" in SERVER.advisory_workflows
+    assert ".github/workflows/ci.yml" not in SERVER.advisory_workflows
 
 
 def _runs_named(*pairs):
@@ -343,7 +324,7 @@ def test_js_live_evidence_observer_is_advisory_but_browser_impact_stays_core():
         ("Unit tests", "success"), (live_health, "failure")))
     assert status == "pass", why
     assert "advisory" in why and live_health in why
-    assert live_health in bt.load_advisory()["honua-sdk-js"]["names"]
+    assert live_health in SDK_JS.advisory_names
     # The pinned tree's own routing check stays core. A red there still refuses.
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "success"), (live_health, "failure"), (browser_impact, "failure")))
@@ -377,7 +358,7 @@ def test_server_base_image_mirror_is_advisory_but_build_and_image_jobs_stay_core
     status, why = _classify("honua-server", _runs_named(*core, (mirror, "failure")))
     assert status == "pass", why
     assert "advisory" in why and mirror in why
-    assert mirror in bt.load_advisory()["honua-server"]["names"]
+    assert mirror in SERVER.advisory_names
     # The source's own build, test shards and image build jobs still refuse.
     for name, _ in core:
         runs = [(n, "failure" if n == name else c) for n, c in core]
@@ -396,7 +377,7 @@ def test_js_overture_live_lane_is_env_gated_and_three_engine_is_advisory_not_env
         (THREE_ENGINE, "failure")))
     assert status == "pass", why
     assert "advisory" in why and THREE_ENGINE in why
-    assert THREE_ENGINE not in bt.load_env_gated().get("honua-sdk-js", frozenset())
+    assert THREE_ENGINE not in SDK_JS.env_gated_names
     # A red unit lane still refuses.
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "failure"), (THREE_ENGINE, "failure")))
@@ -415,7 +396,7 @@ def test_impact_routing_ledger_stays_excluded_until_its_promotion_window():
     """The exclusion stays, with both fail-closed gates, links, and a review date."""
     text = (ROOT / "certification" / "governance-checks.yaml").read_text(encoding="utf-8")
     name = "Audit trusted impact-routing observations"
-    assert name in bt.load_governance()["honua-server"]
+    assert name in SERVER.governance_names
     start = text.index(f'name: "{name}"')
     why = " ".join(text[start:text.index('name: "Post exact-head Claude review evidence"', start)].split())
     assert "receipt integrity violations" in why
@@ -466,7 +447,7 @@ def test_failed_capacity_soak_is_governance_and_does_not_evict_the_candidate():
     ]}
     # Red: unlisted, a failed soak under an older lock counts as a red core lane.
     assert bt.classify(payload)[0] == "fail"
-    governance = bt.load_governance()["honua-server"]
+    governance = SERVER.governance_names
     assert "Candidate capacity soak" in governance
-    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), governance)
+    status, why = bt.classify(payload, ComponentPolicy(governance_names=governance))
     assert status == "pass", why

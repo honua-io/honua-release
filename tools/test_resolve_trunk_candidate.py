@@ -577,7 +577,7 @@ def test_a_truncated_check_run_page_refuses_before_ci_is_judged(monkeypatch, pag
     gh = FakeGh({f'repos/honua-io/server/commits/{NEW}/check-runs': lambda _: next(served),
                  f'repos/honua-io/server/actions/runs': {'total_count': 0, 'workflow_runs': []}})
     monkeypatch.setattr(resolver.subprocess, 'run', gh)
-    monkeypatch.setattr(resolver.ci, 'evaluate', lambda *a, **k: pytest.fail('CI judged on a partial page'))
+    monkeypatch.setattr(resolver.ci.BuildTestGate, 'evaluate', lambda *a, **k: pytest.fail('CI judged on a partial page'))
     with pytest.raises(resolver.ResolutionError, match='truncated|total_count|has no check_runs'):
         resolver.GitHub().green('server', 'honua-io/server', NEW)
 
@@ -1993,11 +1993,12 @@ def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_
         resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
     ).read_text())
     seen = {}
-    original = resolver.ci.evaluate
+    original = resolver.ci.BuildTestGate
 
-    def evaluate(*args, **kwargs):
-        seen['advisory'] = kwargs.get('advisory')
-        return original(*args, **kwargs)
+    class RecordingGate(original):
+        def evaluate(self, *args, **kwargs):
+            seen['policy'] = self.policy
+            return super().evaluate(*args, **kwargs)
 
     github = resolver.GitHub()
 
@@ -2011,14 +2012,14 @@ def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_
 
     github.pages = pages
     github.json = lambda path: pytest.fail('historical fixture has no authoritative source/job observations')
-    resolver.ci.evaluate = evaluate
+    resolver.ci.BuildTestGate = RecordingGate
     try:
         ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])
     finally:
-        resolver.ci.evaluate = original
+        resolver.ci.BuildTestGate = original
     assert not ok
     assert 'missing actual Actions job and pinned shard selection evidence' in why
-    workflows = seen['advisory']['honua-server']['workflows']
+    workflows = seen['policy'].component('honua-server').advisory_workflows
     assert '.github/workflows/server-test-prebuild-observe.yml' in workflows
     assert '.github/workflows/ci.yml' not in workflows
 

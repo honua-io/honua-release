@@ -12,8 +12,22 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_build_test as bt  # noqa: E402
+from build_test_github import enrich_action_workflow_ids  # noqa: E402
+from build_test_policy import BuildTestPolicy, ComponentPolicy  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+POLICY = BuildTestPolicy.load()
+
+
+def _declared(names_of):
+    """{component: names} for one exclusion category of the shipped policy."""
+    return {name: names_of(policy) for name, policy in POLICY.components.items()}
+
+
+def _required(lanes):
+    """A policy declaring only each component's required lanes."""
+    return BuildTestPolicy({name: ComponentPolicy(component=name, required_lanes=lane_set)
+                            for name, lane_set in lanes.items()})
 
 
 def _runs(*conclusions, status="completed"):
@@ -145,7 +159,7 @@ def test_actions_run_metadata_enriches_jobs_with_stable_workflow_identity():
          "details_url": "https://github.com/honua-io/repo/actions/runs/42/job/99"},
     ]}
     workflows = {"workflow_runs": [{"id": 42, "workflow_id": 1234}]}
-    enriched = bt._enrich_action_workflow_ids(payload, workflows)
+    enriched = enrich_action_workflow_ids(payload, workflows)
     assert enriched["check_runs"][0]["_workflow_id"] == "1234"
 
 
@@ -165,7 +179,7 @@ def test_env_gated_red_is_skipped_not_fail_when_core_green():
     # Core build+unit lanes green; only the env-gated live lane red → component PASSES (env skipped).
     payload = _named(("Build & Format Check", "success"), ("Unit Tests", "success"),
                      ("Live Integration (Testcontainers)", "failure"))
-    status, why = bt.classify(payload, LIVE)
+    status, why = bt.classify(payload, ComponentPolicy(env_gated_names=LIVE))
     assert status == "pass"
     assert "env-gated" in why and "skipped" in why
 
@@ -174,19 +188,19 @@ def test_core_red_still_fails_even_with_env_gated_lane_present():
     # GUARDRAIL: a real compile/unit-test red must fail even alongside an env-gated red — never masked.
     payload = _named(("Restore and Build", "failure"),
                      ("Live Integration (Testcontainers)", "failure"))
-    assert bt.classify(payload, LIVE)[0] == "fail"
+    assert bt.classify(payload, ComponentPolicy(env_gated_names=LIVE))[0] == "fail"
 
 
 def test_only_env_gated_lanes_is_blocked_never_pass():
     # No core build/test signal left after removing env-gated lanes → blocked, never optimistic pass.
     payload = _named(("Live Integration (Testcontainers)", "failure"))
-    assert bt.classify(payload, LIVE)[0] == "blocked"
+    assert bt.classify(payload, ComponentPolicy(env_gated_names=LIVE))[0] == "blocked"
 
 
 def test_env_gated_name_not_matching_a_component_still_fails():
     # A red lane that is NOT in the env-gated set (e.g. proto lint) is a real red — still fails.
     payload = _named(("Lint and Validate Protobuf", "failure"), ("Build", "success"))
-    assert bt.classify(payload, LIVE)[0] == "fail"
+    assert bt.classify(payload, ComponentPolicy(env_gated_names=LIVE))[0] == "fail"
 
 
 def _iac_payload(*runs):
@@ -196,33 +210,33 @@ def _iac_payload(*runs):
 
 def test_iac_live_drift_plans_are_env_gated_but_core_iac_checks_still_decide():
     """Ruling 2026-11-03: honua-iac's scheduled Bootstrap Drift Plan jobs plan against live AWS (honua-iac#338)."""
-    gated = bt.load_env_gated()["honua-iac"]
+    gated = POLICY.component("honua-iac").env_gated_names
     drift = [name for name in gated if name.startswith("Drift plan (")]
     assert len(drift) == 18 and "Open, update or close the drift issue" in gated
     assert not {"Terraform Validate", "Root coverage"} & gated      # static IaC checks stay core
     status, why = bt.classify(_iac_payload(("Terraform Validate", "success"), ("Root coverage", "success"),
                                            ("Drift plan (aws-demo-deploy)", "failure"),
                                            ("Drift plan (aws-update-rollback-controller)", "failure"),
-                                           ("Open, update or close the drift issue", "failure")), gated)
+                                           ("Open, update or close the drift issue", "failure")), ComponentPolicy(env_gated_names=gated))
     assert status == "pass" and "env-gated" in why
     status, _ = bt.classify(_iac_payload(("Terraform Validate", "failure"),
-                                         ("Drift plan (aws-demo-deploy)", "failure")), gated)
+                                         ("Drift plan (aws-demo-deploy)", "failure")), ComponentPolicy(env_gated_names=gated))
     assert status == "fail"                                         # a core IaC red still fails
     status, _ = bt.classify(_iac_payload(("Terraform Validate", "success"),
-                                         ("Drift plan (aws-new-root)", "failure")), gated)
+                                         ("Drift plan (aws-new-root)", "failure")), ComponentPolicy(env_gated_names=gated))
     assert status == "fail"                                         # exact names only, no pattern
 
 
 def test_env_gated_lane_green_is_ignored_and_core_decides():
     # Env-gated lane happening to be green is simply excluded; core decides (here: pass).
     payload = _named(("Build", "success"), ("Live Integration (Testcontainers)", "success"))
-    status, why = bt.classify(payload, LIVE)
+    status, why = bt.classify(payload, ComponentPolicy(env_gated_names=LIVE))
     assert status == "pass" and "env-gated" not in why  # nothing skipped → no env note
 
 
 def test_load_env_gated_never_lists_a_build_or_unit_lane():
     # GUARDRAIL: the shipped policy file must not down-grade any compile/build/restore/unit lane.
-    gated = bt.load_env_gated()
+    gated = _declared(lambda policy: policy.env_gated_names)
     banned = ("build", "restore", "format", "unit", "compile", ".net sdk", "analyze", "coverage")
     for comp, names in gated.items():
         for n in names:
@@ -245,7 +259,7 @@ def test_rollup_failure_from_cancelled_leaf_is_blocked_not_fail():
         ("CI Gate", "failure"),
         ("Test Suite Summary", "failure"),
     )
-    status, why = bt.classify(payload, frozenset(), ROLLUP)
+    status, why = bt.classify(payload, ComponentPolicy(rollup_names=ROLLUP))
     assert status == "blocked", why
     assert "cancelled" in why and "re-runnable" in why
     assert "roll-up" in why  # the excluded aggregators are surfaced for audit
@@ -260,7 +274,7 @@ def test_rollup_never_masks_a_real_leaf_red():
         ("CI Gate", "failure"),
         ("Test Suite Summary", "failure"),
     )
-    assert bt.classify(payload, frozenset(), ROLLUP)[0] == "fail"
+    assert bt.classify(payload, ComponentPolicy(rollup_names=ROLLUP))[0] == "fail"
 
 
 def test_rollup_all_leaves_green_is_pass():
@@ -269,18 +283,18 @@ def test_rollup_all_leaves_green_is_pass():
         ("Server Tests (Core)", "success"), ("Restore and Build", "success"),
         ("CI Gate", "success"), ("Test Suite Summary", "success"),
     )
-    assert bt.classify(payload, frozenset(), ROLLUP)[0] == "pass"
+    assert bt.classify(payload, ComponentPolicy(rollup_names=ROLLUP))[0] == "pass"
 
 
 def test_only_rollup_checks_is_blocked_never_pass():
     # If nothing but aggregators are present, there is no leaf build/test signal → blocked, never pass.
     payload = _named(("CI Gate", "success"), ("Test Suite Summary", "success"))
-    assert bt.classify(payload, frozenset(), ROLLUP)[0] == "blocked"
+    assert bt.classify(payload, ComponentPolicy(rollup_names=ROLLUP))[0] == "blocked"
 
 
 def test_load_rollup_never_lists_a_build_or_test_lane():
     # GUARDRAIL: the shipped roll-up policy must only name pure aggregators, never a real shard/build.
-    rollup = bt.load_rollup()
+    rollup = _declared(lambda policy: policy.rollup_names)
     banned = ("restore", "build", "format", "compile", "unit", "server tests (", "analyze", "coverage",
               "integration")
     for comp, names in rollup.items():
@@ -302,7 +316,7 @@ def test_security_red_is_excluded_when_core_green():
         ("Live Integration (Testcontainers, pinned server image)", "success"),
         ("Dependabot", "failure"),
     )
-    status, why = bt.classify(payload, frozenset(), frozenset(), SECURITY)
+    status, why = bt.classify(payload, ComponentPolicy(security_names=SECURITY))
     assert status == "pass", why
     assert "dependency-security" in why and "gate_security" in why  # surfaced for audit
 
@@ -310,26 +324,26 @@ def test_security_red_is_excluded_when_core_green():
 def test_security_never_masks_a_real_core_red():
     # GUARDRAIL: a genuine build/unit red must fail even alongside a red security check — never masked.
     payload = _named(("Validate Console", "failure"), ("Dependabot", "failure"))
-    assert bt.classify(payload, frozenset(), frozenset(), SECURITY)[0] == "fail"
+    assert bt.classify(payload, ComponentPolicy(security_names=SECURITY))[0] == "fail"
 
 
 def test_only_security_checks_is_blocked_never_pass():
     # If nothing but security checks are present, there is no build/test signal → blocked, never pass.
     payload = _named(("Dependabot", "success"))
-    assert bt.classify(payload, frozenset(), frozenset(), SECURITY)[0] == "blocked"
+    assert bt.classify(payload, ComponentPolicy(security_names=SECURITY))[0] == "blocked"
 
 
 def test_security_green_is_ignored_and_core_decides():
     # A security check happening to be green is simply excluded; core decides (here: pass, no note).
     payload = _named(("Validate Console", "success"), ("Dependabot", "success"))
-    status, why = bt.classify(payload, frozenset(), frozenset(), SECURITY)
+    status, why = bt.classify(payload, ComponentPolicy(security_names=SECURITY))
     assert status == "pass" and "dependency-security" not in why  # nothing excluded-nongreen → no note
 
 
 def test_load_security_never_lists_a_build_or_test_lane():
     # GUARDRAIL: the shipped security policy must only name dependency-security signals, never a real
     # build/compile/unit/integration lane.
-    security = bt.load_security()
+    security = _declared(lambda policy: policy.security_names)
     banned = ("restore", "build", "format", "compile", "unit", "server tests (", "analyze", "coverage",
               "integration", "playwright", "validate console")
     for comp, names in security.items():
@@ -344,7 +358,7 @@ GOVERNANCE = frozenset({"Publish SHA-bound Codex review attestation"})
 def test_governance_red_is_excluded_when_core_green():
     payload = _named(("Restore and Build", "success"), ("Server Tests (Core)", "success"),
                      ("Publish SHA-bound Codex review attestation", "failure"))
-    status, why = bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)
+    status, why = bt.classify(payload, ComponentPolicy(governance_names=GOVERNANCE))
     assert status == "pass", why
     assert "non-build governance" in why
 
@@ -352,18 +366,18 @@ def test_governance_red_is_excluded_when_core_green():
 def test_governance_never_masks_real_core_red():
     payload = _named(("Server Tests (Core)", "failure"),
                      ("Publish SHA-bound Codex review attestation", "failure"))
-    assert bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)[0] == "fail"
+    assert bt.classify(payload, ComponentPolicy(governance_names=GOVERNANCE))[0] == "fail"
 
 
 def test_only_governance_checks_is_blocked_never_pass():
     payload = _named(("Publish SHA-bound Codex review attestation", "failure"))
-    assert bt.classify(payload, frozenset(), frozenset(), frozenset(), GOVERNANCE)[0] == "blocked"
+    assert bt.classify(payload, ComponentPolicy(governance_names=GOVERNANCE))[0] == "blocked"
 
 
 def test_load_governance_never_lists_build_or_test_lane():
     import re
 
-    governance = bt.load_governance()
+    governance = _declared(lambda policy: policy.governance_names)
     banned = re.compile(r"\b(?:restore|build|compile|unit|tests?|integration|playwright|validate)\b")
     for comp, names in governance.items():
         for name in names:
@@ -373,7 +387,6 @@ def test_load_governance_never_lists_build_or_test_lane():
 def test_load_advisory_never_hides_a_product_build_test_or_contract_lane():
     import re
 
-    advisory = bt.load_advisory()
     banned = re.compile(
         r"\b(?:restore|build|compile|unit|tests?|integration|playwright|validate|certify|smoke|coverage)\b"
     )
@@ -395,12 +408,12 @@ def test_load_advisory_never_hides_a_product_build_test_or_contract_lane():
     }
     forbidden_workflows = {".github/workflows/ci.yml", ".github/workflows/sdk-certification.yml",
                            ".github/workflows/first-map-release-smoke.yml"}
-    for comp, policy in advisory.items():
-        for name in policy["names"]:
+    for comp, policy in POLICY.components.items():
+        for name in policy.advisory_names:
             assert name not in forbidden_names, f"{comp}: '{name}' is a product lane"
             if name not in ruled_names:
                 assert not banned.search(name.lower()), f"{comp}: '{name}' looks like a core lane"
-        assert not (policy["workflows"] & forbidden_workflows), comp
+        assert not (policy.advisory_workflows & forbidden_workflows), comp
 
 
 def _fetch_map(mapping):
@@ -418,26 +431,27 @@ def _built(conclusion="success"):
 def test_evaluate_all_green_is_pass():
     manifest = {"components": {"a": {"sha": "x" * 40}, "b": {"sha": "y" * 40}}}
     lanes = {"a": frozenset({BUILD_LANE}), "b": frozenset({BUILD_LANE})}
-    rep = bt.evaluate(manifest, _fetch_map({"a": _built(), "b": _built()}), required_lanes=lanes)
+    rep = bt.BuildTestGate(_fetch_map({"a": _built(), "b": _built()}), _required(lanes)).evaluate(manifest)
     assert rep["overallStatus"] == "pass" and rep["summary"]["pass"] == 2
 
 
 def test_evaluate_one_red_is_fail():
     manifest = {"components": {"a": {"sha": "x" * 40}, "b": {"sha": "y" * 40}}}
-    rep = bt.evaluate(manifest, _fetch_map({"a": _runs("success"), "b": _runs("failure")}))
+    rep = bt.BuildTestGate(_fetch_map({"a": _runs("success"), "b": _runs("failure")}), BuildTestPolicy()).evaluate(manifest)
     assert rep["overallStatus"] == "fail"
 
 
 def test_evaluate_blocked_tolerated_in_bootstrap_fails_in_strict():
     manifest = {"components": {"a": {"sha": "x" * 40}, "b": {"sha": "y" * 40}}}
     fetch = _fetch_map({"a": _runs("success")})  # b -> NOT_FOUND -> blocked
-    assert bt.evaluate(manifest, fetch, "bootstrap")["overallStatus"] == "blocked"
-    assert bt.evaluate(manifest, fetch, "strict")["overallStatus"] == "fail"
+    gate = bt.BuildTestGate(fetch, BuildTestPolicy())
+    assert gate.evaluate(manifest, "bootstrap")["overallStatus"] == "blocked"
+    assert gate.evaluate(manifest, "strict")["overallStatus"] == "fail"
 
 
 def test_evaluate_component_without_sha_is_blocked():
     manifest = {"components": {"a": {"version": "1.0.0"}}}  # no sha
-    rep = bt.evaluate(manifest, _fetch_map({}))
+    rep = bt.BuildTestGate(_fetch_map({}), BuildTestPolicy()).evaluate(manifest)
     assert rep["components"][0]["status"] == "blocked" and "no sha" in rep["components"][0]["why"]
 
 
@@ -484,10 +498,11 @@ def _console_payload(*studio):
     runs = [core] + [run for run, _ in studio]
     workflows = [{"id": 900, "workflow_id": 1, "path": ".github/workflows/ci.yml", "event": "push",
                   "display_title": "ci", "head_branch": "trunk"}] + [wf for _, wf in studio]
-    return bt._enrich_action_workflow_ids({"check_runs": runs}, {"workflow_runs": workflows})
+    return enrich_action_workflow_ids({"check_runs": runs}, {"workflow_runs": workflows})
 
 
 GATE_ID = "release-" + "ab" * 16
+CONSOLE = ComponentPolicy(component="honua-console")
 
 
 def test_release_gate_replays_are_not_counted_but_independent_studio_ci_stays_core():
@@ -495,12 +510,12 @@ def test_release_gate_replays_are_not_counted_but_independent_studio_ci_stays_co
     PR run of the same job on the pinned Console commit stays core and is never superseded by a replay."""
     replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
                            branch=f"studio-customer-gate/{GATE_ID}")
-    status, why = bt.classify(_console_payload(replay), component="honua-console")
+    status, why = bt.classify(_console_payload(replay), CONSOLE)
     assert status == "pass" and "release-gate replay" in why
     scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
     green_replay = _studio_check(9, "success", event="workflow_dispatch",
                                  title=f"Console live studio-customer {GATE_ID}", branch=f"studio-customer-gate/{GATE_ID}")
-    status, _ = bt.classify(_console_payload(scheduled, green_replay), component="honua-console")
+    status, _ = bt.classify(_console_payload(scheduled, green_replay), CONSOLE)
     assert status == "fail"        # a later green replay cannot hide the scheduled source-building failure
 
 
@@ -515,7 +530,7 @@ def test_anything_short_of_the_exact_replay_shape_stays_core(change):
                  branch=f"studio-customer-gate/{GATE_ID}")
     path = change.pop("path", ".github/workflows/console-live-journey.yml")
     shape.update(change)
-    status, _ = bt.classify(_console_payload(_studio_check(5, "failure", path=path, **shape)), component="honua-console")
+    status, _ = bt.classify(_console_payload(_studio_check(5, "failure", path=path, **shape)), CONSOLE)
     assert status == "fail"
 
 
@@ -524,39 +539,39 @@ def test_unenriched_replay_stays_core():
                            branch=f"studio-customer-gate/{GATE_ID}")
     core = {"id": 1, "name": "Validate Console", "status": "completed", "conclusion": "success",
             "started_at": "2026-11-03T00:00:00Z", "app": {"slug": "github-actions"}}
-    assert bt.classify({"check_runs": [core, run]}, component="honua-console")[0] == "fail"
+    assert bt.classify({"check_runs": [core, run]}, CONSOLE)[0] == "fail"
 
 
 def _events():
-    return bt.load_env_gated_events()["honua-console"]
+    return POLICY.component("honua-console").env_gated_events
 
 
 def test_scheduled_floating_backend_studio_red_is_skipped_and_core_still_decides():
     """Ruling 2026-11-03: scheduled console-live-journey.yml runs (floating server nightly) are env-gated."""
     scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
-    status, why = bt.classify(_console_payload(scheduled), env_gated_events=_events())
+    status, why = bt.classify(_console_payload(scheduled), ComponentPolicy(env_gated_events=_events()))
     assert status == "pass" and "env-gated scheduled" in why and "[schedule]" in why
 
 
 @_pytest.mark.parametrize("event", ["pull_request", "push", "workflow_dispatch"])
 def test_the_same_workflow_on_other_events_stays_core(event):
     run = _studio_check(3, "failure", event=event, title="Console live 3", branch="trunk")
-    assert bt.classify(_console_payload(run), env_gated_events=_events())[0] == "fail"
+    assert bt.classify(_console_payload(run), ComponentPolicy(env_gated_events=_events()))[0] == "fail"
 
 
 def test_event_gating_never_leaves_the_console_without_core_and_a_core_red_still_fails():
     scheduled = _studio_check(3, "failure", event="schedule", title="Console live nightly 3", branch="trunk")
     payload = _console_payload(scheduled)
     payload["check_runs"][0]["conclusion"] = "failure"          # Validate Console, a core lane
-    assert bt.classify(payload, env_gated_events=_events())[0] == "fail"
-    only = bt._enrich_action_workflow_ids({"check_runs": [scheduled[0]]}, {"workflow_runs": [scheduled[1]]})
-    assert bt.classify(only, env_gated_events=_events())[0] == "blocked"
+    assert bt.classify(payload, ComponentPolicy(env_gated_events=_events()))[0] == "fail"
+    only = enrich_action_workflow_ids({"check_runs": [scheduled[0]]}, {"workflow_runs": [scheduled[1]]})
+    assert bt.classify(only, ComponentPolicy(env_gated_events=_events()))[0] == "blocked"
 
 
 def test_event_gating_requires_workflow_and_event_and_is_console_only():
     other = _studio_check(3, "failure", event="schedule", title="x", branch="trunk", path=".github/workflows/ci.yml")
-    assert bt.classify(_console_payload(other), env_gated_events=_events())[0] == "fail"
-    assert set(bt.load_env_gated_events()) == {"honua-console"}
+    assert bt.classify(_console_payload(other), ComponentPolicy(env_gated_events=_events()))[0] == "fail"
+    assert {name for name, policy in POLICY.components.items() if policy.env_gated_events} == {"honua-console"}
 
 
 @_pytest.mark.parametrize("component", ["honua-studio", "honua-server", ""])
@@ -564,8 +579,8 @@ def test_the_replay_rule_is_scoped_to_honua_console(component):
     """Sol round 3: the same workflow path, event, title and branch in another component stays core."""
     replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
                            branch=f"studio-customer-gate/{GATE_ID}")
-    assert bt.classify(_console_payload(replay), component=component)[0] == "fail"
-    assert bt.classify(_console_payload(replay), component="honua-console")[0] == "pass"
+    assert bt.classify(_console_payload(replay), ComponentPolicy(component=component))[0] == "fail"
+    assert bt.classify(_console_payload(replay), CONSOLE)[0] == "pass"
 
 
 def test_evaluate_scopes_the_replay_rule_by_component():
@@ -573,8 +588,9 @@ def test_evaluate_scopes_the_replay_rule_by_component():
                            branch=f"studio-customer-gate/{GATE_ID}")
     manifest = {"components": {"honua-console": {"sha": "a" * 40}, "honua-studio": {"sha": "b" * 40}}}
     validate = frozenset({(".github/workflows/ci.yml", "Validate Console")})
-    result = bt.evaluate(manifest, lambda name, sha: _console_payload(replay), enforcement="strict", env_gated_events={},
-                         required_lanes={"honua-console": validate, "honua-studio": validate})
+    gate = bt.BuildTestGate(lambda name, sha: _console_payload(replay),
+                            _required({"honua-console": validate, "honua-studio": validate}))
+    result = gate.evaluate(manifest, "strict")
     verdicts = {row["component"]: row["status"] for row in result["components"]} if "components" in result else \
         {row["component"]: row["status"] for row in result.get("rows", result.get("gates", []))}
     assert verdicts["honua-console"] == "pass" and verdicts["honua-studio"] == "fail"
@@ -582,6 +598,7 @@ def test_evaluate_scopes_the_replay_rule_by_component():
 
 # honua-server validated-examples descendant rule (ruling 2026-11-03, rc.2 redo)
 VX_PATH = ".github/workflows/validated-examples-nightly.yml"
+SERVER = ComponentPolicy(component="honua-server")
 VX_VERIFIED = {"status": "verified", "ruling": "validated-examples-descendant-2026-11-03", "pinSha": "8" * 40,
                "runSha": "a" * 40, "runId": 4242, "changedPaths": ["examples/manifest.json"],
                "imageDigest": "sha256:" + "2" * 64}
@@ -600,43 +617,43 @@ def _server_payload(record=None, *, scenario_conclusion="failure", core_conclusi
                  {"id": 901, "workflow_id": 2, "path": path, "event": "schedule"}]
     payload = {"check_runs": runs}
     if enrich:
-        payload = bt._enrich_action_workflow_ids(payload, {"workflow_runs": workflows})
+        payload = enrich_action_workflow_ids(payload, {"workflow_runs": workflows})
     if record is not None:
         payload["_validated_examples"] = record
     return payload
 
 
 def test_verified_descendant_replaces_only_the_pins_validated_examples_runs():
-    status, why = bt.classify(_server_payload(VX_VERIFIED), component="honua-server")
+    status, why = bt.classify(_server_payload(VX_VERIFIED), SERVER)
     assert status == "pass"
     assert "3 validated-examples check(s) on the pin replaced by verified descendant run 4242" in why
     assert "aaaaaaaaaaaa" in why and "examples/manifest.json" in why and VX_VERIFIED["imageDigest"] in why
 
 
 def test_without_a_verified_descendant_the_pins_red_examples_still_fail():
-    assert bt.classify(_server_payload(None), component="honua-server")[0] == "fail"
+    assert bt.classify(_server_payload(None), SERVER)[0] == "fail"
     unavailable = {"status": "unavailable", "reason": "descendant changes a path outside the examples allowlist"}
-    status, why = bt.classify(_server_payload(unavailable), component="honua-server")
+    status, why = bt.classify(_server_payload(unavailable), SERVER)
     assert status == "fail" and "validated-examples descendant not used" in why and "allowlist" in why
 
 
 def test_verified_descendant_never_hides_a_core_red():
     payload = _server_payload(VX_VERIFIED, core_conclusion="failure")
-    assert bt.classify(payload, component="honua-server")[0] == "fail"
+    assert bt.classify(payload, SERVER)[0] == "fail"
 
 
 @_pytest.mark.parametrize("component", ["honua-console", "honua-studio", ""])
 def test_descendant_rule_is_scoped_to_honua_server(component):
-    assert bt.classify(_server_payload(VX_VERIFIED), component=component)[0] == "fail"
+    assert bt.classify(_server_payload(VX_VERIFIED), ComponentPolicy(component=component))[0] == "fail"
 
 
 def test_descendant_rule_needs_the_workflow_path_and_the_scenario_names():
     other_path = _server_payload(VX_VERIFIED, path=".github/workflows/ci.yml")
-    assert bt.classify(other_path, component="honua-server")[0] == "fail"
+    assert bt.classify(other_path, SERVER)[0] == "fail"
     other_name = _server_payload(VX_VERIFIED, names=("stac-ops", "unit-tests"))
-    assert bt.classify(other_name, component="honua-server")[0] == "fail"
+    assert bt.classify(other_name, SERVER)[0] == "fail"
     unenriched = _server_payload(VX_VERIFIED, enrich=False)
-    assert bt.classify(unenriched, component="honua-server")[0] == "fail"
+    assert bt.classify(unenriched, SERVER)[0] == "fail"
 
 
 def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record():
@@ -649,8 +666,8 @@ def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record
     manifest = {"components": {"honua-server": {"sha": "8" * 40}, "honua-console": {"sha": "c" * 40}}}
     payloads = {"honua-server": _server_payload(), "honua-console": _runs("success")}
     lanes = {"honua-server": frozenset({(".github/workflows/trunk-sanity.yml", "Restore and Build")})}
-    report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={},
-                         validated_examples=resolver, required_lanes=lanes)
+    report = bt.BuildTestGate(lambda name, sha: payloads[name], _required(lanes),
+                              validated_examples=resolver).evaluate(manifest)
     rows = {row["component"]: row for row in report["components"]}
     assert calls == [("honua-server", "8" * 40)]
     assert rows["honua-server"]["status"] == "pass"
@@ -658,7 +675,7 @@ def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record
     assert "validatedExamples" not in rows["honua-console"]
     # Disabled (the default for pure callers): the pin's own red runs decide.
     payloads["honua-server"] = _server_payload()
-    report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={}, required_lanes=lanes)
+    report = bt.BuildTestGate(lambda name, sha: payloads[name], _required(lanes)).evaluate(manifest)
     assert {r["component"]: r["status"] for r in report["components"]}["honua-server"] == "fail"
 
 
