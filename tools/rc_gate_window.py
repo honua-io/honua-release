@@ -10,6 +10,8 @@ digest, as one identity. The SHA and digest come from the same object; the lock 
 its parent's. An upgrade receipt counts only its candidate phase, so the prior install and the
 rollback do not certify the previous build. A newer failed run, or a run with certifying:false or a
 partial target, for that same candidate supersedes an older green one. A diagnostic run never counts.
+"Most recent" is the latest execution, not the latest dispatch: a re-run of an older dispatch is newer than
+the dispatches it follows, and runs that overlap the latest one must agree with it.
 A gate whose workflow does not publish a candidate-bound report can still pass, and the record
 says so: "pass (manifest-pin bound, no receipt)". That requires its most recent completed trunk
 run to be a success, started after the honua-release commit that pinned this honua-server sha in
@@ -39,36 +41,35 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "certification"))
+from execution_order import AmbiguousOrder, contenders  # noqa: E402
+
 API = "https://api.github.com"
 SHA_RE_TEXT = r"[0-9a-f]{40}"
 DIGEST_RE_TEXT = r"sha256:[0-9a-f]{64}"
 
-# The gates release-train.yml calls (its `uses: ./.github/workflows/...` lines), plus the AI gates the
-# operator added to the rc set on 2026-10-22 and the founder re-tier took out of it on 2026-10-25. Keep
-# this list in step with release-train.yml; the regression test pins it against the workflow file.
-TRAIN_GATES: tuple[str, ...] = (
-    "manifest-validate.yml",
-    "gate-build-test.yml",
-    "gate-artifact-consume.yml",
-    "e2e-local-docker.yml",
-    "e2e-cloud-aws.yml",
-    "certification.yml",
-    "gate-security.yml",
-    "gate-contract.yml",
-    "gate-contract-live.yml",
-    "gate-sbom.yml",
-    "gate-observability.yml",
-    "gate-docs.yml",
-    "gate-upgrade.yml",
-    "rollback-certification.yml",
-    "gate-evidence.yml",
-    "gate-dr.yml",
-    "capacity-soak.yml",
-    "gate-executable-docs.yml",
-    "terminal-journey-contract.yml",
-    "gate-journey.yml",
-    "gate-installed-clients.yml",
-)
+RELEASE_TRAIN = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release-train.yml"
+_GATE_CALL = re.compile(r"(?:\./|honua-io/honua-release/)\.github/workflows/([\w.-]+\.yml)(?:@[0-9a-f]{40})?")
+
+
+def train_gates(train: Path = RELEASE_TRAIN) -> tuple[str, ...]:
+    """Every reusable gate workflow release-train.yml calls, local or pinned to a honua-release commit."""
+    jobs = (yaml.safe_load(train.read_text(encoding="utf-8")) or {}).get("jobs") or {}
+    gates = []
+    for job, spec in jobs.items():
+        uses = spec.get("uses") if isinstance(spec, dict) else None
+        if uses is None:
+            continue
+        match = _GATE_CALL.fullmatch(str(uses).strip())
+        if not match:
+            raise ValueError(f"release-train job {job} calls {uses}, which is not a honua-release gate workflow")
+        gates.append(match.group(1))
+    return tuple(dict.fromkeys(gates))
+
+
+TRAIN_GATES: tuple[str, ...] = train_gates()
 AI_GATES: tuple[str, ...] = (
     "gate-agent-e2e.yml",
     "terminal-model-canary.yml",
@@ -80,11 +81,15 @@ AI_GATES: tuple[str, ...] = (
 # `upgrade-gate-ga-deferred-2026-11-02`): gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
 # announced, so no customer upgrades from it. gate-upgrade (and with it the rc upgrade/rollback leg) stays a
 # GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
+# gate-protocol-certification is workflow_call-only: it runs inside the train and never has a standalone
+# trunk run this window could admit. It is reported, never required, for rc until a dispatchable wrapper
+# publishes a candidate-bound receipt (release-session ruling 2026-11-04).
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
     "gate-journey.yml",
     "gate-upgrade.yml",
+    "gate-protocol-certification.yml",
 )
 # Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
 # `wedge-critical-retier-2026-10-25`, honua-release#376 comment 6407009748): "The AI gates (full agent
@@ -138,6 +143,8 @@ UNBOUND_GATE_LIMITATIONS: dict[str, str] = {
         "GA-deferred; its receipt is not read as an rc candidate binding of digest, source SHA, and platform lock",
     "gate-evidence.yml":
         "evidence gate report does not name the honua-server digest, source SHA, and platform lock",
+    "gate-protocol-certification.yml":
+        "GA-deferred; it runs only as a train job, so no standalone run publishes a candidate-bound receipt",
     "gate-dr.yml":
         "DR drill report does not bind the honua-server digest, source SHA, and platform lock",
     "capacity-soak.yml":
@@ -728,14 +735,14 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         # The lock in the run title can invalidate older evidence, never certify it.
         if run.get("display_title") == "Studio customer gate " + candidate.platform_lock:
             return "superseding"
-    if not docs or not any(matches_candidate(doc, candidate) for doc in docs):
+    bound = [doc for doc in docs if matches_candidate(doc, candidate)]
+    if not bound:
         return "unrelated"
-    # Identity and status may be split across the run's report and its receipt. A diagnostic
-    # document, a failed status, or a non-success conclusion invalidates the whole run.
-    statuses = [_report_status(doc) for doc in docs]
+    # Every document that names the candidate must itself pass; a pass elsewhere in the run cannot stand in
+    # for it. A diagnostic document, a failed status anywhere, or a non-success conclusion also invalidates it.
     if (any(is_diagnostic(doc) for doc in docs) or run.get("conclusion") != "success"
-            or any(status in _FAIL_STATUSES for status in statuses)
-            or not any(status == "pass" for status in statuses)):
+            or any(_report_status(doc) in _FAIL_STATUSES for doc in docs)
+            or any(_report_status(doc) != "pass" for doc in bound)):
         return "superseding"
     return "qualifying"
 
@@ -820,14 +827,13 @@ def fetch_gate_runs(repo: str, workflow: str, token: str, branch: str, *,
     if not bound:
         raws = _fetch_completed(repo, workflow, token, branch)
         runs = [_slim(run) for run in raws[:30]]
-        if runs:
-            def _newest(run: dict) -> tuple[dt.datetime, int]:
-                created = _parse(run.get("created_at")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
-                return (created, int(run.get("id") or 0))
-
-            newest = max(runs, key=_newest)
-            # Only the deciding run's report matters, and only when the workflow published one.
-            newest["reports"] = fetch_run_reports(repo, token, newest.get("id"))
+        try:
+            deciding = contenders(runs)
+        except AmbiguousOrder:
+            return {"runs": runs}       # no deciding run, so the gate is red without a report
+        # Only the reports of the latest run, and of any run overlapping it, can decide the gate.
+        for run in deciding:
+            run["reports"] = fetch_run_reports(repo, token, run.get("id"))
         return {"runs": runs}
     base = f"{API}/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs"
     raws: list[dict] = []
@@ -865,6 +871,9 @@ def _slim(run: dict) -> dict:
         "id": run.get("id"),
         "html_url": run.get("html_url"),
         "created_at": run.get("created_at"),
+        "run_started_at": run.get("run_started_at"),
+        "updated_at": run.get("updated_at"),
+        "run_attempt": run.get("run_attempt"),
         "conclusion": run.get("conclusion"),
         "status": run.get("status"),
         "event": run.get("event"),
@@ -889,18 +898,19 @@ def _blank_gate(name: str, advisory: tuple[str, ...]) -> dict:
     }
 
 
-def _completed_runs(runs: list) -> list[tuple[dt.datetime, int, dict]]:
-    """Completed runs with a timestamp, oldest first. A missing timestamp cannot be the newest run."""
-    found = []
-    for run in runs or []:
-        if run.get("status") not in (None, "completed"):
-            continue
-        created = _parse(run.get("created_at"))
-        if created is None:
-            continue
-        found.append((created, int(run.get("id") or 0), run))
-    found.sort()
-    return found
+def _deciding(relevant: list[tuple[str, dict]]) -> tuple[str, dict]:
+    """The (outcome, run) that executed last. Runs overlapping it must agree on the outcome, or the order
+    that decides the gate is unknown and AmbiguousOrder is raised."""
+    outcome = {id(run): kind for kind, run in relevant}
+    found = contenders([run for _, run in relevant])
+    if len({outcome[id(run)] for run in found}) > 1:
+        raise AmbiguousOrder(f"runs {found[0].get('id')} and {found[1].get('id')} overlap with different "
+                             "outcomes; execution order is ambiguous")
+    return outcome[id(found[0])], found[0]
+
+
+def _unbound_outcome(run: dict) -> bool:
+    return run.get("conclusion") == "success" and not any(is_diagnostic(doc) for doc in _documents(run))
 
 
 def _unbound_run_would_pass(run: dict, created: dt.datetime, pin_at: dt.datetime,
@@ -918,11 +928,16 @@ def _judge_unbound(row: dict, rec: dict, note: str, pin_at: dt.datetime | None,
     """The newest completed trunk run decides. An older green is never a fallback."""
     row["candidate_bound"] = False
     row["limitation"] = note
-    completed = _completed_runs(rec.get("runs") or [])
+    completed = [run for run in rec.get("runs") or [] if run.get("status") in (None, "completed")]
     if not completed:
         row["reason"] = "no completed trunk run"
         return
-    created, _run_id, run = completed[-1]
+    try:
+        _, run = _deciding([(_unbound_outcome(run), run) for run in completed])
+    except AmbiguousOrder as exc:
+        row["reason"] = f"the most recent completed run is unknown: {exc}"
+        return
+    created = _parse(run.get("created_at"))
     row["latest_run"] = run.get("html_url")
     row["latest_conclusion"] = run.get("conclusion")
     if pin_at is None:
@@ -930,11 +945,11 @@ def _judge_unbound(row: dict, rec: dict, note: str, pin_at: dt.datetime | None,
                          "after the pin")
         return
     older_green = any(
-        _unbound_run_would_pass(older, older_at, pin_at, cutoff)
-        for older_at, _older_id, older in completed[:-1]
+        _unbound_run_would_pass(older, _parse(older.get("created_at")), pin_at, cutoff)
+        for older in completed if older is not run and older.get("created_at")
     )
     diagnostic = any(is_diagnostic(doc) for doc in _documents(run))
-    if created <= pin_at:
+    if created is None or created <= pin_at:
         row["reason"] = "most recent completed run started before the manifest pin"
     elif created < cutoff:
         row["reason"] = (f"most recent completed run {created.date()} is outside the "
@@ -984,18 +999,18 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
         if name == ARC_GATE:
             arm_results = {}
             for arm in ("A1", "A2"):
-                classified = []
-                for run in rec.get("runs") or []:
-                    kind = _classify(run, candidate, name, arm)
-                    created = _parse(run.get("created_at"))
-                    if kind != "unrelated" and created is not None:
-                        classified.append((created, int(run.get("id") or 0), kind, run))
-                classified.sort(key=lambda item: (item[0], item[1]))
-                if not classified:
+                relevant = [(kind, run) for run in rec.get("runs") or []
+                            if (kind := _classify(run, candidate, name, arm)) != "unrelated"]
+                if not relevant:
                     arm_results[arm] = {"verdict": "red", "reason": "no candidate-bound required-arm run"}
                     continue
-                created, _, kind, run = classified[-1]
-                good = kind == "qualifying" and created >= cutoff
+                try:
+                    kind, run = _deciding(relevant)
+                except AmbiguousOrder as exc:
+                    arm_results[arm] = {"verdict": "red", "reason": f"latest required-arm run is unknown: {exc}"}
+                    continue
+                created = _parse(run.get("created_at"))
+                good = kind == "qualifying" and created is not None and created >= cutoff
                 arm_results[arm] = {"verdict": "green" if good else "red",
                                     "reason": "pass" if good else "latest run failed or is outside the window",
                                     "run": run.get("html_url"), "created_at": run.get("created_at")}
@@ -1009,24 +1024,24 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
                     arm for arm, item in arm_results.items() if item["verdict"] != "green")
             gates[name] = row
             continue
-        classified = []
-        for run in rec.get("runs") or []:
-            kind = _classify(run, candidate, name)
-            created = _parse(run.get("created_at"))
-            if kind == "unrelated" or created is None:
-                continue
-            classified.append((created, int(run.get("id") or 0), kind, run))
-        if not classified:
+        relevant = [(kind, run) for run in rec.get("runs") or []
+                    if (kind := _classify(run, candidate, name)) != "unrelated"]
+        if not relevant:
             row["reason"] = ("no completed run binds this candidate's honua-server digest, "
                              "source SHA, and platform lock")
             gates[name] = row
             continue
-        classified.sort()
-        created, _run_id, kind, run = classified[-1]
+        try:
+            kind, run = _deciding(relevant)
+        except AmbiguousOrder as exc:
+            row["reason"] = f"the most recent candidate-bound run is unknown: {exc}"
+            gates[name] = row
+            continue
+        created = _parse(run.get("created_at"))
         row["latest_run"] = run.get("html_url")
         row["latest_conclusion"] = run.get("conclusion")
-        older_green = any(item[2] == "qualifying" for item in classified[:-1])
-        if created < cutoff:
+        older_green = any(other_kind == "qualifying" for other_kind, other in relevant if other is not run)
+        if created is None or created < cutoff:
             row["reason"] = f"last candidate-bound run {created.date()} is outside the {window_days:g}-day window"
         elif kind != "qualifying":
             why = "most recent candidate-bound run does not certify this candidate"
@@ -1136,10 +1151,6 @@ def find_pin_time(server_sha: str, manifest: str = "platform-manifest.yaml",
     if log.returncode != 0:
         detail = (log.stderr or log.stdout or "git log failed").strip().splitlines()
         raise ValueError("cannot find the manifest pin commit: " + (detail[-1] if detail else "git log failed"))
-    try:
-        import yaml
-    except ImportError as exc:  # pragma: no cover
-        raise ValueError("PyYAML is required to read platform-manifest.yaml") from exc
     for line in log.stdout.splitlines():
         if "\t" not in line:
             continue
@@ -1169,10 +1180,6 @@ def find_pin_time(server_sha: str, manifest: str = "platform-manifest.yaml",
 
 def server_identity(path: str) -> tuple[str, str]:
     """honua-server sha and image digest pinned in platform-manifest.yaml."""
-    try:
-        import yaml
-    except ImportError as exc:  # pragma: no cover
-        raise ValueError("PyYAML is required to read platform-manifest.yaml") from exc
     try:
         data = yaml.safe_load(open(path, encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError) as exc:

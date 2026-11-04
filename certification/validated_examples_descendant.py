@@ -30,6 +30,8 @@ import re
 import zipfile
 from typing import Callable
 
+from execution_order import AmbiguousOrder, latest_execution
+
 RULING = "validated-examples-descendant-2026-11-03"
 COMPONENT = "honua-server"
 REPO = "honua-io/honua-server"
@@ -102,7 +104,6 @@ def require_on_trunk(run_sha: str, compare_to_trunk: dict) -> None:
         raise NotQualified("run commit is not on server trunk")
 
 
-_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
 RUN_SEARCH_LIMIT = 1000   # GitHub's workflow-run listing returns at most this many results
 
 
@@ -128,19 +129,10 @@ def select_run(runs_payload: dict, pinned: str, digest: str) -> dict:
     running = [run.get("id") for run in candidates if run.get("status") != "completed"]
     if running:
         raise NotQualified(f"candidate dispatch(es) {running} not completed; the latest execution is unknown")
-    for run in candidates:
-        if not all(_TIMESTAMP.fullmatch(str(run.get(key) or "")) for key in ("run_started_at", "updated_at")):
-            raise NotQualified(f"candidate dispatch {run.get('id')} lacks a valid run_started_at/updated_at; "
-                               "execution order is unknown")
-    # The deciding run is the one whose latest attempt started last, and it must SUPERSEDE every other
-    # candidate: its latest attempt started strictly after each other candidate's last update. Overlapping
-    # or tied executions are ambiguous and refuse, so a concurrent red can never be outranked by a green.
-    deciding = max(candidates, key=lambda run: str(run["run_started_at"]))
-    for run in candidates:
-        if run is not deciding and not str(run["updated_at"]) < str(deciding["run_started_at"]):
-            raise NotQualified(f"candidate dispatches {deciding.get('id')} and {run.get('id')} overlap or tie; "
-                               "execution order is ambiguous")
-    return deciding
+    try:
+        return latest_execution(candidates)
+    except AmbiguousOrder as exc:
+        raise NotQualified(f"validated-examples dispatches: {exc}") from exc
 
 
 def verify_run(run: dict, run_sha: str) -> None:
