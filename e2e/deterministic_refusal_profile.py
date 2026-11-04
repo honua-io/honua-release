@@ -12,12 +12,12 @@ import json
 from pathlib import Path
 import struct
 import sys
-from digests import ascii_canonical_bytes, file_sha256_hex, sha256_hex
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / 'tools'
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
+from digests import ascii_canonical_bytes, file_sha256_hex, sha256_hex  # noqa: E402
 PROFILE = 'redis-off-serving-refusal'
 CELLS = {'aws-ecs/redis-off', 'aws-serverless/redis-off'}
 ASSERTIONS = {'servingRead', 'typedRedisRefusal', 'authentication', 'anonymousDenial', 'viewerDenial', 'catalogExact'}

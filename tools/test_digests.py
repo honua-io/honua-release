@@ -16,7 +16,7 @@ def test_byte_digests_are_lowercase_hex_with_and_without_prefix():
 def test_file_digests_match_the_bytes_they_stream(tmp_path, data):
     path = tmp_path / "artifact.bin"
     path.write_bytes(data)
-    assert file_sha256_hex(path) == file_sha256_hex(str(path)) == sha256_hex(data)
+    assert file_sha256_hex(path) == sha256_hex(data)
     assert file_sha256_digest(path) == sha256_digest(data)
 
 

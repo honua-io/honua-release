@@ -1,5 +1,4 @@
 """The devkit gate must reject substituted bytes and incomplete execution evidence."""
-import hashlib
 import copy
 import json
 from pathlib import Path
@@ -10,7 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gp_devkit_artifacts as gate
-from digests import file_sha256_hex
+from digests import file_sha256_hex, sha256_digest, sha256_hex
 
 SOURCE = "1" * 40
 IMAGE = "sha256:" + "2" * 64
@@ -44,7 +43,7 @@ def evidence(tmp_path):
                  "checks": ["installed-bootstrap", "payload-hashes", "installed-serve", "human-binding",
                             "delegated-bind-denied", "workspace-grant", "immutable-source", "conditional-source",
                             "run-discovery", "sigterm-shutdown"]}
-    fixtures = {"image": IMAGE, "devkitSha256": hashlib.sha256(b"qualified devkit").hexdigest(), "runs": []}
+    fixtures = {"image": IMAGE, "devkitSha256": sha256_hex(b"qualified devkit"), "runs": []}
     for index, language in enumerate(("python", "dotnet")):
         run = {"language": language}
         for step, (name, status) in enumerate((("failed", "failed"), ("corrected", "succeeded"), ("cancelled", "cancelled"))):
@@ -155,7 +154,7 @@ def test_published_manifest_must_contain_qualified_image(evidence):
     root, package = evidence
     candidate = gate.qualify(root, package, SOURCE)
     manifest = json.dumps({"mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": IMAGE}}).encode()
-    reference = "ghcr.io/honua-io/honua-gp-workspace@sha256:" + hashlib.sha256(manifest).hexdigest()
+    reference = "ghcr.io/honua-io/honua-gp-workspace@" + sha256_digest(manifest)
     release = gate.published(candidate, reference, manifest)
     assert release["sandboxImage"] == reference
     assert f"gp-devkit-v{VERSION}" in release["package"]["url"]
@@ -170,7 +169,7 @@ def test_rejects_unqualified_image_index(evidence):
     root, package = evidence
     candidate = gate.qualify(root, package, SOURCE)
     manifest = json.dumps({"mediaType": "application/vnd.oci.image.index.v1+json", "config": {"digest": IMAGE}}).encode()
-    reference = "ghcr.io/honua-io/honua-gp-workspace@sha256:" + hashlib.sha256(manifest).hexdigest()
+    reference = "ghcr.io/honua-io/honua-gp-workspace@" + sha256_digest(manifest)
     with pytest.raises(gate.ArtifactError, match="platform manifest"):
         gate.published(candidate, reference, manifest)
 

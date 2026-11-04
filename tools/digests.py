@@ -16,12 +16,12 @@ def sha256_digest(data: bytes) -> str:
     return SHA256_PREFIX + sha256_hex(data)
 
 
-def file_sha256_hex(path: Path | str) -> str:
-    with Path(path).open("rb") as stream:
+def file_sha256_hex(path: Path) -> str:
+    with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def file_sha256_digest(path: Path | str) -> str:
+def file_sha256_digest(path: Path) -> str:
     return SHA256_PREFIX + file_sha256_hex(path)
 
 

@@ -1,6 +1,7 @@
 """The off profile proves actual refusal and fixture serving, never full GP completion."""
 import copy
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +20,11 @@ SERVER = {'sourceSha': 'a' * 40, 'image': 'ghcr.io/honua/server@sha256:' + 'b' *
 REFUSAL = {'topology': 'redis-off', 'rulingStatus': 'ruled', 'tool': 'honua_execute_plan',
     'code': 'unavailable', 'missingDependency': 'redis', 'manifestCapability': 'jobs.runner',
     'manifestReasonCode': 'dependency-unavailable'}
+
+
+def test_profile_imports_with_only_its_own_directory_on_the_path():
+    load = f'import sys; sys.path.insert(0, {str(Path(__file__).resolve().parent)!r}); import deterministic_refusal_profile'
+    subprocess.run([sys.executable, '-I', '-c', load], check=True)
 
 
 @pytest.fixture

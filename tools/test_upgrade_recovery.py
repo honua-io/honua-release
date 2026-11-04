@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import sys
 from pathlib import Path
 
@@ -7,11 +6,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import upgrade_recovery as recovery  # noqa: E402
-from digests import file_sha256_digest
+from digests import file_sha256_digest, sha256_digest
 
 
 def _digest(seed: str) -> str:
-    return "sha256:" + hashlib.sha256(seed.encode()).hexdigest()
+    return sha256_digest(seed.encode())
 
 
 def _evidence(tmp_path: Path) -> dict[str, str]:

@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import json
 from pathlib import Path
 
@@ -7,7 +6,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 import check_capacity_soak as gate
-from digests import file_sha256_hex
+from digests import file_sha256_hex, sha256_hex
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,7 +35,7 @@ RECOVERED = _z(_START + timedelta(seconds=3622))
 
 def _sha(value: str | bytes) -> str:
     payload = value.encode() if isinstance(value, str) else value
-    return hashlib.sha256(payload).hexdigest()
+    return sha256_hex(payload)
 
 
 def receipt(artifact_root: Path):
@@ -144,7 +143,7 @@ def receipt(artifact_root: Path):
         "observedRevision": REVISION,
         "signingIdentity": "github-actions",
         "signature": "opaque-sigstore-bundle",
-        "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
+        "lockSha256": file_sha256_hex(LOCK_PATH),
         "profile": "soak",
         "evidenceScope": "single-tenant-ga",
         "steadyStateSeconds": 3600,
@@ -628,7 +627,7 @@ def numeric_receipt():
     after_freeze = datetime.fromisoformat(LOCK["frozenAt"].replace("Z", "+00:00")) + timedelta(seconds=1)
     return {
         "status": "completed", "candidateRevision": REVISION, "observedRevision": REVISION,
-        "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
+        "lockSha256": file_sha256_hex(LOCK_PATH),
         "startedAt": after_freeze.isoformat(), "profile": "soak", "steadyStateSeconds": 3600,
         "envelope": copy.deepcopy(LOCK["supportedEnvelope"]), "signingIdentity": "github-actions",
         "signature": "opaque-sigstore-bundle", "signals": {
