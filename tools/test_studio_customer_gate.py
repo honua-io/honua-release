@@ -64,18 +64,18 @@ def test_lock_must_bind_exact_bytes_manifest_and_both_component_pins():
                 "digest": value["digest"], "sourceRevision": value["sha"]}]} for name, value in selected.items()}}
     raw = json.dumps(lock).encode()
     digest = "sha256:" + hashlib.sha256(raw).hexdigest()
-    g.validate_lock(raw, digest, manifest, selected)
+    g.validate_lock(raw, digest, g.PinnedCandidate(manifest, selected))
     with pytest.raises(ValueError):
-        g.validate_lock(raw, "sha256:" + "f" * 64, manifest, selected)
+        g.validate_lock(raw, "sha256:" + "f" * 64, g.PinnedCandidate(manifest, selected))
     with pytest.raises(ValueError):
-        g.validate_lock(raw, digest, b"other manifest", selected)
+        g.validate_lock(raw, digest, g.PinnedCandidate(b"other manifest", selected))
     for name in ("console", "server"):
         for key in ("digest", "sourceRevision", "coordinate"):
             altered = deepcopy(lock)
             altered["components"][f"honua-{name}"]["artifacts"][0][key] = "wrong"
             altered_raw = json.dumps(altered).encode()
             with pytest.raises(ValueError):
-                g.validate_lock(altered_raw, "sha256:" + hashlib.sha256(altered_raw).hexdigest(), manifest, selected)
+                g.validate_lock(altered_raw, "sha256:" + hashlib.sha256(altered_raw).hexdigest(), g.PinnedCandidate(manifest, selected))
 
 
 def pins():

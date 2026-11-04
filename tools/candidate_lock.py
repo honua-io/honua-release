@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -40,14 +41,22 @@ def resolve_pins(manifest: dict, components: tuple[str, ...]) -> dict:
     return result
 
 
-def validate_lock(raw: bytes, expected_digest: str, manifest: bytes, pins: dict) -> None:
+@dataclass(frozen=True)
+class PinnedCandidate:
+    """The exact platform-manifest.yaml bytes and the component pins resolved from them."""
+    manifest: bytes
+    pins: dict
+
+
+def validate_lock(raw: bytes, expected_digest: str, candidate: PinnedCandidate) -> None:
     """Raise ValueError unless the lock bytes are the dispatched lock of this manifest and its pins."""
     if 'sha256:' + hashlib.sha256(raw).hexdigest() != expected_digest:
         raise ValueError('platform lock bytes do not match the supplied digest')
     lock = json.loads(raw)
-    if lock.get('sourceInputs', {}).get('platformManifest', {}).get('sha256') != 'sha256:' + hashlib.sha256(manifest).hexdigest():
+    manifest_digest = 'sha256:' + hashlib.sha256(candidate.manifest).hexdigest()
+    if lock.get('sourceInputs', {}).get('platformManifest', {}).get('sha256') != manifest_digest:
         raise ValueError('platform lock does not bind this manifest')
-    for name, pin in pins.items():
+    for name, pin in candidate.pins.items():
         artifacts = lock.get('components', {}).get(f'honua-{name}', {}).get('artifacts', [])
         images = [item for item in artifacts if isinstance(item, dict) and item.get('kind') == 'image']
         if len(images) != 1:
@@ -70,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = Path(args.manifest).read_bytes()
     try:
         pins = resolve_pins(yaml.safe_load(manifest), tuple(args.component or ('server',)))
-        validate_lock(Path(args.lock).read_bytes(), args.digest, manifest, pins)
+        validate_lock(Path(args.lock).read_bytes(), args.digest, PinnedCandidate(manifest, pins))
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print(f'candidate lock refused: {exc}', file=sys.stderr)
         return 1

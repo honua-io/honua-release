@@ -14,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from candidate_lock import resolve_pins, validate_lock
+from candidate_lock import PinnedCandidate, resolve_pins, validate_lock
 
 REQUIRED_STAGES = frozenset({
     'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
@@ -122,7 +122,7 @@ def main() -> int:
         parser.error('--platform-lock must identify the candidate platform-lock.json')
     manifest_bytes = Path(args.manifest).read_bytes()
     pins = resolve_pins(yaml.safe_load(manifest_bytes), STUDIO_COMPONENTS)
-    validate_lock(Path(args.lock_file).read_bytes(), args.platform_lock, manifest_bytes, pins)
+    validate_lock(Path(args.lock_file).read_bytes(), args.platform_lock, PinnedCandidate(manifest_bytes, pins))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     dispatch_id = 'release-' + uuid.uuid4().hex
