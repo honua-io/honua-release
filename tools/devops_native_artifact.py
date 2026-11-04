@@ -20,6 +20,7 @@ import threading
 import urllib.request
 import urllib.error
 import zipfile
+from digests import file_sha256_hex, sha256_hex
 
 REPOSITORY = 'honua-io/honua-devops'
 WORKFLOW = '.github/workflows/release-mcp.yml'
@@ -33,13 +34,6 @@ MAX_MEMBERS = 256
 
 class Refusal(ValueError):
     """Safe category only: never include URLs, environment or credential values."""
-
-def digest(path: Path) -> str:
-    result = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            result.update(block)
-    return result.hexdigest()
 
 def require(condition, category):
     if not condition:
@@ -84,7 +78,7 @@ def verify_publication(expected, release, tag_commit):
 
 def verify_archive(expected, archive, checksum):
     require(archive.is_file() and not archive.is_symlink() and 0 < archive.stat().st_size <= MAX_ARCHIVE, 'native-archive-shape')
-    require(digest(archive) == expected['archiveSha256'], 'native-archive-integrity')
+    require(file_sha256_hex(archive) == expected['archiveSha256'], 'native-archive-integrity')
     try:
         text = checksum.decode('ascii')
     except (UnicodeError, AttributeError) as error:
@@ -146,7 +140,7 @@ def extract_sealed(expected, archive, destination):
                 remaining -= len(block)
             require(not stream.read(1), 'native-member-size')
         target.chmod(0o700 if canonical == binary_name else 0o600)
-        files.append({'path': canonical, 'sha256': digest(target), 'bytes': size})
+        files.append({'path': canonical, 'sha256': file_sha256_hex(target), 'bytes': size})
     try:
         if expected['rid'] == 'win-x64':
             with zipfile.ZipFile(archive) as source:
@@ -285,13 +279,13 @@ def stage(expected, output):
         require(isinstance(verified, list) and len(verified) > 0, 'native-provenance-response')
         # gh binds the artifact digest and certificate identity using the flags
         # above. Preserve its complete original result for consumer re-verifying.
-        require(digest(archive) == expected['archiveSha256'], 'native-after-verification-drift')
+        require(file_sha256_hex(archive) == expected['archiveSha256'], 'native-after-verification-drift')
         members = extract_sealed(expected, archive, request / 'installed')
         binary = request / 'installed' / RIDS[expected['rid']][1]
         seal = {'schema': 'honua.devops-native-intake/v1', 'expected': expected,
                 'requestDirectory': str(request), 'binary': str(binary), 'members': members,
-                'archiveSha256': digest(archive), 'provenanceSha256': digest(request / 'provenance.json'),
-                'publicationMetadataSha256': digest(request / 'release.json'),
+                'archiveSha256': file_sha256_hex(archive), 'provenanceSha256': file_sha256_hex(request / 'provenance.json'),
+                'publicationMetadataSha256': file_sha256_hex(request / 'release.json'),
                 'sourceQualified': False, 'candidateQualified': False}
         (request / 'intake.json').write_text(json.dumps(seal, indent=2) + '\n')
         return seal
@@ -349,12 +343,12 @@ def verify_sdk_bytes(installed, archive, integrity):
             if stat.S_ISDIR(info.st_mode): actual_dirs.add(relative)
             else:
                 require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'native-sdk-installed-member')
-                actual[relative] = {'sha256': digest(path), 'bytes': info.st_size}
+                actual[relative] = {'sha256': file_sha256_hex(path), 'bytes': info.st_size}
     require(actual == expected and actual_dirs == directories, 'native-sdk-installed-drift')
     metadata = json.loads((installed / 'package.json').read_text())
     require(metadata.get('name') == '@modelcontextprotocol/sdk' and metadata.get('version') == '1.32.1', 'native-sdk-metadata')
     return {'package': '@modelcontextprotocol/sdk', 'version': '1.32.1', 'integrity': integrity,
-            'closureSha256': hashlib.sha256(json.dumps(expected, sort_keys=True).encode()).hexdigest(), 'fileCount': len(expected)}
+            'closureSha256': sha256_hex(json.dumps(expected, sort_keys=True).encode()), 'fileCount': len(expected)}
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -365,7 +359,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def verify_installed_sdk(output, original_archive=None):
     root = Path(__file__).resolve().parents[1] / 'certification/sources/geospatial-mcp'
     lock = root / 'package-lock.json'
-    require(digest(lock) == SDK_LOCK_SHA256, 'native-sdk-lock')
+    require(file_sha256_hex(lock) == SDK_LOCK_SHA256, 'native-sdk-lock')
     package = json.loads(lock.read_text())['packages']['node_modules/@modelcontextprotocol/sdk']
     require(package.get('version') == '1.32.1' and package.get('resolved') == SDK_URL, 'native-sdk-lock')
     request = Path(tempfile.mkdtemp(prefix='sdk-', dir=output)); request.chmod(0o700)
@@ -381,7 +375,7 @@ def verify_installed_sdk(output, original_archive=None):
                     require(allowed == len(block), 'native-sdk-download-limit')
         require(archive.is_file() and not archive.is_symlink() and archive.stat().st_size <= SDK_ARCHIVE_BOUND, 'native-sdk-archive-shape')
         result = verify_sdk_bytes(root / 'node_modules/@modelcontextprotocol/sdk', archive, package['integrity'])
-        result.update({'archive': str(archive.resolve()), 'archiveSha256': digest(archive), 'lockSha256': SDK_LOCK_SHA256,
+        result.update({'archive': str(archive.resolve()), 'archiveSha256': file_sha256_hex(archive), 'lockSha256': SDK_LOCK_SHA256,
                        'candidateQualified': False})
         (request / 'verification.json').write_text(json.dumps(result, indent=2) + '\n')
         return result

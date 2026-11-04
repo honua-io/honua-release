@@ -10,7 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from devops_provisioning_contract import CELLS, OPERATION, SHA, document, require, sha256, timestamp
+from devops_provisioning_contract import CELLS, OPERATION, SHA, document, require, timestamp
+from digests import sha256_hex
 
 
 # Events describe observed effects, not commands to perform. Repeated fresh
@@ -65,7 +66,7 @@ def verify_sequence(original: bytes, originals: Mapping[str, bytes], context: Se
     require(context.cell in CELLS, 'sequence-cell')
     require(set(originals) == set(context.original_hashes) and bool(originals), 'sequence-original-closure')
     require(all(type(name) is str and SHA.fullmatch(digest)
-                and type(originals[name]) is bytes and sha256(originals[name]) == digest
+                and type(originals[name]) is bytes and sha256_hex(originals[name]) == digest
                 for name, digest in context.original_hashes.items()), 'sequence-original-hash')
     expected = SEQUENCES[context.cell]
     require(set(context.event_originals) == set(expected)
@@ -106,7 +107,7 @@ def verify_sequence(original: bytes, originals: Mapping[str, bytes], context: Se
                 'sequence-event-original')
         previous_ns, previous_time = event['monotonicNs'], observed
     return {'status': 'sequence-joined', 'cell': context.cell,
-            'sequenceSha256': sha256(original), 'events': len(events),
+            'sequenceSha256': sha256_hex(original), 'events': len(events),
             'candidateQualified': False, 'sixAwsCellsQualified': False,
             'terminal123Qualified': False}
 

@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Mapping
 
-from devops_provisioning_contract import (PlanContext, SHA, document, require, sha256,
+from devops_provisioning_contract import (PlanContext, SHA, document, require,
     timestamp, verify_plan_originals, verify_approval_original, verify_execution_original, verify_claim_original)
+from digests import sha256_hex
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ def verify_attempt(originals: Mapping[str, bytes], context: AttemptContext):
         required.add('execution-receipt')
     require(set(originals) == set(context.original_hashes) == required, 'attempt-original-closure')
     require(all(type(digest) is str and SHA.fullmatch(digest)
-                and type(originals[name]) is bytes and sha256(originals[name]) == digest
+                and type(originals[name]) is bytes and sha256_hex(originals[name]) == digest
                 for name, digest in context.original_hashes.items()), 'attempt-original-custody')
     require(context.acquired_at <= context.mutation_started_at
             and (context.terminal_at is None or context.mutation_started_at <= context.terminal_at),

@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 
 import gp_devkit_artifacts as gate
 import gp_fetch_sdk
+from digests import file_sha256_hex
 
 
 def validate_asset_url(url, *, redirect=False):
@@ -123,7 +124,7 @@ def verify(options):
                  "Public installed bootstrap differs from the qualified payload")
     for relative, digest in payload["files"].items():
         path = bootstrap / relative
-        gate.require(path.resolve().is_relative_to(bootstrap) and gate.sha256(path) == digest,
+        gate.require(path.resolve().is_relative_to(bootstrap) and file_sha256_hex(path) == digest,
                      "Public installed bootstrap bytes changed")
     subprocess.run(["docker", "pull", "--platform", "linux/amd64", release["sandboxImage"]],
                    cwd=root, env=env, check=True, timeout=900)

@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - "e2e/**"
+      - "tools/digests.py"
       # bumping the pinned honua-site revision changes what S9 certifies, so re-run the gate for it
       - "certification/conformance-evidence.yaml"
       - "platform-manifest.yaml"

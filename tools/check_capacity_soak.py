@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import re
@@ -14,6 +13,7 @@ from urllib.parse import urlparse
 
 from capacity_observations import expected_refusals, ga_dimensions, gate_values, preview_protocols, preview_signals
 from release_runner_policy import admit as admit_release_runner
+from digests import file_sha256_hex, sha256_hex
 
 
 APPROVED_PRODUCER_REPOSITORY = "honua-io/honua-server"
@@ -100,11 +100,6 @@ def _contains_per_tenant_slo(value: object) -> bool:
     return False
 
 
-def lock_digest(path: Path) -> str:
-    """Return the SHA-256 digest of the frozen capacity lock."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _validate_raw_artifacts(
     receipt: dict[str, Any], artifact_root: Path, failures: list[str]
 ) -> set[str]:
@@ -142,7 +137,7 @@ def _validate_raw_artifacts(
         if candidate.parent != root or not candidate.is_file():
             failures.append(f"{label}: raw artifact is absent from the evidence bundle")
             continue
-        actual = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        actual = file_sha256_hex(candidate)
         if actual != item.get("sha256"):
             failures.append(f"{label}: raw artifact hash mismatch")
     return known
@@ -394,7 +389,7 @@ def _validate_signals(
         expression = query.get("expression")
         if not all(_nonempty(query.get(field)) for field in ("language", "expression", "version")):
             failures.append(f"{name}: query language/expression/version is missing")
-        elif query.get("sha256") != hashlib.sha256(str(expression).encode()).hexdigest():
+        elif query.get("sha256") != sha256_hex(str(expression).encode()):
             failures.append(f"{name}: query hash does not bind the frozen expression")
         for field in ("owner", "alert", "runbook"):
             if not _nonempty(signal.get(field)):
@@ -714,12 +709,12 @@ def main() -> int:
         lock = json.loads(args.lock.read_text(encoding="utf-8"))
         receipt = json.loads(args.receipt.read_text(encoding="utf-8"))
         failures = evaluate(
-            lock, receipt, lock_digest(args.lock), args.expected_revision, args.artifact_root, args.expected_image_digest
+            lock, receipt, file_sha256_hex(args.lock), args.expected_revision, args.artifact_root, args.expected_image_digest
         )
         failures.extend(
             bind_attestation(
                 json.loads(args.attestation.read_text(encoding="utf-8")),
-                hashlib.sha256(args.bundle.read_bytes()).hexdigest(),
+                file_sha256_hex(args.bundle),
                 receipt,
                 args.expected_revision,
                 runner_report=args.runner_report,

@@ -1,5 +1,4 @@
 """The devkit gate must reject substituted bytes and incomplete execution evidence."""
-import hashlib
 import copy
 import json
 from pathlib import Path
@@ -10,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gp_devkit_artifacts as gate
+from digests import file_sha256_hex, sha256_digest, sha256_hex
 
 SOURCE = "1" * 40
 IMAGE = "sha256:" + "2" * 64
@@ -33,7 +33,7 @@ def evidence(tmp_path):
     root = tmp_path / "assembly"
     payload = {"workspace.py": "3" * 64}
     assembly = {"schema": "honua.gp.workspace-assembly/v1", "qualified": True,
-                "image": IMAGE, "nupkg": {"version": VERSION, "sha256": gate.sha256(package)},
+                "image": IMAGE, "nupkg": {"version": VERSION, "sha256": file_sha256_hex(package)},
                 "sdk": {"version": "10.0.302", "archiveSha256": "4" * 64},
                 "pythonBase": "python@sha256:" + "5" * 64,
                 "nuget": {"package/1.0": {"contentHash": "locked"}},
@@ -43,7 +43,7 @@ def evidence(tmp_path):
                  "checks": ["installed-bootstrap", "payload-hashes", "installed-serve", "human-binding",
                             "delegated-bind-denied", "workspace-grant", "immutable-source", "conditional-source",
                             "run-discovery", "sigterm-shutdown"]}
-    fixtures = {"image": IMAGE, "devkitSha256": hashlib.sha256(b"qualified devkit").hexdigest(), "runs": []}
+    fixtures = {"image": IMAGE, "devkitSha256": sha256_hex(b"qualified devkit"), "runs": []}
     for index, language in enumerate(("python", "dotnet")):
         run = {"language": language}
         for step, (name, status) in enumerate((("failed", "failed"), ("corrected", "succeeded"), ("cancelled", "cancelled"))):
@@ -52,7 +52,7 @@ def evidence(tmp_path):
                          "snapshotDigest": f"{index * 3 + step + 1:064x}", "artifacts": []}
         output = root / "fixture-qualification/runs" / run["corrected"]["runId"] / "output/result/artifacts/features.geojson"
         write(output, {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": None, "properties": {}}]})
-        artifact = {"path": "result/artifacts/features.geojson", "sha256": gate.sha256(output), "bytes": output.stat().st_size}
+        artifact = {"path": "result/artifacts/features.geojson", "sha256": file_sha256_hex(output), "bytes": output.stat().st_size}
         run["corrected"]["artifacts"] = [artifact]
         run["geoJsonArtifact"] = artifact | {"sourceSnapshotDigest": run["corrected"]["snapshotDigest"], "absolutePath": "/ignored"}
         fixtures["runs"].append(run)
@@ -65,7 +65,7 @@ def evidence(tmp_path):
 def test_binds_both_language_outputs_and_package(evidence):
     root, package = evidence
     candidate = gate.qualify(root, package, SOURCE)
-    assert candidate["package"]["sha256"] == gate.sha256(package)
+    assert candidate["package"]["sha256"] == file_sha256_hex(package)
     assert candidate["imageConfigDigest"] == IMAGE
     assert {a["language"] for a in candidate["qualification"]["geoJsonArtifacts"]} == {"python", "dotnet"}
 
@@ -154,7 +154,7 @@ def test_published_manifest_must_contain_qualified_image(evidence):
     root, package = evidence
     candidate = gate.qualify(root, package, SOURCE)
     manifest = json.dumps({"mediaType": "application/vnd.oci.image.manifest.v1+json", "config": {"digest": IMAGE}}).encode()
-    reference = "ghcr.io/honua-io/honua-gp-workspace@sha256:" + hashlib.sha256(manifest).hexdigest()
+    reference = "ghcr.io/honua-io/honua-gp-workspace@" + sha256_digest(manifest)
     release = gate.published(candidate, reference, manifest)
     assert release["sandboxImage"] == reference
     assert f"gp-devkit-v{VERSION}" in release["package"]["url"]
@@ -169,7 +169,7 @@ def test_rejects_unqualified_image_index(evidence):
     root, package = evidence
     candidate = gate.qualify(root, package, SOURCE)
     manifest = json.dumps({"mediaType": "application/vnd.oci.image.index.v1+json", "config": {"digest": IMAGE}}).encode()
-    reference = "ghcr.io/honua-io/honua-gp-workspace@sha256:" + hashlib.sha256(manifest).hexdigest()
+    reference = "ghcr.io/honua-io/honua-gp-workspace@" + sha256_digest(manifest)
     with pytest.raises(gate.ArtifactError, match="platform manifest"):
         gate.published(candidate, reference, manifest)
 

@@ -1,8 +1,9 @@
 """Journal source vectors, separate from actual local TLS tunnel controls."""
 import pytest
 from devops_fault_tunnel import FaultProfile
-from devops_provisioning_contract import canonical, sha256, Refusal
+from devops_provisioning_contract import Refusal
 from devops_fault_originals import verify_fault_original
+from digests import ascii_canonical_bytes, sha256_hex
 
 
 def vector():
@@ -14,9 +15,9 @@ def vector():
     records = [('started',{'contextSha256':profile.context_sha256}),
                ('connected',{'host':profile.fault_hosts[0]})]
     for kind, original in [('mutation-bound','mutation_original'),('armed','resource_original')]:
-        records.append((kind,{'operationId':kwargs['operation_id'],'originalSha256':sha256(kwargs[original])}))
+        records.append((kind,{'operationId':kwargs['operation_id'],'originalSha256':sha256_hex(kwargs[original])}))
     records.extend([('connection-dropped',{'host':profile.fault_hosts[0],'phase':'existing'}),
-        ('restored',{'operationId':kwargs['operation_id'],'originalSha256':sha256(kwargs['terminal_original'])}),
+        ('restored',{'operationId':kwargs['operation_id'],'originalSha256':sha256_hex(kwargs['terminal_original'])}),
         ('closed',{}), ('connection-ended',{})])
     value={'contextSha256':profile.context_sha256,'journal':[
         dict(ordinal=i,kind=kind,monotonicNs=i+1,**fields) for i,(kind,fields) in enumerate(records)],
@@ -28,7 +29,7 @@ def vector():
 @pytest.mark.parametrize('phase',['existing','new','connecting'])
 def test_all_actual_helper_drop_phases_and_worker_close_tail(phase):
     value, kwargs=vector();value['journal'][4]['phase']=phase
-    result=verify_fault_original(canonical(value),**kwargs)
+    result=verify_fault_original(ascii_canonical_bytes(value),**kwargs)
     assert result['status']=='fault-transport-joined' and result['sixAwsCellsQualified'] is False
 
 
@@ -49,4 +50,4 @@ def test_journal_refuses_incomplete_or_substituted_originals(mutation):
     if mutation=='reorder':value['journal'][1],value['journal'][2]=value['journal'][2],value['journal'][1]
     if mutation=='unknown':value['journal'][7]['kind']='ready'
     if mutation=='after-close-traffic':value['journal'][7].update(kind='connected',host=kwargs['profile'].allowed_hosts[0])
-    with pytest.raises(Refusal):verify_fault_original(canonical(value),**kwargs)
+    with pytest.raises(Refusal):verify_fault_original(ascii_canonical_bytes(value),**kwargs)

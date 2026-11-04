@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import json
 from pathlib import Path
 
@@ -7,6 +6,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 import check_capacity_soak as gate
+from digests import file_sha256_hex, sha256_hex
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +35,7 @@ RECOVERED = _z(_START + timedelta(seconds=3622))
 
 def _sha(value: str | bytes) -> str:
     payload = value.encode() if isinstance(value, str) else value
-    return hashlib.sha256(payload).hexdigest()
+    return sha256_hex(payload)
 
 
 def receipt(artifact_root: Path):
@@ -143,7 +143,7 @@ def receipt(artifact_root: Path):
         "observedRevision": REVISION,
         "signingIdentity": "github-actions",
         "signature": "opaque-sigstore-bundle",
-        "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
+        "lockSha256": file_sha256_hex(LOCK_PATH),
         "profile": "soak",
         "evidenceScope": "single-tenant-ga",
         "steadyStateSeconds": 3600,
@@ -237,7 +237,7 @@ def receipt(artifact_root: Path):
 
 
 def failures(value, artifact_root: Path):
-    return gate.evaluate(LOCK, value, gate.lock_digest(LOCK_PATH), REVISION, artifact_root, IMAGE_DIGEST)
+    return gate.evaluate(LOCK, value, file_sha256_hex(LOCK_PATH), REVISION, artifact_root, IMAGE_DIGEST)
 
 
 def test_complete_candidate_bound_evidence_bundle_passes(tmp_path):
@@ -583,7 +583,7 @@ def test_changed_raw_observations_fail_even_with_updated_hash(tmp_path, mutation
 
 def test_digest_shaped_wrong_candidate_is_rejected(tmp_path):
     value = receipt(tmp_path)
-    assert any('manifest-pinned image' in item for item in gate.evaluate(LOCK, value, gate.lock_digest(LOCK_PATH), REVISION, tmp_path, 'sha256:'+'c'*64))
+    assert any('manifest-pinned image' in item for item in gate.evaluate(LOCK, value, file_sha256_hex(LOCK_PATH), REVISION, tmp_path, 'sha256:'+'c'*64))
 
 
 def test_preview_dimensions_cannot_be_reintroduced_as_ga_workloads(tmp_path):
@@ -627,7 +627,7 @@ def numeric_receipt():
     after_freeze = datetime.fromisoformat(LOCK["frozenAt"].replace("Z", "+00:00")) + timedelta(seconds=1)
     return {
         "status": "completed", "candidateRevision": REVISION, "observedRevision": REVISION,
-        "lockSha256": hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
+        "lockSha256": file_sha256_hex(LOCK_PATH),
         "startedAt": after_freeze.isoformat(), "profile": "soak", "steadyStateSeconds": 3600,
         "envelope": copy.deepcopy(LOCK["supportedEnvelope"]), "signingIdentity": "github-actions",
         "signature": "opaque-sigstore-bundle", "signals": {
@@ -638,7 +638,7 @@ def numeric_receipt():
 
 
 def numeric_failures(value, artifact_root: Path):
-    return gate.evaluate(LOCK, value, gate.lock_digest(LOCK_PATH), REVISION, artifact_root, IMAGE_DIGEST)
+    return gate.evaluate(LOCK, value, file_sha256_hex(LOCK_PATH), REVISION, artifact_root, IMAGE_DIGEST)
 
 
 def test_numeric_receipt_without_observation_provenance_fails(tmp_path):
@@ -707,7 +707,7 @@ def test_preview_dimension_is_undeclared_without_the_lock_ruling(tmp_path):
     lock.pop("rulings")
     value = receipt(tmp_path)
     value["envelope"]["activeSubscriptions"] = 0
-    result = gate.evaluate(lock, value, gate.lock_digest(LOCK_PATH), REVISION, tmp_path, IMAGE_DIGEST)
+    result = gate.evaluate(lock, value, file_sha256_hex(LOCK_PATH), REVISION, tmp_path, IMAGE_DIGEST)
     assert any("neither declares nor excludes: activeSubscriptions" in failure for failure in result)
     assert gate.informational_dimensions(lock, value) == {}
 
@@ -721,7 +721,7 @@ def test_missing_ga_dimension_fails(tmp_path):
 def test_present_preview_dimension_is_still_required_by_an_older_lock(tmp_path):
     lock = copy.deepcopy(LOCK)
     lock["supportedEnvelope"]["activeSubscriptions"] = 1000
-    result = gate.evaluate(lock, receipt(tmp_path), gate.lock_digest(LOCK_PATH), REVISION, tmp_path, IMAGE_DIGEST)
+    result = gate.evaluate(lock, receipt(tmp_path), file_sha256_hex(LOCK_PATH), REVISION, tmp_path, IMAGE_DIGEST)
     assert any("capacity envelope" in failure for failure in result)
 
 
@@ -945,7 +945,7 @@ def _without_refreeze():
 
 
 def _evaluate(lock, value, root):
-    return gate.evaluate(lock, value, gate.lock_digest(LOCK_PATH), REVISION, root, IMAGE_DIGEST)
+    return gate.evaluate(lock, value, file_sha256_hex(LOCK_PATH), REVISION, root, IMAGE_DIGEST)
 
 
 def _set_raw(value, name, numerator, denominator=6480000):

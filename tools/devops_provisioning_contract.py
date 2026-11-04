@@ -7,11 +7,11 @@ qualification. No file paths, subprocesses, network or credentials are consumed 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-import hashlib
+from datetime import datetime
 import json
 import re
 from typing import Mapping
+from digests import ascii_canonical_bytes, sha256_hex
 
 CELLS = ('ordinary-approved-destroy', 'cancel-apply-after-resource', 'provider-failure-apply',
          'cancel-destroy', 'transient-destroy-restart-retry', 'externally-owned-storage-retained')
@@ -27,15 +27,6 @@ class Refusal(ValueError):
 def require(condition, category):
     if not condition:
         raise Refusal(category)
-
-
-def sha256(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
-def canonical(value) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
-                      allow_nan=False).encode('utf-8')
 
 
 def document(value: bytes):
@@ -113,7 +104,7 @@ def verify_plan_originals(metadata_bytes: bytes, saved_plan: bytes,
                 'input-reference-shape')
         value = inputs[name]
         require(type(value) is bytes and len(value) <= MAX_JSON, 'input-byte-bound')
-        entries.append(name + '=' + sha256(value))
+        entries.append(name + '=' + sha256_hex(value))
         if name.startswith('varfile:'):
             variables = document(value)
             if 'honua_image' in variables:
@@ -126,7 +117,7 @@ def verify_plan_originals(metadata_bytes: bytes, saved_plan: bytes,
     digest = metadata.get('plan_metadata_digest')
     require(type(digest) is str and SHA.fullmatch(digest), 'metadata-digest-shape')
     unsigned = {key: value for key, value in metadata.items() if key != 'plan_metadata_digest'}
-    require(sha256(canonical(unsigned)) == digest, 'metadata-original-digest')
+    require(sha256_hex(ascii_canonical_bytes(unsigned)) == digest, 'metadata-original-digest')
     require(metadata.get('kind') == 'honua.iac.exact-plan' and metadata.get('schema_version') == 'v1',
             'metadata-contract')
     require(metadata.get('action') == context.action and metadata.get('actor_id') == context.actor_id
@@ -148,9 +139,9 @@ def verify_plan_originals(metadata_bytes: bytes, saved_plan: bytes,
             and identity.get('evidence_mode') == 'live', 'metadata-workload-identity')
     entries.sort()  # IaC sorts full reference=hash entries, not references alone.
     input_refs = [entry.split('=', 1)[0] for entry in entries]
-    require(metadata.get('inputs') == {'input_digest': sha256('\n'.join(entries).encode()),
+    require(metadata.get('inputs') == {'input_digest': sha256_hex('\n'.join(entries).encode()),
                                       'input_refs': input_refs}, 'metadata-input-closure')
-    require(metadata.get('plan', {}).get('sha256') == sha256(saved_plan), 'metadata-saved-plan')
+    require(metadata.get('plan', {}).get('sha256') == sha256_hex(saved_plan), 'metadata-saved-plan')
     posture = metadata.get('posture', {})
     require(posture.get('release_qualified') is True and posture.get('local_state_allowed') is False
             and posture.get('dirty_source_allowed') is False, 'metadata-release-posture')
@@ -158,7 +149,7 @@ def verify_plan_originals(metadata_bytes: bytes, saved_plan: bytes,
     expires = timestamp(metadata.get('expires_at_utc'))
     require(context.created_not_before <= created < expires <= context.expires_not_after,
             'metadata-time-context')
-    return {'planMetadataDigest': digest, 'savedPlanSha256': sha256(saved_plan),
+    return {'planMetadataDigest': digest, 'savedPlanSha256': sha256_hex(saved_plan),
             'inputDigest': metadata['inputs']['input_digest'], 'candidateImage': context.candidate_image,
             'candidateQualified': False, 'sixAwsCellsQualified': False}
 
@@ -207,7 +198,7 @@ def verify_execution_original(receipt_bytes: bytes, metadata_bytes: bytes, *,
             'execution-output-contract')
     completed = timestamp(receipt.get('completed_at_utc'))
     require(completed >= timestamp(plan.get('created_at_utc')), 'execution-time')
-    return {'originalReceiptSha256': sha256(receipt_bytes), 'exitStatus': expected_exit,
+    return {'originalReceiptSha256': sha256_hex(receipt_bytes), 'exitStatus': expected_exit,
             'status': receipt['status'], 'stateAfter': receipt['state_after'],
             'cleanupOutstanding': True, 'candidateQualified': False, 'sixAwsCellsQualified': False}
 
@@ -233,10 +224,10 @@ def verify_claim_original(claim_bytes: bytes, receipt_bytes: bytes | None, *,
     if claim['phase'] != 'receipt-committed' or claim['completed_at_utc'] is None or receipt_bytes is None:
         return {'status': 'indeterminate', 'cleanupOutstanding': True,
                 'candidateQualified': False, 'sixAwsCellsQualified': False}
-    require(claim['receipt_digest'] == sha256(receipt_bytes), 'claim-original-receipt')
+    require(claim['receipt_digest'] == sha256_hex(receipt_bytes), 'claim-original-receipt')
     require(acquired_at <= timestamp(claim['completed_at_utc']) <= executor_terminal_at,
             'claim-completion-order')
-    return {'status': 'execution-acknowledged', 'originalReceiptSha256': sha256(receipt_bytes),
+    return {'status': 'execution-acknowledged', 'originalReceiptSha256': sha256_hex(receipt_bytes),
             'cleanupOutstanding': True, 'candidateQualified': False, 'sixAwsCellsQualified': False}
 
 
@@ -253,7 +244,7 @@ def verify_approval_original(approval_bytes: bytes, metadata_bytes: bytes, *,
     must not call it without that original verifier provenance.
     """
     require(SHA.fullmatch(accepted_original_sha256)
-            and sha256(approval_bytes) == accepted_original_sha256, 'approval-accepted-original')
+            and sha256_hex(approval_bytes) == accepted_original_sha256, 'approval-accepted-original')
     require(type(issued_by_principal) is str and bool(issued_by_principal)
             and type(executor_principal) is str and bool(executor_principal)
             and issued_by_principal != executor_principal, 'approval-separated-principal')
@@ -275,7 +266,7 @@ def verify_approval_original(approval_bytes: bytes, metadata_bytes: bytes, *,
             and 0 < (expires - issued).total_seconds() <= 3600, 'approval-mutation-time')
     require(type(approval.get('approvalReceiptId')) is str and bool(approval['approvalReceiptId'])
             and type(approval.get('signature')) is str and bool(approval['signature']), 'approval-identity')
-    return {'approvalReceiptId': approval['approvalReceiptId'], 'approvalSha256': sha256(approval_bytes),
+    return {'approvalReceiptId': approval['approvalReceiptId'], 'approvalSha256': sha256_hex(approval_bytes),
             'provisioningOperationId': context.operation_id, 'candidateQualified': False,
             'sixAwsCellsQualified': False}
 
@@ -292,7 +283,7 @@ def verify_saved_plan_review(review_bytes: bytes, *, candidate_image: str,
     and record its input saved-plan digest. JSON alone cannot prove that origin.
     Expected workload address -> container name comes from the reviewed preset.
     """
-    require(sha256(saved_plan) == recorded_saved_plan_sha256, 'plan-review-original-input')
+    require(sha256_hex(saved_plan) == recorded_saved_plan_sha256, 'plan-review-original-input')
     require(bool(expected_workloads) and all(type(key) is str and type(value) is str
                                            for key, value in expected_workloads.items()),
             'plan-review-expected-workloads')
@@ -332,6 +323,6 @@ def verify_saved_plan_review(review_bytes: bytes, *, candidate_image: str,
             visit(child)
     visit(review['planned_values'].get('root_module'))
     require(found == dict(expected_workloads), 'plan-review-workload-closure')
-    return {'reviewSha256': sha256(review_bytes), 'savedPlanSha256': sha256(saved_plan),
+    return {'reviewSha256': sha256_hex(review_bytes), 'savedPlanSha256': sha256_hex(saved_plan),
             'candidateImage': candidate_image, 'workloads': sorted(found),
             'candidateQualified': False, 'sixAwsCellsQualified': False}

@@ -77,6 +77,7 @@ on:
       - "tools/test_upgrade_trunk_pair.py"
       - "tools/compose_upgrade_prior.py"
       - "tools/test_compose_upgrade_prior.py"
+      - "tools/digests.py"
       - ".github/workflows/gate-upgrade.yml"
   schedule:
     - cron: "17 6 * * *"
