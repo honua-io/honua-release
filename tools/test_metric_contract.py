@@ -34,7 +34,7 @@ CONTRACT = {
 }
 
 
-# ---- the regression this guard exists for --------------------------------------------------------
+# the regression this guard exists for
 def test_absent_denominator_is_a_hard_failure():
     """The pre-#5 state of honua-helm and honua-devops: dividing by a metric nobody emits."""
     rule = (
@@ -67,7 +67,6 @@ def test_gate_config_metric_names_are_checked_too():
     assert any("honua_geoservices_requests_total" in p for p in problems), problems
 
 
-# ---- label drift ---------------------------------------------------------------------------------
 def test_grouping_by_an_unsanitized_label_name_fails():
     """honua-devops grouped by `protocol`; the exporter sanitizes the tag to `honua_protocol`."""
     rule = "sum by (service, environment, protocol) (rate(honua_serving_request_duration_ms_count[5m]))"
@@ -129,14 +128,12 @@ def test_target_labels_applied_by_prometheus_are_allowed():
     assert mc.check_sources(CONTRACT, {"a": rule})[0] == []
 
 
-# ---- waivers -------------------------------------------------------------------------------------
 def test_declared_waiver_passes_but_is_reported():
     problems, notes = mc.check_sources(CONTRACT, {"a": "avg_over_time(honua_backup_success_ratio[24h])"})
     assert problems == []
     assert any("honua_backup_success_ratio" in n for n in notes)
 
 
-# ---- extraction rules ----------------------------------------------------------------------------
 def test_helm_template_braces_are_not_read_as_label_matchers():
     """Helm templates interleave {{ ... }} with PromQL; template braces are not label matchers."""
     tpl = (
@@ -192,7 +189,6 @@ def test_extraction_finds_names_in_prose_comments():
     assert series == {"honua_request_error_total"}
 
 
-# ---- comments vs expressions ---------------------------------------------------------------------
 def test_a_comment_may_name_a_retired_metric_but_an_expression_may_not():
     """Recording WHY honua_http_requests_total was wrong must stay possible; using it must not."""
     documented = "# these rules used to divide by honua_http_requests_total, which nobody emits\n"
@@ -220,7 +216,6 @@ def test_a_comment_may_name_contract_label_names():
     assert mc.check_sources(CONTRACT, {"a": doc})[0] == []
 
 
-# ---- CLI ------------------------------------------------------------------------------------------
 def test_cli_blocks_when_the_server_checkout_is_missing(tmp_path, capsys):
     rc = mc.main(["--repos-root", str(tmp_path), "--self", str(tmp_path)])
     assert rc == 2

@@ -32,7 +32,7 @@ def ctx_for(tmp_path, target, stage, **options):
                           deadline=time.monotonic() + 60, options=options)
 
 
-# ---------------------------------------------------------------- AWS setup through #1165
+# AWS setup through #1165
 
 def test_aws_setup_requires_the_release_cell_inputs(tmp_path):
     pytest.importorskip('agent_e2e_aws_install')
@@ -93,7 +93,6 @@ def test_aws_setup_maps_the_harness_checks_and_binds_its_approval(tmp_path):
     assert rows['deployment.ready'] == 'fail'
 
 
-# ---------------------------------------------------------------- ops executor gates
 
 def test_ops_refuses_until_every_executor_is_merged(tmp_path, monkeypatch):
     import arc_ops
@@ -129,7 +128,6 @@ def test_ops_stage_delegates_through_the_gate(tmp_path):
     assert reason and ('not merged' in reason or 'remote VM slot' in reason)
 
 
-# ---------------------------------------------------------------- Studio (in Console)
 
 def test_studio_requires_candidate_and_fixture_authority(tmp_path):
     import agent_e2e_studio_arc as studio
@@ -181,7 +179,6 @@ def test_studio_stage_is_unavailable_without_console_even_with_drivers(tmp_path,
     assert reason and 'Console is not serving' in reason
 
 
-# ---------------------------------------------------------------- Console from the customer's Compose install
 
 def test_console_in_the_compose_install_is_found_and_tunnelled(tmp_path):
     import ai_arc_local
@@ -388,7 +385,6 @@ def test_a_console_in_the_install_with_another_digest_is_not_studios_surface(tmp
 EMPTY = {'resources': [], 'accessProbes': [], 'facts': {}}
 
 
-# ---------------------------------------------------------------- Astra #1177 review (items 3, 4)
 
 def _release(tmp_path, binary_bytes=b'#!/bin/sh\necho operator\n'):
     """A stand-in release archive containing Honua.DevOps.Agent, and an arc spec pinned to it."""
@@ -648,7 +644,7 @@ def test_studio_accepts_only_bound_heldout_fixture_expectations(tmp_path):
     assert 'frozen expectations' in stage.unavailable(ctx)
 
 
-# ---------------------------------------------------------------- development candidate (trunk image on the hosts)
+# development candidate (trunk image on the hosts)
 
 def _dev_lock(tmp_path, reference='honua-arc-dev/honua-server:' + 'a' * 12, development=True):
     lock = {'schema': R.DEV_CANDIDATE_SCHEMA, 'development': development,
@@ -697,7 +693,6 @@ def test_a_development_image_is_identified_by_its_local_id_only_when_declared(de
     assert facts['identity'] is ok, facts['evidence']
 
 
-# ---------------------------------------------------------------- Sol #1177 review 5725287948
 
 def test_an_initializer_that_exits_leaves_no_unowned_descendant(tmp_path):
     """Item 1: the operator forks a child, answers initialize with garbage and exits before any
@@ -771,7 +766,7 @@ def test_a_container_without_an_id_has_no_identity():
     assert ai_arc_local.running_image(object(), {'Image': 'ghcr.io/honua-io/honua-console:rc'}) == (None, [], {})
 
 
-# ---------------------------------------------------------------- ops gates by covered assertion (option B)
+# ops gates by covered assertion (option B)
 
 def test_every_executor_gate_names_its_kind_and_covered_assertions():
     import arc_ops

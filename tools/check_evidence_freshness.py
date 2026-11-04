@@ -201,7 +201,7 @@ def evaluate_evidence_freshness(candidate_sha: str | None, matrix: dict | None,
     freshness = matrix.get("freshness") or {}
     rows.extend(_ledger_rows(matrix, ledger_policy or {}, now))
 
-    # --- lineage: the server-matrix producer's observed sha must share history with the candidate ---
+    # lineage: the server-matrix producer's observed sha must share history with the candidate
     server_entry = freshness.get("server-matrix") or {}
     evidence_sha = _source_sha(server_entry)
     if not candidate_sha:
@@ -223,7 +223,7 @@ def evaluate_evidence_freshness(candidate_sha: str | None, matrix: dict | None,
                             f"{candidate_sha[:12]} ({lineage_status}) — evidence is not about this "
                             f"release's history"})
 
-    # --- freshness: each configured producer must be within its threshold -----------------------------
+    # freshness: each configured producer must be within its threshold
     for producer, cfg in (thresholds or {}).items():
         max_age = (cfg or {}).get("maxAgeHours")
         entry = freshness.get(producer)

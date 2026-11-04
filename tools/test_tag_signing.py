@@ -81,7 +81,6 @@ def head(repo: Path) -> str:
     return run("git", "rev-parse", "HEAD", cwd=repo)
 
 
-# --- the committed trust policy ---------------------------------------------------------------
 
 def test_committed_policy_is_valid_and_nominates_only_the_keyless_promote_identity():
     """D11: honua-release is signed keyless by promote.yml; no key fingerprint is nominated."""
@@ -145,7 +144,6 @@ def test_policy_rejects_a_malformed_fingerprint(tmp_path, signer, fingerprint):
         load_policy(path)
 
 
-# --- producing a real signed tag ---------------------------------------------------------------
 
 def test_produces_a_signed_annotated_tag_and_a_bound_receipt(repo, signer):
     target = head(repo)
@@ -187,7 +185,7 @@ def test_refuses_an_unauthorized_configured_key(repo, signer, tmp_path):
         sign_tag(repo, TAG, head(repo), "cut", policy(signer), REPOSITORY, signer["allowed"])
 
 
-# --- verifying what is actually there -----------------------------------------------------------
+# verifying what is actually there
 
 def test_lightweight_tag_is_not_a_signed_tag(repo, signer):
     """`gh release create` writes exactly this: a ref straight at a commit, with no tag object."""
@@ -271,7 +269,7 @@ def test_cli_check_policy_passes_on_the_committed_policy(capsys):
     assert "1 signer(s) nominated" in capsys.readouterr().out
 
 
-# --- a receipt only qualifies against the policy that authorized the signer ----------------------
+# a receipt only qualifies against the policy that authorized the signer
 
 @pytest.fixture
 def qualified(repo, signer, tmp_path):
@@ -348,7 +346,7 @@ def test_controls_audit_stays_red_while_no_signer_is_nominated(qualified):
     assert any('different trust policy bytes' in error for error in errors)
 
 
-# --- review hardening: a receipt file is a claim, not evidence ----------------------------------
+# a receipt file is a claim, not evidence
 
 def forged_receipt(qualified, **overrides):
     """What an attacker with write access to the receipts file can trivially author."""

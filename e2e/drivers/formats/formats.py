@@ -230,7 +230,6 @@ def do_writer(fmt_key, gdal_reimport_driver=None):
 
 
 def main():
-    # server reachability
     try:
         with urllib.request.urlopen(f"{BASE}/healthz/ready", timeout=5) as r:
             ready = r.status == 200
@@ -241,7 +240,7 @@ def main():
         return
 
     passed = 0
-    # --- feature formats with committed / generated samples --------------------------------------
+    # feature formats with committed / generated samples
     # GeoJSON (committed)
     r, _, n = do_read("GeoJSON", FIX / "source.geojson", ctype="application/geo+json")
     emit("GeoJSON", r, "na", "na", n); passed += r == "pass"
@@ -280,7 +279,6 @@ def main():
     emit("EsriJSON", r, "na", "na", n + " (not auto-detected; parsed as GeoJSON)")
     passed += r == "pass"
 
-    # FlatGeobuf (GDAL)
     r, _, n = do_read("FlatGeobuf", gdal_convert("FlatGeobuf", "sample.fgb"))
     emit("FlatGeobuf", r, "na", "na", n); passed += r == "pass"
 
@@ -289,7 +287,6 @@ def main():
                       ctype="application/gpx+xml")
     emit("GPX", r, "na", "na", n); passed += r == "pass"
 
-    # KML (GDAL)
     r, _, n = do_read("KML", gdal_convert("KML", "sample.kml"), ctype="application/vnd.google-earth.kml+xml")
     emit("KML", r, "na", "na", n); passed += r == "pass"
 

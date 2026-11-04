@@ -436,9 +436,7 @@ def _enumerate_with(argv: list[str], remote_url: str) -> tuple[tuple[str, ...], 
         return (), str(exc)
 
 
-# ---------------------------------------------------------------------------
 # Stage 2 credential preflight. Read-only discovery is not this probe.
-# ---------------------------------------------------------------------------
 _PREFLIGHT_NAME = "honua-terminal-journey-preflight"
 _PREFLIGHT_GRANTS = ["admin:read"]
 _GUID = re.compile(

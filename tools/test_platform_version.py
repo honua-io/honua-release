@@ -136,7 +136,7 @@ def test_stamp_refuses_a_label_that_names_no_platform_version():
     assert "artifactVersion" not in data["components"]["honua-server"]
 
 
-# --- one stamp rule for artifactVersion and a plain version (validate, freeze bind, promotion) ---
+# one stamp rule for artifactVersion and a plain version (validate, freeze bind, promotion)
 
 def test_a_stamped_manifest_has_no_stamp_errors():
     data = manifest()

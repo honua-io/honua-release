@@ -86,7 +86,6 @@ def _aws_cli(args: list[str]) -> dict:
     return json.loads(proc.stdout or "{}")
 
 
-# ---- live estimate --------------------------------------------------------------------------------
 
 def _resources(module: dict):
     for resource in module.get("resources", []):
@@ -460,7 +459,7 @@ def run_cost(reports: list[dict], ceiling_usd, *, run_id: str, run_attempt: str,
     return body
 
 
-# ---- lagged actuals: Cost Explorer ----------------------------------------------------------------
+# lagged actuals: Cost Explorer
 
 class CostExplorer:
     """``ce:ListCostAllocationTags`` + ``ce:GetCostAndUsage`` through the aws CLI (us-east-1)."""
@@ -574,7 +573,6 @@ def prior_run_costs(ce: CostExplorer, *, current_run: str, default_ceiling_usd, 
     return {**head, "status": "measured", "runs": out}
 
 
-# ---- CLI ------------------------------------------------------------------------------------------
 
 def _load_reports(root: Path) -> list[dict]:
     reports = []

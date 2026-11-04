@@ -37,7 +37,7 @@ HOST = re.compile(r'\A[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}\Z')
 SLOT = re.compile(r'\Aarc-[a-z0-9]{8,40}\Z')
 PORT_BASE, PORT_STRIDE, SLOTS_PER_HOST = 18080, 100, 3
 # Per-slot port layout (stride 100): +0 serving, +1 gRPC, +2 the package's manager, +3 the development
-# composition's manager, +4 Console (Sol 477d0d28 item 2: Console no longer shares the manager's port).
+# composition's manager, +4 Console (Console no longer shares the manager's port).
 CONSOLE_PORT_OFFSET = 4
 SECRET_KEYS = ('POSTGRES_PASSWORD', 'HONUA_ADMIN_PASSWORD', 'HONUA_MASTER_KEY', 'HONUA_KEYRING_PASSWORD')
 # The product's quickstart package (honua-server scripts/docker/package_quickstart.py) and the secrets its
@@ -278,7 +278,7 @@ class VmSlot:
     def teardown(self) -> dict:
         d = shlex.quote(self.remote_dir)
         # Files the product's executor wrote (uid 1002: backups, receipts) are handed back before removal.
-        # Release session 2026-11-02 (leftover state between admission runs is a contamination risk); Sol console9:
+        # Release session 2026-11-02 (leftover state between admission runs is a contamination risk);
         # only volumes this slot owns are touched. Before the down, the volumes mounted by the slot's own containers
         # (its compose project, and stage four's CaseConsole, labelled honua.corpus.case=<project>) are listed; after
         # it, any of them still present is removed (an in-use volume is refused by Docker). Another slot's volumes,
@@ -287,7 +287,7 @@ class VmSlot:
         # are left to the admission preflight's host sweep (inspected before removal).
         p = self.project
         owned = 'owned_containers'
-        # Sol console10: an inventory that could not be read is never an empty one; it leaves the teardown dirty.
+        # an inventory that could not be read is never an empty one; it leaves the teardown dirty.
         script = ('set -u\ninv_ok=1\n'
                   + 'owned_containers() {\n'
                   + '  a="$(docker ps -aq --filter label=com.docker.compose.project=' + p + ')" || return 1\n'

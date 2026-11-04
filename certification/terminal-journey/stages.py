@@ -19,10 +19,8 @@ from typing import Any, Callable
 
 from probes import Check, CredentialProbe, HttpResult, McpError, blocked
 
-# ---------------------------------------------------------------------------
 # Upstream dependency identities. These are the only things a stage may cite as
 # a reason it cannot run.
-# ---------------------------------------------------------------------------
 RELEASE = "https://github.com/honua-io/honua-release/issues"
 
 # Closed server issues are not blockers. Placeholder checks cite the open
@@ -217,9 +215,7 @@ def _tool_presence(observation: Observation, names: tuple[str, ...], check_id: s
     )
 
 
-# ---------------------------------------------------------------------------
 # Stage 1 — installed client handoff
-# ---------------------------------------------------------------------------
 def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[str]]) -> list[Check]:
     checks: list[Check] = []
 
@@ -381,9 +377,7 @@ def stage_1(observation: Observation, workspace_blockers: Callable[[int], list[s
     return checks
 
 
-# ---------------------------------------------------------------------------
 # Stages 2, 3 and 8 — the `honua admin` command surface
-# ---------------------------------------------------------------------------
 def _admin_cli_check(check_id: str, invocation: str, workspace_blockers: Callable[[int], list[str]], number: int) -> Check:
     reasons = workspace_blockers(number)
     if reasons:
@@ -455,9 +449,7 @@ def stage_3(observation: Observation, workspace_blockers: Callable[[int], list[s
     ]
 
 
-# ---------------------------------------------------------------------------
 # Stages 4-7 — server tool surface plus the write spine
-# ---------------------------------------------------------------------------
 def stage_4(observation: Observation, workspace_blockers: Callable[[int], list[str]]) -> list[Check]:
     return [
         _tool_presence(observation, STYLE_TOOLS, "4.1-style-tools-present"),

@@ -86,9 +86,6 @@ def validate(receipt):
     jsonschema.validate(receipt, SCHEMA)
 
 
-# ---------------------------------------------------------------------------
-# Control-plane roster partition
-# ---------------------------------------------------------------------------
 class RosterTests(unittest.TestCase):
     """Data-driven roster (operator ruling on honua-release#785): server-format exports, counts reported."""
 
@@ -200,9 +197,6 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(receipt["failure"]["check"], "control-plane-roster")
 
 
-# ---------------------------------------------------------------------------
-# Journey contract
-# ---------------------------------------------------------------------------
 class JourneyContractTests(unittest.TestCase):
     def test_every_stage_is_numbered_and_attributed(self):
         self.assertEqual([s["number"] for s in JOURNEY["stages"]], list(range(1, 9)))
@@ -230,9 +224,7 @@ class JourneyContractTests(unittest.TestCase):
             )
 
 
-# ---------------------------------------------------------------------------
 # Stage-outcome discipline — the core honesty rules
-# ---------------------------------------------------------------------------
 class StageDisciplineTests(unittest.TestCase):
     def _no_blockers(self, number):
         return []
@@ -375,9 +367,6 @@ class StageDisciplineTests(unittest.TestCase):
             validate(receipt)
 
 
-# ---------------------------------------------------------------------------
-# Receipt schema
-# ---------------------------------------------------------------------------
 class ReceiptTests(unittest.TestCase):
     def test_build_receipt_validates_and_is_blocked(self):
         receipt = build()
@@ -602,9 +591,6 @@ class ReceiptTests(unittest.TestCase):
             validate(receipt)
 
 
-# ---------------------------------------------------------------------------
-# Canary adapter contract
-# ---------------------------------------------------------------------------
 class DriverProtocolTests(unittest.TestCase):
     def test_adapter_lives_at_the_contracted_path(self):
         self.assertEqual(

@@ -200,7 +200,7 @@ def test_development_and_held_out_services_take_the_fixture_path(tmp_path):
     assert stage.fixture(held) == ('town-B', 'http_503_once')
     assert stage.unavailable(held) is None                 # held-out is no longer refused
     assert 'catalog differs' in R.ServicesStage(('P10',), {'A': 'http_503_once'}).unavailable(services_ctx(tmp_path / 'c'))
-    # Sol 5204f069: invalid case inputs are not "unavailable"; the adapter names them as stage failures.
+    # invalid case inputs are not "unavailable"; the adapter names them as stage failures.
     assert stage.unavailable(
         services_ctx(tmp_path / 'u', case={'fixtures': 'town-Z', 'fault': 'http_503_once'}, variant='H')) is None
     assert R.ServicesStage(tuple(stages['services']['scenarios']), {}).unavailable(services_ctx(tmp_path / 'f')) is None
@@ -489,7 +489,7 @@ def answer_only(**extra):
 
 
 @pytest.mark.parametrize('marker', [
-    {'exportFailure': 'a case credential reached model-visible bytes'},           # Sol p10gate P1
+    {'exportFailure': 'a case credential reached model-visible bytes'},
     {'evidenceExport': [{'status': 'fail', 'reason': 'export failed'}]},
     {'handoffError': 'synthetic handoff error'},
     {'failure': {'category': 'model', 'reason': 'x'}},

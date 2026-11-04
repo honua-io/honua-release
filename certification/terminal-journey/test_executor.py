@@ -1634,7 +1634,7 @@ def test_sdk_refusal_names_only_the_bridge_exception_type(tmp_path, error_type, 
     assert raised.value.reason == detail
 
 
-# ---- Redis-off cells record governed stages by the typed refusal (owner ruling, decision 3) ----------
+# Redis-off cells record governed stages by the typed refusal (owner ruling, decision 3)
 # The refusal honua-server nightly-798d517 returned for honua_publish_service on a Production host
 # without Redis (local reproduction of the run 38052304982 redis-off cell; masked by tool_error).
 PUBLISH_REFUSAL = {"code": "unavailable", "missingDependency": "redis", "kind": "ExecutionFailed",

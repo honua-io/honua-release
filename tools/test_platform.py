@@ -26,7 +26,6 @@ import trunk_reachability as tr
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-# ---- SemVer ---------------------------------------------------------------------------------------
 def test_semver_ordering_prerelease_below_release():
     assert semver.parse("1.0.0-alpha") < semver.parse("1.0.0")
     assert semver.parse("1.0.0-alpha.1") < semver.parse("1.0.0-alpha.2")
@@ -49,7 +48,6 @@ def test_range_floor_ceiling():
     assert semver.parse_range(">=0.1.4").ceiling is None
 
 
-# ---- the real repo files pass ---------------------------------------------------------------------
 def _real_files():
     return (
         vp._load_yaml(REPO_ROOT / "platform-manifest.yaml"),
@@ -471,7 +469,7 @@ def test_structure_rejects_server_certification_producer_that_is_not_the_candida
     assert any("serverCertificationProducerSha must match" in e for e in f.errors)
 
 
-# ---- structure rules can fail ---------------------------------------------------------------------
+# structure rules can fail
 def test_structure_rejects_unknown_client():
     manifest, matrix = _real_files()
     matrix = copy.deepcopy(matrix)
@@ -629,7 +627,7 @@ def test_structure_rejects_lambda_architecture_other_than_x86_64():
     assert any("must be x86_64 for the 2026.1 Lambda GA" in error for error in f.errors)
 
 
-# ---- awsLambdaEcrDigest: a real digest or ONE documented sentinel, nothing else --------------------
+# awsLambdaEcrDigest: a real digest or ONE documented sentinel, nothing else
 @pytest.mark.parametrize("value", [
     "TBD-at-publish",                       # a hand-wave
     "sha256:deadbeef",                      # well-shaped prefix, wrong length
@@ -653,7 +651,7 @@ def test_structure_accepts_pending_ecr_mirror_sentinel_and_real_digests():
         assert f.ok, f"{value!r} must be accepted, got: {f.errors}"
 
 
-# ---- coherence rules can fail ---------------------------------------------------------------------
+# coherence rules can fail
 def test_coherence_pin_out_of_range_fails():
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)
@@ -714,7 +712,7 @@ def test_coherence_refuses_a_metadata_schema_that_is_the_api_id_or_disagrees():
     assert not findings.ok and any("metadataSchema" in error for error in findings.errors)
 
 
-# ---- drift rules can fail -------------------------------------------------------------------------
+# drift rules can fail
 def test_drift_narrowing_without_contract_bump_fails():
     manifest, matrix = _real_files()
     baseline = copy.deepcopy(matrix)
@@ -854,7 +852,7 @@ def test_capability_lifecycle_rejects_unknown_status_and_vocabulary_drift():
     assert any("lifecycle must define exactly" in e for e in f.errors), f.errors
 
 
-# ---- R22: imaged components carry the label's platform version (#231 WI-2) -----------------------
+# R22: imaged components carry the label's platform version (#231 WI-2)
 def _stamped_manifest():
     from platform_version import stamp_platform_version
     manifest, matrix = _real_files()
@@ -948,7 +946,7 @@ def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
     assert len(errors) == 2 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
 
 
-# ---- expected-GA observation bound to the candidate server (honua-release#183) ------------------
+# expected-GA observation bound to the candidate server (honua-release#183)
 def _committed_manifest_and_snapshot():
     manifest = vp._load_yaml(vp.MANIFEST_PATH)
     return manifest, vp._load_json(vp.EXPECTED_GA_MANIFEST_PATH), vp._load_json(vp.EXPECTED_GA_OBSERVATION_PATH)
@@ -1085,7 +1083,7 @@ def test_nightly_staged_requirements_revision_refuses_anything_else(change):
         tr.verify_manifest_pins(_staged_manifest(staged), StagedRequirementsClient(staged, parent, **change))
 
 
-# ---- release-train freeze_only: the resolver's protocol_ledger=produce exemption, nothing wider ----
+# release-train freeze_only: the resolver's protocol_ledger=produce exemption, nothing wider
 
 def _exact_candidate_cli(tmp_path, monkeypatch, capsys, *extra, ledger=None):
     """Run the validator CLI offline (no reachability client) on the committed manifest, optionally

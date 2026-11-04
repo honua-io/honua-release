@@ -50,7 +50,6 @@ def receipt(**overrides):
     return value
 
 
-# --- the receipt itself ---------------------------------------------------------------------
 
 def test_accepts_only_a_complete_empty_enumeration():
     assert history.verify(receipt()) == "honua-io/honua-server"
@@ -111,7 +110,7 @@ def test_committed_receipt_is_valid_and_reports_no_publication():
         "tags", "releases", "git/refs/tags"}
 
 
-# --- release-program dispatch anchors are not publications ----------------------------------
+# release-program dispatch anchors are not publications
 
 ANCHOR_COMMIT = "0e03bdd06b3ca3fb1b82388110bb5dfa19b9f8fa"
 
@@ -219,7 +218,6 @@ def test_collect_refuses_an_anchor_when_the_two_namespaces_disagree(monkeypatch,
         history.verify(value)
 
 
-# --- derivation -----------------------------------------------------------------------------
 
 def first_release_component(*, cite=RECEIPT_URI, sha=DIGEST, declared=None,
                             model="first-release", floor=FIRST_RELEASE_VERSION):
@@ -324,7 +322,7 @@ def test_named_release_must_be_the_artifact_that_ships():
         check_component(first_release_component(), context(artifact_version=None))
 
 
-# --- the lock pin must match the committed bytes ---------------------------------------------
+# the lock pin must match the committed bytes
 
 def lock_with_history(tmp_path, body, *, sha256=None, path=RECEIPT_PATH):
     target = tmp_path / path
@@ -390,7 +388,7 @@ def test_source_verification_runs_the_publication_history_check(tmp_path):
         verify_sources(lock, SourceReader(tmp_path), tmp_path)
 
 
-# --- review hardening: exact endpoints, real counts, bounded freshness, schema ------------------
+# exact endpoints, real counts, bounded freshness, schema
 
 def test_a_plausible_url_on_another_host_is_not_a_github_enumeration():
     """The verifier never fetches these URLs, so only the exact GitHub collections are evidence."""
@@ -471,7 +469,7 @@ def test_lock_pin_enforces_the_bound_it_declares(tmp_path):
         verify_publication_history(lock, tmp_path)
 
 
-# --- the lock schema must actually admit the fields the generator writes -----------------------
+# the lock schema must actually admit the fields the generator writes
 
 def schema_check(lock):
     schema = json.loads((ROOT / "schemas/platform-lock.v1.schema.json").read_text(encoding="utf-8"))
@@ -518,7 +516,7 @@ def test_lock_validator_requires_the_named_release_to_ship():
                for error in validate(lock).errors)
 
 
-# --- a bound on staleness is not a proof of emptiness -----------------------------------------
+# a bound on staleness is not a proof of emptiness
 
 def test_a_publication_inside_the_freshness_bound_still_breaks_the_premise(tmp_path):
     """maxAgeDays only limits how old the pin may be. A tag published one day after a receipt
@@ -567,7 +565,7 @@ def test_the_offline_source_root_path_refuses_a_first_release_lock(tmp_path, cap
     assert "offline run cannot prove" in capsys.readouterr().out
 
 
-# --- upgrade edges state only what the lock pins --------------------------------------------
+# upgrade edges state only what the lock pins
 
 def edge_rows(server):
     from generate_compatibility_table import render

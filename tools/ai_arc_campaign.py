@@ -345,14 +345,14 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
         with lock:
             while queue or pending or len(results) < len(threads):
                 if stopped and len(results) >= len(threads):
-                    # Sol d7af7588 item 3: a spend stop drains independently of the launch barriers. Once every
+                    # a spend stop drains independently of the launch barriers. Once every
                     # running run has finished, the campaign ends (exit 3). Pending adjudications, including
                     # holds placed on finished runs, are recorded in the state, not awaited.
                     scan_holds()
                     save_state()
                     break
                 if stopped:
-                    # Sol 811796f3: while draining, nothing is adjudicated (an adjudication can raise on an
+                    # while draining, nothing is adjudicated (an adjudication can raise on an
                     # exhausted void cap or reserve, which would skip the joins and lose exit 3); running runs
                     # only finish, and holds are recorded.
                     scan_holds()
@@ -390,7 +390,7 @@ def run_campaign(*, target, arm, schedule_rows, out: Path, hosts, per_host, comm
                     continue
                 report = spend.reserve(queue[0]["runId"])
                 if report is not None:
-                    # Astra S4: the next launch would exceed the frozen spend cap. Nothing new starts; running
+                    # the next launch would exceed the frozen spend cap. Nothing new starts; running
                     # runs finish; the stop and every unstarted row are reported.
                     stopped.update(report, unstarted=[r['runId'] for r in queue])
                     (out / 'SPEND-CAP-REACHED').write_text(json.dumps(stopped, indent=2) + '\n')

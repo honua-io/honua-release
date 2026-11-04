@@ -851,7 +851,6 @@ def run(target_name: str, require_real: bool, reference_endpoint: str | None,
     return report
 
 
-# ---- job handoffs ----------------------------------------------------------------------------------
 # provision.json and journey.json live in the cell's evidence directory, which each job uploads and
 # the next downloads in place. They carry identifiers and verdicts; no credential is ever written.
 HANDOFF_NAME = "provision.json"

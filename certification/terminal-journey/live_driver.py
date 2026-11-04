@@ -180,9 +180,6 @@ def _stage_status(journey: dict[str, Any], observation: stagelib.Observation, wo
     }
 
 
-# ---------------------------------------------------------------------------
-# Operations
-# ---------------------------------------------------------------------------
 def _cloud_image(target, manifest, target_digest, proof, *, profile=None):
     """Reuse the same-job deployment readback; never infer an external image from manifest pins."""
     if not isinstance(proof, dict) or not proof.get("path") or not proof.get("sha256"):

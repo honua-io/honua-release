@@ -33,7 +33,7 @@ def _no_agent_guide_leaks():
     require_agent_guide(None)
     yield
     set_agent_guide(None)
-    require_agent_guide(None)      # Sol guide4: staging sets the requirement too; never leak it into later tests
+    require_agent_guide(None)      # staging sets the requirement too; never leak it into later tests
 
 
 def build(tmp_path, **kw):

@@ -115,7 +115,6 @@ def assert_row(assertion: str, ok: bool, evidence: dict) -> dict:
             'evidenceSha256': sha256(canonical(evidence)), 'evidence': evidence}
 
 
-# --------------------------------------------------------------------------- arc definition
 
 def load_arc(path: Path = ARC_PATH) -> dict:
     raw = Path(path).read_bytes()
@@ -301,7 +300,7 @@ def stage_prompt(goal: str, previous_answer: str | None, handoff: str | None, no
     return '\n\n'.join(parts)
 
 
-# --------------------------------------------------------------------------- held-out custody
+# held-out custody
 
 def load_goal_set(set_name: str | None, *, key_env: str = 'AI_ARC_HELDOUT_KEY') -> dict | None:
     """Decrypt the committed sealed held-out manifest in memory (Fernet; key from the environment).
@@ -375,7 +374,6 @@ def reserve_rows(target: str, arm: dict, reserve: dict | None) -> list[dict]:
             for c in reserve['cases'].values() if c['target'] == target]
 
 
-# --------------------------------------------------------------------------- stage modules
 
 class StageUnavailable(Exception):
     """A harness piece the stage composes has not landed; the stage fails closed."""
@@ -863,7 +861,7 @@ class ServicesStage(StageModule):
         try:
             _variant, scenarios = fixture_scenarios(fixture_id)
         except (OSError, ValueError, KeyError, TypeError):
-            # Sol 5204f069: an unmapped fixture ID (or a missing or unsupported fault) is an invalid case input,
+            # an unmapped fixture ID (or a missing or unsupported fault) is an invalid case input,
             # not a missing stage capability. The adapter (run_fixture_services) names it as the stage failure.
             return None
         if set(scenarios) != set(self.scenarios):
@@ -1244,7 +1242,6 @@ def default_modules(arc: dict, target: str) -> dict[str, StageModule]:
             'studio': StudioStage()}
 
 
-# --------------------------------------------------------------------------- the arm's session
 
 def cli_versions(value, parent=None) -> list:
     """Every CLI version recorded anywhere in ``value``: each ``cliVersion`` field at any nesting,
@@ -2329,7 +2326,6 @@ def verify_stage_evidence(arc: dict, target: str, row: dict, folder: Path) -> No
         raise ValueError(f"{row['stage']}: final-answer check contradicts the retained answer")
 
 
-# --------------------------------------------------------------------------- one run
 
 def supported_services(arc: dict) -> list[str]:
     """Corpus scenarios this checkout can score for both development variants, minus whole-scenario
@@ -2850,7 +2846,6 @@ def finish_trial(receipt: dict, out_dir: Path) -> dict:
     return json.loads(raw)
 
 
-# --------------------------------------------------------------------------- aggregate
 
 def clopper_pearson(successes: int, trials: int) -> list[float]:
     """Two-sided exact 95% binomial interval (same construction as the #1152 corpus runner)."""
@@ -3065,7 +3060,7 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
             raise ValueError('the ops composition is of no known kind')
     if package is not None and target == 'local-docker' and isinstance(quickstart, dict) \
             and quickstart.get('packageSha256') is not None and not on_shipped_package(receipt, package):
-        # Sol 477d0d28 item 3: a package claim is checked against the package rebuilt for this candidate,
+        # a package claim is checked against the package rebuilt for this candidate,
         # never against another receipt field.
         raise ValueError('the installed quickstart package is not the product package for this candidate')
     pinned = arm_by_id(arc, arm_id)['cliVersion']
@@ -3503,7 +3498,6 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     return result, report
 
 
-# --------------------------------------------------------------------------- CLI
 
 def local_http(method: str, url: str, admin_key: str | None, timeout: int = 20) -> dict:
     """Controller read over the runner-owned tunnel end. Never follows redirects."""

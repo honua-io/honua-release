@@ -1248,7 +1248,7 @@ def publication_handle_identity(handle) -> dict:
             'schema': data['schema'], 'table': data['table']}
 
 
-# =========================================================================== P10 on a role-restricted service
+# P10 on a role-restricted service
 # Founder decision 2026-11-02 (rehearsal of record r4): when the agent role-restricts the service it published, P10 is
 # still observed WITHOUT any principal bypassing the access policy: existence, metadata and the layer binding through
 # the ADMIN CATALOG API (not the FeatureServer data plane), content through the SQL snapshot of the underlying table,
@@ -1418,7 +1418,7 @@ def where_predicate(where, fields):
             inner = primary()
             return lambda row: None if (v := inner(row)) is None else not v
         if tok[0] == 'num':
-            # Only the literal constant 1=1 is in the reviewed subset (Sol p10r1: not 2=2 or any other constant).
+            # Only the literal constant 1=1 is in the reviewed subset (not 2=2 or any other constant).
             if tok[1] == '1' and take() == ('op', '=') and take() == ('num', '1'):
                 return lambda row: True
             raise Unverifiable('agent where clause uses an untranslated constant comparison')

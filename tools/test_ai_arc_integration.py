@@ -250,7 +250,7 @@ def test_install_identity_fails_closed_on_another_image(tmp_path, monkeypatch):
     assert result['outcome'] == 'fail' and 'install.identity' in result['cause']
 
 
-# ---------------------------------------------------------------- services on the real #1152 runtime
+# services on the real #1152 runtime
 
 def test_services_compose_the_real_corpus_runtime_with_scoring_protections(tmp_path):
     corpus = pytest.importorskip('test_agent_e2e_local_runner')

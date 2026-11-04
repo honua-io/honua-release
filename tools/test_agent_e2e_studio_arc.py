@@ -354,7 +354,7 @@ def test_slot_provision_keeps_the_packages_compose_files():
     provision_local_server(slot, 'x' * 48)
     assert 'sed -n "s/^COMPOSE_FILE=//p" .env' in slot.script
     assert 'export COMPOSE_FILE="$files" ' in slot.script
-    # Sol console2: the override joins COMPOSE_FILE only after it is written, and before the up.
+    # the override joins COMPOSE_FILE only after it is written, and before the up.
     script = slot.script
     assert script.index('cat > studio-customer.yaml') < script.index('export COMPOSE_FILE="$COMPOSE_FILE:studio-customer.yaml"') \
         < script.index('up -d --no-deps')

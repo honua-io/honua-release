@@ -236,8 +236,8 @@ def test_restrict_after_list_passes_through_frozen_scoring():
 
 
 @pytest.mark.parametrize('where', [
-    'is_open = TRUE AND capacity > 50 AND (1=1 OR capacity = TRUE)',   # Sol p10r1: a skipped unsupported comparison
-    'is_open = TRUE AND capacity > 50 AND 2=2',                        # Sol p10r1: a constant other than 1=1
+    'is_open = TRUE AND capacity > 50 AND (1=1 OR capacity = TRUE)',   # a skipped unsupported comparison
+    'is_open = TRUE AND capacity > 50 AND 2=2',                        # a constant other than 1=1
     'is_open = TRUE AND capacity > 50 OR (capacity > 50 AND name > 3)',
     "capacity > 50 AND is_open = TRUE AND NOT (name = 1)"])
 def test_unsupported_comparisons_anywhere_are_undetermined_through_frozen_scoring(where):
@@ -254,7 +254,7 @@ def test_restrict_before_list_and_a_wrong_list_fail_through_frozen_scoring():
 
 
 def test_the_restricted_path_handoff_reads_the_agents_captured_list():
-    # Codex review on #1230: the inherited P10.handoff read the denied replay and failed the answer check.
+    # the inherited P10.handoff read the denied replay and failed the answer check.
     from types import SimpleNamespace
     from agent_e2e_local_scenarios.arc_p10 import ArcP10
     records, actions = _case()

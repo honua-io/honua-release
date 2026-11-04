@@ -247,7 +247,6 @@ class TerraformTarget(DeployTarget):
         closed; an older root without the input keeps the single open apply."""
         return self.migrates_before_serving and self._root_declares(SERVING_CLOSED_VAR)
 
-    # --- prerequisites -------------------------------------------------------------------------
     def _iac_root(self) -> Path | None:
         base = os.environ.get("HONUA_IAC_DIR")
         if not base:
@@ -318,7 +317,6 @@ class TerraformTarget(DeployTarget):
             return Availability(False, f"{self.name} not runnable: " + "; ".join(missing), missing)
         return Availability(True, f"{self.name} prerequisites present")
 
-    # --- terraform lifecycle -------------------------------------------------------------------
     def _tf(self, root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(["terraform", f"-chdir={root}", *args], text=True, capture_output=True, check=check)
 
@@ -516,7 +514,7 @@ class TerraformTarget(DeployTarget):
         return ["-var=file_storage_provider=AwsS3", f"-var=file_storage_aws_s3_bucket_name={bucket}",
                 f"-var={FILE_STORAGE_KEY_PREFIX_VAR}={cell_file_storage_prefix(name_prefix)}"]
 
-    # --- per-run HTTPS cell hostname (honua-release#450) -----------------------------------------
+    # per-run HTTPS cell hostname (honua-release#450)
     def cell_domain_label(self, redis_enabled: bool) -> str:
         """The DNS label naming this cell in this run: `<run id>-<target>-redis-<on|off>`.
 
@@ -982,7 +980,6 @@ class TerraformTarget(DeployTarget):
         return None
 
 
-    # --- pre-serving migration (serverless) ------------------------------------------------------
     MIGRATE_PORT = 18080
     MIGRATE_ATTEMPTS = 60
     MIGRATE_DELAY_SECONDS = 5.0

@@ -55,9 +55,7 @@ except ImportError as exc:  # pragma: no cover
 ALLOWED_SKIP: frozenset[str] = frozenset()
 
 
-# --------------------------------------------------------------------------------------------------
 # verify — fail closed unless the candidate is genuinely green
-# --------------------------------------------------------------------------------------------------
 def _gate_status(g: dict) -> str:
     """A gate row's verdict, tolerant of both the train report (`status`) and a sub-gate report
     (`decided`) shapes."""
@@ -99,9 +97,7 @@ def _base_label(label: str) -> str:
     return label.split("-rc")[0].strip()
 
 
-# --------------------------------------------------------------------------------------------------
 # finalize — the manifest as tagged IS the release
-# --------------------------------------------------------------------------------------------------
 def finalize_manifest(manifest: dict, label: str, released_at: str) -> dict:
     """Publish the GA label and restamp imaged components to that label's platform version.
 
@@ -123,9 +119,7 @@ def finalize_manifest(manifest: dict, label: str, released_at: str) -> dict:
     return m
 
 
-# --------------------------------------------------------------------------------------------------
 # release notes — aggregate from the pinned set
-# --------------------------------------------------------------------------------------------------
 def _component_artifact(comp: dict) -> str:
     return str(comp.get("image") or comp.get("artifact") or "—")
 
@@ -249,9 +243,6 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
     return "\n".join(lines)
 
 
-# --------------------------------------------------------------------------------------------------
-# driver
-# --------------------------------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--label", required=True, help="platform label to release, e.g. 2026.1")

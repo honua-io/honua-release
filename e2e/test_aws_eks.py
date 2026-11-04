@@ -85,7 +85,6 @@ def _outputs(target, **values):
     target._outputs = values
 
 
-# ---- root-declared terraform inputs ----------------------------------------------------------------
 def test_an_old_root_gets_only_the_cluster_inputs(cell):
     values = _vars(cell._tf_vars(True))
     assert set(values) == {"region", "name_prefix", "environment", "cluster_endpoint_public_access",
@@ -178,7 +177,6 @@ def test_a_redis_on_cell_requires_the_key_ring_secret_its_root_declares(cell, mo
     assert "operation_key_ring_certificate_secret_arn" not in _vars(cell._tf_vars(True))
 
 
-# ---- per-run HTTPS name -----------------------------------------------------------------------------
 def _dns(monkeypatch, zone=ZONE, parent="demo.honua.io"):
     if zone is not None:
         monkeypatch.setenv("HONUA_AWS_CELL_DNS_ZONE_ID", zone)
@@ -213,7 +211,7 @@ def test_half_configured_cell_dns_refuses_provision_but_never_destroy(cell, monk
         cell._tf_vars(False)
 
 
-# ---- chart values rendered from the root's outputs ---------------------------------------------------
+# chart values rendered from the root's outputs
 def test_chart_values_carry_the_root_rendered_server_environment(cell):
     cell.root(outputs=(aws_eks.CHART_ENV_OUTPUT,))
     _outputs(cell, chart_config_env={
@@ -370,7 +368,6 @@ def test_the_seed_runs_against_rds_with_tls_when_the_root_provisions_it(cell, mo
     assert "pw" not in " ".join(seen["argv"])
 
 
-# ---- endpoint, image read-back ---------------------------------------------------------------------
 def _pods(*statuses):
     # The chart's pod spec renders repository@digest (honua.imageReference) for the `honua` container.
     return json.dumps({"items": [{"metadata": {"name": f"honua-5f-{n}"},
@@ -442,7 +439,7 @@ def test_an_unobserved_image_says_which_pod_disagreed(cell, monkeypatch):
     assert cell.observed_image(pinned) is None and cell.observed_image_detail == "listing the server pods failed"
 
 
-# ---- Redis-on MultiNode replicas (6.replica-map) ----------------------------------------------------
+# Redis-on MultiNode replicas (6.replica-map)
 BUCKET = "release-cells-file-storage-111111111111"
 
 
@@ -521,7 +518,6 @@ def test_the_cell_name_is_pointed_at_the_load_balancer_and_deleted_before_destro
     assert changes[0]["ResourceRecordSet"]["ResourceRecords"] == [{"Value": "lb.example"}]
 
 
-# ---- teardown verification -------------------------------------------------------------------------
 def _aws_world(*, cluster=False, vpcs=(), enis=(), classic=(), current=(), fail=None):
     """A fake `aws` for the post-destroy check: what still exists, and which listing fails."""
     def run(command, **kwargs):
@@ -621,7 +617,6 @@ def test_a_record_that_cannot_be_deleted_never_blocks_the_destroy(cell, monkeypa
     assert destroyed == ["destroy"]
 
 
-# ---- diagnostics -----------------------------------------------------------------------------------
 def test_eks_diagnostics_admit_the_runner_and_redact(cell, monkeypatch):
     granted = []
     monkeypatch.setattr(cell, "grant_operator", lambda **k: granted.append(k))
@@ -635,7 +630,7 @@ def test_eks_diagnostics_admit_the_runner_and_redact(cell, monkeypatch):
     assert all(cell._db_password not in line for s in report["sections"] for line in s["lines"])
 
 
-# ---- workload identity (honua-iac#233): Pod Identity by default, IRSA only from the root's outputs ----
+# workload identity (honua-iac#233): Pod Identity by default, IRSA only from the root's outputs
 SERVER_ROLE = "arn:aws:iam::111111111111:role/honuaeksr-server"
 JOB_ROLE = "arn:aws:iam::111111111111:role/honuaeksr-gp-job"
 IDENTITY_OUTPUTS = (aws_eks.WORKLOAD_IDENTITY_OUTPUT, aws_eks.NAMESPACE_OUTPUT, aws_eks.SERVER_SA_OUTPUT,

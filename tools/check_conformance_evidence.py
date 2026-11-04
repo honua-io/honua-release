@@ -86,9 +86,7 @@ class ConformanceEvidenceError(ValueError):
     """Raised when an evidence artifact is structurally unusable."""
 
 
-# --------------------------------------------------------------------------------------------
 # Parsing (deterministic, no network -- kept here so it is unit-testable alongside the decision)
-# --------------------------------------------------------------------------------------------
 def parse_cite_status(text: str | None) -> dict | None:
     """Parse honua-server's docs/cite-status.md authoritative snapshot.
 
@@ -206,9 +204,7 @@ def non_implemented_cite_suites(matrix: dict | None) -> dict[str, str]:
     return out
 
 
-# --------------------------------------------------------------------------------------------
 # Decision core
-# --------------------------------------------------------------------------------------------
 def _days_between(iso_date: str, now: datetime) -> float | None:
     try:
         stamp = datetime.strptime(iso_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -235,7 +231,6 @@ def _evaluate_cite(candidate_sha, cite, lineage, cfg, now, rows) -> None:
         )
         return
 
-    # --- lineage -----------------------------------------------------------------------------
     evidence_sha = cite.get("sha")
     if not candidate_sha:
         rows.append(_row("cite:lineage", "blocked", "no honua-server sha pinned in the candidate manifest"))
@@ -267,7 +262,6 @@ def _evaluate_cite(candidate_sha, cite, lineage, cfg, now, rows) -> None:
             )
         )
 
-    # --- freshness ---------------------------------------------------------------------------
     age = _days_between(cite.get("lastReviewed"), now)
     if age is None:
         rows.append(_row("cite:freshness", "blocked", "cite-status.md 'Last reviewed' date is unparseable"))
@@ -290,7 +284,6 @@ def _evaluate_cite(candidate_sha, cite, lineage, cfg, now, rows) -> None:
             )
         )
 
-    # --- results -----------------------------------------------------------------------------
     all_suites = cite.get("suites") or []
     not_certified = (cfg or {}).get("nonImplementedSuites") or {}
     suites = [s for s in all_suites if s["suite"] not in not_certified]
@@ -496,9 +489,7 @@ def evaluate_conformance(
     return rows, overall
 
 
-# --------------------------------------------------------------------------------------------
 # CLI shim glue (still no network: every input is a file the workflow already fetched)
-# --------------------------------------------------------------------------------------------
 def load_config(path: Path = CONFIG_PATH) -> dict:
     if not path.exists():
         return {}

@@ -177,7 +177,7 @@ def test_a_dry_run_failed_or_incomplete_publication_never_arms_the_503():
     fault.observe('tool_call', _call('honua_admin_layer_publish', table=TABLE),
                   {'status': 'pass', 'result': {'isError': True, 'structuredContent': {'status': 'Completed'}}})
     fault.observe('tool_call', _call('honua_list_layers'), DONE)
-    # Sol h13b: a completed validation-only admin reply (isValid, no layerId) never consumes the fault.
+    # a completed validation-only admin reply (isValid, no layerId) never consumes the fault.
     validation = _admin_publish(validation=True)
     fault.observe('tool_call', _call('honua_admin_layer_publish', **validation['arguments']),
                   {'status': 'ok', 'result': validation['json']['result']})

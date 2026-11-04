@@ -332,7 +332,7 @@ def test_run_canary_demo_mode_with_ids_configured():
     assert by_name["stac-collections"].status == "pass"
 
 
-# ---- owner decision 8 of 2026-10-10: HTTPS cells redirect plain HTTP ------------------------------
+# owner decision 8 of 2026-10-10: HTTPS cells redirect plain HTTP
 _HOST = "r1-aws-ecs-redis-off.cert.demo.honua.io"
 
 

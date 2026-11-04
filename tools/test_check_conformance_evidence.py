@@ -80,9 +80,6 @@ def _status(rows, check):
     return next(r["status"] for r in rows if r["check"] == check)
 
 
-# ---------------------------------------------------------------------------------------------
-# Parsing
-# ---------------------------------------------------------------------------------------------
 def test_parses_the_real_cite_status_shape():
     cite = parse_cite_status(CITE_STATUS_MD)
     assert cite["sha"] == CITE_SHA
@@ -110,9 +107,7 @@ def test_snapshot_without_a_review_date_is_rejected_loudly():
         parse_cite_status(f"on `trunk@{CITE_SHA}`, completed\n")
 
 
-# ---------------------------------------------------------------------------------------------
 # The happy path — everything genuinely proven
-# ---------------------------------------------------------------------------------------------
 def test_fully_federated_candidate_passes():
     rows, overall = evaluate_conformance(
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
@@ -135,9 +130,7 @@ def test_ancestor_lineage_is_accepted_deliberately():
         assert _status(rows, "cite:lineage") == "pass", relation
 
 
-# ---------------------------------------------------------------------------------------------
 # Failure paths — the reason this gate exists
-# ---------------------------------------------------------------------------------------------
 def test_diverged_lineage_fails():
     rows, overall = evaluate_conformance(
         CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
@@ -255,9 +248,7 @@ def test_summarize_walks_both_cert_and_coverage_shapes():
     assert {"CERT-CONN-01", "IS-OP-LEGEND"} == {f["id"] for f in summary["failures"]}
 
 
-# ---------------------------------------------------------------------------------------------
 # Blocked paths — honest bootstrap, never a fake pass
-# ---------------------------------------------------------------------------------------------
 def test_unfetchable_snapshot_blocks_and_never_passes():
     rows, overall = evaluate_conformance(CANDIDATE, None, None, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW)
     assert overall == "blocked"
@@ -289,9 +280,7 @@ def test_fail_outranks_blocked():
     assert overall == "fail"
 
 
-# ---------------------------------------------------------------------------------------------
 # Maturity scope (operator ruling 2026-10-22): non-implemented capabilities do not decide
-# ---------------------------------------------------------------------------------------------
 MATRIX = {
     "capabilities": [
         {"key": "serve.wfs", "maturity": {"implemented": 2}, "cite": ["WFS 2.0"]},
