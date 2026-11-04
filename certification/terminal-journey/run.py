@@ -64,9 +64,7 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-# ---------------------------------------------------------------------------
 # Control-plane roster gate (data-driven; operator ruling on honua-release#785)
-# ---------------------------------------------------------------------------
 # The server publishes its Admin parity exports at docs/gis/data/ for every source sha:
 # admin-openapi-operation-ids.json (every REST/CLI operation) and admin-mcp-projection-manifest.json
 # (catalog operations projected to MCP, plus the audited exclusions). The roster passes when both
@@ -185,9 +183,7 @@ def roster_source(rest_path: Path | None, mcp_path: Path | None, source_sha: str
             "exports": {name: _sha256_file(path) for name, path in zip(ADMIN_EXPORTS, (rest_path, mcp_path))}}
 
 
-# ---------------------------------------------------------------------------
 # Live observation against the pinned candidate
-# ---------------------------------------------------------------------------
 def observe(
     target: dict[str, Any],
     base_url: str,
@@ -274,9 +270,6 @@ def observe(
     return observation
 
 
-# ---------------------------------------------------------------------------
-# Receipt assembly
-# ---------------------------------------------------------------------------
 def build_receipt(
     *,
     manifest: dict[str, Any],
@@ -460,9 +453,6 @@ def validate_receipt(receipt: dict[str, Any], schema_path: Path) -> None:
     jsonschema.validate(receipt, json.loads(schema_path.read_text()))
 
 
-# ---------------------------------------------------------------------------
-# Live run
-# ---------------------------------------------------------------------------
 def run_live(
     target: dict[str, Any],
     manifest: dict[str, Any],

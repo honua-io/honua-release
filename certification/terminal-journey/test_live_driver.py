@@ -387,7 +387,7 @@ def test_unwritable_server_log_never_blocks_teardown(tmp_path, monkeypatch):
     live_driver._retain_server_log(Compose(), {})  # must not raise
 
 
-# ---- ga-cells-single-tenant-2026-10-27: the canary's admitted GA journey also passes driver setup ----
+# ga-cells-single-tenant-2026-10-27: the canary's admitted GA journey also passes driver setup
 # Run 40947050732: the canary admitted the aws-ecs/redis-on journey (blocked only on the declared
 # 8.tenant-isolation check), then live_driver setup refused the same receipt because its status was
 # "blocked", so every redis-on model canary failed with zero model calls.

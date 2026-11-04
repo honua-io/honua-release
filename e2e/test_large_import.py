@@ -54,7 +54,7 @@ def _url_leaked(text: str) -> bool:
                                            "X-Amz-Credential", ADMIN_KEY))
 
 
-# ---- fixtures: deterministic, pinned, verified -----------------------------------------------------------
+# fixtures: deterministic, pinned, verified
 def test_generator_writes_the_same_bytes_twice_and_the_committed_small_fixture():
     with tempfile.TemporaryDirectory() as scratch:
         first = fx.generate(Path(scratch) / "a.geojson", 2_500)
@@ -93,7 +93,7 @@ def test_verify_refuses_a_fixture_whose_digest_differs():
             fx.verify(path, fx.SMALL)
 
 
-# ---- staging, presign, delete (credentialed jobs; `aws` is a recorded fake) ------------------------------
+# staging, presign, delete (credentialed jobs; `aws` is a recorded fake)
 class _Aws:
     def __init__(self, fail=None, presigned=URL):
         self.calls, self.fail, self.presigned = [], fail, presigned
@@ -179,7 +179,7 @@ def test_presign_and_delete_are_bound_to_the_recorded_cell_and_run():
     assert s10.delete_staged({"staged": False}, CELL_OFF, run=aws) == {"status": "not-staged"}
 
 
-# ---- the sealed handoff carries the URL; nothing else does -----------------------------------------------
+# the sealed handoff carries the URL; nothing else does
 def test_the_presigned_url_travels_only_inside_the_sealed_handoff():
     datasource = {"host": "db", "port": 5432, "databaseName": "honua", "username": "u", "password": "p"}
     for plaintext in (ADMIN_KEY, cloud_journey.pack_handoff(ADMIN_KEY, datasource)):
@@ -205,7 +205,7 @@ def test_the_admit_job_seals_the_url_with_the_key_and_a_presign_failure_never_bl
     assert run_cloud.s10_handoff_extension({}, CELL_OFF)[0] is None
 
 
-# ---- the scenario against a fake admin API ---------------------------------------------------------------
+# the scenario against a fake admin API
 class _Cell:
     """A loopback honua admin API for the S10 routes. `script` shapes each answer."""
 
@@ -516,7 +516,7 @@ def test_receipts_refuse_a_signature_parameter_even_in_an_allowlisted_field():
     assert s10.receipt({"jobId": "j", "sourceUrl": URL, "presignedUrl": URL}) == {"jobId": "j"}
 
 
-# ---- the journey phase runs S10 first and keeps its row; require_real fails a blocked one -------------
+# the journey phase runs S10 first and keeps its row; require_real fails a blocked one
 def test_the_journey_phase_runs_s10_before_the_drivers_and_teardown_deletes_the_object(monkeypatch):
     order = []
     monkeypatch.setattr(run_cloud, "run_drivers", lambda *a, **k: order.append("drivers") or [])
@@ -569,7 +569,7 @@ def test_redis_on_cells_pass_the_background_threshold_only_when_the_root_declare
     assert tt.IMPORT_BACKGROUND_THRESHOLD_VAR in tt.ECS_SPEC.redis_on_declared_vars
 
 
-# ---- publishing a large table: the 504 from the ALB idle timeout (fix unit J22, run 38249563601) ---------
+# publishing a large table: the 504 from the ALB idle timeout (fix unit J22, run 38249563601)
 def test_a_publish_that_answers_504_converges_on_the_layer_list_and_still_counts():
     cell = _Cell(publish_status=504, appears_after=4)
     row, receipt = _scenario(cell)
@@ -752,7 +752,7 @@ def test_async_publish_completion_still_requires_actual_published_row_count():
     assert receipt["publishJobStatus"] == "completed"
 
 
-# --- The worker's failure reason from diagnostics-eks.json (honua-release#1059) ---------------------
+# The worker's failure reason from diagnostics-eks.json
 
 _JOB = "e6623f57766c4df6866498e1ef94cda8"
 

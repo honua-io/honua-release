@@ -37,9 +37,6 @@ class Ctx:
         return sdk_toolchain_available(short)
 
 
-# --------------------------------------------------------------------------------------------------
-# docker-compose lifecycle
-# --------------------------------------------------------------------------------------------------
 def _compose(*args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     cmd = ["docker", "compose", "-f", str(COMPOSE_FILE), *args]
@@ -112,9 +109,7 @@ def _wait_for_health(server_url: str, timeout_s: int) -> None:
     raise ImageUnavailable(f"server never became healthy at {url}: {last}")
 
 
-# --------------------------------------------------------------------------------------------------
 # Prometheus metric scrape (stdlib only) — ties the observability gate (server#2243)
-# --------------------------------------------------------------------------------------------------
 # A Prometheus sample value: an int/float (optionally in scientific notation) or one of the
 # special float literals the exposition format allows.
 _SAMPLE_VALUE = r"(?:[0-9eE+.\-]+|[+-]?Inf|NaN)"
@@ -213,9 +208,7 @@ def scrape_metric(metrics_url: str, name: str,
     return parse_metric_total(body, name, label_filters)
 
 
-# --------------------------------------------------------------------------------------------------
 # SDK install from staging (artifact-consumption seam, plan §4d) + probe execution
-# --------------------------------------------------------------------------------------------------
 def sdk_toolchain_available(short: str) -> bool:
     return {
         "python": bool(shutil.which("python") or shutil.which("python3")),

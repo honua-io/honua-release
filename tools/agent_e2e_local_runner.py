@@ -79,7 +79,6 @@ def _canary():
     return terminal_model_canary
 
 
-# --------------------------------------------------------------------------- scoring
 
 def check_reads(step, record, rule, model_actions, roles=None):
     """A record must be exactly the read the frozen projection declares for that step."""
@@ -620,7 +619,6 @@ def select_fixture_cases(*, goal, fixture_id):
     return variant, cases
 
 
-# --------------------------------------------------------------------------- model session
 
 class SessionInterrupted(Exception):
     def __init__(self, category, progress, reason=''):
@@ -914,7 +912,6 @@ def run_model_session(*, prompt, tool_view, client, execute, log_dir, session, m
     return out
 
 
-# --------------------------------------------------------------------------- case execution
 
 def _session_receipt(row, session_id):
     return {'sessionId': session_id, 'agentType': row.get('agentType'), 'modelId': row.get('modelId'),
@@ -1339,7 +1336,6 @@ def load_scenario(scenario_id):
     return scenario
 
 
-# --------------------------------------------------------------------------- local docker runtime
 
 class BedrockProxySession:
     """The shipped path: candidate Studio AI proxy (signed provenance), canary contract, temperature omitted."""

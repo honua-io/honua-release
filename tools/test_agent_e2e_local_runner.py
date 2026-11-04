@@ -730,7 +730,6 @@ def test_protected_content_requires_seed_before_and_observe_after():
         evaluate(spec, Context(both_other, roles))
 
 
-# ---- Astra review 5721829419: one negative control per blocking finding ------------------------
 
 class TamperingP10(FakeP10):
     """A scenario that tries to change what gets scored after the controller read it."""
@@ -899,7 +898,6 @@ def test_finding6_export_failure_never_reattributes_a_scored_failure():
     assert passed['status'] == 'infrastructure'
 
 
-# ---- pluggable model sessions -----------------------------------------------------------------
 
 class McpSpeakingSession:
     """Stands in for a CLI agent: it talks MCP to the runner's recording proxy, never to the stack."""
@@ -959,7 +957,6 @@ def test_unknown_agent_is_refused_before_any_stack(tmp_path):
     assert json.loads(out.read_text())['status'] == 'infrastructure'
 
 
-# ---- runner hooks for scenario lanes ------------------------------------------------------------
 
 class HookP10(FakeP10):
     """FakeP10 with configurable hooks (two sessions, restart, approver, fault, files, reports)."""
@@ -1243,7 +1240,6 @@ def test_third_review5_unregistered_exclusions_cannot_shrink_or_relabel_cases(ca
         runner.validate_receipt(relabel)
 
 
-# ---- Astra re-review 5722009491 -----------------------------------------------------------------
 
 class OwnQueryP10(FakeP10):
     """A scenario that runs its own (correct) controller query instead of replaying the model's."""
@@ -1413,7 +1409,6 @@ def test_rereview5_session_registration_works_through_the_script_entrypoint(tmp_
     assert 'unknown agent session' not in reason and 'image reference' in reason
 
 
-# ---- Astra third review 5722096789 --------------------------------------------------------------
 
 class OtherResourceP10(FakeP10):
     """Reads an untouched look-alike resource for the 'after' snapshot (or for both)."""
@@ -1498,7 +1493,7 @@ def test_third_review3_truncated_proxy_response_is_an_unknown_outcome(candidate,
     assert action['status'] == 'unknown' and action['resultRawSha256'].startswith('sha256:')
 
 
-# ---- core2: runner capabilities for the remaining scenarios ------------------------------------
+# core2: runner capabilities for the remaining scenarios
 
 def _restart_fixture(monkeypatch, restart_changes_start=True):
     import subprocess
@@ -1765,7 +1760,6 @@ def test_request_arguments_accessor_is_mcp_only():
     assert mcp.request_arguments == {'tool': 't', 'arguments': {}}
 
 
-# ---- Astra review 5722460139 of #1171 -----------------------------------------------------------
 
 def test_core2r1_custody_facts_come_only_from_the_runtime_vault(candidate, tmp_path, monkeypatch):
     _restart_fixture(monkeypatch, restart_changes_start=False)   # no restart is observed
@@ -2271,7 +2265,6 @@ def test_core3r5_mcp_job_list_terminal_page_without_cursor_is_complete():
 
 
 
-# ---- core3 lane asks (a)-(f) --------------------------------------------------------------------
 
 def test_core3a_recorded_role_and_canonical_digest_compare_equal_for_identical_inventories():
     from agent_e2e_local_projections import Context, evaluate, resolve_roles
@@ -2501,7 +2494,7 @@ def test_core3n_relative_publication_routes_resolve_against_the_candidate():
 
 
 
-# ---- structured controller SQL (review 5723866581) ----------------------------------------------
+# structured controller SQL (review 5723866581)
 
 def test_core3sql_requests_are_structured_and_identifiers_strict():
     ok = runner.structured_sql_request({'op': 'table_rows', 'schema': 'honua_data', 'table': 'p05_points',

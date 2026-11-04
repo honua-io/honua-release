@@ -38,7 +38,6 @@ def only(hits: list[vt.Hit], token: str) -> vt.Hit:
     return matching[0]
 
 
-# ------------------------------------------------------------------------------------------ the classes
 
 def test_spec_identifier_is_spec():
     hit = only(classify("src/Query/GeometryType.cs", 'var geometryType = "esriGeometryPoint";'),
@@ -70,7 +69,6 @@ def test_class_named_after_mark_is_avoidable():
     assert (hit.cls, hit.category) == ("avoidable", "identifier")
 
 
-# ------------------------------------------------------------------------------------------ nominative limits
 
 def test_heading_that_leads_with_the_mark_is_avoidable_even_when_attributed():
     hit = only(classify("docs/clients.md", f"## ArcGIS Online support\n\n{ATTRIBUTION}\n"), "ArcGIS Online")
@@ -198,7 +196,6 @@ def test_fenced_code_in_docs_is_not_prose():
     assert (only(hits, "esri").category) == "repo-or-package-name"
 
 
-# ------------------------------------------------------------------------------------------ categories
 
 @pytest.mark.parametrize("path, line, token, category", [
     ("src/Tiles/Cache.cs", "// mirrors the Esri tile scheme", "Esri", "comment"),
@@ -276,7 +273,6 @@ def test_generated_binary_and_bundled_files_are_skipped_but_counted():
     assert (hits, dict(skipped), scanned) == ([], {"generated": 1, "binary": 1, "minified": 1}, 0)
 
 
-# ------------------------------------------------------------------------------------------ allowlist
 
 def _allowlist(tmp_path: Path, entries: list[dict]) -> Path:
     path = tmp_path / "allowlist.json"
@@ -306,7 +302,6 @@ def test_glob_match():
     assert not vt.glob_match("src/*.cs", "src/a/b.cs")
 
 
-# ------------------------------------------------------------------------------------------ lint + baseline
 
 def _report(files: dict[str, int]) -> dict:
     avoidable = [{"path": path, "line": n + 1, "token": "Esri", "category": "identifier"}
@@ -372,7 +367,6 @@ def test_a_baseline_total_must_be_the_sum_of_its_entries():
         "baseline.honua-test: total 50 is not the sum of its entries (1)"]
 
 
-# ------------------------------------------------------------------------------------------ CLI end to end
 
 def _git(cwd: Path, *args: str) -> str:
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t",
@@ -437,7 +431,6 @@ def test_check_baselines_cli_fails_when_a_committed_baseline_grows(tmp_path):
     assert vt.main(["check-baselines", "--base-ref", "HEAD", "--repo-root", str(root)]) == 0
 
 
-# ------------------------------------------------------------------------------------------ vocabulary
 
 def test_every_vocabulary_identifier_cites_its_source_section():
     document = json.loads(vt.VOCABULARY.read_text())
@@ -467,7 +460,7 @@ def test_committed_allowlist_loads():
     assert entries and all(entry.reason and entry.owner for entry in entries)
 
 
-# ------------------------------------------------------------------------------------------ confidential (R30)
+# Confidential terms covered by requirement R30.
 
 @pytest.mark.parametrize("path, line, token, category", [
     ("tools/replay.py", f"import {SCRIPTING}", SCRIPTING, "desktop-scripting"),
@@ -633,7 +626,7 @@ def test_this_tooling_carries_no_confidential_term():
         assert [hit.as_dict() for hit in hits if hit.cls == "confidential"] == [], path
 
 
-# ------------------------------------------------------------------------------------------ interop vocabulary (R36)
+# interop vocabulary (R36)
 
 def test_interop_identifiers_are_spec_interop_and_reported_separately():
     hits = classify("src/Fields.cs", 'var a = "esriFieldTypeGUID"; var b = "esriGeometryPoint";')
@@ -688,7 +681,7 @@ def test_the_interop_vocabulary_grows_only_with_a_cited_entry(tmp_path):
                                                  "reason": "r"}]))
 
 
-# ------------------------------------------------------------------------------------------ certification labels (R37)
+# certification labels (R37)
 
 def test_stamped_certification_data_makes_product_labels_nominative():
     stamped = json.dumps({"schema": "honua.protocol-certification-requirements/v1", "trademarkNotice": ATTRIBUTION,
@@ -727,7 +720,6 @@ def test_a_stamped_yaml_certification_file_uses_its_header_comment():
         "certification-label"
 
 
-# ------------------------------------------------------------------------------------------ allowlist policy
 
 def test_wildcard_allowlist_entries_are_refused(tmp_path):
     for entry in ({"repo": "*", "paths": ["src/**"]}, {"repo": "honua-test", "paths": ["**"]},

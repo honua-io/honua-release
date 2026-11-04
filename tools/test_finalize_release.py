@@ -29,7 +29,7 @@ def _report(overall, label="2026.1-rc.3", gates=None):
             "evidence_url": "https://example/run/1"}
 
 
-# ---- verify: fail closed ---------------------------------------------------------------------------
+# verify: fail closed
 def test_green_candidate_for_matching_label_is_promotable():
     ok, why = fr.verify_gate_report(_report("pass", "2026.1-rc.3"), "2026.1")
     assert ok, why
@@ -87,7 +87,6 @@ def test_report_without_certification_mode_is_refused():
     assert "dry_run" in why
 
 
-# ---- finalize --------------------------------------------------------------------------------------
 def test_finalize_sets_released_status_and_base_label():
     m = fr.finalize_manifest({"platformRelease": "2026.1-rc.0", "status": "draft", "components": {}},
                              "2026.1-rc.3", "2026-07-01T00:00:00Z")
@@ -177,7 +176,7 @@ def test_driver_refuses_substituted_candidate_before_writing_release_files(tmp_p
     assert not out_notes.exists()
 
 
-# ---- release notes against the REAL committed files ------------------------------------------------
+# release notes against the REAL committed files
 def _real():
     import yaml
     return (yaml.safe_load((REPO_ROOT / "platform-manifest.yaml").read_text(encoding="utf-8")),

@@ -597,7 +597,7 @@ def test_train_call_never_runs_the_standalone_candidate_job(event):
     assert _expression(condition, event="workflow_dispatch", workflow="gate-journey")
 
 
-# ---- founder ruling ga-cells-single-tenant-2026-10-27 (e2e/ga_single_tenant.py) -------------------
+# founder ruling ga-cells-single-tenant-2026-10-27 (e2e/ga_single_tenant.py)
 TENANT_BLOCKER = "https://github.com/honua-io/honua-release/issues/377"
 
 

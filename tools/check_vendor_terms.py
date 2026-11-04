@@ -187,7 +187,6 @@ GENERATED = re.compile(r"(?:^|/)(?:package-lock\.json|npm-shrinkwrap\.json|yarn\
 BUNDLE_SUFFIXES = {".js", ".mjs", ".cjs", ".css"}
 
 
-# --------------------------------------------------------------------------------------------- inputs
 
 def load_vocabulary(path: Path = VOCABULARY) -> dict[str, dict]:
     document = json.loads(path.read_text(encoding="utf-8"))
@@ -328,7 +327,6 @@ def _glob_regex(pattern: str) -> re.Pattern[str]:
     return re.compile(regex)
 
 
-# --------------------------------------------------------------------------------------------- sources
 
 def _git(root: Path, *args: str, binary: bool = False):
     result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True)
@@ -387,7 +385,6 @@ def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes | None]]:
         process.wait()
 
 
-# --------------------------------------------------------------------------------------------- classify
 
 @dataclass
 class Hit:
@@ -813,7 +810,6 @@ def _cell(line: str, start: int, token: str) -> bool:
     return any(match.start() <= start < match.end() for match in cell.finditer(line))
 
 
-# --------------------------------------------------------------------------------------------- scan
 
 def scan(files: Iterable[tuple[str, bytes | None]], repo: str, vocabulary: dict[str, dict],
          allowlist: list[Exception_], interop: Interop | None = None) -> tuple[list[Hit], Counter[str], int]:
@@ -946,7 +942,6 @@ def render_markdown(report: dict) -> str:
     return "\n".join(lines)
 
 
-# --------------------------------------------------------------------------------------------- baseline
 
 def _refuse_confidential_paths(paths: Iterable[str], what: str) -> None:
     named = [path for path in paths if is_confidential_text(path)]
@@ -1026,7 +1021,6 @@ def baseline_growth(current: dict, base: dict | None, kind: str = "baseline") ->
     return problems
 
 
-# --------------------------------------------------------------------------------------------- cli
 
 def _report_for(args) -> dict:
     root = Path(args.root).resolve()

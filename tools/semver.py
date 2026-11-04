@@ -40,7 +40,6 @@ class Version:
     patch: int
     prerelease: tuple[object, ...] = ()  # () means a final release (higher than any pre-release)
 
-    # --- ordering ------------------------------------------------------------------------------
     def _key(self) -> tuple:
         # A release sorts above every pre-release of the same M.M.P. Encode that as a leading flag:
         # 1 for release, 0 for pre-release (so release > pre-release when the triples are equal).

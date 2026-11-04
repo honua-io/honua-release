@@ -160,7 +160,7 @@ def test_load_thresholds_reads_committed_config():
     assert "cite" in thresholds
 
 
-# --- ledger liveness (honua-release#84 / honua-evidence#17) ---------------------------------------
+# ledger liveness
 #
 # These replay the real 2026-08-16 outage: honua-evidence's `aggregate` run parked in `waiting` on the
 # github-pages environment and held the aggregate-pages concurrency group for 42h, freezing the whole
@@ -212,7 +212,7 @@ def test_ledger_check_is_skipped_when_no_policy_configured():
     assert not [r for r in rows if r["check"] == "ledger"]
 
 
-# --- ledger-declared producers + acknowledgements (honua-release#84 AC-2) --------------------------
+# ledger-declared producers and acknowledgements
 
 def test_unlisted_ledger_red_producer_fails_when_no_issue_owns_it():
     matrix = {"freshness": {"server-matrix": _fresh_server_matrix(),

@@ -131,7 +131,7 @@ def test_declarations_must_cover_all_shipped_artifact_revisions():
     assert check_component(item) == "1.2.0"
 
 
-# --- The first-release floor is the lock's platform version (honua-release#231 WI-5, R22) ---
+# The first-release floor is the lock's platform version (R22).
 
 from generate_platform_lock import generate
 from sdk_baselines import platform_version, release_context

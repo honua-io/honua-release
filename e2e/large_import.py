@@ -159,7 +159,7 @@ def aws_error(error: subprocess.CalledProcessError) -> str:
     return f"aws exited {error.returncode}" + (f" ({code.group(1)})" if code else "")
 
 
-# ---- provision (credentialed) ------------------------------------------------------------------------
+# Provisioning uses cell credentials.
 def stage(cell: str, *, run_id: str, run_attempt: str, bucket: str | None, region: str | None,
           workdir: Path, run=subprocess.run) -> dict:
     """Write the cell's pinned fixture to its S3 prefix. Returns the handoff record (identifiers only).
@@ -205,7 +205,7 @@ def _bound_key(record: dict, cell: str) -> str:
     return key
 
 
-# ---- admit (credentialed) ----------------------------------------------------------------------------
+# Admission uses cell credentials.
 def presign(record: dict, cell: str, *, ttl: int = PRESIGN_TTL_SECONDS, run=subprocess.run) -> str:
     """A presigned GET URL for the staged object, valid `ttl` seconds. Never printed or written."""
     if not record.get("staged"):
@@ -219,7 +219,7 @@ def presign(record: dict, cell: str, *, ttl: int = PRESIGN_TTL_SECONDS, run=subp
     return url
 
 
-# ---- teardown (credentialed) -------------------------------------------------------------------------
+# Teardown uses cell credentials.
 def delete_staged(record: dict | None, cell: str, *, run=subprocess.run) -> dict:
     """Delete the staged object. `status` is deleted, not-staged or failed (with the AWS error code)."""
     if not record or not record.get("staged"):
@@ -249,7 +249,7 @@ def cost_lines(record: dict | None) -> tuple[list, list]:
     return [(address, "s3-standard-gb", gib)], [(address, "s3-put-request", 1), (address, "s3-get-request", 1)]
 
 
-# ---- journey (credential-free) -----------------------------------------------------------------------
+# The journey itself is credential-free.
 class _HoldRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None  # never carry the admin key to another location
@@ -704,7 +704,7 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
                         + publish_note, fields)
 
 
-# --- The worker's own failure reason (teardown side) ------------------------------------------------
+# The worker's own failure reason (teardown side)
 # A Kubernetes Job worker that dies leaves the server only its generic "Import failed." On e2e-cloud-aws
 # run 40947860102 (aws-eks/redis-on) the reason, an AccessDeniedException resolving
 # AuditLog:ChainVerification:Key at worker startup (honua-release#1059), was only in diagnostics-eks.json.

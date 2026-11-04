@@ -1360,7 +1360,7 @@ def test_catalog_receipt_schema_min_rejects_unknown_values():
     assert any(finding["check"] == "requirements.receipt_schema_min" for finding in report["findings"])
 
 
-# ------------------------------------------------------------------ R38 desktop release lines and buckets
+# R38 desktop release lines and buckets
 
 
 def _rebind(cell):

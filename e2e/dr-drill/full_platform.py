@@ -158,7 +158,6 @@ class Stack:
             "HONUA_ADMIN_PASSWORD": ADMIN_KEY,
         }
 
-    # ---- compose -------------------------------------------------------------------
     def compose(self, *args, check=True, timeout=1200):
         cmd = ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE_FILE), *args]
         proc = subprocess.run(cmd, check=False, env=self.env, stdout=subprocess.PIPE,
@@ -183,7 +182,6 @@ class Stack:
                       f"ls -A {mount} | head -5").stdout.decode().strip()
         return listing == ""
 
-    # ---- HTTP product surface ------------------------------------------------------
     def request(self, method: str, path: str, body=None, headers=None, raw=False, timeout=120):
         url = f"http://127.0.0.1:{self.server_port}{path}"
         head = {"X-API-Key": ADMIN_KEY}
@@ -217,7 +215,6 @@ class Stack:
         return self.request("POST", path, body=b"".join(chunks),
                             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
 
-    # ---- substrate surfaces --------------------------------------------------------
     def psql(self, sql: str, database: str = "honua") -> str:
         proc = run("docker", "exec", "-i", self.container_id("db"), "psql", "-X", "-v", "ON_ERROR_STOP=1",
                    "-U", "honua", "-d", database, "-Atc", sql)
@@ -271,7 +268,7 @@ def observation(state_id: str, payload: bytes, count: int, surface: str) -> dict
     }
 
 
-# ---- phase 1: seed durable state through the real product surfaces --------------------
+# phase 1: seed durable state through the real product surfaces
 
 def seed_state(stack: Stack) -> None:
     log("seeding durable state through the product surfaces")
@@ -421,7 +418,7 @@ def assert_inserted_feature_served(stack: Stack, layer_id: int, object_id: int) 
         raise RuntimeError(f"FeatureServer served the inserted feature with other values: {rows[0]}")
 
 
-# ---- phase 2: observe each substrate through its real runtime surface -----------------
+# phase 2: observe each substrate through its real runtime surface
 
 def observe(stack: Stack, substrate: str) -> dict:
     state = stack.state
@@ -510,7 +507,7 @@ def instance_identities(stack: Stack) -> dict[str, str]:
     }
 
 
-# ---- phase 3: back every enabled substrate up through its own supported path ----------
+# phase 3: back every enabled substrate up through its own supported path
 
 def redis_slice_export(stack: Stack, patterns: list[str]) -> bytes:
     """DUMP every key the slice owns, with its TTL, in key order.
@@ -583,7 +580,7 @@ def take_backups(stack: Stack) -> tuple[dict[str, dict], datetime]:
     return backups, now()
 
 
-# ---- phase 4: destroy the primary state ----------------------------------------------
+# phase 4: destroy the primary state
 
 def destroy(stack: Stack) -> datetime:
     log("destroying primary state (containers and every named volume)")
@@ -596,7 +593,7 @@ def destroy(stack: Stack) -> datetime:
     return moment
 
 
-# ---- phase 5: restore into freshly created, verified-empty stores ---------------------
+# phase 5: restore into freshly created, verified-empty stores
 
 def create_clean_volumes(stack: Stack) -> None:
     for name, mount in (("db_data", "/var/lib/postgresql/data"), ("redis_data", "/data"),
@@ -679,7 +676,7 @@ def verify_outbox_backup(stack: Stack, backup: dict) -> None:
                            f"({scratch} rows restored vs {restored} in the recovered cluster)")
 
 
-# ---- phase 6: assemble, measure and sign ---------------------------------------------
+# phase 6: assemble, measure and sign
 
 def sign(out: Path) -> None:
     key = Path(os.environ.get("HONUA_DR_SIGNING_KEY", out / "receipt-key.pem"))

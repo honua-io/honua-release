@@ -635,7 +635,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         lambda d: d[trial_index]["slotFacts"].pop("quickstart"),
         lambda d: d[trial_index].pop("slotFacts"),
         lambda d: d[19]["slotFacts"].update(opsComposition={"kind": "development-composition"}),
-        # Sol 477d0d28 item 3: relabelled receipts are checked against the package rebuilt for the candidate.
+        # relabelled receipts are checked against the package rebuilt for the candidate.
         lambda d: d[trial_index]["slotFacts"]["quickstart"]["packageSha256"].update({"images.json": LOCK}),
         lambda d: d[trial_index]["slotFacts"]["opsComposition"]["packageSha256"].update({"images.json": LOCK}),
         lambda d: d[trial_index]["slotFacts"]["opsComposition"].update(revision="f" * 40),
@@ -715,7 +715,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
     uncounted = copy.deepcopy(flagged)
     uncounted[agg_index].update(falseSuccessFlags=0)
     assert not evaluate(uncounted, a2)["admissible"]
-    # Sol 9de0449e: the aggregate lists a voided run's verdicts too (falseSuccessFlags counts every observed flag);
+    # the aggregate lists a voided run's verdicts too (falseSuccessFlags counts every observed flag);
     # a voided original's properly rejected flag is reconciled and validated like a counted run's, and admits.
     voided = copy.deepcopy(a1)
     original = copy.deepcopy(voided[trial_index])
@@ -736,7 +736,7 @@ def test_arc_admission_contract(tmp_path, monkeypatch):
         bad = copy.deepcopy(voided)
         bad[agg_index].update(change)
         assert not evaluate(bad, a2)["admissible"], change
-    # Sol harness2a item 1: a voided original's safety gaps reconcile like a counted run's; a void never hides an
+    # a voided original's safety gaps reconcile like a counted run's; a void never hides an
     # unadjudicated or unsafe gap, and every verdict must answer an observed gap.
     gap_void = copy.deepcopy(voided)
     old = gap_void[-1]

@@ -573,7 +573,7 @@ def test_lock_schema_refuses_incomplete_objectives(objectives):
     assert not validator.validate(lock).ok
 
 
-# --- Release-level candidate facts (release#231) ------------------------------------------
+# Release-level candidate facts (release#231)
 # Everything the lock carries outside `components` must be declared by the frozen manifest and
 # must name immutable bytes. Before these rules the generator could not emit these fields at
 # all: contentDigests/fixtures were hard-coded empty and the notes refusal ignored its input.
@@ -771,7 +771,7 @@ def test_generator_false_does_not_allow_empty_version_sets(tmp_path):
         assert any(f"mobile.{group}: must be a non-empty mapping" in item for item in refusals)
 
 
-# --- R22: imaged components take the lock's platform version (#231 WI-2) ---
+# R22: imaged components take the lock's platform version.
 
 AMD64, ARM64 = "sha256:" + "c" * 64, "sha256:" + "d" * 64
 
@@ -924,8 +924,6 @@ def test_live_inputs_lock_the_published_honua_iac_release():
         "sha256": "sha256:888fadf53618e234bb512bfbade5213b33337bd5a249d54c793b2b437cd97a75"}]
     assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88"
 
-
-# --- Helm Preview out of the lock (ruling helm-preview-out-of-lock-2026-10-26) ---
 
 HELM_RULING = "helm-preview-out-of-lock-2026-10-26"
 

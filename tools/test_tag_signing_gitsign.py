@@ -98,7 +98,6 @@ def candidate(tmp_path) -> Path:
     return path
 
 
-# --- the committed trust policy ---------------------------------------------------------------
 
 def test_committed_policy_binds_publication_tags_to_the_promote_workflow_identity():
     committed = load_policy()
@@ -139,7 +138,7 @@ def test_policy_rejects_a_loose_keyless_signer(tmp_path, change, expected):
         load_policy(path)
 
 
-# --- green: a genuine signature verifies against its own identity -----------------------------
+# green: a genuine signature verifies against its own identity
 
 @needs_gitsign
 def test_genuine_signature_verifies_for_the_identity_that_made_it(foreign, tmp_path):
@@ -154,7 +153,7 @@ def test_genuine_signature_verifies_for_the_identity_that_made_it(foreign, tmp_p
                                     "rekorLogIndex": FOREIGN_REKOR_INDEX}
 
 
-# --- red: everything else refuses -------------------------------------------------------------
+# red: everything else refuses
 
 @needs_gitsign
 def test_valid_signature_by_another_workflow_identity_is_refused(foreign):
@@ -219,7 +218,7 @@ def test_receipt_qualification_rechecks_the_keyless_identity(foreign, tmp_path):
         REPOSITORY, ["refs/tags/v*"], forged, path, expected=expected, source=source)
 
 
-# --- the actual promote.yml guard step, executed ----------------------------------------------
+# the actual promote.yml guard step, executed
 
 @pytest.fixture
 def remote(tmp_path) -> Path:
@@ -302,7 +301,7 @@ def test_promotion_guard_accepts_only_the_trusted_identity_at_the_certified_comm
         assert receipt is None
 
 
-# --- sign-keyless: workflow-owned tags (nightly locks) -----------------------------------------
+# sign-keyless: workflow-owned tags (nightly locks)
 
 MINT_IDENTITY = ("https://github.com/honua-io/honua-release/.github/workflows/nightly-certification.yml"
                  "@refs/heads/trunk")

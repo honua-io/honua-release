@@ -112,7 +112,7 @@ def _observation(sha=TEST_SERVER_SHA, digest=TEST_DIGEST):
 TEST_SERVER = {"sha": TEST_SERVER_SHA, "digest": TEST_DIGEST, "platformDigests": {"amd64": TEST_CHILD}}
 
 
-# ---- canonical checks: result normalisation -------------------------------------------------------
+# canonical checks: result normalisation
 def _fetcher(routes):
     """routes: list of (url_substr, HttpResponse). First match wins; default = unreachable."""
     def fetch(url):
@@ -419,7 +419,6 @@ def test_run_canonical_includes_capability_manifest():
     assert "capability-manifest" in names
 
 
-# ---- parity comparator ----------------------------------------------------------------------------
 def _results(statuses):
     return [cc.CheckResult(n, s) for n, s in statuses]
 
@@ -450,7 +449,7 @@ def test_parity_fail_when_reference_itself_failing():
     assert par.compare(ref, oth).status == "fail"
 
 
-# ---- BLOCKED honesty: no AWS infra => not a green (all 3 targets) ----------------------------------
+# BLOCKED honesty: no AWS infra => not a green (all 3 targets)
 def test_all_three_aws_targets_registered():
     assert set(REGISTRY) == {"aws-serverless", "aws-ecs", "aws-eks"}
 
@@ -723,7 +722,7 @@ def test_cloud_endpoint_readiness_preserves_final_failure_evidence():
     assert evidence["headers"]["server"] == "AmazonAPIGateway"
 
 
-# ---- EKS: the chart + LoadBalancer cell ------------------------------------------------------------
+# EKS: the chart + LoadBalancer cell
 _EKS_IMAGE = "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8@sha256:" + "a" * 64
 
 
@@ -999,7 +998,7 @@ def test_terraform_target_teardown_fails_closed(monkeypatch):
         target.teardown(redis_enabled=False)
 
 
-# ---- teardown always runs, and a strand is a red cell ----------------------------------------------
+# teardown always runs, and a strand is a red cell
 class _StubTarget:
     name = "stub"
     admin_api_key = "stub-admin-key"
@@ -1078,7 +1077,7 @@ def test_reaper_retries_only_state_lock_contention_then_fails_closed():
     assert broken.calls == 1
 
 
-# ---- honua-release#128: the ECS cell's ALB must admit the runner, and an unreachable endpoint is red
+# The ECS cell's ALB must admit the runner, and an unreachable endpoint is red.
 def test_ecs_opens_the_alb_to_the_runner_only(monkeypatch):
     # The aws-ecs module defaults its ALB security group to VPC-only HTTP ingress when neither
     # allow_http_ingress_cidrs nor a certificate is supplied, so the GitHub runner's requests were
@@ -1306,7 +1305,7 @@ def test_ecs_cell_disables_rds_deletion_protection_and_enables_postgis_when_decl
         assert tf["db_publicly_accessible"] == "true"
 
 
-# ---- promise journey cloud bindings: schema, candidate, retry history and cost --------------------
+# promise journey cloud bindings: schema, candidate, retry history and cost
 def _ecs_receipt(cell="aws-ecs/redis-off"):
     cj = run_cloud.cloud_journey
     driver, _ = cj.drivers()
@@ -2165,7 +2164,7 @@ def test_cost_and_teardown_still_run_when_receipt_persistence_fails(monkeypatch)
 
 
 
-# ---- honua-release#381: the receipt's server is observed, and the cell runs as three jobs -----------
+# The receipt's server is observed, and the cell runs as three jobs.
 def _manifest_server():
     server = run_cloud.cloud_journey.manifest()["components"]["honua-server"]
     return server["sha"], f"{server['image']}@{server['digest']}"
@@ -2313,7 +2312,7 @@ def test_attempt_admits_plain_http_only_to_the_provisioned_cell_load_balancer(mo
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
 
 
-# ---- owner decision 7 of 2026-10-10: journey attempts are idempotent (delete-and-recreate) --------
+# owner decision 7 of 2026-10-10: journey attempts are idempotent (delete-and-recreate)
 _ATTEMPT1_CONNECTION = "3f2b8c1e-5d4a-4e7b-9c0d-1a2b3c4d5e6f"
 _OTHER_CONNECTION = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 _ATTEMPT2_CONNECTION = "0f0e0d0c-0b0a-4908-8706-050403020100"
@@ -2540,7 +2539,7 @@ def test_attempt_two_resets_attempt_ones_objects_and_names_the_strategy_in_its_r
         shutil.rmtree(cj.EVIDENCE / "retry-run", ignore_errors=True)
 
 
-# ---- run 38099175519: the setup discovery sidecar travels with the journey receipts --------------
+# run 38099175519: the setup discovery sidecar travels with the journey receipts
 def test_discovery_sidecar_is_retained_per_attempt_with_every_known_credential_scrubbed(tmp_path):
     cj = run_cloud.cloud_journey
     workdir = tmp_path / "work-2"
@@ -2859,7 +2858,7 @@ def test_teardown_reverifies_journey_receipts_and_adopts_no_claimed_verdict(monk
         shutil.rmtree(cj.EVIDENCE / "offline-run", ignore_errors=True)
 
 
-# ---- a journey BLOCKED by tracked limitations is blocked, not FAIL, outside require_real -----------
+# a journey BLOCKED by tracked limitations is blocked, not FAIL, outside require_real
 SERVERLESS_OFF = "aws-serverless/redis-off"
 ECS_OFF = "aws-ecs/redis-off"
 
@@ -3148,7 +3147,7 @@ def test_eks_admission_grants_this_runner_then_adds_the_journey_source_range(mon
     assert json.loads(patch[-1])["spec"]["loadBalancerSourceRanges"] == ["192.0.2.10/32", "198.51.100.7/32"]
 
 
-# ---- run 38128300695: a failed fixture publication names its call, status and answering task ------
+# run 38128300695: a failed fixture publication names its call, status and answering task
 def _seed_cell_against(handler_answers):
     """Run the real seed against a loopback admin API answering `handler_answers(method, path)`
     with (status, body bytes, instance)."""
@@ -3534,7 +3533,7 @@ def test_gp_driver_redis_off_fails_when_the_job_is_accepted_or_refusal_is_untype
     assert _run_gp_driver_against(503, json.dumps({"title": "Service Unavailable"}))["status"] == "fail"
 
 
-# ---- S9-demos-geoprocessing on a Redis-off cell (run 38047168879, aws-ecs/redis-off) ----------------
+# S9-demos-geoprocessing on a Redis-off cell (run 38047168879, aws-ecs/redis-off)
 # The demo page must show the same typed capability-unavailable refusal S5 asserts, not wait 120 s for a
 # job that can never run. The verdict logic is unit-tested in node; the topology plumbing in run.sh is
 # exercised for real against a stub candidate serving a fake capability manifest.
@@ -3557,7 +3556,7 @@ def test_demo_gp_execution_diagnostics():
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-# ---- S9 demo call log (run 38192851328, aws-serverless): a gateway 5xx without CORS headers is a call
+# S9 demo call log (run 38192851328, aws-serverless): a gateway 5xx without CORS headers is a call
 # the sample made, not a shim failure; the editing/workbench verdicts name who answered.
 def test_demos_call_log_attributes_gateway_answers_and_cors_blocked_calls():
     node = shutil.which("node")
@@ -3611,7 +3610,7 @@ def test_demos_driver_hands_the_topology_to_the_page_driver_before_driving():
     assert "page.route(" not in drive.split("async function checkGeoprocessingRedisOff", 1)[1].split("/* ──", 1)[0]
 
 
-# ---- topology-aware S2 (MCP catalog) and S3 (Studio) drivers --------------------------------------
+# topology-aware S2 (MCP catalog) and S3 (Studio) drivers
 # The real drivers run against an in-process stub of the candidate. The stub serves a Redis-on
 # server (the canonical 129-tool catalog) or a Redis-off one (minus the 23 durable-control-plane
 # tools, or with them once honua-server S1 has landed), and reports its topology through the
@@ -3951,7 +3950,7 @@ def test_s3_studio_redis_off_without_a_reported_environment_cannot_pass():
     row, posts = _s3("redis-off", "off", (409, {"detail": _REDIS_OFF_DETAIL}), environment=None)
     assert row["status"] == "fail" and "deploymentEnvironment" in row["why"] and posts == []
 
-# ---- rc.3 fix units C2 / C4 / C6: Lambda+Batch cell, pre-serving migration, Bedrock opt-in ---------
+# rc.3 fix units C2 / C4 / C6: Lambda+Batch cell, pre-serving migration, Bedrock opt-in
 def _iac_root_with(monkeypatch, base, example, *variables):
     root = Path(base) / "infrastructure" / "terraform" / "examples" / example
     root.mkdir(parents=True, exist_ok=True)
@@ -4021,7 +4020,7 @@ def test_serverless_runs_the_event_driven_control_plane_when_the_root_declares_i
         assert "enable_control_plane_events" not in _tf_vars(ecs(run_id="r1")._vars(False))
 
 
-# ---- Production typed-operation policy on the ECS and Lambda cells (run 38066103745) --------------
+# Production typed-operation policy on the ECS and Lambda cells (run 38066103745)
 _EXPECTED_POLICY_LITERAL = (
     '[{operation_id="*",role="scoped-admin-key",decision="Allow",'
     'reason="Release cell: scoped admin keys run typed operations"},'
@@ -4511,7 +4510,7 @@ def test_serverless_migration_failure_is_a_redacted_reason_and_the_container_is_
         target.migrate(run=_Docker(), probe=lambda url: 200, sleep=lambda _s: None)
 
 
-# ---- honua-server#6750: the Lambda cell stays closed until the pre-serving migration is Ready -------
+# The Lambda cell stays closed until the pre-serving migration is Ready.
 def _closing_target(monkeypatch, base, *declared, migration_ready=True):
     """A serverless target on a fake pinned root that records every terraform and docker call in
     order; `show -json` answers with the cell's connection secret for the migration."""
@@ -5178,7 +5177,7 @@ def test_redact_log_strips_key_values_bearer_tokens_and_postgres_uri_passwords(l
 
 
 
-# ---- genuine-model canary on the nightly cell (fix unit J3) ------------------------------------------
+# genuine-model canary on the nightly cell (fix unit J3)
 LOCK = "sha256:" + "c" * 64
 
 
@@ -5386,7 +5385,7 @@ def test_model_canary_step_is_green_only_on_a_pass_or_an_unbound_blocked_row(mon
     assert ("::notice::genuine-model canary blocked" in capsys.readouterr().out) is notice
 
 
-# ---- honua-release#450: per-run HTTPS hostname + demo CORS origin on the ECS cells -----------------
+# Per-run HTTPS hostname and the demo CORS origin on the ECS cells.
 CELL_ZONE = "Z089181827C9GKIKHXUTT"
 _DOMAIN_ROOT_VARS = ("domain_name", "route53_zone_id", "allow_https_ingress_cidrs",
                      "allow_http_ingress_cidrs", "cors_allowed_origins")
@@ -5516,7 +5515,7 @@ def test_ecs_cell_dns_on_a_root_without_the_domain_inputs_refuses(monkeypatch):
         assert "domain_name" not in values and "cors_allowed_origins" not in values
 
 
-# ---- owner decision 8 of 2026-10-10: the HTTPS ECS cell redirects plain HTTP ----------------------
+# owner decision 8 of 2026-10-10: the HTTPS ECS cell redirects plain HTTP
 def test_ecs_https_cell_requests_the_http_redirect_only_on_the_tls_path_of_a_declaring_root(monkeypatch):
     _ecs_env(monkeypatch)
     with tempfile.TemporaryDirectory() as base:
@@ -6060,7 +6059,7 @@ def test_controller_and_aggregate_refuse_unaccounted_profile_artifacts(monkeypat
             {'journeyAttempts': report['journeyAttempts']}, tmp_path)
 
 
-# ---- post-import settle: the S10 bulk import's DB tail must not overlap the latency-bound drivers ----
+# post-import settle: the S10 bulk import's DB tail must not overlap the latency-bound drivers
 SEED = {"demo": {"maui-zoning": {"service": "maui-zoning", "layerId": 2}}}
 
 
@@ -6213,7 +6212,7 @@ def test_the_eks_image_read_back_names_why_1_1_stays_unobserved(monkeypatch, obs
     assert state["runningImage"] is None and state["runningImageDetail"] == detail
 
 
-# ---- genuine-model transcript signer on the AWS Bedrock cells ---------------------------------------
+# genuine-model transcript signer on the AWS Bedrock cells
 _SIGNER_SEED = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="  # base64 of bytes 0..31; a test value
 _SIGNER_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honuanawsec408437-408437-1-model-signer-AbC123"
 _SIGNER_VERSION = "12345678-1234-1234-1234-123456789012"
@@ -6382,7 +6381,7 @@ def test_serverless_cell_shortens_the_proxy_idle_client_timeout_only_when_declar
         assert values["enable_rds_proxy"] == "true"
 
 
-# Sol review of #1262 (P1): the S10 disclosure the credential-free journey uploads is bound to provision state.
+# the S10 disclosure the credential-free journey uploads is bound to provision state.
 _DEVIATION = {"setting": "LayerPublishing__MaterializationTimeoutSeconds", "value": 600, "default": 300,
               "via": "honua-iac example-root tfvar layer_publishing_materialization_timeout_seconds",
               "reason": "disclosed rc.2 limitation"}
@@ -6432,7 +6431,7 @@ def test_s10_disclosure_mismatch_fails_the_cell_through_teardown(monkeypatch):
     assert report["status"] == "fail" and report["disclosureMismatch"]
 
 
-# Sol delta review of #1262 (P1): a provisioned deviation can't be dropped by removing or reshaping the S10 receipt.
+# a provisioned deviation can't be dropped by removing or reshaping the S10 receipt.
 def _s10_row_without_evidence():
     return {"name": "large-import", "status": "pass", "why": "S10 ok",
             "evidence": {"scenarios": [{"scenario": run_cloud.large_import.SCENARIO, "status": "pass"}]}}
@@ -6497,7 +6496,7 @@ def test_s10_omitted_receipt_fails_the_cell_through_teardown(monkeypatch, covera
     assert report["disclosedDeviations"] == [_DEVIATION]
 
 
-# Sol delta review r3 of #1262 (P1): no journey-supplied key (e.g. `evidence`) exempts a disclosure from the check.
+# no journey-supplied key (e.g. `evidence`) exempts a disclosure from the check.
 def _s10_line(row):
     return row["evidence"]["scenarios"][0]
 

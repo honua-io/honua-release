@@ -65,9 +65,7 @@ DEFAULT_PROBE_REQUESTS = 200
 PROBE_SERVICE_TYPES = ("FeatureServer", "MapServer")
 
 
-# --------------------------------------------------------------------------------------------------
 # Pure plan construction (unit-tested in tools/test_slo_upgrade.py)
-# --------------------------------------------------------------------------------------------------
 def catalog_services(document: object) -> list[tuple[str, str]]:
     """[(name, type), ...] from a GeoServices catalogue response, sorted for determinism.
 
@@ -152,9 +150,6 @@ def witness_totals(body: str | None) -> dict[str, float | None]:
     return {name: parse_metric_total(body, name) for name in CONTINUITY_WITNESS_SERIES}
 
 
-# --------------------------------------------------------------------------------------------------
-# Network I/O
-# --------------------------------------------------------------------------------------------------
 def _fetch(url: str, api_key: str | None = None, timeout: int = 30) -> tuple[int, str]:
     """(http_status, body). Status 0 means the request never got an HTTP response at all."""
     request = urllib.request.Request(url)

@@ -56,7 +56,6 @@ class GateError(Exception):
     """A document failed validation; the message lists every finding."""
 
 
-# ----------------------------------------------------------------------------- documents
 def load_json(path: str | Path) -> dict:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
@@ -153,7 +152,6 @@ def validate_rollback_target(pin: dict, target: dict) -> dict:
             "lockDigest": digest(target), "livePreflightRequired": True}
 
 
-# ----------------------------------------------------------------------------- preflight
 def _check(status: str, detail: str) -> dict:
     return {"status": status, "detail": detail}
 
@@ -258,7 +256,6 @@ def preflight(lock: dict, pin: dict, state: dict, artifact_index: dict, rollback
     }
 
 
-# ----------------------------------------------------------------------------- receipts
 def build_receipt(decision: dict, *, operation: str, smoke: str, smoke_evidence: str, binding: str, binding_detail: str,
                   actor: str, run_repository: str, run_id: str, run_attempt: int, started_at: str, finished_at: str) -> dict:
     if operation != decision["operation"]:
@@ -299,7 +296,6 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# ----------------------------------------------------------------------------- cli
 def _write(path: str, document: dict) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")

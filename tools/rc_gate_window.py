@@ -381,7 +381,7 @@ def _arc_on_shipped_package(trial: dict, rows: list[dict], package: dict) -> boo
     if ((composition is not None or ran.get("ops")) and
             not (isinstance(composition, dict) and composition.get("kind") == "quickstart-package")):
         return False
-    # Sol 477d0d28 item 3: the installed and adopted package is exactly the one rebuilt for this candidate.
+    # the installed and adopted package is exactly the one rebuilt for this candidate.
     if isinstance(quickstart, dict) and quickstart.get("packageSha256") != package["sha256"]:
         return False
     if isinstance(composition, dict) and (composition.get("packageSha256") != package["sha256"]

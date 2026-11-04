@@ -167,7 +167,6 @@ def rows(stage, c):
     return {r['assertion']: r['status'] for r in stage.observe(c, {})}
 
 
-# ---------------------------------------------------------------- the model's surface
 
 def test_the_model_never_receives_approval_or_credential_tools():
     backend = O.OpsBackend(FakeMcp(), lambda *a: None)
@@ -205,7 +204,6 @@ def test_the_recording_proxy_admits_proposal_reads_only_on_an_ops_surface(tmp_pa
     assert len(seen) == 1
 
 
-# ---------------------------------------------------------------- the full script
 
 def test_the_full_option_a_script_passes_on_product_executed_proposals(tmp_path):
     sc = scenario(HAPPY)
@@ -218,7 +216,6 @@ def test_the_full_option_a_script_passes_on_product_executed_proposals(tmp_path)
     assert set(out) == set(O.OPS) and set(out.values()) == {'pass'}, out
 
 
-# ---------------------------------------------------------------- Sol 5725726297 item 1: scoped approvals
 
 @pytest.mark.parametrize('case', ['unapprovable-kind', 'foreign-backup', 'other-target', 'other-revision',
                                   'convergence-without-candidate', 'unreadable-detail'])
@@ -279,7 +276,6 @@ def test_a_self_approval_the_product_accepts_fails_approval_separate(tmp_path):
     assert out['approval.separate'] == 'fail' and out['upgrade.candidate-serving'] == 'fail'
 
 
-# ---------------------------------------------------------------- item 2: executor receipt AND readback
 
 @pytest.mark.parametrize('operation', ['failed', None])
 def test_state_changes_without_the_executors_completed_record_never_pass(tmp_path, operation):
@@ -318,7 +314,6 @@ def test_a_rollback_without_restore_fails_restore_migration_142(tmp_path):
     assert out['data.preserved'] == 'fail'
 
 
-# ---------------------------------------------------------------- item 3: faults proven by controller reads
 
 @pytest.mark.parametrize('case', ['redis-already-stopped', 'empty-inspection', 'stop-failed'])
 def test_fault_d_is_proven_only_by_a_running_to_stopped_transition(tmp_path, case):
@@ -369,7 +364,6 @@ def test_fault_r_is_proven_only_by_the_candidate_failing_on_the_unknown_schema(t
     assert scored['outcome'] == 'undetermined'
 
 
-# ---------------------------------------------------------------- item 4: minted credentials
 
 class MintManager(FakeManager):
     def __init__(self, fail_at=2, lost=False, listed=True):
@@ -441,7 +435,7 @@ def test_the_owner_is_registered_before_the_first_mint(tmp_path, monkeypatch):
     assert order == [('mint', 1)], 'the key owner was already in the live set'
 
 
-# ---------------------------------------------------------------- item 5: released candidates resolve to an image id
+# released candidates resolve to an image id
 
 def test_a_registry_candidate_is_compared_by_its_image_id_on_the_host(tmp_path):
     c = ctx(tmp_path)
@@ -453,7 +447,7 @@ def test_a_registry_candidate_is_compared_by_its_image_id_on_the_host(tmp_path):
         O.LocalOps.resolve_candidate(c)
 
 
-# ---------------------------------------------------------------- item 6: the composition is pinned and bound
+# the composition is pinned and bound
 
 class ProbeVm(Vm):
     def ssh(self, script, timeout=60):
@@ -538,7 +532,7 @@ def test_the_server_create_response_shape_mints_and_registers(shape):
     assert revoked == ['0b9c']
 
 
-# ---------------------------------------------------------------- rehearsal r114 harness faults
+# rehearsal r114 harness faults
 
 def test_operations_are_followed_by_the_proposal_resources_operation_instance(tmp_path):
     """A2-r114: the harness polled the handle by the admin detail's job id, which the product's handles

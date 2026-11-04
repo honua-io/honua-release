@@ -1447,7 +1447,7 @@ def test_blocked_driver_evidence_names_dependency_stage_and_tool_before_action_l
     assert "bounded limit" not in detail
 
 
-# ---- fix unit J3: lock binding, cell/attempt identity and failure attribution ------------------------
+# fix unit J3: lock binding, cell/attempt identity and failure attribution
 LOCK = "sha256:" + "d" * 64
 
 
@@ -2423,7 +2423,7 @@ def test_model_journey_report_passes_an_image_bound_unbound_run_that_counts_for_
     assert not readiness._journey(receipt, frozenset({"aws-ecs/redis-off"}), "genuine-model", LOCK, *window)
 
 
-# ---- owner ruling canary-http-cell-2026-10-08: plain HTTP only to the provisioned cell host ---------
+# owner ruling canary-http-cell-2026-10-08: plain HTTP only to the provisioned cell host
 CELL_HOST = "honuanecsr1-alb-123456.us-east-1.elb.amazonaws.com"
 
 
@@ -2634,7 +2634,7 @@ def test_map_diagnostics_allow_saved_version_replicas_and_both_public_verificati
     assert 'nativeMap=' in canary.driver_failure_diagnostic(response)
 
 
-# ---- ga-cells-single-tenant-2026-10-27: the admitted GA journey satisfies the canary prerequisite ----
+# ga-cells-single-tenant-2026-10-27: the admitted GA journey satisfies the canary prerequisite
 GA_CELL = "aws-ecs/redis-on"
 TENANT_BLOCKER = "https://github.com/honua-io/honua-release/issues/377"
 
@@ -2769,7 +2769,7 @@ def test_single_tenant_helper_never_puts_e2e_on_sys_path(monkeypatch):
     assert canary._ga_single_tenant() is module
 
 
-# ---- ga-cells-single-tenant-2026-10-27: stage 8 of the genuine-model journey, no wider than admits() ----
+# ga-cells-single-tenant-2026-10-27: stage 8 of the genuine-model journey, no wider than admits()
 RULED_STAGE8_CHECKS = ("8.tools-present", "8.separation", "8.final-map", "8.canonical-join",
                        "8.current-authority", "8.rbac-denial", "8.canonical-evidence")
 

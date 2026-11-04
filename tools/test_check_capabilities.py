@@ -89,7 +89,7 @@ def test_test_kind_resolves_to_a_real_file():
     assert bad == "fail"
 
 
-# ---- capability-key evidence kind (honua-release#59) ------------------------------------------------
+# capability-key evidence kind
 FAKE_MATRIX = {
     "capabilities": [
         {"key": "serve.wfs", "maturity": {"implemented": 2}, "provingTestCount": 109, "noSurface": None,
@@ -171,7 +171,7 @@ def test_load_capability_matrix_valid_file_round_trips(tmp_path):
     assert loaded == FAKE_MATRIX
 
 
-# ---- the committed capabilities file must itself be fully backed (real checks + real gates) --------
+# the committed capabilities file must itself be fully backed (real checks + real gates)
 #
 # capability-key claims need a real capability matrix to resolve against, but this self-test must stay
 # hermetic/offline (no network fetch of honua-evidence). This fixture is a point-in-time snapshot of

@@ -121,9 +121,6 @@ class Findings:
         return not self.errors
 
 
-# --------------------------------------------------------------------------------------------------
-# loading
-# --------------------------------------------------------------------------------------------------
 def _load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
@@ -148,9 +145,6 @@ def _load_yaml_at_ref(ref: str, rel_path: str) -> dict | None:
         return None
 
 
-# --------------------------------------------------------------------------------------------------
-# structure
-# --------------------------------------------------------------------------------------------------
 def _component_version_kind(comp: dict) -> str:
     """'semver' | 'sha' | 'invalid' — how a manifest component declares its version."""
     version = str(comp.get("version", "")).strip()
@@ -533,9 +527,7 @@ def check_exact_candidate(
             )
 
 
-# --------------------------------------------------------------------------------------------------
 # coherence — the pinned set satisfies the matrix
-# --------------------------------------------------------------------------------------------------
 def qualification_candidate_digest(manifest: dict) -> str:
     """Bind a receipt reference to every parsed candidate manifest field, without a matrix cycle."""
     canonical = json.dumps(manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -796,9 +788,7 @@ def check_coherence(manifest: dict, matrix: dict, f: Findings) -> None:
         )
 
 
-# --------------------------------------------------------------------------------------------------
 # drift — a range may only widen unless the contract version bumped
-# --------------------------------------------------------------------------------------------------
 def _range_or_none(spec: str) -> semver.Range | None:
     try:
         return semver.parse_range(spec)
@@ -856,9 +846,6 @@ def _narrowed(base: semver.Range, cur: semver.Range) -> str:
     return "; ".join(reasons)
 
 
-# --------------------------------------------------------------------------------------------------
-# driver
-# --------------------------------------------------------------------------------------------------
 def validate(
     manifest: dict,
     matrix: dict,

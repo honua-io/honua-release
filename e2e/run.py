@@ -60,7 +60,7 @@ def main() -> int:
 
     results: list[Result] = []
 
-    # --- always-runnable gate: compose file is valid -------------------------------------------
+    # always-runnable gate: compose file is valid
     cfg_ok, cfg_why = harness.compose_config_ok()
     if not cfg_ok and "docker CLI not found" not in cfg_why:
         # A genuinely broken compose file is a hard FAIL regardless of images.
@@ -72,7 +72,7 @@ def main() -> int:
             why=cfg_why,
         ))
 
-    # --- load scenarios (import errors surface as a hard FAIL) ----------------------------------
+    # load scenarios (import errors surface as a hard FAIL)
     scenarios = []
     for f in SCENARIO_FILES:
         try:
@@ -80,7 +80,6 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             results.append(Result(f.parent.name, Status.FAIL, why=f"scenario failed to import: {e}"))
 
-    # --- bring up the stack --------------------------------------------------------------------
     server_up = False
     block_reason = ""
     if cfg_ok:

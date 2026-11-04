@@ -19,7 +19,7 @@ import slo_probe as probe  # noqa: E402
 from runner import harness  # noqa: E402
 
 
-# ---- SLO: the window ------------------------------------------------------------------------------
+# SLO: the window
 # The gate measures a DELTA across a bounded probe window, not a raw counter reading. Everything below
 # exists because reading the counters raw made the verdict a property of traffic timing: against an
 # unchanged candidate on 2026-08-18 the gate said fail (17.6%), blocked, pass and skipped within one
@@ -158,7 +158,7 @@ def test_slo_counter_delta_distinguishes_absent_from_zero():
     assert delta is None and "un-exist" in why
 
 
-# ---- end-to-end: real demo.honua.io expositions, scrape -> window -> verdict -----------------------
+# end-to-end: real demo.honua.io expositions, scrape -> window -> verdict
 # Captured live from the pinned candidate 6b6d3b89 on 2026-08-19, trimmed to the series the gate
 # reads. The `before` sample carries the poisoned history the raw-counter gate reported as 17.6%.
 _EXPO_BEFORE = (
@@ -272,7 +272,7 @@ def test_slo_end_to_end_scope_symmetry_is_what_makes_the_verdict_reproducible():
     assert slo.parse_continuity("")[0] == "blocked"
 
 
-# ---- the probe plan: deterministic, in-scope, and never deliberately wrong ------------------------
+# the probe plan: deterministic, in-scope, and never deliberately wrong
 _CATALOG = {"folders": [], "services": [
     {"name": "maui-roads", "type": "FeatureServer", "url": "https://demo.honua.io/rest/services/maui-roads/FeatureServer"},
     {"name": "maui-roads", "type": "MapServer", "url": "https://demo.honua.io/rest/services/maui-roads/MapServer"},
@@ -326,7 +326,7 @@ def test_slo_probe_numerator_covers_the_denominator_population():
     assert probe.numerator_filters("") == {}
 
 
-# ---- candidate identity binding (honua-release#5) --------------------------------------------------
+# candidate identity binding
 # An error budget is only the CANDIDATE's if it was scraped from the candidate. Honua's one
 # long-lived environment (demo.honua.io) doubles as demo and certification target and routinely runs
 # an older build than the manifest pin — so a gate that scrapes without checking identity reports a
@@ -440,7 +440,6 @@ def test_slo_identity_end_to_end_from_the_live_demo_response_blocks():
     assert "NOT the pinned candidate" in why
 
 
-# ---- upgrade -------------------------------------------------------------------------------------
 def _manifest(server_db, clients):
     comps = {"honua-server": {"version": "pre-release", "sha": "a" * 40, "dbSchema": server_db}}
     for name, ver in clients.items():

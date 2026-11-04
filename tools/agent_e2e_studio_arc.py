@@ -582,7 +582,7 @@ def provision_local_server(slot, signing_key):
     script = ('set -eu\numask 077\ncd -- ' + shlex.quote(str(remote)) + '\n'
               # The slot's own compose files (the package's COMPOSE_FILE) plus this override: an explicit
               # "-f compose.yaml" dropped the executor overlay (its AllowedHosts admit Console's calls to honua).
-              # Sol console2: the running server is read with the slot's files alone; the override is added to
+              # the running server is read with the slot's files alone; the override is added to
               # COMPOSE_FILE only once it is written.
               + slot_compose_files(None)
               + 'server_id=$(' + slot.compose('ps', '-q', 'honua') + ')\n'

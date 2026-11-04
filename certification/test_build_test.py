@@ -25,7 +25,6 @@ def _named(*pairs, status="completed"):
     return {"check_runs": [{"name": n, "status": status, "conclusion": c} for n, c in pairs]}
 
 
-# ---- classify -------------------------------------------------------------------------------------
 def test_all_green_passes():
     assert bt.classify(_runs("success", "success", "skipped", "neutral"))[0] == "pass"
 
@@ -159,7 +158,6 @@ def test_unknown_conclusion_is_blocked_not_pass():
     assert bt.classify(_runs("success", "weird_new_state"))[0] == "blocked"
 
 
-# ---- env-gated integration lanes ------------------------------------------------------------------
 LIVE = frozenset({"Live Integration (Testcontainers)"})
 
 
@@ -232,7 +230,6 @@ def test_load_env_gated_never_lists_a_build_or_unit_lane():
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a core lane"
 
 
-# ---- aggregate / roll-up check-runs ---------------------------------------------------------------
 ROLLUP = frozenset({"CI Gate", "Test Suite Summary"})
 
 
@@ -292,7 +289,7 @@ def test_load_rollup_never_lists_a_build_or_test_lane():
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not an aggregator"
 
 
-# ---- dependency-security check-runs ---------------------------------------------------------------
+# dependency-security check-runs
 SECURITY = frozenset({"Dependabot"})
 
 
@@ -341,7 +338,6 @@ def test_load_security_never_lists_a_build_or_test_lane():
             assert not any(b in low for b in banned), f"{comp}: '{n}' looks like a real lane, not a security signal"
 
 
-# ---- non-build governance check-runs -------------------------------------------------------------
 GOVERNANCE = frozenset({"Publish SHA-bound Codex review attestation"})
 
 
@@ -407,7 +403,6 @@ def test_load_advisory_never_hides_a_product_build_test_or_contract_lane():
         assert not (policy["workflows"] & forbidden_workflows), comp
 
 
-# ---- evaluate -------------------------------------------------------------------------------------
 def _fetch_map(mapping):
     return lambda repo, sha: mapping.get(repo, bt.NOT_FOUND)
 
@@ -574,7 +569,7 @@ def test_evaluate_scopes_the_replay_rule_by_component():
     assert verdicts["honua-console"] == "pass" and verdicts["honua-studio"] == "fail"
 
 
-# ---- honua-server validated-examples descendant rule (ruling 2026-11-03, rc.2 redo) -----------------
+# honua-server validated-examples descendant rule (ruling 2026-11-03, rc.2 redo)
 VX_PATH = ".github/workflows/validated-examples-nightly.yml"
 VX_VERIFIED = {"status": "verified", "ruling": "validated-examples-descendant-2026-11-03", "pinSha": "8" * 40,
                "runSha": "a" * 40, "runId": 4242, "changedPaths": ["examples/manifest.json"],

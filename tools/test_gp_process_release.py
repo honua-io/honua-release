@@ -29,7 +29,6 @@ def docs():
     }
 
 
-# --------------------------------------------------------------------------- documents and digests
 def test_committed_fixtures_and_release_files_validate(docs):
     for name in ("v1", "v2", "incompatible", "batch"):
         gate.validate_lock(docs[name], name)
@@ -83,7 +82,6 @@ def test_pin_must_name_a_lock_with_the_declared_digest(docs, tmp_path):
         gate.validate_pin(pin, REPO_ROOT)
 
 
-# --------------------------------------------------------------------------- preflight
 def test_preflight_admits_a_matching_available_compatible_release(docs):
     decision = gate.preflight(docs["v2"], docs["pin"], docs["state"], docs["index"])
     assert decision["admissible"] and decision["refusalReasons"] == []
@@ -154,7 +152,6 @@ def test_rollback_admits_only_the_pins_previous_release(docs):
     assert not missing["admissible"], "a rollback whose artifacts are gone is refused, not attempted"
 
 
-# --------------------------------------------------------------------------- receipts
 def _receipt(decision, **overrides):
     kwargs = dict(operation=decision["operation"], smoke="pass", smoke_evidence="run 1", binding="pending-server-6221",
                   binding_detail="reference", actor="mikemcdougall", run_repository="honua-io/honua-release", run_id="42",
@@ -181,7 +178,6 @@ def test_receipts_record_every_outcome_truthfully(docs):
         _receipt(admissible, operation="rollback")
 
 
-# --------------------------------------------------------------------------- cli
 def _cli(*args):
     return subprocess.run([sys.executable, str(REPO_ROOT / "tools/gp_process_release.py"), *args],
                           capture_output=True, text=True, cwd=REPO_ROOT)
@@ -215,7 +211,6 @@ def test_cli_validates_locks_pins_and_prints_digests():
     assert broken.returncode == 1 and "::error::" in broken.stderr
 
 
-# --------------------------------------------------------------------------- workflows
 def _workflow(name):
     return yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))
 

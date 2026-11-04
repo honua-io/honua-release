@@ -214,7 +214,6 @@ class AwsEksTarget(DeployTarget):
         self._master_key = f"Honua-Cert-Master-Aa1!{secrets.token_urlsafe(48)}"
         self._redis_password = f"Honua-Cert-Redis-Aa1!{secrets.token_urlsafe(32)}"
 
-    # --- prerequisites -------------------------------------------------------------------------
     def _name_prefix(self, redis_enabled: bool) -> str:
         # Redis mode in the prefix so the redis-on and redis-off EKS cells (same run_id, run in parallel)
         # provision independent, non-colliding cluster resource names. Bounded to 18 chars. Stored on
@@ -353,7 +352,6 @@ class AwsEksTarget(DeployTarget):
             return Availability(False, f"{self.name} not runnable: " + "; ".join(missing), missing)
         return Availability(True, f"{self.name} prerequisites present")
 
-    # --- process plumbing ----------------------------------------------------------------------
     def _run(self, command: list[str], *, input_text: str | None = None,
              env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(command, input=input_text, text=True, capture_output=True,
@@ -447,7 +445,6 @@ class AwsEksTarget(DeployTarget):
                 sections.append((title, self._redact(body)))
         return sections
 
-    # --- terraform lifecycle -------------------------------------------------------------------
     def _tf_vars(self, redis_enabled: bool, *, destroy: bool = False) -> list[str]:
         prefix = self._prefix or self._name_prefix(redis_enabled)
         runner_cidr = self._runner_cidr()
@@ -547,7 +544,6 @@ class AwsEksTarget(DeployTarget):
             raise ProvisionError(f"{self.name}: {FILE_STORAGE_BUCKET_ENV} is not an S3 bucket name")
         return bucket
 
-    # --- per-run HTTPS cell hostname (honua-release#450, as on the ECS cells) ---------------------
     def cell_domain_label(self, redis_enabled: bool) -> str:
         """`<run id>-aws-eks-redis-<on|off>`, under the same rules as the ECS cells' label."""
         return _tt.TerraformTarget.cell_domain_label(self, redis_enabled)
@@ -643,7 +639,6 @@ class AwsEksTarget(DeployTarget):
             if record.get("Type") == "CNAME":
                 self._change_record(zone, "DELETE", record)
 
-    # --- kubernetes fixtures -------------------------------------------------------------------
     def _apply(self, manifest: dict) -> None:
         try:
             self._kubectl("apply", "-f", "-", input_text=json.dumps(manifest))
@@ -760,7 +755,6 @@ class AwsEksTarget(DeployTarget):
             "stringData": values,
         })
 
-    # --- root outputs --------------------------------------------------------------------------
     def _load_outputs(self) -> dict:
         """`terraform output -json`, flattened to name -> value. Held in memory, never printed."""
         if self._outputs is None:
@@ -781,7 +775,6 @@ class AwsEksTarget(DeployTarget):
             return None
         return self._load_outputs().get(name)
 
-    # --- helm ----------------------------------------------------------------------------------
     @staticmethod
     def _image_values(reference: str) -> tuple[str, str, str]:
         """Split the manifest-pinned image into the chart's (repository, tag, digest) values."""
@@ -1052,7 +1045,6 @@ class AwsEksTarget(DeployTarget):
         }
         return sorted(repositories)
 
-    # --- endpoint ------------------------------------------------------------------------------
     def _load_balancer_hostname(self, timeout_seconds: float = 600.0) -> str:
         deadline = time.monotonic() + timeout_seconds
         last = ""
@@ -1211,7 +1203,6 @@ class AwsEksTarget(DeployTarget):
             f"(last: {last})" + (f"\n{diagnostics}" if diagnostics else "")
         )
 
-    # --- lifecycle -----------------------------------------------------------------------------
     def provision(self, redis_enabled: bool = False) -> str:
         root = self._iac_root()
         if root is None:

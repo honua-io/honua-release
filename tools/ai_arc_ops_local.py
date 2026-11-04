@@ -79,7 +79,6 @@ def arc_stage(ctx):
     return LocalOps() if ctx.target == 'local-docker' else None
 
 
-# --------------------------------------------------------------------------- controller I/O
 
 class Manager:
     """The manager's admin API over the runner's loopback tunnel (X-API-Key)."""
@@ -238,7 +237,6 @@ def proposal_ids(value) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-# --------------------------------------------------------------------------- the model's surface
 
 class OpsBackend:
     """The manager's /mcp for the model: only ops, alert, operate-event and proposal tools; proposal
@@ -288,7 +286,6 @@ def allowed_tool(name) -> bool:
     return isinstance(name, str) and bool(TOOL.fullmatch(name)) and not FORBIDDEN.search(name)
 
 
-# --------------------------------------------------------------------------- the harness
 
 def proposal_inventory(body) -> bool:
     """A complete, readable proposal inventory: every row an object with a proposal id and a status, and no
@@ -732,7 +729,6 @@ class Live:
             self.backend.close()
 
 
-# --------------------------------------------------------------------------- the stage
 
 # What the customer's rc.2 release notes say about versions (honua-release release-notes/2026.1.md; honua-server
 # #6865 and #6884), quoted as the customer has it: rc.1 reported server version 2026.1.1 in error, so a careful agent

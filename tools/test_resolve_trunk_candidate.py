@@ -568,7 +568,6 @@ def test_an_exhausted_rate_limit_retries_then_refuses(monkeypatch, tmp_path, cap
      {'total_count': 120, 'check_runs': [{'id': n} for n in range(20)]}],
     # No count at all.
     [{'check_runs': []}],
-    # Not a page.
     [['not', 'a', 'page']],
 ])
 def test_a_truncated_check_run_page_refuses_before_ci_is_judged(monkeypatch, pages):
@@ -898,7 +897,7 @@ def test_resolve_refuses_when_the_migration_tree_cannot_be_read(monkeypatch):
 
 
 
-# --- lock content digests (honua-release#231 WI-7) ---
+# lock content digests
 
 def test_resolve_declares_okf_and_catalog_at_the_selected_server_sha(monkeypatch):
     hand = {'repository': 'https://github.com/honua-io/honua-server', 'revision': OLD,
@@ -1145,7 +1144,7 @@ def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch,
     assert resolved_candidate == control_candidate
 
 
-# --- release/component-versions.json (honua-release#231 WI-3a) ---
+# release/component-versions.json
 
 def declaration_bytes(component, **overrides):
     body = {'format': 'honua.component-versions/v1', 'component': component,
@@ -1411,7 +1410,7 @@ def test_resolve_names_every_component_without_a_declaration_and_keeps_no_hand_m
     assert not any(line.startswith(('honua-server: ', 'honua-collect: ')) for line in lines)
 
 
-# --- a trunk commit without a declaration is skipped, not refused (honua-release#471) ---
+# a trunk commit without a declaration is skipped, not refused
 
 class DeclaredTrunk(Declarations):
     """A green, published trunk of NEW (newest) then OLD, with declarations only where given."""
@@ -1531,7 +1530,7 @@ def test_false_does_not_allow_empty_version_sets():
                  sourcePinnedOnly=False)
 
 
-# --- Published SDK identities (honua-release#231 WI-4) ---
+# Published SDK identities
 RECORDED = resolver.ROOT / 'tools' / 'fixtures' / 'client-artifacts'
 
 
@@ -1701,7 +1700,7 @@ def test_companion_publication_cannot_choose_the_sdk_source(monkeypatch):
     assert pins['companion']['sourceSha'] == NEW
 
 
-# --- SDK capability baselines (honua-release#231 WI-5) ---
+# SDK capability baselines
 DOTNET_PUBLISHED = '8a0a06c815baefd49e7398d38a9f22642a8c80c5'
 RECEIPT_EVIDENCE = {
     'uri': 'https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/'
@@ -2097,7 +2096,7 @@ def test_image_child_without_config_descriptor_refuses_instead_of_crashing():
         registry.identity('honua-io/honua-server', 'nightly-aaaaaaa', NEW, ['amd64'])
 
 
-# --- A released honua-iac stays on its release (2026.1 freeze needs a released version) ---
+# A released honua-iac stays on its release (2026.1 freeze needs a released version)
 
 IAC_RELEASE, IAC_TAG_OBJECT = 'd' * 40, 'f' * 40
 

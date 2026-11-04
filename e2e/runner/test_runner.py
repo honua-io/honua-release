@@ -25,7 +25,7 @@ from runner.manifest import Manifest, ServerPin, SdkPin, load_manifest  # noqa: 
 from runner.report import Result, Status, assemble  # noqa: E402
 
 
-# ---- report.assemble: the mechanical verdict ------------------------------------------------------
+# report.assemble: the mechanical verdict
 def _r(status: Status) -> Result:
     return Result(scenario=f"s-{status.value}", status=status)
 
@@ -60,7 +60,7 @@ def test_assemble_summary_counts_every_status():
     assert summ == {"pass": 1, "fail": 1, "skipped": 1, "blocked": 1}
 
 
-# ---- parse_metric_total: the in-band error-metric scrape ------------------------------------------
+# parse_metric_total: the in-band error-metric scrape
 def test_parse_metric_absent_is_none():
     body = "# HELP other_total help\nother_total 5\n"
     assert harness.parse_metric_total(body, "honua_geoservices_error_total") is None
@@ -87,7 +87,7 @@ def test_parse_metric_does_not_match_prefixed_name():
     assert harness.parse_metric_total(body, "honua_geoservices_error_total") is None
 
 
-# ---- real honua-server exposition: trailing timestamps + histogram _count (honua-release#5) --------
+# real honua-server exposition: trailing timestamps + histogram _count
 # Verbatim shape emitted by honua-server's OpenTelemetry Prometheus exporter. Every sample carries a
 # trailing millisecond timestamp; the pre-#5 parser anchored the value at end-of-line and therefore
 # returned None for ALL of these — the SLO gate could not have read a single metric off a live
@@ -121,7 +121,7 @@ def test_parse_metric_histogram_base_name_does_not_absorb_its_children():
     assert harness.parse_metric_total(REAL_EXPOSITION, "honua_serving_request_duration_ms") is None
 
 
-# ---- scope selectors: the denominator must cover the numerator's population --------------------
+# scope selectors: the denominator must cover the numerator's population
 GEOSERVICES_SELECTOR = (
     'honua_protocol=~"FeatureServer|MapServer|ImageServer|VectorTileServer|GPServer|NAServer|'
     'GeometryService|PrintingTools|StaticMap"'
@@ -210,7 +210,7 @@ def test_scrape_metric_uses_admin_key(monkeypatch):
     assert seen["key"] == "test-admin-key"
 
 
-# ---- manifest loading: what counts as a real (runnable) pin ---------------------------------------
+# manifest loading: what counts as a real (runnable) pin
 def test_load_real_manifest_has_real_sdk_pins():
     m = load_manifest()  # the committed platform-manifest.yaml carries real SDK versions
     assert m.platform_release.startswith("2026.1")
