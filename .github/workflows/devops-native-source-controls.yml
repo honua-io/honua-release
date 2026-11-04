@@ -6,6 +6,7 @@ on:
       - 'tools/test_devops*'
       - 'tools/judge_devops_cleanup.py'
       - 'tools/test_judge_devops_cleanup.py'
+      - 'tools/digests.py'
       - 'tools/fixtures/devops-cleanup-inputs/**'
       - '.github/workflows/devops-native-source-controls.yml'
   push:
@@ -15,6 +16,7 @@ on:
       - 'tools/test_devops*'
       - 'tools/judge_devops_cleanup.py'
       - 'tools/test_judge_devops_cleanup.py'
+      - 'tools/digests.py'
       - 'tools/fixtures/devops-cleanup-inputs/**'
       - '.github/workflows/devops-native-source-controls.yml'
 permissions:

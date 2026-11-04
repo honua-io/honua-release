@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime, timezone
-import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -18,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / 'tools'
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
+from digests import ascii_canonical_bytes, file_sha256_hex, sha256_hex  # noqa: E402
 PROFILE = 'redis-off-serving-refusal'
 CELLS = {'aws-ecs/redis-off', 'aws-serverless/redis-off'}
 ASSERTIONS = {'servingRead', 'typedRedisRefusal', 'authentication', 'anonymousDenial', 'viewerDenial', 'catalogExact'}
@@ -45,14 +45,6 @@ def failure_reason(exc):
 def require(ok, reason):
     if not ok:
         raise ValueError(reason)
-
-
-def sha(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-def canonical(value):
-    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
 
 def instant(value):
@@ -126,7 +118,7 @@ def produce(record, raw_path, target_path, *, adapter, pinned, digest, cell):
                     'status': 'blocked', 'why': 'prerequisite receipt not admissible: ' + str(exc),
                     'blockedBy': roster['blockedBy'], 'cell': cell, 'runId': record['runId'],
                     'runAttempt': record['runAttempt'], 'attempt': record['number'],
-                    'rawReceiptSha256': sha(raw_bytes), 'sourceStatus': raw.get('status'),
+                    'rawReceiptSha256': sha256_hex(raw_bytes), 'sourceStatus': raw.get('status'),
                     'generatedAt': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}
         raise
     fixture_path = target_path.parent / 'extended/seed-manifest.json'
@@ -138,14 +130,14 @@ def produce(record, raw_path, target_path, *, adapter, pinned, digest, cell):
     result = {'schemaVersion': 'deterministic-redis-off-serving-refusal.v1', 'profile': PROFILE,
         'mode': 'deterministic', 'cell': cell, 'runId': record['runId'], 'runAttempt': record['runAttempt'],
         'attempt': record['number'], 'candidateDigest': digest, 'server': raw['server'],
-        'rawReceiptSha256': sha(raw_bytes), 'targetConfigSha256': sha(target_path.read_bytes()),
-        'sourceStatus': raw['status'], 'planSha256': sha(canonical(args)), 'status': 'fail',
+        'rawReceiptSha256': sha256_hex(raw_bytes), 'targetConfigSha256': file_sha256_hex(target_path),
+        'sourceStatus': raw['status'], 'planSha256': sha256_hex(ascii_canonical_bytes(args)), 'status': 'fail',
         'executionOutcome': 'not-attempted', 'functionalGpExecuted': None, 'cleanup': 'not-attempted'}
     workspace = None
     try:
         setup = adapter.op_setup({'target': str(target_path), 'profile': PROFILE,
             'deploymentReceipt': prerequisite,
-            'servingFixture': {'path': str(fixture_path), 'sha256': sha(fixture_path.read_bytes())}})
+            'servingFixture': {'path': str(fixture_path), 'sha256': file_sha256_hex(fixture_path)}})
         workspace = setup.get('workspaceId')
         require(setup.get('status') == 'ready' and bool(workspace), 'profile driver setup unavailable')
         common = {'workspaceId': workspace, 'profile': PROFILE}
@@ -216,8 +208,8 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
         and raw.get('mode') == 'live' and raw.get('roster', {}).get('status') == 'pass'
         and raw.get('status') in {'pass', 'blocked'} and value.get('sourceStatus') == raw['status']
         and not any(stage.get('status') == 'fail' for stage in raw.get('stages', [])), 'wrong profile source/candidate binding')
-    require(value.get('rawReceiptSha256') == record['receiptSha256'] == sha(raw_bytes)
-        and value.get('targetConfigSha256') == raw['target'].get('configSha256') == sha(target_path.read_bytes()),
+    require(value.get('rawReceiptSha256') == record['receiptSha256'] == sha256_hex(raw_bytes)
+        and value.get('targetConfigSha256') == raw['target'].get('configSha256') == file_sha256_hex(target_path),
         'profile raw receipt/target integrity mismatch')
     target = json.loads(target_path.read_bytes())
     suffix = f"#honua-run={record['runId']}/{record['runAttempt']}"
@@ -239,7 +231,7 @@ def validate(value, record, raw, raw_bytes, target_path, *, cell, digest, expect
     generated = instant(value['generatedAt'])
     require(instant(raw['generatedAt']) <= generated <= at and (at - generated).total_seconds() <= 86400,
             'profile evidence is stale, future or precedes the source receipt')
-    require(value.get('planSha256') == sha(canonical(plan(target, record['runId'], record['number']))),
+    require(value.get('planSha256') == sha256_hex(ascii_canonical_bytes(plan(target, record['runId'], record['number']))),
             'profile durable attempt differs from authored valid fixture input')
     expected = oracle().fixture_binding(target_path.parent / 'extended/seed-manifest.json')
     public = {key: item for key, item in expected.items() if key != 'expectedFeatures'}
@@ -269,7 +261,7 @@ def validate_record(record, raw, raw_path, *, cell, pinned, digest, at=None, req
                  raw_path.parent / 'extended/seed-manifest.json'):
         require(file.is_file() and not file.is_symlink() and file.resolve().is_relative_to(directory),
                 'unsafe or missing serving/refusal artifact')
-    require(isinstance(proof, dict) and proof.get('file') == path.name and proof.get('sha256') == sha(path.read_bytes()),
+    require(isinstance(proof, dict) and proof.get('file') == path.name and proof.get('sha256') == file_sha256_hex(path),
             'missing or changed serving/refusal sidecar')
     from cloud_journey import candidate_image
     server = {'sourceSha': pinned['components']['honua-server']['sha'], 'image': candidate_image(cell, pinned)}
@@ -287,7 +279,7 @@ def failed_record(record, raw, raw_path):
     proof = record.get('servingRefusal', {})
     require(isinstance(proof, dict) and proof.get('file') == path.name
         and path.is_file() and not path.is_symlink()
-        and proof.get('sha256') == sha(path.read_bytes()), 'missing or changed serving/refusal sidecar')
+        and proof.get('sha256') == file_sha256_hex(path), 'missing or changed serving/refusal sidecar')
     # A blocked profile (no admissible prerequisite) cannot satisfy a required success either.
     return json.loads(path.read_bytes()).get('status') in ('fail', 'blocked')
 
@@ -299,5 +291,5 @@ def blocked_record(record, raw_path):
         return False
     path = raw_path.parent / f"serving-refusal-{record['number']}.json"
     require(proof.get('file') == path.name and path.is_file() and not path.is_symlink()
-            and proof.get('sha256') == sha(path.read_bytes()), 'missing or changed serving/refusal sidecar')
+            and proof.get('sha256') == file_sha256_hex(path), 'missing or changed serving/refusal sidecar')
     return json.loads(path.read_bytes()).get('status') == 'blocked'

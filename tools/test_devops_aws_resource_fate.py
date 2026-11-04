@@ -1,8 +1,9 @@
 """Parser/source vectors only; no AWS calls or live cleanup proof."""
 from dataclasses import replace
 import pytest
-from devops_provisioning_contract import Refusal, canonical
+from devops_provisioning_contract import Refusal
 import devops_aws_resource_fate as fate
+from digests import ascii_canonical_bytes
 
 
 def resource(ownership='owned'):
@@ -13,14 +14,14 @@ def resource(ownership='owned'):
 def read(value=None, *, error=None, command=None, target=None):
     target=target or resource()
     return fate.OriginalRead(command or fate.expected_command(target),255 if error else 0,
-                             b'' if error else canonical(value),error or b'')
+                             b'' if error else ascii_canonical_bytes(value),error or b'')
 
 
 def tags(arns=(),token='',command=None):
     command=command or ('aws','resourcegroupstaggingapi','get-resources','--region','us-west-2',
              '--tag-filters','Key=honua-release:run-id,Values=123','Key=honua-release:cell,Values=original',
              '--no-paginate','--output','json')
-    return fate.OriginalRead(command,0,canonical({'ResourceTagMappingList':[
+    return fate.OriginalRead(command,0,ascii_canonical_bytes({'ResourceTagMappingList':[
         {'ResourceARN':arn,'Tags':[{'Key':'honua-release:run-id','Value':'123'},
                                   {'Key':'honua-release:cell','Value':'original'}]} for arn in arns],
         'PaginationToken':token}),b'')

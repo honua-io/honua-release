@@ -7,12 +7,12 @@ The normal producer must run the installed bootstrap and both language fixtures.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+from digests import file_sha256_hex, sha256_digest, sha256_hex
 
 
 class ArtifactError(ValueError):
@@ -22,11 +22,6 @@ class ArtifactError(ValueError):
 def require(condition, message):
     if not condition:
         raise ArtifactError(message)
-
-
-def sha256(path):
-    with Path(path).open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def load(path):
@@ -51,7 +46,7 @@ def package_identity(path, source_sha):
                 repository.get("url", "").removesuffix(".git").rstrip("/") == "https://github.com/honua-io/honua-server",
                 "Package repository/source binding differs from the reviewed server source")
         assembly = package.read("tools/net10.0/any/honua-gp.dll")
-        return version, hashlib.sha256(assembly).hexdigest()
+        return version, sha256_hex(assembly)
 
 
 def qualify(root, package, source_sha, *, expected_python_image=None):
@@ -63,7 +58,7 @@ def qualify(root, package, source_sha, *, expected_python_image=None):
             "Installed assembly has not completed qualification")
     image = prepared.get("image", "")
     require(re.fullmatch(r"sha256:[0-9a-f]{64}", image), "Exact locally qualified image config digest required")
-    require(prepared.get("nupkg") == {"version": version, "sha256": sha256(package)}, "Qualified package bytes/version differ")
+    require(prepared.get("nupkg") == {"version": version, "sha256": file_sha256_hex(package)}, "Qualified package bytes/version differ")
     require(prepared.get("nuget") and prepared.get("wheels", {}).get("wheels"), "Locked dependency provenance is missing")
     sdk = prepared.get("sdk", {})
     require(re.fullmatch(r"10\.0\.[0-9]+", sdk.get("version", "")) and
@@ -124,13 +119,13 @@ def qualify(root, package, source_sha, *, expected_python_image=None):
                 not any(part.is_symlink() for part in (output, *output.parents) if part.is_relative_to(root)),
                 "Artifact escaped its retained run")
         require(type(artifact.get("bytes")) is int and 0 < artifact["bytes"] <= 4 * 1024 * 1024 and
-                output.stat().st_size == artifact["bytes"] and sha256(output) == artifact.get("sha256"), "Qualified GeoJSON bytes changed")
+                output.stat().st_size == artifact["bytes"] and file_sha256_hex(output) == artifact.get("sha256"), "Qualified GeoJSON bytes changed")
         geojson = load(output)
         require(geojson.get("type") == "FeatureCollection" and geojson.get("features"), "Nonempty geospatial output required")
         artifacts.append({"language": run["language"], "runId": receipts[1]["runId"], "sha256": artifact["sha256"], "bytes": artifact["bytes"]})
     return {"schema": "honua.gp.devkit-candidate/v1", "sourceRepository": "honua-io/honua-server", "sourceSha": source_sha,
-            "version": version, "package": {"file": package.name, "sha256": sha256(package)}, "imageConfigDigest": image,
-            "assemblySha256": sha256(root / "assembly.json"), "sdk": sdk, "pythonBase": prepared["pythonBase"],
+            "version": version, "package": {"file": package.name, "sha256": file_sha256_hex(package)}, "imageConfigDigest": image,
+            "assemblySha256": file_sha256_hex(root / "assembly.json"), "sdk": sdk, "pythonBase": prepared["pythonBase"],
             "qualification": {"installedTransport": True, "python": True, "dotnet": True, "geoJsonArtifacts": artifacts},
             "scope": "linux-x64 installed local development; server import/map/cloud journeys require separate evidence"}
 
@@ -138,7 +133,7 @@ def qualify(root, package, source_sha, *, expected_python_image=None):
 def published(candidate, reference, manifest):
     require(candidate.get("schema") == "honua.gp.devkit-candidate/v1", "Candidate identity required")
     require(re.fullmatch(r"ghcr\.io/honua-io/honua-gp-workspace@sha256:[0-9a-f]{64}", reference), "Immutable governed registry image required")
-    require("sha256:" + hashlib.sha256(manifest).hexdigest() == reference.split("@", 1)[1], "Registry manifest digest changed")
+    require(sha256_digest(manifest) == reference.split("@", 1)[1], "Registry manifest digest changed")
     document = json.loads(manifest)
     require(document.get("config", {}).get("digest") == candidate["imageConfigDigest"], "Registry image is not the locally qualified image")
     # Single-platform Linux x64 image; an index needs its own per-platform qualification.

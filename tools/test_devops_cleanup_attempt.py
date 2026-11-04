@@ -1,15 +1,16 @@
 """Whole attempt source vectors are not genuine signed approvals or AWS proof."""
 from dataclasses import replace
 import pytest
-from devops_provisioning_contract import canonical, document, sha256, timestamp, Refusal
+from devops_provisioning_contract import document, timestamp, Refusal
 from devops_cleanup_attempt import AttemptContext, verify_attempt
 from test_devops_provisioning_contract import execution_vector, vector
+from digests import ascii_canonical_bytes, sha256_hex
 
 
 def attempt_vector(exit_code=0):
     receipt, metadata, plan_context = execution_vector(exit_code)
     _, saved_plan, inputs, _ = vector()
-    approval = canonical({'schemaVersion':'honua.devops.provision-approval/v1',
+    approval = ascii_canonical_bytes({'schemaVersion':'honua.devops.provision-approval/v1',
         'signingMode':'kms-mac', 'decision':'approved', 'issuer':'source-vector-issuer',
         'keyId':'source-vector-key', 'provisioningOperationId':plan_context.operation_id,
         'planSha256':document(metadata)['plan']['sha256'],
@@ -17,20 +18,20 @@ def attempt_vector(exit_code=0):
         'action':'apply', 'stack':'aws-ecs', 'environment':'it',
         'issuedAtUtc':'2026-10-20T00:01:30Z', 'expiresAtUtc':'2026-10-20T00:20:00Z',
         'approvalReceiptId':'source-vector-only', 'signature':'not-a-real-mac-source-test-only'})
-    raw_receipt = canonical(receipt)
-    claim = canonical({'schema_version':'v1', 'kind':'honua.iac.claim-status',
+    raw_receipt = ascii_canonical_bytes(receipt)
+    claim = ascii_canonical_bytes({'schema_version':'v1', 'kind':'honua.iac.claim-status',
         'claim_dir':'/owned/claims/original', 'state':'completed',
         'acquired_at_utc':'2026-10-20T00:02:00Z', 'completed_at_utc':'2026-10-20T00:10:00Z',
         'phase':'receipt-committed', 'executor_id':'owned-executor',
-        'receipt_digest':sha256(raw_receipt)})
+        'receipt_digest':sha256_hex(raw_receipt)})
     originals = dict(inputs, metadata=metadata, **{'saved-plan':saved_plan, 'approval':approval,
                      'claim':claim, 'execution-receipt':raw_receipt})
     context = AttemptContext(plan_context, '/owned/claims/original',
         '/owned/plans/original/honua.tfplan', 'owned-executor',
         timestamp('2026-10-20T00:02:00Z'), timestamp('2026-10-20T00:11:00Z'),
-        timestamp('2026-10-20T00:03:00Z'), sha256(approval), 'source-vector-issuer',
+        timestamp('2026-10-20T00:03:00Z'), sha256_hex(approval), 'source-vector-issuer',
         'source-vector-key', 'issuer-principal', 'executor-principal', 'it',
-        {name:sha256(raw) for name,raw in originals.items()}, exit_code)
+        {name:sha256_hex(raw) for name,raw in originals.items()}, exit_code)
     return originals, context
 
 
@@ -50,9 +51,9 @@ def test_cancelled_missing_receipt_is_retained_indeterminate_never_success():
     claim = document(originals['claim'])
     claim.update(state='reconciliation-required', phase='reconciliation-required',
                  completed_at_utc=None, receipt_digest=None)
-    originals['claim'] = canonical(claim)
+    originals['claim'] = ascii_canonical_bytes(claim)
     context = replace(context, exit_code=None,
-                      original_hashes={name:sha256(raw) for name,raw in originals.items()})
+                      original_hashes={name:sha256_hex(raw) for name,raw in originals.items()})
     result = verify_attempt(originals, context)
     assert result['status'] == 'indeterminate' and result['execution'] is None
     assert result['cleanupOutstanding'] is True

@@ -58,7 +58,8 @@ from pathlib import Path
 
 import yaml
 
-from upgrade_trunk_pair import DIGEST, PairError, _bytes_digest, server_identity
+from upgrade_trunk_pair import DIGEST, PairError, server_identity
+from digests import sha256_digest
 
 SCHEMA = "honua.upgrade-compose-receipt/v1"
 PUBLISHED_RC = "published-rc"
@@ -157,7 +158,7 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
             continue
         return _pair(candidate, candidate_bytes, source=PUBLISHED_RC, prior=reference, source_revision="",
                      label=release["tag_name"], url=str(release.get("html_url") or ""), skipped=skipped,
-                     identity=_bytes_digest(json.dumps({"tag": release["tag_name"], "prior": reference},
+                     identity=sha256_digest(json.dumps({"tag": release["tag_name"], "prior": reference},
                                                        sort_keys=True).encode()))
     # Read only when no rc supplied a prior: a published rc wins even if the lock tags cannot be read.
     locks = nightly_locks() if callable(nightly_locks) else nightly_locks
@@ -170,7 +171,7 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
             continue
         return _pair(candidate, candidate_bytes, source=NIGHTLY_LOCK, prior=reference, source_revision=revision,
                      label=f"nightly-lock/{label}", url="", skipped=skipped,
-                     identity=_bytes_digest(json.dumps(lock, sort_keys=True, separators=(",", ":")).encode()))
+                     identity=sha256_digest(json.dumps(lock, sort_keys=True, separators=(",", ":")).encode()))
     for nightly in (certified_nightlies(candidate) if certified_nightlies else []):
         tag, sha, reference = str(nightly.get("tag") or ""), str(nightly.get("sha") or ""), str(nightly.get("reference") or "")
         match = NIGHTLY_TAG.fullmatch(tag)
@@ -187,7 +188,7 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
             continue
         return _pair(candidate, candidate_bytes, source=CERTIFIED_NIGHTLY, prior=reference, source_revision=sha,
                      label=f"{tag} ({NIGHTLY_PRIOR_RULING})", url="", skipped=skipped,
-                     identity=_bytes_digest(json.dumps({"tag": tag, "sha": sha, "prior": reference},
+                     identity=sha256_digest(json.dumps({"tag": tag, "sha": sha, "prior": reference},
                                                        sort_keys=True).encode()))
     detail = f"; skipped: {', '.join(skipped)}" if skipped else ""
     raise PairError("no published 2026.1 rc release, no signed nightly lock and no certified nightly image older "
@@ -252,7 +253,7 @@ def _pair(candidate: dict, candidate_bytes: bytes, *, source: str, prior: str, s
         "candidate": candidate["reference"],
         "candidate_source_revision": candidate["sourceRevision"],
         "candidate_schema": str(candidate["dbSchema"]),
-        "candidate_manifest_digest": _bytes_digest(candidate_bytes),
+        "candidate_manifest_digest": sha256_digest(candidate_bytes),
         "platform": PLATFORM,
     }
 
@@ -346,8 +347,8 @@ def bind_candidate_lock(receipt: dict, *, lock_raw: bytes, lock_digest: str, man
 
     if not DIGEST.fullmatch(str(lock_digest or "")):
         return refuse("lock_digest is not sha256:<64 hex>")
-    if _bytes_digest(lock_raw) != lock_digest:
-        return refuse(f"lock bytes digest {_bytes_digest(lock_raw)} is not the dispatched {lock_digest}")
+    if sha256_digest(lock_raw) != lock_digest:
+        return refuse(f"lock bytes digest {sha256_digest(lock_raw)} is not the dispatched {lock_digest}")
     try:
         lock = json.loads(lock_raw)
         manifest = yaml.safe_load(manifest_raw)
@@ -358,7 +359,7 @@ def bind_candidate_lock(receipt: dict, *, lock_raw: bytes, lock_digest: str, man
     except (ValueError, TypeError, KeyError, AttributeError, BindingError, yaml.YAMLError) as exc:
         return refuse(f"unreadable lock or manifest ({exc})")
     manifest_input = ((lock.get("sourceInputs") or {}).get("platformManifest") or {}).get("sha256")
-    if manifest_input != _bytes_digest(manifest_raw):
+    if manifest_input != sha256_digest(manifest_raw):
         return refuse("the lock's platformManifest input is not this checkout's platform-manifest.yaml")
     source, index = image.get("sourceRevision"), image.get("digest")
     amd64 = (image.get("platformDigests") or {}).get(ARCHITECTURE)

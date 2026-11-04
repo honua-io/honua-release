@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from digests import file_sha256_digest
 
 SCENARIOS = {
     "post-migration-readiness",
@@ -33,10 +33,6 @@ REQUIRED_EVIDENCE = (
 
 class RecoveryError(ValueError):
     pass
-
-
-def sha256_bytes(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _timestamp(value: str, field: str) -> datetime:
@@ -108,7 +104,7 @@ def validate(receipt: dict[str, Any], evidence_dir: Path | None = None) -> dict[
             raise RecoveryError("missing required recovery evidence: " + ", ".join(missing))
         declared = receipt.get("evidence") or {}
         for name in REQUIRED_EVIDENCE:
-            if declared.get(name) != sha256_bytes(evidence_dir / name):
+            if declared.get(name) != file_sha256_digest(evidence_dir / name):
                 raise RecoveryError(f"evidence digest mismatch: {name}")
     return receipt
 
@@ -128,7 +124,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     started = _timestamp(phase_times["recovery-started"], "recovery-started")
     terminal = _timestamp(phase_times["recovery-terminal"], "recovery-terminal")
     classification = classify(observation)
-    evidence = {name: sha256_bytes(evidence_dir / name) for name in REQUIRED_EVIDENCE if (evidence_dir / name).is_file()}
+    evidence = {name: file_sha256_digest(evidence_dir / name) for name in REQUIRED_EVIDENCE if (evidence_dir / name).is_file()}
     receipt = {
         "schema": "honua.upgrade-recovery-receipt/v1",
         "scenario": args.scenario,

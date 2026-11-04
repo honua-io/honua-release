@@ -5,7 +5,8 @@ into authority: the caller must also validate the actual mutation, provider read
 and birth-bound executor terminal originals to which these exact hashes refer.
 """
 from devops_fault_tunnel import FaultProfile
-from devops_provisioning_contract import document, require, OPERATION, sha256
+from devops_provisioning_contract import document, require, OPERATION
+from digests import sha256_hex
 
 
 def verify_fault_original(original: bytes, *, profile: FaultProfile, operation_id: str,
@@ -14,8 +15,8 @@ def verify_fault_original(original: bytes, *, profile: FaultProfile, operation_i
     require(type(operation_id) is str and OPERATION.fullmatch(operation_id), 'fault-join-operation')
     require(all(type(raw) is bytes and bool(raw) for raw in
                 (mutation_original, resource_original, terminal_original)), 'fault-join-originals')
-    expected_hashes = {'mutation-bound': sha256(mutation_original),
-                       'armed': sha256(resource_original), 'restored': sha256(terminal_original)}
+    expected_hashes = {'mutation-bound': sha256_hex(mutation_original),
+                       'armed': sha256_hex(resource_original), 'restored': sha256_hex(terminal_original)}
     value = document(original)
     require(set(value) == {'contextSha256', 'journal', 'journalExhausted', 'faultedConnections',
             'acceptedConnections', 'armed', 'closed', 'candidateQualified', 'sixAwsCellsQualified'},
@@ -71,5 +72,5 @@ def verify_fault_original(original: bytes, *, profile: FaultProfile, operation_i
                     'fault-join-unknown-event')
     require(stage == 5 and drops == value['faultedConnections']
             and connections == value['acceptedConnections'], 'fault-join-lifecycle-complete')
-    return {'status': 'fault-transport-joined', 'originalSha256': sha256(original),
+    return {'status': 'fault-transport-joined', 'originalSha256': sha256_hex(original),
             'faultedConnections': drops, 'candidateQualified': False, 'sixAwsCellsQualified': False}

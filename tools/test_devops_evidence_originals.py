@@ -1,14 +1,14 @@
 """Real owned-file controls; no native/cloud invocation or fixture qualification."""
-from pathlib import Path
 import os
 import pytest
-from devops_provisioning_contract import Refusal,sha256,document
+from devops_provisioning_contract import Refusal, document
 from devops_evidence_originals import read_reference
+from digests import sha256_hex
 
 
 def original(tmp_path):
     root=tmp_path/'owned-protected-evidence';root.mkdir(mode=0o700)
-    data=b'original private plan/approval vector';digest=sha256(data)
+    data=b'original private plan/approval vector';digest=sha256_hex(data)
     path=root/digest;path.write_bytes(data);path.chmod(0o600)
     reference={'kind':'plan','reference':'urn:sha256:'+digest,'sha256':digest,'byteLength':len(data)}
     return root,path,data,reference

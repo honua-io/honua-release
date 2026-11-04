@@ -1,8 +1,9 @@
 """Decoded-message source vectors; not an installed binary or cloud receipt."""
 import copy
 import pytest
-from devops_provisioning_contract import Refusal,canonical
+from devops_provisioning_contract import Refusal
 from devops_mcp_observation_contract import verify_call,verify_cancel
+from digests import ascii_canonical_bytes
 
 
 def call_vectors():
@@ -17,11 +18,11 @@ def call_vectors():
 
 def test_actual_public_dto_case_variants_with_same_status_are_supported():
     request,response,args=call_vectors()
-    result=verify_call(canonical(request),canonical(response),request_id=17,
+    result=verify_call(ascii_canonical_bytes(request),ascii_canonical_bytes(response),request_id=17,
                        expected_arguments=args,allowed_statuses=('infrastructure-provisioned',))
     assert result['candidateQualified'] is False and result['sixAwsCellsQualified'] is False
     del response['result']['structuredContent']
-    assert verify_call(canonical(request),canonical(response),request_id=17,
+    assert verify_call(ascii_canonical_bytes(request),ascii_canonical_bytes(response),request_id=17,
         expected_arguments=args,allowed_statuses=('infrastructure-provisioned',))['status']=='infrastructure-provisioned'
 
 
@@ -40,14 +41,14 @@ def test_coherent_original_wire_mutations_do_not_pass_dispatch(mutation):
     if mutation=='conflicting-alias':response['result']['structuredContent']['Status']='failed'
     if mutation=='conflicting-content':response['result']['content'][0]['text']='{"Status":"failed"}'
     if mutation=='malformed-content':response['result']['content']='not-an-array'
-    with pytest.raises(Refusal):verify_call(canonical(request),canonical(response),request_id=17,
+    with pytest.raises(Refusal):verify_call(ascii_canonical_bytes(request),ascii_canonical_bytes(response),request_id=17,
         expected_arguments=args,allowed_statuses=('infrastructure-provisioned',))
 
 
 def test_matching_cancel_wire_is_not_cessation_proof():
     notification={'jsonrpc':'2.0','method':'notifications/cancelled','params':{'requestId':17,'reason':'owned'}}
-    result=verify_cancel(canonical(notification),owned_request_id=17)
+    result=verify_cancel(ascii_canonical_bytes(notification),owned_request_id=17)
     assert result['candidateQualified'] is False and result['sixAwsCellsQualified'] is False
     for foreign in (18,'17',True):
         notification['params']['requestId']=foreign
-        with pytest.raises(Refusal):verify_cancel(canonical(notification),owned_request_id=17)
+        with pytest.raises(Refusal):verify_cancel(ascii_canonical_bytes(notification),owned_request_id=17)

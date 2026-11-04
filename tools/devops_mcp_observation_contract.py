@@ -6,7 +6,8 @@ Outer JSON whitespace is not an acceptance requirement; canonical artifact origi
 are independently resolved through production immutable evidence references.
 """
 from __future__ import annotations
-from devops_provisioning_contract import document, require, canonical, sha256
+from devops_provisioning_contract import document, require
+from digests import sha256_hex
 
 
 def field(value, name):
@@ -55,7 +56,7 @@ def verify_call(request_bytes: bytes, response_bytes: bytes, *, request_id,
     require('error' not in response,'wire-rpc-error')
     operation,status=operation_result(response)
     require(status in allowed_statuses,'wire-unexpected-operation-status')
-    return {'decodedRequestJournalSha256':sha256(request_bytes),'decodedResponseJournalSha256':sha256(response_bytes),
+    return {'decodedRequestJournalSha256':sha256_hex(request_bytes),'decodedResponseJournalSha256':sha256_hex(response_bytes),
             'requestId':request_id,'status':status,'candidateQualified':False,'sixAwsCellsQualified':False}
 
 
@@ -69,7 +70,7 @@ def verify_cancel(notification_bytes: bytes, *, owned_request_id):
     require(set(params)<={'requestId','reason'} and type(params.get('requestId')) is type(owned_request_id)
             and params['requestId']==owned_request_id
             and ('reason' not in params or type(params['reason']) is str), 'wire-owned-cancellation-id')
-    return {'decodedNotificationJournalSha256':sha256(notification_bytes),'requestId':owned_request_id,
+    return {'decodedNotificationJournalSha256':sha256_hex(notification_bytes),'requestId':owned_request_id,
             'candidateQualified':False,'sixAwsCellsQualified':False}
 
 

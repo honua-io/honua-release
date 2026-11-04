@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -16,6 +15,7 @@ import yaml
 
 import convergence_rebind as convergence
 import resolve_trunk_candidate as resolver
+from digests import sha256_digest
 
 REPOSITORY = 'honua-io/geospatial-mcp'
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,10 +26,6 @@ CHECKER = 'tools/check_protocol_certification.py'
 
 class PreparationError(ValueError):
     pass
-
-
-def digest(data):
-    return 'sha256:' + hashlib.sha256(data).hexdigest()
 
 
 def authenticated_source(github, source):
@@ -143,8 +139,8 @@ def prepare(root, output, source, github=None):
         'candidateAdmission': False, 'candidateQualification': 'pending',
         'producer': {'repository': REPOSITORY, 'sourceSha': source, 'protectedHead': protected_head,
                      'normalCandidateCi': {'pass': green, 'reason': reason}, 'checks': check_context},
-        'sourceFiles': {path: digest(data) for path, data in snapshots.items()},
-        'frozenInputs': {path: digest(data) for path, data in original.items()},
+        'sourceFiles': {path: sha256_digest(data) for path, data in snapshots.items()},
+        'frozenInputs': {path: sha256_digest(data) for path, data in original.items()},
         'requirements': {'revision': after['revision'], 'originalRows': len(before['requirements']),
                          'proposedRows': len(after['requirements']), 'mcpRows': 82,
                          'clientVersions': versions, 'qualifiedRows': 0},
@@ -163,7 +159,7 @@ def prepare(root, output, source, github=None):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
         (staging / 'source-context-inventory.json').write_text(json.dumps(
-            {path: digest(data) for path, data in sorted(payloads.items())}, indent=2) + '\n')
+            {path: sha256_digest(data) for path, data in sorted(payloads.items())}, indent=2) + '\n')
         if output.exists():
             raise PreparationError('output appeared during preparation')
         staging.rename(output)

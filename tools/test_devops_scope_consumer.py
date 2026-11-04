@@ -12,8 +12,9 @@ import sys
 import time
 
 import pytest
-from devops_provisioning_contract import Refusal, canonical, sha256
+from devops_provisioning_contract import Refusal
 from judge_devops_cleanup import ScopeContext, verify_owned_scope
+from digests import ascii_canonical_bytes, sha256_hex
 
 
 def test_actual_scope_wrapper_closed_live_terminal_and_original_tamper():
@@ -43,8 +44,8 @@ def test_actual_scope_wrapper_closed_live_terminal_and_original_tamper():
         expected['launchBinding'].update(scopeDirectory=value['launcherCwd'], nativeArgv=
             base64.b64decode(value['nativeAdmission']['cmdlineBase64']).decode().split('\0')[:-1])
         value['launchBinding'] = copy.deepcopy(expected['launchBinding'])
-        raw = canonical({'status': 'observed', 'original': value})
-        context = ScopeContext(sha256(raw), expected, before, datetime.now(timezone.utc) + timedelta(seconds=1))
+        raw = ascii_canonical_bytes({'status': 'observed', 'original': value})
+        context = ScopeContext(sha256_hex(raw), expected, before, datetime.now(timezone.utc) + timedelta(seconds=1))
         return raw, context
     try:
         live, context = frame(receive())
@@ -80,8 +81,8 @@ def test_actual_scope_wrapper_closed_live_terminal_and_original_tamper():
             if kind == 'extra-envelope': value['unexpected'] = True
             if kind == 'missing-census': original['observations'].pop()
             if kind == 'wrong-monotonic': original['monotonicNs'] = 'caller-trust'
-            raw = canonical(value)
-            changed = replace(context, expected=expected, original_sha256=sha256(raw))
+            raw = ascii_canonical_bytes(value)
+            changed = replace(context, expected=expected, original_sha256=sha256_hex(raw))
             if kind == 'wrong-custody': changed = replace(changed, original_sha256='f' * 64)
             with pytest.raises(Refusal): verify_owned_scope(raw, changed, native_terminal=True)
     finally:

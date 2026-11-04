@@ -14,6 +14,7 @@ import tempfile
 import zipfile
 
 import gp_devkit_artifacts as gate
+from digests import file_sha256_digest, file_sha256_hex
 
 RELEASE_REPOSITORY = "honua-io/honua-release"
 SERVER_REPOSITORY = "honua-io/honua-server"
@@ -94,7 +95,7 @@ def download_artifact(artifact_id, name, run, root):
     archive = root / (name + ".zip")
     with archive.open("xb") as output:
         command(["gh", "api", f"repos/{RELEASE_REPOSITORY}/actions/artifacts/{artifact_id}/zip"], stdout=output)
-    gate.require("sha256:" + gate.sha256(archive) == metadata["digest"], "Downloaded Actions archive digest changed")
+    gate.require(file_sha256_digest(archive) == metadata["digest"], "Downloaded Actions archive digest changed")
     destination = root / name
     extract_archive(archive, destination)
     return destination, metadata
@@ -142,7 +143,7 @@ def prepare(options):
     image = image_root / "qualified-image.tar.gz"
     checksum = (image_root / "qualified-image.tar.gz.sha256").read_text().split()
     gate.require(len(checksum) == 2 and re.fullmatch(r"[0-9a-f]{64}", checksum[0])
-                 and Path(checksum[1]).name == image.name and gate.sha256(image) == checksum[0],
+                 and Path(checksum[1]).name == image.name and file_sha256_hex(image) == checksum[0],
                  "Qualified image archive bytes changed")
     for path in (package, candidate_root / "devkit-candidate.json", image):
         verify_attestation(path, options.release_sha, options.run_id, options.attempt)
@@ -173,14 +174,14 @@ def verify_release_asset(asset, path):
     gate.require(type(asset.get("id")) is int and asset["id"] > 0
                  and asset.get("state") == "uploaded" and asset.get("size") == path.stat().st_size,
                  "Existing release asset identity or size differs")
-    expected = gate.sha256(path)
+    expected = file_sha256_hex(path)
     gate.require(asset.get("digest") in {None, "sha256:" + expected}, "Existing release asset digest differs")
     with tempfile.TemporaryDirectory(prefix="honua-release-asset-") as temporary:
         downloaded = Path(temporary) / "asset"
         with downloaded.open("xb") as output:
             command(["gh", "api", f"repos/{SERVER_REPOSITORY}/releases/assets/{asset['id']}",
                      "-H", "Accept: application/octet-stream"], stdout=output)
-        gate.require(downloaded.stat().st_size == path.stat().st_size and gate.sha256(downloaded) == expected,
+        gate.require(downloaded.stat().st_size == path.stat().st_size and file_sha256_hex(downloaded) == expected,
                      "Existing release asset bytes differ")
 
 
@@ -272,7 +273,7 @@ def publish(options):
     package = candidate_root / Path(candidate["package"]["file"]).name
     gate.require(gate.qualify(candidate_root / "qualification", package, receipt["serverSourceSha"]) == candidate,
                  "Candidate changed between verification and publication")
-    gate.require(gate.sha256(image) == receipt["imageArchiveSha256"], "Qualified image archive changed")
+    gate.require(file_sha256_hex(image) == receipt["imageArchiveSha256"], "Qualified image archive changed")
     tag = "gp-devkit-v" + candidate["version"]
     image_tag = IMAGE_REPOSITORY + ":" + tag
     identity = publication_preflight(candidate, tag, image_tag)
@@ -299,7 +300,7 @@ def publish(options):
     def payload(directory):
         entries = list(directory.rglob("*"))
         gate.require(not any(path.is_symlink() or not (path.is_dir() or path.is_file()) for path in entries), "Candidate output contains special files")
-        return {str(path.relative_to(directory)): gate.sha256(path) for path in entries if path.is_file()}
+        return {str(path.relative_to(directory)): file_sha256_hex(path) for path in entries if path.is_file()}
     if copy.exists():
         gate.require(not copy.is_symlink() and payload(copy) == payload(candidate_root), "Retained candidate output differs")
     else:
@@ -313,7 +314,7 @@ def publish(options):
     write_exact(output / "registry-manifest.json", raw)
     write_exact(output / "publication-input.json", (json.dumps(receipt, indent=2) + "\n").encode())
     for path in (package, output / "published.json", output / "registry-manifest.json"):
-        write_exact(output / (path.name + ".sha256"), (gate.sha256(path) + "  " + path.name + "\n").encode())
+        write_exact(output / (path.name + ".sha256"), (file_sha256_hex(path) + "  " + path.name + "\n").encode())
     ensure_release_assets(tag, candidate["sourceSha"], candidate["version"], [
         package, output / (package.name + ".sha256"), output / "published.json",
         output / "published.json.sha256", output / "registry-manifest.json", output / "registry-manifest.json.sha256"])

@@ -31,6 +31,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 import yaml
+from digests import sha256_digest, sha256_hex
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight-2026-10-02.json"
@@ -258,10 +259,6 @@ def _require_host(url: str) -> None:
         raise PreflightError(f"refusing registry URL outside the anonymous allowlist: {url}")
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def _parse_json(body: bytes, url: str) -> dict:
     raw = gzip.decompress(body) if body[:2] == b"\x1f\x8b" else body
     try:
@@ -401,7 +398,7 @@ def _newest(versions: list[str]) -> str:
 
 
 def _file_record(filename: str, url: str, body: bytes, **extra: str) -> dict:
-    record = {"filename": filename, "sha256": _sha256(body), "url": url}
+    record = {"filename": filename, "sha256": sha256_hex(body), "url": url}
     record.update(extra)
     return record
 
@@ -757,7 +754,7 @@ def _oci_manifest(transport, repo: str, reference: str, token: str, ref: str) ->
             "customers cannot pull it"
         )
     document = _parse_json(response.body, url)
-    digest = "sha256:" + _sha256(response.body)
+    digest = sha256_digest(response.body)
     served = response.headers.get("docker-content-digest")
     if served and served != digest:
         raise PreflightError(f"{ref} manifest bytes hash to {digest}, but GHCR named {served}")

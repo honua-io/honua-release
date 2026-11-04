@@ -5,6 +5,7 @@ from dataclasses import replace
 import json
 import pytest
 import devops_provisioning_contract as contract
+from digests import ascii_canonical_bytes, sha256_hex
 
 
 def vector():
@@ -15,7 +16,7 @@ def vector():
                'locking': {'kind': 's3-native', 'detail': 'use_lockfile'},
                'encryption': {'kind': 'sse-kms'},
                'backend_access_role_arn': 'arn:aws:iam::123456789012:role/backend'}
-    inputs = {'varfile:/owned/request/terraform.tfvars.json': contract.canonical({'honua_image': image,
+    inputs = {'varfile:/owned/request/terraform.tfvars.json': ascii_canonical_bytes({'honua_image': image,
               'region': 'us-west-2', 'db_password': 'source-vector-only-not-a-credential'})}
     context = contract.PlanContext(image, '1' * 40, '2' * 64, '1.13.5', '3' * 64, backend,
               '123456789012', 'arn:aws:sts::123456789012:assumed-role/exec/owned',
@@ -31,17 +32,17 @@ def vector():
                               'provider_lock_digest': context.provider_lock_digest}, 'backend': backend,
                 'identity': {'account_id': context.account_id, 'assumed_role_arn': context.assumed_role_arn,
                              'credential_kind': 'sts-assumed-role', 'evidence_mode': 'live'},
-                'inputs': {'input_digest': contract.sha256('\n'.join(name+'='+contract.sha256(value)
+                'inputs': {'input_digest': sha256_hex('\n'.join(name+'='+sha256_hex(value)
                            for name,value in sorted(inputs.items())).encode()), 'input_refs': sorted(inputs)},
-                'plan': {'path':'honua.tfplan','sha256':contract.sha256(plan)},
+                'plan': {'path':'honua.tfplan','sha256':sha256_hex(plan)},
                 'posture': {'release_qualified':True,'local_state_allowed':False,'dirty_source_allowed':False}}
     return metadata,plan,inputs,context
 
 
 def original(metadata):
     value=copy.deepcopy(metadata);value.pop('plan_metadata_digest',None)
-    value['plan_metadata_digest']=contract.sha256(contract.canonical(value))
-    return contract.canonical(value)
+    value['plan_metadata_digest']=sha256_hex(ascii_canonical_bytes(value))
+    return ascii_canonical_bytes(value)
 
 
 def test_original_inputs_saved_plan_and_optional_candidate_field():
@@ -57,8 +58,8 @@ def test_original_inputs_saved_plan_and_optional_candidate_field():
 def test_coherently_rehashed_wrong_originals_do_not_match_trusted_context(mutation):
     metadata,plan,inputs,context=vector()
     if mutation=='image':
-        key=next(iter(inputs));inputs[key]=contract.canonical({'honua_image':'other@sha256:'+'f'*64})
-        metadata['inputs']['input_digest']=contract.sha256((key+'='+contract.sha256(inputs[key])).encode())
+        key=next(iter(inputs));inputs[key]=ascii_canonical_bytes({'honua_image':'other@sha256:'+'f'*64})
+        metadata['inputs']['input_digest']=sha256_hex((key+'='+sha256_hex(inputs[key])).encode())
     if mutation=='input-extra': inputs['env:unexpected']=b'unexpected'
     if mutation=='input-missing': inputs.clear()
     if mutation=='plan-bytes': plan+=b'changed'
@@ -111,7 +112,7 @@ def execution_vector(exit_status=1):
 @pytest.mark.parametrize('exit_status',[0,1,130])
 def test_actual_receipt_schema_join_never_means_cleanup_is_complete(exit_status):
     receipt,metadata,context=execution_vector(exit_status)
-    result=contract.verify_execution_original(contract.canonical(receipt),metadata,
+    result=contract.verify_execution_original(ascii_canonical_bytes(receipt),metadata,
            claim_directory='/owned/claims/original',plan_path='/owned/plans/original/honua.tfplan',expected_exit=exit_status)
     assert result['exitStatus']==exit_status and result['cleanupOutstanding'] is True
     assert result['candidateQualified'] is False
@@ -130,27 +131,27 @@ def test_execution_original_substitutions_refuse(mutation):
     if mutation=='status': receipt['status']='succeeded'
     if mutation=='exit-bool': receipt['exit_status']=True
     with pytest.raises(contract.Refusal):
-        contract.verify_execution_original(contract.canonical(receipt),metadata,
+        contract.verify_execution_original(ascii_canonical_bytes(receipt),metadata,
             claim_directory='/owned/claims/original',plan_path='/owned/plans/original/honua.tfplan',expected_exit=1)
 
 
 def test_canonical_claim_completed_projection_does_not_fake_resource_absence():
-    receipt,metadata,context=execution_vector();raw=contract.canonical(receipt)
+    receipt,metadata,context=execution_vector();raw=ascii_canonical_bytes(receipt)
     claim={'schema_version':'v1','kind':'honua.iac.claim-status','claim_dir':'/owned/claims/original',
            'state':'reconciliation-required','acquired_at_utc':'2026-10-20T00:02:00Z',
            'completed_at_utc':'2026-10-20T00:10:00Z','phase':'receipt-committed',
-           'executor_id':'original-executor','receipt_digest':contract.sha256(raw)}
+           'executor_id':'original-executor','receipt_digest':sha256_hex(raw)}
     kwargs={'claim_directory':claim['claim_dir'],'executor_id':claim['executor_id'],
             'acquired_at':contract.timestamp(claim['acquired_at_utc']),
             'executor_terminal_at':contract.timestamp('2026-10-20T00:11:00Z')}
-    result=contract.verify_claim_original(contract.canonical(claim),raw,**kwargs)
+    result=contract.verify_claim_original(ascii_canonical_bytes(claim),raw,**kwargs)
     assert result['status']=='execution-acknowledged' and result['cleanupOutstanding'] is True
-    assert contract.verify_claim_original(contract.canonical(claim),raw,**dict(kwargs,executor_terminal_at=None))['status']=='live-or-indeterminate'
+    assert contract.verify_claim_original(ascii_canonical_bytes(claim),raw,**dict(kwargs,executor_terminal_at=None))['status']=='live-or-indeterminate'
     claim['phase']='reconciliation-required'
-    assert contract.verify_claim_original(contract.canonical(claim),raw,**kwargs)['status']=='indeterminate'
+    assert contract.verify_claim_original(ascii_canonical_bytes(claim),raw,**kwargs)['status']=='indeterminate'
     claim['executor_id']='foreign'
     with pytest.raises(contract.Refusal,match='identity'):
-        contract.verify_claim_original(contract.canonical(claim),raw,**kwargs)
+        contract.verify_claim_original(ascii_canonical_bytes(claim),raw,**kwargs)
 
 
 def test_saved_plan_review_matches_exact_reviewed_container_and_nested_module():
@@ -159,13 +160,13 @@ def test_saved_plan_review_matches_exact_reviewed_container_and_nested_module():
              'type':'aws_ecs_task_definition','values':{'container_definitions':json.dumps([
                 {'name':'honua','image':context.candidate_image},{'name':'proxy','image':'reviewed-proxy:1'}])}}]}]}}}
     kwargs={'candidate_image':context.candidate_image,'expected_workloads':{address:'honua'},
-            'recorded_saved_plan_sha256':contract.sha256(plan),'saved_plan':plan}
-    result=contract.verify_saved_plan_review(contract.canonical(review),**kwargs)
+            'recorded_saved_plan_sha256':sha256_hex(plan),'saved_plan':plan}
+    result=contract.verify_saved_plan_review(ascii_canonical_bytes(review),**kwargs)
     assert result['workloads']==[address] and result['candidateQualified'] is False
     resource=review['planned_values']['root_module']['child_modules'][0]['resources'][0]
     resource['values']['container_definitions']=json.dumps([{'name':'honua','image':'foreign@sha256:'+'f'*64}])
     with pytest.raises(contract.Refusal,match='candidate-image'):
-        contract.verify_saved_plan_review(contract.canonical(review),**kwargs)
+        contract.verify_saved_plan_review(ascii_canonical_bytes(review),**kwargs)
 
 
 @pytest.mark.parametrize('mutation',[None,'action','plan','operation','issuer','mode','decision','expiry','same-principal','unaccepted-original'])
@@ -173,7 +174,7 @@ def test_approval_requires_independent_original_acceptance_and_all_plan_semantic
     metadata,plan,inputs,context=vector();metadata=original(metadata);parsed=contract.document(metadata)
     approval={'schemaVersion':'honua.devops.provision-approval/v1','approvalReceiptId':'source-vector-approval',
               'issuer':'trusted-issuer','keyId':'a'*16,'provisioningOperationId':context.operation_id,
-              'planSha256':contract.sha256(plan),'planMetadataDigest':parsed['plan_metadata_digest'],
+              'planSha256':sha256_hex(plan),'planMetadataDigest':parsed['plan_metadata_digest'],
               'action':'apply','stack':'aws-ecs','environment':'it','decision':'approved','signingMode':'kms-mac',
               'issuedAtUtc':'2026-10-20T00:02:00.0000000+00:00',
               'expiresAtUtc':'2026-10-20T00:20:00.0000000+00:00',
@@ -185,9 +186,9 @@ def test_approval_requires_independent_original_acceptance_and_all_plan_semantic
     if mutation=='mode': approval['signingMode']='local-hmac-dev'
     if mutation=='decision': approval['decision']='rejected'
     if mutation=='expiry': approval['expiresAtUtc']='2026-10-20T00:03:00Z'
-    raw=contract.canonical(approval)
+    raw=ascii_canonical_bytes(approval)
     kwargs={'context':context,'stack':'aws-ecs','environment':'it',
-            'accepted_original_sha256':contract.sha256(raw),'issuer':'trusted-issuer','key_id':'a'*16,
+            'accepted_original_sha256':sha256_hex(raw),'issuer':'trusted-issuer','key_id':'a'*16,
             'issued_by_principal':'approver-role','executor_principal':'executor-role',
             'mutation_started_at':contract.timestamp('2026-10-20T00:04:00Z')}
     if mutation=='same-principal': kwargs['issued_by_principal']='executor-role'
@@ -206,7 +207,7 @@ def test_iac_full_entry_sort_with_overlapping_input_filenames(tmp_path):
     import subprocess
     metadata,plan,inputs,context=vector()
     inputs={'varfile:vars.tfvars':next(iter(inputs.values())),
-            'varfile:vars.tfvars.json':contract.canonical({'region':'us-west-2'})}
+            'varfile:vars.tfvars.json':ascii_canonical_bytes({'region':'us-west-2'})}
     context=replace(context,input_refs=tuple(inputs))
     fixture=Path(__file__).parent/'fixtures/devops-cleanup-inputs/tf-exec-contract.sh'
     assert hashlib.sha256(fixture.read_bytes()).hexdigest()=='da86f5025725e488ba28b9122866c60f0c416ed362f6deff9aeb997931c7e018'
@@ -223,8 +224,8 @@ def test_iac_full_entry_sort_with_overlapping_input_filenames(tmp_path):
     metadata['inputs']=actual
     result=contract.verify_plan_originals(original(metadata),plan,inputs,context)
     assert result['candidateQualified'] is False
-    wrong_entries=[name+'='+contract.sha256(inputs[name]) for name in sorted(inputs)]
-    metadata['inputs']={'input_digest':contract.sha256('\n'.join(wrong_entries).encode()),
+    wrong_entries=[name+'='+sha256_hex(inputs[name]) for name in sorted(inputs)]
+    metadata['inputs']={'input_digest':sha256_hex('\n'.join(wrong_entries).encode()),
                         'input_refs':sorted(inputs)}
     with pytest.raises(contract.Refusal,match='input-closure'):
         contract.verify_plan_originals(original(metadata),plan,inputs,context)

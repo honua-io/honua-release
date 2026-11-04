@@ -37,7 +37,6 @@ only adds a separately named fragment that fails when the real lifecycle fails.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -45,6 +44,7 @@ import sys
 from pathlib import Path
 
 import yaml
+from digests import sha256_digest
 
 SCHEMA = "honua.upgrade-trunk-candidate-receipt/v1"
 PRIOR_SOURCE = "trunk-candidate"
@@ -58,10 +58,6 @@ HELM = "honua-helm"
 
 class PairError(ValueError):
     """No usable trunk-candidate pair; the lane stays blocked and says why."""
-
-
-def _bytes_digest(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def server_identity(manifest: dict, where: str) -> dict:
@@ -155,10 +151,10 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, prior_manifest:
     if prior_manifest is not None:
         prior = server_identity(prior_manifest, prior_label or "prior manifest")
         selected = prior_label or "prior manifest"
-        prior_digest = _bytes_digest(prior_bytes or b"")
+        prior_digest = sha256_digest(prior_bytes or b"")
     else:
         prior, selected, prior_manifest = previous_pin(candidate, history if history is not None else git_history())
-        prior_digest = _bytes_digest(json.dumps(prior, sort_keys=True).encode())
+        prior_digest = sha256_digest(json.dumps(prior, sort_keys=True).encode())
     candidate_helm = helm_sha(candidate_manifest)
     try:
         # Install the prior server with the chart its own manifest pinned, as an operator of that
@@ -191,7 +187,7 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, prior_manifest:
         # Not lock digests: these bind the deployment env (HONUA_PLATFORM_LOCK_DIGEST) to the exact
         # manifest identities this run used, and are labelled as such in the receipt.
         "prior_manifest_digest": prior_digest,
-        "candidate_manifest_digest": _bytes_digest(candidate_bytes),
+        "candidate_manifest_digest": sha256_digest(candidate_bytes),
         "cross": "yes" if cross else "no",
     }
 

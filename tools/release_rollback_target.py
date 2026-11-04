@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -11,6 +10,7 @@ from pathlib import Path
 
 from check_upgrade import ReleaseLookupError, list_releases, prior_platform_release
 from tag_signing import publication_tag
+from digests import file_sha256_digest
 
 
 class Finding(ValueError):
@@ -30,10 +30,6 @@ def release_version(tag: str) -> tuple[int, int, int] | None:
     return tuple(int(part or 0) for part in match.groups())
 
 
-def digest(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def gh(*args: str) -> str:
     result = subprocess.run(["gh", *args], text=True, capture_output=True, check=False)
     if result.returncode:
@@ -42,7 +38,7 @@ def gh(*args: str) -> str:
 
 
 def resolve(candidate: Path, target: Path, repository: str, command=gh) -> dict:
-    candidate_digest = digest(candidate)
+    candidate_digest = file_sha256_digest(candidate)
     candidate_tag = json.loads(candidate.read_text())["platform"]["id"]
     ga_tag = promoted_tag(candidate_tag)
     try:
@@ -89,7 +85,7 @@ def resolve(candidate: Path, target: Path, repository: str, command=gh) -> dict:
             raise Finding(f"ROLLBACK_RETAINED_ATTESTATION_FAILED: {tag}: {exc}") from exc
         return {
             "first_lock_bearing_release": False, "no_earlier_lock_exists": False,
-            "candidate_lock_digest": candidate_digest, "rollback_target_digest": digest(target),
+            "candidate_lock_digest": candidate_digest, "rollback_target_digest": file_sha256_digest(target),
             "retained_release": tag, "scanned_releases": scanned,
             "reason": "verified_retained_release_lock",
         }
