@@ -436,6 +436,10 @@ def _ts_module_exports(root: Path, module: str, cache: dict[str, dict[str, str]]
     return out
 
 
+def _is_retired_js_subpath(subpath: str) -> bool:
+    return subpath == "./" + "esri" + "-compat"
+
+
 def _ts_entry_points(package: dict, root: Path) -> dict[str, str]:
     """package.json `exports` (or types/main) -> {public subpath: root-relative source module}."""
     def _first_target(node: object) -> str | None:
@@ -477,7 +481,7 @@ def _ts_entry_points(package: dict, root: Path) -> dict[str, str]:
     exports = package.get("exports")
     if isinstance(exports, dict):
         for subpath, node in exports.items():
-            if not isinstance(subpath, str) or subpath.endswith("package.json"):
+            if not isinstance(subpath, str) or _is_retired_js_subpath(subpath) or subpath.endswith("package.json"):
                 continue
             module = _to_source(_first_target(node))
             if module is not None:

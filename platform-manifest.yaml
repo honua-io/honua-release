@@ -1614,16 +1614,6 @@ clientArtifacts:
     publicationState: "published"
     targets: [node, browser]
     filename: "sdk-0.2.10.tgz"
-  honua-sdk-esri-compat:
-    ecosystem: "npm"
-    package: "@honua/sdk-esri-compat"
-    version: "0.2.10"
-    integrity: "sha512-tK7PV5rAa3bVVWtE7n9iD+G1vuVIQRADaG0C7EfBmkUJpUgaKVSJz6gtemonn/nSTKSF3fTYHwX13b1WdRn1AQ=="
-    repository: "honua-io/honua-sdk-js"
-    sourceSha: "965c013637722cb70d1a781c3d2d4f6537e6bf44"
-    publicationState: "published"
-    targets: [node, browser]
-    filename: "sdk-esri-compat-0.2.10.tgz"
   honua-react:
     ecosystem: "npm"
     package: "@honua/react"
@@ -1694,11 +1684,6 @@ clientArtifacts:
 # Non-shipping workflows whose observations can affect promotion. A full producer commit is the
 # trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
 evidenceSources:
-  # esri-compat: RETIRED 2026-11-02 (rc.2 cut). Founder ruling 2026-10-30: ignore esri-compat. Its producer
-  # repository honua-io/honua-esri-compat no longer exists (HTTP 404 to an org-admin token since ~2026-10-31),
-  # so its pinned producerSha ece4c3a2 cannot be reached and every exact-candidate check refused. The
-  # conformance-esri-geoservices lane is advisory for 2026.1 ("not certified for 2026.1"), so no 2026.1
-  # admission depended on this source. Its certification/conformance-evidence.yaml mirror is removed with it.
   cite:
     repository: honua-io/honua-server
     workflowPath: .github/workflows/cite-evidence-report.yml

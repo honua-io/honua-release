@@ -13517,7 +13517,7 @@
     {
       "capability_key": "identity.portal-sharing",
       "surface": "sdk-js:identity-portal-sharing",
-      "operation": "PortalCompat.getItem (src/esri-compat/portal.ts)",
+      "operation": "PortalCompat.getItem",
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",
@@ -13995,7 +13995,7 @@
     {
       "capability_key": "identity.portal-token",
       "surface": "sdk-js:identity-portal-token",
-      "operation": "PortalCompat.generateToken (src/esri-compat/portal.ts)",
+      "operation": "PortalCompat.generateToken",
       "maturity": "supported",
       "canonical_client": "@honua/sdk-js",
       "client_lane": "sdk-js",

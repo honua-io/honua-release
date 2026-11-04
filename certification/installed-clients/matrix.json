@@ -40,7 +40,6 @@
     {"id": "interop-proposal-approval", "artifact": "honua-sdk-js", "driver": "interop", "scenario": "interop-proposal-approval", "status": "active"},
     {"id": "interop-api-key-revocation", "artifact": "honua-sdk-js", "driver": "interop", "scenario": "interop-api-key-revocation", "status": "active"},
     {"id": "npm-honua-sdk-installed-runtime", "artifact": "honua-sdk", "driver": "npm-companion", "scenario": "installed-companion-runtime", "status": "active"},
-    {"id": "npm-honua-sdk-esri-compat-installed-runtime", "artifact": "honua-sdk-esri-compat", "driver": "npm-companion", "scenario": "installed-companion-runtime", "status": "active"},
     {"id": "npm-honua-react-installed-runtime", "artifact": "honua-react", "driver": "npm-companion", "scenario": "installed-companion-runtime", "status": "active"},
     {"id": "npm-honua-geometry-installed-runtime", "artifact": "honua-geometry", "driver": "npm-companion", "scenario": "installed-companion-runtime", "status": "active"},
     {"id": "npm-honua-app-platform-installed-runtime", "artifact": "honua-app-platform", "driver": "npm-companion", "scenario": "installed-companion-runtime", "status": "active"},

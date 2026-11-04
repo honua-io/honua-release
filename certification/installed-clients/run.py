@@ -322,7 +322,6 @@ def install_npm(
 # the selected published archive and installed lock match the manifest identity.
 COMPANION_PROBES = {
     "honua-sdk": ("@honua/sdk", "assert.equal(typeof api.createHonua, 'function'); const client = api.createHonua(); await client.dispose();"),
-    "honua-sdk-esri-compat": ("@honua/sdk-esri-compat", "const graphic = new api.GraphicCompat({attributes: {id: 17}}); assert.equal(graphic.attributes.id, 17);"),
     "honua-react": ("@honua/react", "const React = await import('react'); const {renderToString} = await import('react-dom/server'); assert.equal(typeof api.useQuery, 'function'); assert.equal(renderToString(React.createElement(api.HonuaProvider, {client:{}}, React.createElement('span', null, 'installed-react'))), '<span>installed-react</span>');"),
     "honua-geometry": ("@honua/geometry", "assert.deepEqual(api.bbox({type:'Point', coordinates:[12,34]}), [12,34,12,34]);"),
     "honua-app-platform": ("@honua/app-platform", "const workspace = api.createHonuaAppWorkspace(); assert.ok(workspace.state); workspace.dispose();"),

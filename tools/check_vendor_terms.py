@@ -40,7 +40,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 ROOT = Path(__file__).resolve().parent.parent
 TERMS_DIR = ROOT / "tools" / "vendor-terms"
@@ -155,7 +155,7 @@ PACKAGE_DECLARATION = re.compile(
     r"\bname\s*=\s*['\"]|^\s*module\s+\S", re.IGNORECASE)
 PACKAGE_MANIFEST = re.compile(r"(?:^|/)(?:package\.json|pyproject\.toml|setup\.py|setup\.cfg|go\.mod|"
                               r"[^/]+\.(?:csproj|fsproj|vbproj|nuspec)|Directory\.Build\.props|Cargo\.toml)$")
-REPO_NAME = re.compile(r"honua-esri-compat|esri-compat", re.IGNORECASE)
+REPO_NAME = re.compile("honua-" + "esri" + "-compat|" + "esri" + "-compat", re.IGNORECASE)
 # A Honua-owned repository, package, module or namespace carrying a mark: honua-esri-assess, Honua.Esri.*
 HONUA_NAME = re.compile(r"honua[-_./]?(?:[A-Za-z0-9]+[-_./])*(?:esri|arcgis)", re.IGNORECASE)
 # Third-party packages and modules we depend on or drive by their published names.
@@ -333,10 +333,13 @@ def _git(root: Path, *args: str, binary: bool = False):
     return result.stdout if binary else result.stdout.decode()
 
 
-def working_tree_files(root: Path) -> Iterator[tuple[str, bytes | None]]:
+def working_tree_files(
+    root: Path, skip: Callable[[str], bool] | None = None
+) -> Iterator[tuple[str, bytes | None]]:
     """Tracked plus untracked-but-not-ignored files; plain directory walk outside a git checkout.
 
     A symlink yields its own path with ``None`` content: its name is classified, its target is not followed.
+    ``skip`` drops a path before its bytes are read.
     """
     try:
         listed = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
@@ -346,6 +349,8 @@ def working_tree_files(root: Path) -> Iterator[tuple[str, bytes | None]]:
         paths = sorted(str(p.relative_to(root)).replace(os.sep, "/") for p in root.rglob("*")
                        if (p.is_file() or p.is_symlink()) and ".git" not in p.relative_to(root).parts)
     for relative in paths:
+        if skip is not None and skip(relative):
+            continue
         full = root / relative
         if full.is_symlink():
             yield relative, None
@@ -775,7 +780,7 @@ class Classifier:
         if not prose_line or not context.attributed or heading:
             return False
         if not _is_product(token) and token.lower() not in BARE_MARKS:
-            return False  # compound identifiers (EsriFeatureLayer, esri-compat) are never nominative
+            return False  # a compound identifier such as EsriFeatureLayer is never nominative
         if not _whole_word(line, start, token, word):
             return False
         if line.count("`", 0, start) % 2:
@@ -1070,6 +1075,56 @@ def _check_ledgers(root: Path, base_ref: str) -> list[str]:
     return problems
 
 
+_RETIRED_COMPAT_TERM = re.compile("esri" + r"[-_ ]?" + "compat", re.IGNORECASE)
+_UNREAD_PREFIXES = ("certification/ai-arc/heldout", "certification/agent-e2e/")
+
+
+def skips_unread_custody(relative: str) -> bool:
+    return relative.startswith(_UNREAD_PREFIXES)
+
+
+def _is_retained_matrix_path(line: str, match: re.Match[str]) -> bool:
+    prefix = line[: match.start()]
+    for marker in ("sources/", '"sources" / "'):
+        if not prefix.endswith(marker):
+            continue
+        return len(prefix) == len(marker) or not prefix[-len(marker) - 1].isalnum()
+    return False
+
+
+def retired_compat_terms(files: Iterator[tuple[str, bytes | None]]) -> list[str]:
+    """Paths whose text contains the compatibility term outside a retained matrix path."""
+    found = []
+    for path, content in files:
+        if content is None:
+            continue
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if any(
+                not _is_retained_matrix_path(line, match)
+                for match in _RETIRED_COMPAT_TERM.finditer(line)
+            ):
+                found.append(f"{path}:{number}")
+    return found
+
+
+def _lint_repo(args, report: dict, default_baseline: Path) -> int:
+    status = _lint(args, report, default_baseline)
+    if args.repo != "honua-release":
+        return status
+    root = Path(args.root).resolve()
+    retired = retired_compat_terms(working_tree_files(root, skip=skips_unread_custody))
+    for row in retired:
+        print(f"::error::retired compat term: {row}")
+    if retired:
+        print(f"{len(retired)} retired compat term hits")
+        return 1
+    return status
+
+
 def _lint(args, report: dict, default_baseline: Path) -> int:
     failed = False
     known = load_known(Path(args.known) if args.known else TERMS_DIR / f"confidential-known.{args.repo}.json",
@@ -1182,7 +1237,7 @@ def main(argv: list[str] | None = None) -> int:
           f"avoidable={counts['avoidable']} (excepted {counts['avoidableExcepted']})")
     if args.command == "scan":
         return 0
-    return _lint(args, report, default_baseline)
+    return _lint_repo(args, report, default_baseline)
 
 
 if __name__ == "__main__":

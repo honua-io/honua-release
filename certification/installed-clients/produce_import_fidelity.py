@@ -33,7 +33,6 @@ from fractions import Fraction
 import yaml
 import dotnet_import_fidelity as gate
 import import_fidelity_journeys as journeys
-import import_fidelity_reference as reference
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
@@ -669,7 +668,7 @@ def service_journey(score: Scorecard, sdk: Sdk, base: str, tag: str) -> None:
     score.record("journey.reconciliation", reconcile)
 
 
-def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str], *, fixture_path: Path | None = None, reference_inbox: Path | None = None, reference_wait_seconds: int = 0) -> None:
+def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str], *, fixture_path: Path | None = None) -> None:
     score.provenance["candidate"] = candidate_identity(score.manifest, compose)
     score.provenance["producer"] = {
         "scriptSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -692,8 +691,7 @@ def run_live(score: Scorecard, sdk: Sdk, compose: list[str], selected: list[str]
     if set(selected) == set(CASES):
         source_sdk = journeys.SourceSdk(sdk, os.environ.get("IMPORT_FIDELITY_AUTH_SOURCE_URL"))
         authored = journeys.Journeys(sys.modules[__name__], score, source_sdk, compose, base, tag, fixture_path)
-        states = authored.run()
-        reference.consume(score, states, reference_inbox, reference_wait_seconds, sys.modules[__name__])
+        authored.run()
         # Qualification ends with a fresh image/source readback as well as the initial binding.
         require_equal(score.provenance["candidate"], candidate_identity(score.manifest, compose), "candidate identity after all live journeys")
     def immutable_identities():
@@ -710,8 +708,6 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence-uri", required=True)
     parser.add_argument("--live", action="store_true", help="boot a disposable candidate and real PostGIS; never use a shared server")
-    parser.add_argument("--reference-inbox", type=Path, help="native owner's attested response to this run's fresh retained request")
-    parser.add_argument("--reference-wait-seconds", type=int, default=0, help="bounded wait for native owner response (0..300)")
     parser.add_argument("--authored-source", type=Path, help="authored real-source manifest; missing inputs remain blocked")
     parser.add_argument("--case", action="append", choices=sorted(CASES), help="diagnostic subset only; omitted requirements remain blocked")
     parser.add_argument("--timeout-seconds", type=int, default=1800,
@@ -722,8 +718,6 @@ def main(argv=None) -> int:
         parser.error("--evidence-uri must be a durable honua-io Actions/evidence URL")
     if not 60 <= args.timeout_seconds <= 3600:
         parser.error("--timeout-seconds must be between 60 and 3600")
-    if not 0 <= args.reference_wait_seconds <= 300:
-        parser.error("--reference-wait-seconds must be between 0 and 300")
     if not args.live and not args.package_only:
         parser.error("use --live or --package-only; shared candidate mutation is not supported")
     installed = installed_module()
@@ -756,8 +750,7 @@ def main(argv=None) -> int:
                     os.environ[key] = candidate_url
                 compose = installed.boot_candidate(manifest, overlay=HERE / "compose.import-fidelity.yml")
                 sdk.deadline = time.monotonic() + args.timeout_seconds
-                run_live(score, sdk, compose, args.case or sorted(CASES), fixture_path=args.authored_source,
-                         reference_inbox=args.reference_inbox, reference_wait_seconds=args.reference_wait_seconds)
+                run_live(score, sdk, compose, args.case or sorted(CASES), fixture_path=args.authored_source)
     except (ProducerError, OSError, subprocess.SubprocessError, installed.CertificationError) as exc:
         score.differences.append({"code": "producer-execution-incomplete", "severity": "blocking", "reason": str(exc)})
     finally:

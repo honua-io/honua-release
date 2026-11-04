@@ -89,64 +89,6 @@ receipt to the existing installed-client consumer. A complete native handoff sti
 requires the native owner's orchestration; these workflows do not dispatch or
 adopt its Windows lane.
 
-## Native request and authenticated response
-
-After all authored fixtures pass, the producer writes
-`import-fidelity-observations/native-reference-request.json`, schema
-`honua.import-fidelity-reference-request/v1`. It contains a fresh random challenge,
-exact image/source and published-package identity, requirements revision, and each
-fixture's source/target URL, layer ID and snapshot digests. `--reference-inbox PATH`
-optionally waits up to `--reference-wait-seconds` (0–300) for the native owner to
-provide a response. Its endpoint must be reachable from the native host; localhost
-on an unrelated hosted worker is not a viable native execution destination.
-
-The Windows owner retains execution and producer ownership. This lane consumes a
-response only from protected `honua-io/honua-esri-compat` trunk using
-`.github/workflows/esri-sdk-certification.yml`. That workflow must produce an
-artifact attestation for the exact response bytes with SLSA provenance v1. The
-consumer itself invokes `gh attestation verify` with fixed repository, signer
-workflow, source ref and exact source digest. It also reads GitHub metadata to
-check protected-trunk ancestry and the exact completed successful run/attempt.
-A producer-authored `verified=true`, an unsigned JSON file, a pull-request run,
-a different workflow, a failed run or an old challenge cannot qualify. Read access
-to that private producer repository is an orchestrator prerequisite, never an SDK
-credential. No token or key configuration is installed by this change.
-
-The JSON response has schema `honua.import-fidelity-reference-response/v1`,
-`requestDigest` (the canonical digest of the complete request), and `producer`
-with exact `sourceSha`, integer `runId` and integer `runAttempt`. Its `fixtures`
-map must contain exactly the request's roles. Each fixture has `identity` equal to
-the corresponding request entry and `observations` containing the required `licensed-desktop` reference. An
-`open-desktop` observation is optional and, when supplied, is also compared. It is
-not an additional required import gate. Each native observation identifies `runtimeVersion`, actual executed `methods`,
-`live=true`, and independently measured `source` and `target` objects containing:
-
-- `count` and `rows`: exact record count and attribute dictionaries sorted by
-  canonical JSON. Preserve integers, booleans, null and empty strings.
-- `shapes`: `[objectId, {"present": true, "value": geometry}]` entries sorted by
-  ID, preserving Z, M and curves. Native observation order must be normalized;
-  only numeric geometry coordinates receive the `1e-8` tolerance.
-- `schema`: declared fields sorted by case-insensitive name, plus present
-  `geometryType`, `hasZ`, `hasM`, `typeIdField`, `types`, `drawingInfo`, `timeInfo`,
-  `relationships` and `hasAttachments`. These are measured values, not pass flags.
-- For the attachment role, `attachments`: objects with parent `objectId`, `name`,
-  `contentType`, byte `size` and unprefixed lowercase `sha256`, sorted by canonical
-  JSON. Download the bytes; copying source metadata is insufficient.
-- For the related-records role, `relationships`: objects with relationship `name`
-  and all actual `[originObjectId, destinationObjectId]` `pairs`, sorted by IDs.
-  Query the actual related records independently; copying a declared relationship
-  list is insufficient.
-
-The consumer compares these raw measurements to its fresh published-SDK reads and
-physical relationship edges. It never imports a native reported verdict. The
-combined client cell requires every independent comparison to succeed.
-
-Existing native workflows do not yet emit this response/attestation contract. An
-absent native response is therefore blocked; this document does not establish
-native qualification. SDK pin `1.11.0` lacks the `returnTrueCurves` query option. The producer
-requests that option and refuses to treat densified shapes as true curves; a
-suitable actual published pin and real input replay remain prerequisites.
-
 `DataCommitted` is internal import-result state on the server, not a current job
 progress wire member. The producer does not invent that field or infer commit
 state from the cancel endpoint's immediate acknowledgement. It requires observed

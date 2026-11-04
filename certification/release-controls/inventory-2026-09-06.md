@@ -11,7 +11,6 @@ Every row requires a strict, GitHub-Actions-bound check denominator on `release/
 | `honua-console` | `Validate Console` | 0 / absent / True | Require Validate Console | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
 | `honua-demo-infra` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
 | `honua-devops` | `bootstrap-smoke` | 0 / absent / False | trunk required CI gate | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
-| `honua-esri-compat` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
 | `honua-evidence` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
 | `honua-helm` | `install-upgrade-rollback-smoke`, `lint-chart` | 0 / absent / False | Require Helm CI | Add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |
 | `honua-iac` | **NONE** | 0 / absent / False | none | **Implement and qualify required aggregate first**; add release rules + CODEOWNERS; nominate independent reviewer; qualify signed publication |

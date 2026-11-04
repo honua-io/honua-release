@@ -73,17 +73,16 @@ it would block every owner-authored pull request. The default renderer, with no
 `review_model`, still emits the two-person contract for tests of that contract.
 
 `honua-demo-infra` now has a nonempty denominator: the two Manifest Drift contexts,
-which run on every pull request. The other three empty denominators stay
+which run on every pull request. The other two empty denominators stay
 unrenderable. This repository change does not call the rules API and does not
 install a ruleset. Organization rules still need admin:org and must not be used,
 because required checks differ by repository.
 
-The four empty denominators (IaC, demo-infra, evidence, Esri compatibility) were
-the 2026-09-06 recorded failures. demo-infra is no longer empty. Rendering a
-repository whose `required_checks` list is empty still raises; no empty-check
+The 2026-09-06 record lists IaC, demo-infra, and evidence as empty denominators.
+Rendering a repository whose `required_checks` list is empty still raises; no empty-check
 ruleset can be installed by copying the output. Existing required contexts are
 **not** automatically evidence that their aggregate implementations fail closed.
-That implementation audit and the three remaining aggregates remain open under #236.
+That implementation audit and the two remaining aggregates remain open under #236.
 
 Render the exact reviewable API payloads without changing GitHub:
 

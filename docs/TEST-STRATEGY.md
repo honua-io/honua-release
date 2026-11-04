@@ -145,7 +145,6 @@ authoritative component evidence:
 
 - `honua-server` feature catalog, capability matrix, public-interface proof ledger, CITE status, and client
   certification matrix.
-- `honua-esri-compat` operation matrices and licensed evidence.
 - Official JavaScript, Python, and .NET SDK compatibility results.
 - Cloud-native format validator and client evidence.
 - `platform-manifest.yaml`, `compatibility-matrix.yaml`, candidate image digests, and artifact versions.
@@ -204,17 +203,7 @@ The following work precedes expansion because a broken or misleading gate cannot
 
 | Surface | Required canonical clients | Completion requirement |
 |---|---|---|
-| FeatureServer | Evidence `honua-esri-compat:feature-server` | Candidate-bound result recorded by identifier |
-| MapServer | Evidence `honua-esri-compat:map-server` | Candidate-bound result recorded by identifier |
-| ImageServer | Evidence `honua-esri-compat:image-server` | Candidate-bound result recorded by identifier |
-| GeometryServer | Evidence `honua-esri-compat:geometry-server` | Candidate-bound result recorded by identifier |
-| GPServer | Evidence `honua-esri-compat:gp-server` | Candidate-bound result recorded by identifier |
-| GeocodeServer | Evidence `honua-esri-compat:geocode-server` | Candidate-bound result recorded by identifier |
 | VectorTileServer | ArcGIS clients and MapLibre | Metadata, style, tile retrieval, and rendering pass |
-| SceneServer/I3S | Evidence `honua-esri-compat:scene-server` | Candidate-bound result recorded by identifier |
-| VersionManagementServer | Evidence `honua-esri-compat:version-management-server` | Candidate-bound result recorded by identifier |
-| Portal/Sharing | Evidence `honua-esri-compat:portal-sharing` | Candidate-bound result recorded by identifier |
-| NAServer | Evidence `honua-esri-compat:network-analysis` | Candidate-bound result recorded by identifier |
 | Mobile/Field Maps | Licensed Field Maps run | Authentication, discovery, offline package, edits, and synchronization pass |
 
 The Esri matrix is complete when 100% of supported, client-addressable operation cells pass. `not-applicable`
@@ -344,7 +333,7 @@ A platform candidate is Honua-certified only when:
 
 `honua-release` owns the umbrella program, aggregate gate, release binding, and published certification bundle.
 `honua-evidence` owns evidence ingestion and the generated capability/evidence join. Component repositories own
-their implementations, fast tests, and emitted evidence. `honua-esri-compat` owns licensed Esri execution.
+their implementations, fast tests, and emitted evidence.
 Official SDK repositories own their SDK-specific operation matrices. Cross-repository issues are linked to an
 umbrella issue in `honua-release`; release-blocking children carry the release gate label appropriate to the
 target train.

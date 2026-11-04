@@ -13,7 +13,6 @@
     "honua-sdk-js": "@honua/sdk-js@0.1.15",
     "honua-mcp-server": "@honua/mcp-server@0.1.16",
     "honua-sdk": "@honua/sdk@0.1.15",
-    "honua-sdk-esri-compat": "@honua/sdk-esri-compat@0.1.15",
     "honua-react": "@honua/react@0.1.15",
     "honua-geometry": "@honua/geometry@0.1.15",
     "honua-app-platform": "@honua/app-platform@0.1.15",
@@ -69,13 +68,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -94,13 +86,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -140,13 +125,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -165,13 +143,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -208,13 +179,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk",
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
             },
             {
               "name": "@honua/sdk-js",
@@ -275,13 +239,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -300,13 +257,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -346,13 +296,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -371,13 +314,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -415,13 +351,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -445,13 +374,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -500,13 +422,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -526,13 +441,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -556,13 +464,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -621,13 +522,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -646,13 +540,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -691,13 +578,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -716,13 +596,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-readme/.docrun/home/.local/lib/node_modules/@honua/sdk-js/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -772,13 +645,6 @@
                 "version": "0.1.2-beta.0",
                 "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                 "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-              },
-              {
-                "path": "node_modules/@honua/sdk-esri-compat",
-                "name": "@honua/sdk-esri-compat",
-                "version": "0.1.2-beta.0",
-                "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
               }
             ]
           },
@@ -838,13 +704,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -879,56 +738,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/sdk",
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
-              "name": "@honua/sdk-js",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/sdk-js",
-              "integrity": "sha512-RCiqqRz7sG9qP1xLsLyGroRMhGEi1Nde5YRqYbfkSEbwTSjf1IfciVXgAZdEXz6HDZ/XrzofiK7LIHokgg5j+A=="
-            }
-          ]
-        },
-        {
-          "index": 2,
-          "line": 280,
-          "language": "typescript",
-          "intent": "compile",
-          "status": "pass",
-          "detail": "doc-test=compile; typechecked after the document's install steps: exit code 0",
-          "sha256": "61183f0942ae6f321df9671837d0cc2e58f1f63a2e4f6ba0fed1ca54465e7aa8",
-          "command": "import { runEsriCompatCodemod, scanArcGisUsage } from \"@honua/sdk-js/migration\";\n\nconst report = scanArcGisUsage(\"./src\");\nconst migration = runEsriCompatCodemod({ rootDir: \"./src\", write: true });\n",
-          "durationSec": 0.7,
-          "exitCode": 0,
-          "mode": "typecheck",
-          "installedPackages": [
-            {
-              "name": "@honua/honua-migrate",
-              "version": "0.1.3-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/honua-migrate",
-              "integrity": "sha512-CzINB3I5dlYDT/9A3ap/71UQ4idwUM6HFAAY8j3NQmo8DXJDhGgjMjWwb0oztbJHjiLIz+2WgwjxLwtYzyupUw=="
-            },
-            {
-              "name": "@honua/sdk",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/sdk",
-              "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-install/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
             },
             {
               "name": "@honua/sdk-js",
@@ -981,13 +790,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-docs-quickstart/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1022,13 +824,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-docs-quickstart/app/my-map/node_modules/@honua/sdk",
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-docs-quickstart/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
             },
             {
               "name": "@honua/sdk-js",
@@ -1078,13 +873,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-docs-quickstart/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1123,13 +911,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-docs-quickstart/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1158,13 +939,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -1215,13 +989,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-docs-quickstart/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1250,13 +1017,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -1315,13 +1075,6 @@
                 "version": "0.1.2-beta.0",
                 "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                 "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-              },
-              {
-                "path": "node_modules/@honua/sdk-esri-compat",
-                "name": "@honua/sdk-esri-compat",
-                "version": "0.1.2-beta.0",
-                "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
               }
             ]
           },
@@ -1382,13 +1135,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1442,13 +1188,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1499,13 +1238,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -1580,13 +1312,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1605,13 +1330,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -1665,13 +1383,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1715,13 +1426,6 @@
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
-            },
-            {
               "name": "@honua/honua-migrate",
               "version": "0.1.3-beta.0",
               "ecosystem": "npm",
@@ -1733,13 +1437,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -1778,13 +1475,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -1840,13 +1530,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1873,13 +1556,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -1903,13 +1579,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -1965,13 +1634,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -1998,13 +1660,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -2028,13 +1683,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -2090,13 +1738,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2123,13 +1764,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -2153,13 +1787,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -2215,13 +1842,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2248,13 +1868,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -2278,13 +1891,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -2339,13 +1945,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2396,13 +1995,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2429,13 +2021,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -2459,13 +2044,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -2521,13 +2099,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2554,13 +2125,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -2584,13 +2148,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -2646,13 +2203,6 @@
               "integrity": ""
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
-              "integrity": ""
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2679,13 +2229,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk",
               "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.2-beta.0",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/app/honua-sdk-js/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA=="
             }
           ],
           "sourceBuild": {
@@ -2709,13 +2252,6 @@
                     "version": "0.1.2-beta.0",
                     "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                     "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-                  },
-                  {
-                    "path": "node_modules/@honua/sdk-esri-compat",
-                    "name": "@honua/sdk-esri-compat",
-                    "version": "0.1.2-beta.0",
-                    "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                    "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
                   }
                 ]
               },
@@ -2767,13 +2303,6 @@
               "version": "0.1.15",
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk",
-              "integrity": ""
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-mcp-readme/.docrun/home/.local/lib/node_modules/@honua/mcp-server/node_modules/@honua/sdk-esri-compat",
               "integrity": ""
             },
             {
@@ -2871,13 +2400,6 @@
                 "version": "0.1.2-beta.0",
                 "integrity": "sha512-oTQioVgdEHjh+OaIg3sUDMHDwqFi9vkcecXGMgEczKf2c5QK+XGnq3SP+UObWW7MTmmH0R+AxEFFA5bucPtN7w==",
                 "resolved": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.2-beta.0.tgz"
-              },
-              {
-                "path": "node_modules/@honua/sdk-esri-compat",
-                "name": "@honua/sdk-esri-compat",
-                "version": "0.1.2-beta.0",
-                "integrity": "sha512-uLJE2npoEer2H2Gf6bdTjy+cfFHMnEsdDI8kupRLkxu24Iq2jjpKBwTDPjmwDorm4x6q2VParkCZoxCHGrz8aA==",
-                "resolved": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.2-beta.0.tgz"
               }
             ]
           },
@@ -2938,13 +2460,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-packages-create-honua-app-readme/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -2991,13 +2506,6 @@
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
             },
             {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-packages-create-honua-app-readme/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
-            },
-            {
               "name": "@honua/sdk-js",
               "version": "0.1.15",
               "ecosystem": "npm",
@@ -3031,13 +2539,6 @@
               "ecosystem": "npm",
               "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-packages-create-honua-app-readme/app/my-map/node_modules/@honua/sdk",
               "integrity": "sha512-MRhcA5tr2wkQ8vhJHJxMrXXXFeQ0Ld8lJon4NTPO5yESWyrwbumHfAkNSC6JFs/9C92D3gtLWz1SVOLm256HqQ=="
-            },
-            {
-              "name": "@honua/sdk-esri-compat",
-              "version": "0.1.15",
-              "ecosystem": "npm",
-              "path": "/home/runner/work/_temp/sdk-publication-replay/docs-work/honua-sdk-js-packages-create-honua-app-readme/app/my-map/node_modules/@honua/sdk-esri-compat",
-              "integrity": "sha512-qoBelg215zEnzdY9Gpe5u87TbdFljHYFKY8xj9ws53c/PW+GTrtD66TmG4Svp68XB9+Uiq2uacqiiPxAk6xmaw=="
             },
             {
               "name": "@honua/sdk-js",

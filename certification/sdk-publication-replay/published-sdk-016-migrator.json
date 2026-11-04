@@ -33,12 +33,6 @@
       "tarball": "https://registry.npmjs.org/@honua/sdk/-/sdk-0.1.16.tgz",
       "installedCopies": 1
     },
-    "@honua/sdk-esri-compat": {
-      "version": "0.1.16",
-      "integrity": "sha512-26X/sGEhyDq8qZ6/eS01VBfdAXj2iHjWZ5dJ3OD/iny0CdYQmohaGkLQGD7CVAJQbJSBnF/xBoh085Ne4nQ9BQ==",
-      "tarball": "https://registry.npmjs.org/@honua/sdk-esri-compat/-/sdk-esri-compat-0.1.16.tgz",
-      "installedCopies": 1
-    },
     "@honua/honua-migrate": {
       "version": "0.2.0-beta.0",
       "integrity": "sha512-UT23Y6kzMwCs2eKf2Y2eXJAjVFIjRX4fZ+oMiGQox+BiHZ3tTIS+YTwQ3cNni5+dd5VM1K7obsn2ouGqStyCqA==",
