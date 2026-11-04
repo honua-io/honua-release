@@ -1,31 +1,15 @@
 #!/usr/bin/env python3
-"""Conformance-evidence federation gate (honua-release#133).
+"""Federate sha-bound OGC and STAC evidence into the conformance gate.
 
-WHY THIS EXISTS
----------------
-`gate_conformance`'s `conformance-ogc-stac` lane was hardcoded `status=blocked` with no
-implementation behind it. That is honest under a dry run, but on a real cut (`enforcement: strict`)
-blocked is promoted to FAIL, so a candidate could never be released with that lane as written -- and
-setting the `HONUA_SERVER_URL` its `why` string asked for changed nothing, because the lane had no
-body to enable. The release train's own rule is that a gate which cannot fail is worse than no
-gate; a gate which can ONLY fail is the same defect wearing the opposite sign.
+OGC evidence is the CITE TEAM Engine snapshot honua-server writes to
+docs/cite-status.md. honua-evidence ingests that page as the cite producer of
+capability-matrix.v1.json. STAC evidence is the candidate's declared STAC API
+conformance classes. CITE covers OGC API/OWS and does not cover STAC.
 
-Meanwhile the evidence that lane needs already exists and is already sha-bound:
-
-  OGC   honua-server runs 13 CITE TEAM Engine suites and transcribes an authoritative snapshot to
-        docs/cite-status.md (run id, `trunk@<sha>`, per-suite passed/total, allPassed). honua-evidence
-        ingests it as the `cite` producer of capability-matrix.v1.json.
-  STAC  the candidate serves its declared STAC API conformance classes, which a validator can check
-        against the spec -- CITE covers OGC API/OWS, never STAC.
-
-So this gate federates rather than re-certifies. It applies the SAME lineage rule the freeze-phase
-evidence gate already proved out (tools/check_evidence_freshness.py): evidence must be ABOUT this
-candidate's history -- identical to, an ancestor of, or a descendant of the pinned sha, but never
-DIVERGED onto unrelated history -- plus a per-source staleness bound.
-
-Ancestor is accepted deliberately and is the common case: CITE suites are expensive and run on
-their own cadence, so the sha they certified is usually BEHIND a manifest pinned later the same
-week. That is lineage continuity. A fork is not.
+Evidence must describe this candidate: identical to, an ancestor of, or a
+descendant of the pinned sha, and inside the per-source staleness bound.
+Ancestor is the common case because CITE suites run on their own cadence.
+A fork is not lineage.
 
 PURITY
 ------

@@ -151,6 +151,41 @@ def validate_mcp_authorization(catalog: dict) -> None:
         raise ValueError("MCP requirements differ from the complete selected-client authorization policy")
 
 
+def _supported_geometry_operations() -> set[str]:
+    matrix = json.loads(
+        (ROOT / "sources" / "esri-compat" / "matrix" / "geometry-service.matrix.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    return {case["id"] for case in matrix["cases"] if case.get("status") in SUPPORTED}
+
+
+def _protocol_client_lanes() -> list[str]:
+    spec = importlib.util.spec_from_file_location(
+        "protocol_generator_config", ROOT / "generate-protocol-requirements.py"
+    )
+    config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config)
+    return [client[2] for client in config.protocol_clients()]
+
+
+def validate_raw_geometry_lane(catalog: dict) -> None:
+    """Every retained GeoServices protocol client keeps each supported GeometryServer operation addressable."""
+    operations = _supported_geometry_operations()
+    if not operations:
+        raise ValueError("GeometryServer matrix declares no supported operations.")
+    for lane in _protocol_client_lanes():
+        rows = [
+            row for row in catalog["requirements"]
+            if row["client_lane"] == f"{lane}-geometry-service"
+        ]
+        present = [row["operation"] for row in rows]
+        if set(present) != operations or len(present) != len(operations):
+            raise ValueError(f"{lane} must keep every supported GeometryServer operation.")
+        if any(not row["addressable_by_client"] or row["addressability_reason"] is not None for row in rows):
+            raise ValueError(f"{lane} GeometryServer operations must stay addressable.")
+
+
 GP_PREVIEW_FLOOR_RULING = "gp-preview-floor-2026-10-26"
 # The tier each GP lane carried before the ruling (nightly unless listed), restored only so the
 # lane-specific structural checks below see the rows they re-derive. It grants no requirement.
@@ -247,6 +282,7 @@ def main() -> None:
     jsonschema.validate(catalog, schema)
     catalog = validate_gp_preview_floor(catalog)
     validate_mcp_authorization(catalog)
+    validate_raw_geometry_lane(catalog)
     if catalog["receipt_schema_min"] not in {"v1", "v2"}:
         raise ValueError("Catalog receipt_schema_min must be 'v1' or 'v2'.")
     if catalog["source_revisions"] != revisions:

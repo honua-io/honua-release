@@ -1,11 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # certification — Release gate (c): cross-repo conformance with REAL assertions.
 #
-# Retires the audit's "false conformance" findings at the gate level:
-#   - geospatial-mcp#25     (conformance checker reported FULL while ignoring resource coverage)
-# That finding is fixed upstream; this gate is the release-repo half that RUNS the suites against the
-# pinned candidate and turns their results into a verdict that can FAIL.
-#
 # Principle (AGENTS.md): a gate that can't fail is worse than no gate — and a *conformance* gate that
 # false-passes is the worst kind (it manufactures release confidence). So:
 #   - the mcp job runs the real checker at the exact evidenceSources.mcp producer SHA and parses it with

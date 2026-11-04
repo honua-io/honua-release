@@ -1,20 +1,12 @@
-# Conformance-evidence federation thresholds (honua-release#133,
-# tools/check_conformance_evidence.py, .github/workflows/certification.yml).
+# Conformance-evidence federation thresholds
+# (tools/check_conformance_evidence.py, .github/workflows/certification.yml).
 #
-# WHY THIS FILE EXISTS
-# `gate_conformance`'s ogc-stac lane used to be hardcoded `status=blocked` with no body. Under
-# `enforcement: strict` (every real cut) blocked is promoted to FAIL, so that lane made a real
-# release impossible while proving nothing -- and the `HONUA_SERVER_URL` its `why` string told you
-# to set was never read, because the lane had no implementation to enable.
+# Thresholds live here so they can be tuned without touching decision logic,
+# the same split as certification/evidence-freshness.yaml.
 #
-# The evidence it needs already exists elsewhere and is already sha-bound, so the lane now
-# FEDERATES it instead of re-certifying it from scratch. Thresholds live here, not in the decision
-# module, so they can be tuned without touching decision logic (same split as
-# certification/evidence-freshness.yaml).
-#
-# BLOCKED is still honest: an unfetchable snapshot, an unreachable compare API, or a validator that
-# never ran reports BLOCKED, never a fake pass. Only evidence that was actually obtained and says
-# "not conformant", "wrong history", or "too old" turns into FAIL.
+# An unfetchable snapshot, an unreachable compare API, or a validator that never
+# ran reports BLOCKED. Obtained evidence that says "not conformant", "wrong
+# history", or "too old" is FAIL.
 
 cite:
   # honua-server runs 13 CITE TEAM Engine suites and transcribes the authoritative snapshot to

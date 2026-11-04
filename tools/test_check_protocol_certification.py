@@ -1576,8 +1576,6 @@ def test_qgis_drivers_stay_unlicensed_on_local_docker():
 
 
 def test_ledger_schema_governs_the_licensed_desktop_entitlement():
-    # The ledger schema still admits the licensed desktop entitlement for a receipt on the
-    # governed windows-licensed target and auth policy.
     schema = json.loads(
         (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
         .read_text(encoding="utf-8")
@@ -2411,5 +2409,3 @@ def test_only_an_sdk_harness_lane_may_record_a_harness_commit():
     cell = _cell()
     cell["evidence_receipt"]["identity"]["harness_commit"] = "5" * 40
     assert _evaluate(_ledger(_rebound(cell)), "nightly", now=NOW)["overall_status"] == "fail"
-
-

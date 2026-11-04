@@ -30,11 +30,11 @@ CITE_FIXTURES = {
 }
 
 IDENTITY_FIELDS = ("surface", "operation", "canonical_client", "client_version", "deployment_target")
-# R38 (honua-release#376): QGIS is certified against a release line, <major>.<minor>.x;
+# QGIS is certified against a release line, <major>.<minor>.x;
 # a receipt from any patch of the line satisfies it and records the exact version it observed.
-# R40 splits that client by driver. PyQGIS rows are must-fix-before-cut on every applicable
-# OGC cell. qgis-ui rows are must-fix-before-cut only on the core set named in the source;
-# every other UI cell is prove-against-candidate.
+# PyQGIS rows are must-fix-before-cut on every applicable OGC cell. qgis-ui rows are
+# must-fix-before-cut only on the core set named in the source; every other UI cell is
+# prove-against-candidate.
 DESKTOP = json.loads((SOURCES / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
 QGIS = DESKTOP["clients"]["qgis"]
 QGIS_VERSION = QGIS["version"]
