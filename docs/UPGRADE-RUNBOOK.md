@@ -99,10 +99,12 @@ migrations, and never across a contract-phase migration without a restore.
 
 - **Older image at schema 135 or later** (honua-server#6478). It starts on a database migrated by a
   newer image only when every migration it does not ship is expand-only, and when it can verify
-  that itself. Otherwise it refuses. A migration marked `-- honua:reader-incompatible` is that
-  refusal: the typed error names `declared reader-incompatible, not expand`. That is a documented
-  boundary. Restore the pre-upgrade backup. A refusal of an expand-only migration is not this
-  boundary and fails the gate.
+  that itself. Otherwise it refuses. A migration marked `-- honua:reader-incompatible` refuses
+  with the typed error `declared reader-incompatible, not expand`. That refusal is a documented
+  boundary only when every refused script is named in the server rollback note and the script
+  carries `-- honua:compatibility-review`. Restore the pre-upgrade backup, and the prior image
+  must serve the seeded rows. A refusal of an expand-only migration, or a refused script the
+  note does not name, is not this boundary and fails the gate.
 - **Older image below schema 135 that still has the schema-reader guard.** It refuses **any**
   migration it does not ship. It fails startup with the typed `schema_reader_incompatible` error
   and never serves silently. This does not include 2026.1, which has no guard.

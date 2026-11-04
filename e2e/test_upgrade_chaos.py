@@ -755,14 +755,40 @@ def test_compose_contract_nonce_is_the_customer_step_and_the_boundary_restores_t
     assert rollback["certifiedRollbackPath"] == "restore-pre-upgrade-backup"
 
 
+def _reviewed_reader_scripts(tmp_path, note_text):
+    stem = "142_CreateAiFinancialAccounting"
+    note = tmp_path / "rollback-note.md"
+    note.write_text(note_text, encoding="utf-8")
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / f"{stem}.sql").write_text(
+        "-- honua:reader-incompatible reason=the previous reader cannot parse the ledger\n"
+        "-- honua:compatibility-review\n",
+        encoding="utf-8")
+    return {"ROLLBACK_NOTE": str(note), "ROLLBACK_SCRIPTS": str(scripts)}
+
+
 def test_compose_reader_incompatible_declaration_restores_the_backup(tmp_path):
-    result, rows, observed = run_compose(tmp_path, READER_INCOMPATIBLE="1")
+    documented = _reviewed_reader_scripts(
+        tmp_path, "Restore across 142_CreateAiFinancialAccounting.\n")
+    result, rows, observed = run_compose(
+        tmp_path, READER_INCOMPATIBLE="1", **documented)
     assert result.returncode == 0, result.stdout + result.stderr
     rollback = observed["customerSteps"]["rollback"]
     assert rollback["outcome"] == "restored-from-pre-upgrade-backup"
     assert rollback["boundary"] == "reader-incompatible-declaration"
     assert rollback["restoreVerified"] is True
     assert rollback["certifiedRollbackPath"] == "restore-pre-upgrade-backup"
+
+
+def test_compose_reader_incompatible_refusal_without_the_note_stays_a_failure(tmp_path):
+    undocumented = _reviewed_reader_scripts(tmp_path, "Restore the backup.\n")
+    result, rows, observed = run_compose(
+        tmp_path, READER_INCOMPATIBLE="1", **undocumented)
+    assert result.returncode != 0
+    assert rows[0]["status"] == "fail"
+    assert "outside the documented boundary" in rows[0]["why"]
+    assert observed["customerSteps"]["rollback"]["boundary"] in ("", None)
 
 
 def test_compose_unguarded_prior_is_rollback_target_ineligible(tmp_path):

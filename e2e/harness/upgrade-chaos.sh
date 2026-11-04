@@ -660,7 +660,7 @@ run_idempotency() {
 #      equals the declared one; seeded rows survived
 #   -> roll back to the prior image on the migrated database, or, at the documented boundary
 #   (typed schema_reader_incompatible after approved contract migrations, below schema 135,
-#   or a migration declared reader-incompatible rather than expand-only),
+#   or every refused script is a reviewed reader-incompatible declaration named in the server note),
 #   restore the pre-upgrade backup -> the prior image serves the seeded rows again.
 # Only a recorded `pass` is a pass. COMPOSE_UPGRADE_FAULT injects a defect so CI can keep proving
 # the gate fails on it through its own assertion (gate-upgrade negative-control cell):
@@ -670,6 +670,22 @@ run_idempotency() {
 COMPOSE_FAULT="${COMPOSE_UPGRADE_FAULT:-none}"
 CANDIDATE_DB_SCHEMA="${HONUA_CANDIDATE_DB_SCHEMA:-}"
 READER_EXPAND_FLOOR="${READER_EXPAND_FLOOR:-135}"
+
+declaration_boundary() {
+  local refusal_file=$1 verdict=no
+  local -a args=(--refusal-file "$refusal_file")
+  if [ -n "${ROLLBACK_NOTE:-}" ] && [ -n "${ROLLBACK_SCRIPTS:-}" ]; then
+    args+=(--note-file "$ROLLBACK_NOTE" --scripts-dir "$ROLLBACK_SCRIPTS")
+  elif [ -n "${HONUA_CANDIDATE_SOURCE_REVISION:-}" ]; then
+    args+=(--revision "$HONUA_CANDIDATE_SOURCE_REVISION")
+  else
+    printf '%s\n' "$verdict"
+    return 0
+  fi
+  verdict="$(python3 tools/rollback_boundary.py "${args[@]}")" || verdict=no
+  printf '%s\n' "$verdict"
+}
+
 COMPOSE_PLATFORM="linux/amd64"
 CU_NAME=compose-upgrade-rollback
 CU_BACKUP="$OUT/compose-pre-upgrade.dump"
@@ -948,14 +964,15 @@ run_compose_upgrade_rollback() {
     CU_ROLLBACK_OUTCOME=image-rollback-served
   else
     compose logs server > "$OUT/compose-rollback-prior.log" 2>&1 || true
-    # The reason sits past the migration name. A 200-character cap hid
-    # "declared reader-incompatible, not expand" on migration 142.
-    refusal="$(grep -hoE 'schema_reader_incompatible[^"]*' "$OUT/compose-rollback-prior.log" | head -n 1)" || refusal=""
+    grep -hoE 'schema_reader_incompatible[^"]*' "$OUT/compose-rollback-prior.log" > "$OUT/refusal.txt" || true
+    refusal="$(head -n 1 "$OUT/refusal.txt" || true)"
     CU_ROLLBACK_OUTCOME=image-rollback-refused
     if [[ "$refusal" == schema_reader_incompatible* ]]; then
       if [ -n "$CU_NONCE" ]; then CU_BOUNDARY=contract-migrations-approved
       elif [[ "$CU_PRIOR_SCHEMA" =~ ^[0-9]+$ ]] && [ "$CU_PRIOR_SCHEMA" -lt "$READER_EXPAND_FLOOR" ]; then CU_BOUNDARY="prior-schema-$CU_PRIOR_SCHEMA-below-$READER_EXPAND_FLOOR"
-      elif [[ "$refusal" == *"declared reader-incompatible, not expand"* ]]; then CU_BOUNDARY=reader-incompatible-declaration
+      else
+        decl="$(declaration_boundary "$OUT/refusal.txt")"
+        if [ "$decl" = reader-incompatible-declaration ]; then CU_BOUNDARY=$decl; fi
       fi
     fi
     if [ -z "$CU_BOUNDARY" ]; then
