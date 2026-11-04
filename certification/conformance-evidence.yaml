@@ -1,21 +1,12 @@
-# Conformance-evidence federation thresholds (honua-release#133,
-# tools/check_conformance_evidence.py, .github/workflows/certification.yml).
+# Conformance-evidence federation thresholds
+# (tools/check_conformance_evidence.py, .github/workflows/certification.yml).
 #
-# WHY THIS FILE EXISTS
-# `gate_conformance`'s ogc-stac and GeoServices lanes used to be hardcoded `status=blocked`
-# with no body. Under `enforcement: strict` (every real cut) blocked is promoted to FAIL, so those
-# two lanes made a real release impossible while proving nothing -- and the `HONUA_SERVER_URL` their
-# `why` strings told you to set was never read by either lane, because neither had an implementation
-# to enable.
+# Thresholds live here so they can be tuned without touching decision logic,
+# the same split as certification/evidence-freshness.yaml.
 #
-# The evidence they need already exists elsewhere and is already sha-bound, so the lanes now
-# FEDERATE it instead of re-certifying it from scratch. Thresholds live here, not in the decision
-# module, so they can be tuned without touching decision logic (same split as
-# certification/evidence-freshness.yaml).
-#
-# BLOCKED is still honest: an unfetchable snapshot, an unreachable compare API, or a validator that
-# never ran reports BLOCKED, never a fake pass. Only evidence that was actually obtained and says
-# "not conformant", "wrong history", or "too old" turns into FAIL.
+# An unfetchable snapshot, an unreachable compare API, or a validator that never
+# ran reports BLOCKED. Obtained evidence that says "not conformant", "wrong
+# history", or "too old" is FAIL.
 
 cite:
   # honua-server runs 13 CITE TEAM Engine suites and transcribes the authoritative snapshot to
@@ -52,37 +43,11 @@ stac:
     - https://api.stacspec.org/v1.0.0/item-search
     - https://api.stacspec.org/v1.0.0/ogcapi-features
 
-releaseScope:
-  # Explicit, dated scope decisions (tools/conformance_release_scope.py). A lane listed here still
-  # runs and its row stays in gate-report.json with its own status; the report marks it
-  # `decided: advisory` with the `reportAs` label, and it does not count toward overallStatus for
-  # the listed releases. Removing an entry restores the lane as required. Every field is required.
-  conformance-esri-geoservices:
-    requirement: advisory
-    releases: ["2026.1"]
-    decidedOn: "2026-10-22"
-    reason: "operator ruling 2026-10-22: GeoServices desktop and QGIS client certification deferred past rc"
-    reportAs: "not certified for 2026.1"
-
-esri: {}   # retired 2026-11-02 (see below); an explicit empty mapping, never null
-  # The retired client-compatibility producer's license-free lanes (native SDK and the SDK-driven
-  # GeoServices REST/OGC/auth/geoprocessing lanes) emitted per-service `.cert.json` evidence.
-  # Desktop results are referenced only by their private producer evidence identifiers.
-  #
-  # `expectedImage` is NOT configured here: it is derived from the candidate manifest's pinned
-  # honua-server image at evaluation time, so the bundle is bound to the exact build being released.
-  # Evidence about a different build is worse than no evidence, because it reads as a pass.
-  #
-  # The canonical producer pin is platform-manifest.yaml evidenceSources.esri-compat. This value is
-  # retained temporarily for older federation consumers and is checked for equality by the manifest
-  # validator; it must never become parallel configuration truth.
-  #
-  # Bump this ref whenever a new certified bundle is published for a candidate. The binding check
-  # is the backstop: a bundle for the wrong image fails rather than silently certifying.
-  # RETIRED 2026-11-02 with its platform-manifest.yaml evidence source (founder ruling 2026-10-30; the
-  # GeoServices compatibility producer repository no longer exists). The previous evidenceRepo and
-  # evidenceRef (ece4c3a2f68557fe8329e9932de36193d0732894, 2026-08-27 refresh) are in git history at c2fc0aa5.
-  # With no pinned producer, the advisory GeoServices conformance lane reports BLOCKED, never a pass.
+# Explicit, dated scope decisions (tools/conformance_release_scope.py). A lane listed here still
+# runs and its row stays in gate-report.json with its own status; the report marks it
+# `decided: advisory` with the `reportAs` label, and it does not count toward overallStatus for
+# the listed releases. Removing an entry restores the lane as required. Every field is required.
+releaseScope: {}
 
 demos:
   # e2e S9 drives the five backend-facing honua-site demos against the booted candidate. The demos

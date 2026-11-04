@@ -3,7 +3,7 @@
   "display_name": "SceneServer (I3S, Enterprise-gated)",
   "prefix": "SCN",
   "source_doc": "src/Honua.Protocols.Scene.I3s",
-  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "generated_from": "curated, live-cross-checked",
   "parity": "gated",
   "counts": {
     "implemented": 0,

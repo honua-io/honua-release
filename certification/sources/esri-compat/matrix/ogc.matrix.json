@@ -3,7 +3,7 @@
   "display_name": "OGC Protocols (API Features/Tiles/Records + WFS/WMS/WMTS/WCS)",
   "prefix": "OGC",
   "source_doc": "src/Honua.Protocols.OgcApi, src/Honua.Protocols.OgcClassic",
-  "generated_from": "honua-esri-compat (curated, live-cross-checked)",
+  "generated_from": "curated, live-cross-checked",
   "parity": "partial",
   "counts": {
     "implemented": 13,

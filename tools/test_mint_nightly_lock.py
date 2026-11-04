@@ -1751,14 +1751,12 @@ def test_a_verified_executor_provenance_is_checked_against_its_source_revision(i
 
 
 def test_retired_geoservices_producer_is_not_a_fixture_gate_and_its_record_is_refused():
-    # The GeoServices conformance job's evidence producer was retired 2026-11-02; it checks out nothing.
     jobs = yaml.safe_load((Path(__file__).resolve().parents[1] / '.github/workflows/certification.yml')
                           .read_text())['jobs']
-    (retired,) = [job for job in jobs if job.startswith('conformance-') and job.endswith('-geoservices')]
+    assert not any(job.endswith('-geoservices') for job in jobs)
     assert fixture_revisions.FIXTURE_GATES['certification'] == ('conformance-mcp',)
     complete = records()
-    assert not any(record['job'] == retired for record in complete)
-    fixture_revisions.declare(complete, run_id=RUN)  # the active producers alone are complete
-    stray = {**complete[0], 'gate': 'certification', 'job': retired}
-    with pytest.raises(ValueError):
+    fixture_revisions.declare(complete, run_id=RUN)
+    stray = {**complete[0], 'gate': 'certification', 'job': 'conformance-retired'}
+    with pytest.raises(ValueError, match='not a fixture gate'):
         fixture_revisions.declare([*complete, stray], run_id=RUN)

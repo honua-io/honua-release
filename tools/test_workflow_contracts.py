@@ -244,11 +244,10 @@ def test_artifact_gate_uses_client_pins_and_strict_mode_rejects_local_fallbacks(
 def test_conformance_gate_consumes_manifest_pinned_evidence_producers():
     jobs = _workflow("certification.yml")["jobs"]
     mcp = "\n".join(_step_text(step) for step in jobs["conformance-mcp"]["steps"])
-    esri = "\n".join(_step_text(step) for step in jobs["conformance-esri-geoservices"]["steps"])
     cite = "\n".join(_step_text(step) for step in jobs["conformance-ogc-stac"]["steps"])
+    assert "conformance-esri-geoservices" not in jobs
     assert 'get("evidenceSources")' in mcp and 'get("mcp")' in mcp
     assert "checkout_component.sh" in mcp and "clone --depth 1" not in mcp
-    assert 'get("evidenceSources")' in esri and 'get("esri-compat")' in esri
     assert 'get("evidenceSources")' in cite and 'get("cite")' in cite
     assert "/trunk/docs/cite-status.md" not in cite
 

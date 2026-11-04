@@ -1,17 +1,17 @@
 """Unit tests for the conformance-evidence federation gate (honua-release#133).
 
 The point of this gate is that it can FAIL. Most of these tests therefore assert failure paths:
-diverged lineage, a stale snapshot, a regressed suite, a bundle certifying the wrong image. A gate
-that only ever reports pass or blocked is the defect this module was written to remove.
+diverged lineage, a stale snapshot, a regressed suite. A gate that only ever reports pass or
+blocked is the defect this module was written to remove.
 """
 from datetime import datetime, timezone
 
 from check_conformance_evidence import (
     ConformanceEvidenceError,
+    ConformanceInputs,
     evaluate_conformance,
     non_implemented_cite_suites,
     parse_cite_status,
-    summarize_esri_bundle,
 )
 
 import pytest
@@ -60,7 +60,6 @@ CONFIG = {
             "https://api.stacspec.org/v1.0.0/collections",
         ]
     },
-    "esri": {"expectedImage": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8"},
 }
 
 GOOD_STAC = {
@@ -70,10 +69,6 @@ GOOD_STAC = {
     ],
     "errors": [],
 }
-
-GOOD_ESRI = summarize_esri_bundle(
-    [{"image": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8", "checks": [{"id": "FS-OP-QUERY", "status": "pass"}]}]
-)
 
 
 def _status(rows, check):
@@ -109,14 +104,13 @@ def test_snapshot_without_a_review_date_is_rejected_loudly():
 
 # The happy path — everything genuinely proven
 def test_fully_federated_candidate_passes():
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, CONFIG), now=NOW
     )
     assert overall == "pass", [r for r in rows if r["status"] != "pass"]
     assert _status(rows, "cite:lineage") == "pass"
     assert _status(rows, "cite:suites") == "pass"
     assert _status(rows, "stac:validator") == "pass"
-    assert _status(rows, "esri:binding") == "pass"
 
 
 def test_ancestor_lineage_is_accepted_deliberately():
@@ -124,16 +118,16 @@ def test_ancestor_lineage_is_accepted_deliberately():
     # pinned later. That is lineage continuity, not a break -- the same rule the freeze-phase
     # evidence gate already proved out.
     for relation in ("identical", "ancestor", "descendant"):
-        rows, _ = evaluate_conformance(
-            CANDIDATE, parse_cite_status(CITE_STATUS_MD), relation, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+        rows, _ = evaluate_conformance(ConformanceInputs(
+            CANDIDATE, parse_cite_status(CITE_STATUS_MD), relation, GOOD_STAC, CONFIG), now=NOW
         )
         assert _status(rows, "cite:lineage") == "pass", relation
 
 
 # Failure paths — the reason this gate exists
 def test_diverged_lineage_fails():
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", GOOD_STAC, CONFIG), now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "cite:lineage") == "fail"
@@ -142,8 +136,8 @@ def test_diverged_lineage_fails():
 def test_stale_snapshot_fails_rather_than_blocking():
     # Obtained-but-too-old is a decided failure, not a bootstrap gap.
     late = datetime(2026, 9, 30, tzinfo=timezone.utc)
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=late
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, CONFIG), now=late
     )
     assert overall == "fail"
     assert _status(rows, "cite:freshness") == "fail"
@@ -151,8 +145,8 @@ def test_stale_snapshot_fails_rather_than_blocking():
 
 def test_a_regressed_suite_fails():
     regressed = CITE_STATUS_MD.replace("| WFS 2.0 | `basic` | 167 / 167 |", "| WFS 2.0 | `basic` | 160 / 167 |")
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(regressed), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(regressed), "ancestor", GOOD_STAC, CONFIG), now=NOW
     )
     assert overall == "fail"
     assert "WFS 2.0 160/167" in next(r["why"] for r in rows if r["check"] == "cite:suites")
@@ -161,8 +155,8 @@ def test_a_regressed_suite_fails():
 def test_a_vanished_required_suite_fails():
     # Dropping a row must not read as "nothing regressed" -- that shrinks the denominator silently.
     shrunk = "\n".join(line for line in CITE_STATUS_MD.splitlines() if not line.startswith("| WMTS 1.0"))
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(shrunk), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(shrunk), "ancestor", GOOD_STAC, CONFIG), now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "cite:coverage") == "fail"
@@ -170,8 +164,8 @@ def test_a_vanished_required_suite_fails():
 
 def test_all_passed_false_fails_even_when_the_table_looks_clean():
     doctored = CITE_STATUS_MD.replace("allPassed=true", "allPassed=false")
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(doctored), "ancestor", GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(doctored), "ancestor", GOOD_STAC, CONFIG), now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "cite:allPassed") == "fail"
@@ -179,8 +173,8 @@ def test_all_passed_false_fails_even_when_the_table_looks_clean():
 
 def test_missing_stac_conformance_class_fails():
     stripped = {"conformsTo": ["https://api.stacspec.org/v1.0.0/core"], "errors": []}
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", stripped, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", stripped, CONFIG), now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "stac:conformance-classes") == "fail"
@@ -188,94 +182,40 @@ def test_missing_stac_conformance_class_fails():
 
 def test_stac_validator_errors_fail():
     broken = dict(GOOD_STAC, errors=["item-search: sortby not honoured"])
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", broken, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", broken, CONFIG), now=NOW
     )
     assert overall == "fail"
     assert _status(rows, "stac:validator") == "fail"
 
 
-def test_esri_bundle_for_a_different_image_fails():
-    # Evidence about another build reads as a pass unless the binding is checked. This is the exact
-    # failure mode the candidate-binding work exists to prevent, applied to a federated source.
-    wrong = summarize_esri_bundle([{"image": "ghcr.io/honua-io/honua-server:nightly-aot-deadbee", "checks": []}])
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, wrong, CONFIG, now=NOW
-    )
-    assert overall == "fail"
-    assert _status(rows, "esri:binding") == "fail"
-
-
-def test_esri_bundle_bound_by_manifest_digest_passes():
-    digest = "sha256:78e3088d64d832d3e2752c87d80bfcad201b414f4525989ca5d9a242cd5fee8a"
-    config = {**CONFIG, "esri": {**CONFIG["esri"], "expectedDigest": digest}}
-    by_digest = summarize_esri_bundle(
-        [{"image": f"ghcr.io/honua-io/honua-server@{digest}", "checks": []}]
-    )
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, by_digest, config, now=NOW
-    )
-    assert overall == "pass"
-    assert _status(rows, "esri:binding") == "pass"
-
-
-def test_esri_lane_failures_fail():
-    failing = summarize_esri_bundle(
-        [
-            {
-                "image": "ghcr.io/honua-io/honua-server:nightly-aot-6b6d3b8",
-                "checks": [{"id": "IS-OP-TILE", "status": "fail", "notes": "tile failed (200)"}],
-            }
-        ]
-    )
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", GOOD_STAC, failing, CONFIG, now=NOW
-    )
-    assert overall == "fail"
-    assert "IS-OP-TILE" in next(r["why"] for r in rows if r["check"] == "esri:lanes")
-
-
-def test_summarize_walks_both_cert_and_coverage_shapes():
-    # The harness emits CERT records keyed by test_case_id and operation-coverage records keyed by
-    # id. A summary blind to either dimension would under-report.
-    summary = summarize_esri_bundle(
-        [
-            {"results": [{"test_case_id": "CERT-CONN-01", "status": "fail", "notes": "no VTS"}]},
-            {"coverage": [{"id": "IS-OP-LEGEND", "status": "fail"}]},
-        ]
-    )
-    assert len(summary["failures"]) == 2
-    assert {"CERT-CONN-01", "IS-OP-LEGEND"} == {f["id"] for f in summary["failures"]}
-
-
 # Blocked paths — honest bootstrap, never a fake pass
 def test_unfetchable_snapshot_blocks_and_never_passes():
-    rows, overall = evaluate_conformance(CANDIDATE, None, None, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW)
+    rows, overall = evaluate_conformance(ConformanceInputs(CANDIDATE, None, None, GOOD_STAC, CONFIG), now=NOW)
     assert overall == "blocked"
     assert _status(rows, "cite:snapshot") == "blocked"
 
 
 def test_undecidable_lineage_blocks():
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), None, GOOD_STAC, GOOD_ESRI, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), None, GOOD_STAC, CONFIG), now=NOW
     )
     assert overall == "blocked"
     assert _status(rows, "cite:lineage") == "blocked"
 
 
-def test_missing_stac_and_esri_block_rather_than_pass():
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", None, None, CONFIG, now=NOW
+def test_missing_stac_blocks_rather_than_passing():
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "ancestor", None, CONFIG), now=NOW
     )
     assert overall == "blocked"
     assert _status(rows, "stac:validator") == "blocked"
-    assert _status(rows, "esri:bundle") == "blocked"
 
 
 def test_fail_outranks_blocked():
     # A real regression must not be masked by an unrelated bootstrap gap in the same run.
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", None, None, CONFIG, now=NOW
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(CITE_STATUS_MD), "diverged", None, CONFIG), now=NOW
     )
     assert overall == "fail"
 
@@ -303,8 +243,8 @@ def test_only_wholly_non_implemented_capabilities_leave_the_verdict():
 
 def test_a_preview_suite_regression_is_reported_but_does_not_fail():
     regressed = CITE_STATUS_MD.replace("| WMTS 1.0 | `default` | 60 / 60 |", "| WMTS 1.0 | `default` | 50 / 60 |")
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(regressed), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(regressed), "ancestor", None, _scoped_config()), now=NOW, sections=("cite",)
     )
     assert overall == "pass"
     assert _status(rows, "cite:not-certified") == "advisory"
@@ -313,13 +253,13 @@ def test_a_preview_suite_regression_is_reported_but_does_not_fail():
 
 def test_a_preview_suite_may_be_absent_but_an_implemented_one_may_not():
     no_wmts = "\n".join(line for line in CITE_STATUS_MD.splitlines() if not line.startswith("| WMTS 1.0"))
-    _, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(no_wmts), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    _, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(no_wmts), "ancestor", None, _scoped_config()), now=NOW, sections=("cite",)
     )
     assert overall == "pass"
     no_wfs = "\n".join(line for line in CITE_STATUS_MD.splitlines() if not line.startswith("| WFS 2.0"))
-    rows, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(no_wfs), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    rows, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(no_wfs), "ancestor", None, _scoped_config()), now=NOW, sections=("cite",)
     )
     assert overall == "fail"
     assert _status(rows, "cite:coverage") == "fail"
@@ -327,33 +267,23 @@ def test_a_preview_suite_may_be_absent_but_an_implemented_one_may_not():
 
 def test_an_implemented_suite_regression_still_fails_under_scope():
     regressed = CITE_STATUS_MD.replace("| WFS 2.0 | `basic` | 167 / 167 |", "| WFS 2.0 | `basic` | 160 / 167 |")
-    _, overall = evaluate_conformance(
-        CANDIDATE, parse_cite_status(regressed), "ancestor", None, None, _scoped_config(), now=NOW, sections=("cite",)
+    _, overall = evaluate_conformance(ConformanceInputs(
+        CANDIDATE, parse_cite_status(regressed), "ancestor", None, _scoped_config()), now=NOW, sections=("cite",)
     )
     assert overall == "fail"
 
 
-def _retired_section():
-    """The evidence section whose producer was retired on 2026-11-02 (every section but cite and stac)."""
-    import check_conformance_evidence as cce
-    (section,) = [s for s in cce.ALL_SECTIONS if s not in ("cite", "stac")]
-    return section
-
-
-@pytest.mark.parametrize("selection", ["retired", "cite,stac"])
-def test_cli_on_the_committed_config_writes_a_report_with_the_producer_retired(tmp_path, selection):
-    """The committed config carries the retired section as an empty mapping since 2026-11-02; a null
-    section must not crash the CLI before it writes the lane report (OGC/STAC included)."""
+def test_cli_on_the_committed_config_writes_a_report(tmp_path):
+    """No supplied evidence is blocked, never a pass, and the report is written."""
     import json
     from pathlib import Path
     import check_conformance_evidence as cce
-    sections = _retired_section() if selection == "retired" else selection
     root = Path(cce.__file__).resolve().parents[1]
     out = tmp_path / "report.json"
-    code = cce.main(["--manifest", str(root / "platform-manifest.yaml"), "--sections", sections,
+    code = cce.main(["--manifest", str(root / "platform-manifest.yaml"), "--sections", "cite,stac",
                      "--json-out", str(out)])
     report = json.loads(out.read_text())
-    assert report["overallStatus"] != "pass" and code == 1  # no evidence supplied: never a pass
+    assert report["overallStatus"] != "pass" and code == 1
     assert report["rows"]
 
 
@@ -364,10 +294,10 @@ def test_a_null_section_is_normalized_not_a_crash(tmp_path):
     import check_conformance_evidence as cce
     root = Path(cce.__file__).resolve().parents[1]
     config = yaml.safe_load((root / "certification/conformance-evidence.yaml").read_text())
-    config[_retired_section()] = None
+    config["cite"] = None
     path = tmp_path / "conformance-evidence.yaml"
     path.write_text(yaml.safe_dump(config))
     out = tmp_path / "report.json"
     cce.main(["--manifest", str(root / "platform-manifest.yaml"), "--config", str(path),
-              "--sections", _retired_section(), "--json-out", str(out)])
+              "--sections", "cite", "--json-out", str(out)])
     assert json.loads(out.read_text())["overallStatus"] != "pass"
