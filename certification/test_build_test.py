@@ -412,9 +412,18 @@ def _fetch_map(mapping):
     return lambda repo, sha: mapping.get(repo, bt.NOT_FOUND)
 
 
+BUILD_LANE = (".github/workflows/ci.yml", "build")
+
+
+def _built(conclusion="success"):
+    return {"check_runs": [{"name": "build", "status": "completed", "conclusion": conclusion,
+                            "_workflow_path": BUILD_LANE[0]}]}
+
+
 def test_evaluate_all_green_is_pass():
     manifest = {"components": {"a": {"sha": "x" * 40}, "b": {"sha": "y" * 40}}}
-    rep = bt.evaluate(manifest, _fetch_map({"a": _runs("success"), "b": _runs("success")}))
+    lanes = {"a": frozenset({BUILD_LANE}), "b": frozenset({BUILD_LANE})}
+    rep = bt.evaluate(manifest, _fetch_map({"a": _built(), "b": _built()}), required_lanes=lanes)
     assert rep["overallStatus"] == "pass" and rep["summary"]["pass"] == 2
 
 
@@ -568,7 +577,9 @@ def test_evaluate_scopes_the_replay_rule_by_component():
     replay = _studio_check(5, "failure", event="workflow_dispatch", title=f"Console live studio-customer {GATE_ID}",
                            branch=f"studio-customer-gate/{GATE_ID}")
     manifest = {"components": {"honua-console": {"sha": "a" * 40}, "honua-studio": {"sha": "b" * 40}}}
-    result = bt.evaluate(manifest, lambda name, sha: _console_payload(replay), enforcement="strict", env_gated_events={})
+    validate = frozenset({(".github/workflows/ci.yml", "Validate Console")})
+    result = bt.evaluate(manifest, lambda name, sha: _console_payload(replay), enforcement="strict", env_gated_events={},
+                         required_lanes={"honua-console": validate, "honua-studio": validate})
     verdicts = {row["component"]: row["status"] for row in result["components"]} if "components" in result else \
         {row["component"]: row["status"] for row in result.get("rows", result.get("gates", []))}
     assert verdicts["honua-console"] == "pass" and verdicts["honua-studio"] == "fail"
@@ -642,8 +653,9 @@ def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record
 
     manifest = {"components": {"honua-server": {"sha": "8" * 40}, "honua-console": {"sha": "c" * 40}}}
     payloads = {"honua-server": _server_payload(), "honua-console": _runs("success")}
+    lanes = {"honua-server": frozenset({(".github/workflows/trunk-sanity.yml", "Restore and Build")})}
     report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={},
-                         validated_examples=resolver)
+                         validated_examples=resolver, required_lanes=lanes)
     rows = {row["component"]: row for row in report["components"]}
     assert calls == [("honua-server", "8" * 40)]
     assert rows["honua-server"]["status"] == "pass"
@@ -651,7 +663,7 @@ def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record
     assert "validatedExamples" not in rows["honua-console"]
     # Disabled (the default for pure callers): the pin's own red runs decide.
     payloads["honua-server"] = _server_payload()
-    report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={})
+    report = bt.evaluate(manifest, lambda name, sha: payloads[name], env_gated_events={}, required_lanes=lanes)
     assert {r["component"]: r["status"] for r in report["components"]}["honua-server"] == "fail"
 
 

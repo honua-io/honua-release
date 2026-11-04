@@ -21,6 +21,9 @@ on:
     paths:
       - "certification/check_build_test.py"
       - "certification/full_matrix_evidence.py"
+      - "certification/execution_order.py"
+      - "certification/required-checks.yaml"
+      - "certification/required_lanes.py"
       - "certification/validated_examples_descendant.py"
       - "certification/test_validated_examples_descendant.py"
       - "certification/test_build_test.py"
@@ -32,6 +35,7 @@ on:
       - "certification/rollup-checks.yaml"
       - "certification/security-checks.yaml"
       - "tools/test_check_build_test.py"
+      - "tools/test_build_test_required_lanes.py"
       - "tools/resolve_trunk_candidate.py"
       - "tools/test_resolve_trunk_candidate.py"
       - "tools/fixtures/candidate-resolution-2026-10-06/**"
@@ -88,7 +92,7 @@ jobs:
 
       # Always: prove the verdict logic can FAIL (green-only passes; red/missing/incomplete don't).
       - name: Self-test the gate logic
-        run: python -m pytest certification/test_build_test.py certification/test_validated_examples_descendant.py tools/test_build_test_full_matrix.py tools/test_check_build_test.py tools/test_resolve_trunk_candidate.py -q
+        run: python -m pytest certification/test_build_test.py certification/test_validated_examples_descendant.py tools/test_build_test_full_matrix.py tools/test_check_build_test.py tools/test_build_test_required_lanes.py tools/test_resolve_trunk_candidate.py -q
 
       # Live per-repo check — not on PRs (stale pins aren't a PR's fault); enforces in the train/nightly.
       - name: Per-repo CI on pinned SHAs

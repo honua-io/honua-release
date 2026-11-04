@@ -9,9 +9,11 @@ the one that passed. A red or never-built pin must fail the gate (AGENTS.md: a g
 worse than no gate) — proven by tools-style tests in test_build_test.py.
 
 Per-component verdict from the GitHub check-runs of the pinned SHA:
-  pass     — at least one check-run, all conclusions in {success, neutral, skipped}
-  fail     — any conclusion in {failure, cancelled, timed_out, action_required, startup_failure}
-  blocked  — sha not found / repo unreadable / no check-runs / CI still in progress (no verdict yet)
+  pass     — every required build/test lane (required-checks.yaml, or the component's full-matrix policy)
+             succeeded on its latest attempt, and every other core check-run is in {success, neutral, skipped}
+  fail     — any core conclusion in {failure, timed_out, action_required, startup_failure}
+  blocked  — sha not found / repo unreadable / no check-runs / CI still in progress / a cancelled core lane /
+             a required lane missing, skipped or otherwise not successful (no verdict yet)
 
 Components pinned by a real release `version` but whose manifest carries no sha are reported blocked
 (nothing to resolve CI against) — never silently passed.
@@ -28,16 +30,17 @@ import argparse
 import json
 import os
 import re
-import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Callable
+from typing import Callable, NamedTuple
 
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("PyYAML is required: pip install pyyaml") from exc
+
+from required_lanes import REQUIRED_PATH, classify_required_lanes, load_required_lanes
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = REPO_ROOT / "platform-manifest.yaml"
@@ -296,6 +299,32 @@ def _latest_named_runs(runs: list[dict]) -> list[dict]:
     return [run for _, run in sorted(selected, key=lambda item: item[0])]
 
 
+class RunPartition(NamedTuple):
+    """A payload's check-runs split by the rules applied before any verdict."""
+    selected: list[dict]       # latest attempt of each lane that the verdict judges
+    replaced: list[dict]       # validated-examples checks replaced by a verified descendant run
+    replayed: list[dict]       # release-gate replays, judged by their own gate
+    event_gated: list[dict]    # env-gated (workflow, event) runs
+
+
+def _partition_runs(payload: object, component: str,
+                    env_gated_events: frozenset[tuple[str, str]]) -> RunPartition:
+    runs = (payload.get("check_runs") or []) if isinstance(payload, dict) else []
+
+    def env_gated_event(run: dict) -> bool:
+        actions = run.get("_workflow_run")
+        return (isinstance(actions, dict)
+                and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in env_gated_events)
+
+    replaced = [r for r in runs if _validated_examples_replaced(r, payload, component)]
+    runs = [r for r in runs if not _validated_examples_replaced(r, payload, component)]
+    replayed = [r for r in runs if _is_release_gate_replay(r, component)]
+    runs = [r for r in runs if not _is_release_gate_replay(r, component)]
+    event_gated = [r for r in runs if env_gated_event(r)]
+    selected = _latest_named_runs([r for r in runs if not env_gated_event(r)])
+    return RunPartition(selected, replaced, replayed, event_gated)
+
+
 def classify(payload, env_gated_names: frozenset[str] = frozenset(),
              rollup_names: frozenset[str] = frozenset(),
              security_names: frozenset[str] = frozenset(),
@@ -328,18 +357,9 @@ def classify(payload, env_gated_names: frozenset[str] = frozenset(),
     runs = payload.get("check_runs") or []
     if not runs:
         return "blocked", "no CI check-runs for the pinned sha (not built yet?)"
-    def _env_gated_event(run: dict) -> bool:
-        actions = run.get("_workflow_run")
-        return (isinstance(actions, dict)
-                and (str(run.get("_workflow_path") or ""), str(actions.get("event") or "")) in env_gated_events)
-    vx_replaced = [r for r in runs if _validated_examples_replaced(r, payload, component)]
-    runs = [r for r in runs if not _validated_examples_replaced(r, payload, component)]
-    if not runs:
+    runs, vx_replaced, replayed, event_gated = _partition_runs(payload, component, env_gated_events)
+    if not runs and not (replayed or event_gated):
         return "blocked", "only replaced validated-examples check-runs on the pinned sha"
-    replayed = [r for r in runs if _is_release_gate_replay(r, component)]
-    event_gated = [r for r in runs if not _is_release_gate_replay(r, component) and _env_gated_event(r)]
-    runs = _latest_named_runs([r for r in runs
-                               if not _is_release_gate_replay(r, component) and not _env_gated_event(r)])
     if not runs:
         return "blocked", "only release-gate replay or env-gated scheduled check-runs on the pinned sha"
 
@@ -443,6 +463,15 @@ def classify_full_matrix(payload: object, policy: dict, expected_sha: str | None
         return "fail", f"full-matrix run {selected.get('id')} is not certifiable: " + "; ".join(problems)
     return "pass", (f"full-matrix run {selected['id']} attempt {selected['run_attempt']} completed successfully "
                     "with authentic expected lanes and complete pinned shard execution")
+
+
+_SEVERITY = {"pass": 0, "blocked": 1, "fail": 2}
+
+
+def _worst(verdict: tuple[str, str], requirement: tuple[str, str]) -> tuple[str, str]:
+    """The more severe of two (status, why) verdicts, keeping both explanations."""
+    status = max(verdict[0], requirement[0], key=_SEVERITY.__getitem__)
+    return status, f"{verdict[1]}; {requirement[1]}"
 
 
 Fetcher = Callable[[str, str], object]  # (repo, sha) -> payload | NOT_FOUND
@@ -613,9 +642,12 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
              full_matrix: dict[str, dict] | None = None,
              advisory: dict[str, dict[str, frozenset[str]]] | None = None,
              env_gated_events: dict[str, frozenset[tuple[str, str]]] | None = None,
-             validated_examples: Callable[[str, str, dict, dict], dict] | None = None) -> dict:
+             validated_examples: Callable[[str, str, dict, dict], dict] | None = None,
+             required_lanes: dict[str, frozenset[tuple[str, str]]] | None = None) -> dict:
     """`validated_examples(name, sha, component, manifest)` resolves the honua-server validated-examples
-    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide."""
+    descendant rule (validated_examples_descendant.py); None disables it, so the pin's runs decide.
+    A component proves its builds and tests ran through its full-matrix policy, or else through its
+    `required_lanes` (default: required-checks.yaml); a component with neither is blocked."""
     import validated_examples_descendant as vx
     components = manifest.get("components") or {}
     env_gated = env_gated or {}
@@ -625,6 +657,7 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
     full_matrix = full_matrix or {}
     advisory = advisory or {}
     env_gated_events = load_env_gated_events() if env_gated_events is None else env_gated_events
+    required_lanes = load_required_lanes() if required_lanes is None else required_lanes
     rows = []
     for name, comp in components.items():
         comp = comp or {}
@@ -647,11 +680,11 @@ def evaluate(manifest: dict, fetch: Fetcher, enforcement: str = "bootstrap",
                                env_gated_events.get(name, frozenset()),
                                component=name)
         if name in full_matrix:
-            matrix_status, matrix_why = classify_full_matrix(payload, full_matrix[name], sha)
-            if matrix_status != "pass":
-                status, why = matrix_status, matrix_why
-            else:
-                why = f"{why}; {matrix_why}"
+            requirement = classify_full_matrix(payload, full_matrix[name], sha)
+        else:
+            selected = _partition_runs(payload, name, env_gated_events.get(name, frozenset())).selected
+            requirement = classify_required_lanes(selected, required_lanes.get(name, frozenset()))
+        status, why = _worst((status, why), requirement)
         row = {"component": name, "status": status, "sha": sha[:12], "why": why}
         if vx_record is not None:
             row["validatedExamples"] = vx_record
@@ -689,6 +722,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="YAML of components requiring a completed full-matrix Actions run")
     ap.add_argument("--advisory", default=str(ADVISORY_PATH),
                     help="YAML of per-component advisory check names and workflow paths")
+    ap.add_argument("--required", default=str(REQUIRED_PATH),
+                    help="YAML of per-component required build/test lanes (workflow path -> job names)")
     ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
     args = ap.parse_args(argv)
 
@@ -700,7 +735,8 @@ def main(argv: list[str] | None = None) -> int:
     full_matrix = load_full_matrix(args.full_matrix)
     advisory = load_advisory(args.advisory)
     report = evaluate(manifest, _default_fetch, args.enforcement, env_gated, rollup, security, governance,
-                      full_matrix, advisory, validated_examples=live_validated_examples)
+                      full_matrix, advisory, validated_examples=live_validated_examples,
+                      required_lanes=load_required_lanes(args.required))
     Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "
