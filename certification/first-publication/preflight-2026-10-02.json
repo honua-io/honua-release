@@ -238,7 +238,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -246,20 +247,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.13.1.nupkg",
-          "sha256": "69a6b9833a1e63da38f7ae5c8702e19f67b1e69d4c1825441b49d85c1a863b55",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.13.1/honua.sdk.1.13.1.nupkg"
+          "filename": "honua.sdk.2.0.0.nupkg",
+          "sha256": "f3980cf31a105388d608c518a3b2fcdf6c0b83b48cfae543e454adc743f7fddd",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/2.0.0/honua.sdk.2.0.0.nupkg"
+        },
+        {
+          "filename": "honua.sdk.2.0.0.snupkg",
+          "sha256": "81146a59d0d13370d842c6d0e22e6b97bbc162128ed97fd6b68b2dbe42dc4cb0",
+          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.2.0.0.snupkg"
         }
       ],
       "flat_container_snupkg_status": 404,
       "http_status": 200,
       "id": "nuget:Honua.Sdk-newest",
-      "publication": "nuget.org Honua.Sdk 1.13.1",
+      "publication": "nuget.org Honua.Sdk 2.0.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.13.1/honua.sdk.1.13.1.nupkg",
-        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.1.13.1.snupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/2.0.0/honua.sdk.2.0.0.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.2.0.0.snupkg"
       ],
-      "version": "1.13.1"
+      "version": "2.0.0"
     },
     {
       "disposition": "listed",
@@ -283,7 +289,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -308,7 +315,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -333,7 +341,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -358,7 +367,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -383,7 +393,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -408,7 +419,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -433,7 +445,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -458,7 +471,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -483,7 +497,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -508,7 +523,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -533,7 +549,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -558,7 +575,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -583,7 +601,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -608,7 +627,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -633,7 +653,8 @@
         "1.11.0",
         "1.11.1",
         "1.12.0",
-        "1.13.1"
+        "1.13.1",
+        "2.0.0"
       ]
     },
     {
@@ -893,6 +914,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-03T20:14:41Z",
+  "observed_at": "2026-11-04T21:34:26Z",
   "schema": "honua.first-publication-preflight/v1"
 }
