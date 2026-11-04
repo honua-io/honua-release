@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
+from digests import receipt_digest
+
 try:  # A retained standalone copy of this checker has no ruling module: no producer is then exempt.
     from protocol_preview import PREVIEW_PRODUCER_RULING, active_preview_producers, preview_owner
 except ImportError:  # pragma: no cover - exercised only by standalone retained copies
@@ -263,10 +265,7 @@ def _valid_evidence_uri(value: object, evidence_digest: object) -> bool:
 
 
 def _receipt_digest(value: object) -> str | None:
-    if not isinstance(value, dict):
-        return None
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    return receipt_digest(value)
 
 
 RECEIPT_ID_FIELDS = (

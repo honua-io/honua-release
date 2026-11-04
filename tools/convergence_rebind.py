@@ -43,6 +43,7 @@ import yaml
 
 from check_protocol_certification import (NUGET_IDENTITY_FIELDS, NUGET_SDK_LANE, _valid_nuget_identity,
                                          _valid_python_wheel)
+from digests import receipt_digest
 from protocol_preview import active_preview_producers, preview_owner
 from normalize_capability_matrix_snapshot import normalize_vendored as normalize_capability_matrix
 
@@ -850,14 +851,6 @@ def _timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else None
-
-
-def receipt_digest(receipt: Any) -> str | None:
-    """The digest honua-evidence content-addresses a receipt by (check_protocol_certification)."""
-    if not isinstance(receipt, dict):
-        return None
-    encoded = json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def dispatched_run(run: dict[str, Any], dispatch_id: str) -> dict[str, Any]:
