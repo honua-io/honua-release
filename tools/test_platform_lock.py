@@ -925,8 +925,6 @@ def test_live_inputs_lock_the_published_honua_iac_release():
     assert draft.lock["components"]["honua-iac"]["source"]["revision"] == "0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88"
 
 
-# Helm Preview out of the lock (ruling helm-preview-out-of-lock-2026-10-26)
-
 HELM_RULING = "helm-preview-out-of-lock-2026-10-26"
 
 
