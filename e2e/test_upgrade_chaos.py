@@ -633,7 +633,7 @@ wait_ready_attempts() {
     SERVER_LOG='{"error":"database connection reset during startup"}'; return 1
   fi
   if [ "$MIGRATED" = 1 ] && [ "${READER_INCOMPATIBLE:-0}" = 1 ] && [ "$CURRENT" = "$HONUA_PRIOR_SERVER_IMAGE" ] && [ "$PROBE" != 1 ]; then
-    SERVER_LOG='schema_reader_incompatible: applied migration Honua.Server.Migrations.142_CreateAiFinancialAccounting.sql (declared reader-incompatible, not expand).'
+    SERVER_LOG='schema_reader_incompatible: this server cannot verify compatibility with applied migration(s): Honua.Server.Migrations.142_CreateAiFinancialAccounting.sql. Start a compatible server or restore the database backup matching this revision. Application rollback does not reverse database migrations. See the Rollback boundaries table in Upgrade and roll back. Forward-compatibility declaration(s) refused: Honua.Server.Migrations.142_CreateAiFinancialAccounting.sql (declared reader-incompatible, not expand).'
     return 1
   fi
   if [ "$PROBE" = 1 ] || { [ "$MIGRATED" = 1 ] && [ "${CONTRACT:-0}" = 1 ]; }; then

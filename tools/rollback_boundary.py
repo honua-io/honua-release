@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 BOUNDARY = "reader-incompatible-declaration"
@@ -16,6 +15,7 @@ READER_PHRASE = "declared reader-incompatible, not expand"
 NOTE_PATH = "docs/guides/deploy/upgrade-and-rollback.md"
 MIGRATION_DIR = "src/Honua.Server/Migrations"
 _SCRIPT = re.compile(r"((?:\d{3,}_)[^.\s\"']+)\.sql")
+_REASON = re.compile(r"((?:\d{3,}_)[^.\s\"']+)\.sql\s*\(([^)]*)\)")
 _REVIEW = re.compile(r"^[ \t]*--[ \t]*honua:compatibility-review\b", re.IGNORECASE | re.MULTILINE)
 
 
@@ -28,19 +28,46 @@ def script_stems(refusal: str) -> tuple[str, ...]:
     return tuple(seen)
 
 
-def boundary_for(refusal: str, note: str, script_text: dict[str, str]) -> str | None:
-    stems = script_stems(refusal)
-    if not stems or READER_PHRASE not in refusal:
-        return None
-    for stem in stems:
-        if stem not in note or _REVIEW.search(script_text.get(stem, "")) is None:
+def _reasons_by_stem(refusal: str) -> dict[str, str] | None:
+    found: dict[str, str] = {}
+    for match in _REASON.finditer(refusal):
+        stem, reason = match.group(1), match.group(2)
+        if stem in found and found[stem] != reason:
             return None
-    return BOUNDARY
+        found[stem] = reason
+    return found
+
+
+def declaration_reasons(refusal: str) -> dict[str, str] | None:
+    stems = script_stems(refusal)
+    parsed = _reasons_by_stem(refusal)
+    if not stems or parsed is None:
+        return None
+    if any(parsed.get(stem) != READER_PHRASE for stem in stems):
+        return None
+    return {stem: READER_PHRASE for stem in stems}
+
+
+def note_names_stem(note: str, stem: str) -> bool:
+    return re.search(rf"(?<![A-Za-z0-9_]){re.escape(stem)}(?![A-Za-z0-9_])", note) is not None
+
+
+def _reviewed(stem: str, note: str, script_text: dict[str, str]) -> bool:
+    return note_names_stem(note, stem) and _REVIEW.search(script_text.get(stem, "")) is not None
+
+
+def boundary_for(refusal: str, note: str, script_text: dict[str, str]) -> str | None:
+    reasons = declaration_reasons(refusal)
+    if reasons is None:
+        return None
+    if all(_reviewed(stem, note, script_text) for stem in reasons):
+        return BOUNDARY
+    return None
 
 
 def _remote_text(revision: str, path: str) -> str:
     result = subprocess.run(
-        ["gh", "api", "--fail", "-H", "Accept: application/vnd.github.raw",
+        ["gh", "api", "-H", "Accept: application/vnd.github.raw",
          f"repos/honua-io/honua-server/contents/{path}?ref={revision}"],
         check=False, capture_output=True, text=True,
     )
