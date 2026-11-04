@@ -457,6 +457,7 @@ jobs:
           # ship. An older image refusing the migrated schema is the documented rollback boundary,
           # recovered by restoring the pre-upgrade backup; at or above it the image must serve.
           READER_EXPAND_FLOOR: "135"
+          GH_TOKEN: ${{ github.token }}
           TRUNK_READY: ${{ steps.fallback.outputs.ready }}
           TRUNK_UNAVAILABLE_WHY: ${{ steps.fallback.outputs.why }}
           TRUNK_CHART_OUTCOME: ${{ steps.trunk_chart.outcome == 'success' && steps.trunk_prior_chart.outcome || steps.trunk_chart.outcome }}
@@ -914,19 +915,27 @@ jobs:
                     kubectl logs -n "$NS" -l app.kubernetes.io/instance=honua --all-containers --prefix --tail=400 $prev \
                       >> /tmp/upg/rollback-prior.log 2>&1 || true
                   done
-                  REFUSAL="$(grep -hoE 'schema_reader_incompatible[^"]{0,200}|Unhandled exception[^"]{0,300}' /tmp/upg/rollback-prior.log | head -n 1 || true)"
+                  grep -hoE 'schema_reader_incompatible[^"]*' /tmp/upg/rollback-prior.log > /tmp/upg/refusal.txt || true
+                  REFUSAL="$(head -n 1 /tmp/upg/refusal.txt || true)"
+                  if [ -z "$REFUSAL" ]; then
+                    REFUSAL="$(grep -hoE 'Unhandled exception[^"]{0,300}' /tmp/upg/rollback-prior.log | head -n 1 || true)"
+                  fi
                   [ -z "$REFUSAL" ] || WHY="$WHY: prior image refused the migrated schema: $REFUSAL"
                   tail -n 60 /tmp/upg/rollback-prior.log || true
                   ROLLBACK_OUTCOME=image-rollback-refused
                   # Documented rollback boundary: a typed schema_reader_incompatible refusal is the
-                  # specified behaviour when contract migrations were approved on this edge, or when the
-                  # prior image predates the expand-only reader check (schema < READER_EXPAND_FLOOR).
+                  # specified behaviour when contract migrations were approved on this edge, when the
+                  # prior image predates the expand-only reader check, or when every refused script is
+                  # a reviewed reader-incompatible declaration named in the server rollback note.
                   # The customer's documented recovery is restoring the pre-upgrade backup; the prior must
-                  # then serve. Any other refusal, or a prior at/above the floor refusing, stays a FAIL.
+                  # then serve. Any other refusal stays a FAIL.
                   BOUNDARY=no
                   if [[ "$REFUSAL" == schema_reader_incompatible* ]]; then
                     if [ -n "$APPROVAL_NONCE" ]; then BOUNDARY=contract-migrations-approved
                     elif [[ "$PRIOR_SCHEMA" =~ ^[0-9]+$ ]] && [ "$PRIOR_SCHEMA" -lt "$READER_EXPAND_FLOOR" ]; then BOUNDARY="prior-schema-$PRIOR_SCHEMA-below-$READER_EXPAND_FLOOR"
+                    else
+                      decl="$(python3 tools/rollback_boundary.py --refusal-file /tmp/upg/refusal.txt --revision "$CANDIDATE_SOURCE_REVISION")" || decl=no
+                      if [ "$decl" = reader-incompatible-declaration ]; then BOUNDARY=$decl; fi
                     fi
                   fi
                   if [ "$BOUNDARY" != no ] && [ "$BACKUP_TAKEN" = true ]; then
@@ -1365,6 +1374,8 @@ jobs:
           HONUA_PRIOR_SERVER_IMAGE: ${{ steps.pair.outputs.prior }}
           HONUA_CANDIDATE_SERVER_IMAGE: ${{ steps.pair.outputs.candidate }}
           HONUA_CANDIDATE_DB_SCHEMA: ${{ steps.pair.outputs.candidate_schema }}
+          HONUA_CANDIDATE_SOURCE_REVISION: ${{ steps.pull.outputs.candidate_revision_label }}
+          GH_TOKEN: ${{ github.token }}
           CHAOS_SCENARIO: compose-upgrade-rollback
           E2E_OUT: /tmp/cu/harness
         run: |
