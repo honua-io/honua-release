@@ -270,10 +270,9 @@
         "esri"
       ],
       "identifiers": [
-        "esri.gp-server",
-        "sources/esri-compat/matrix/gp-server.matrix.json"
+        "esri.gp-server"
       ],
-      "reason": "The GP Preview ruling selects catalog rows by the exact upstream capability key esri.gp-server, which the server capability matrix and the generated catalog carry, and cites the pinned GPServer matrix that records each floor operation's authorization, binding and validation behavior. This exception covers these two identifiers only; the ruling's prose names no vendor product.",
+      "reason": "The GP Preview ruling selects catalog rows by the exact upstream capability key esri.gp-server, which the server capability matrix and the generated catalog carry. This exception covers that identifier only. The ruling's prose names no vendor product.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#949"
     },
@@ -346,6 +345,35 @@
       "reason": "The pinned sdk-js coverage snapshot must byte-match honua-sdk-js@965c013637722cb70d1a781c3d2d4f6537e6bf44, which still cites \"src/esri-compat/portal.ts\". The protocol catalog copies that entrypoint. Remove when that pinned snapshot no longer names the path.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#1287"
+    },
+    {
+      "repo": "honua-release",
+      "paths": [
+        "tools/test_check_vendor_terms.py",
+        "tools/vendor-terms/allowlist.json",
+        "tools/vendor-terms/baseline.honua-release.json"
+      ],
+      "tokens": [
+        "esri"
+      ],
+      "identifiers": [
+        "certification/sources/esri-compat/matrix/feature-server.matrix.json",
+        "certification/sources/esri-compat/matrix/geocode-server.matrix.json",
+        "certification/sources/esri-compat/matrix/geometry-service.matrix.json",
+        "certification/sources/esri-compat/matrix/geoservices-catalog.matrix.json",
+        "certification/sources/esri-compat/matrix/gp-server.matrix.json",
+        "certification/sources/esri-compat/matrix/image-server.matrix.json",
+        "certification/sources/esri-compat/matrix/index.json",
+        "certification/sources/esri-compat/matrix/map-server.matrix.json",
+        "certification/sources/esri-compat/matrix/na-server.matrix.json",
+        "certification/sources/esri-compat/matrix/ogc.matrix.json",
+        "certification/sources/esri-compat/matrix/portal-sharing.matrix.json",
+        "certification/sources/esri-compat/matrix/scene-server.matrix.json",
+        "certification/sources/esri-compat/matrix/vector-tile-server.matrix.json",
+        "certification/sources/esri-compat/matrix/version-management-server.matrix.json"
+      ],
+      "reason": "The vendor-term baseline records each GeoServices REST matrix file's old path so an equal-count rename can move its count, and the retired-package test names those paths. Remove when that pathRenames record and those fixtures are removed.",
+      "owner": "@mikemcdougall"
     },
     {
       "repo": "honua-release",
