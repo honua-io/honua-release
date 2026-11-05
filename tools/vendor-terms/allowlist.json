@@ -334,6 +334,7 @@
       "repo": "honua-release",
       "paths": [
         "certification/sources/sdk-js/sdk-coverage.v1.json",
+        "certification/protocol-certification-requirements.v1.json",
         "tools/vendor-terms/allowlist.json"
       ],
       "tokens": [
@@ -342,7 +343,7 @@
       "identifiers": [
         "src/esri-compat/portal.ts"
       ],
-      "reason": "The pinned sdk-js coverage snapshot must byte-match honua-sdk-js@965c013637722cb70d1a781c3d2d4f6537e6bf44, which still cites \"src/esri-compat/portal.ts\". Remove when that pinned snapshot no longer names the path.",
+      "reason": "The pinned sdk-js coverage snapshot must byte-match honua-sdk-js@965c013637722cb70d1a781c3d2d4f6537e6bf44, which still cites \"src/esri-compat/portal.ts\". The protocol catalog copies that entrypoint. Remove when that pinned snapshot no longer names the path.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#1287"
     },
