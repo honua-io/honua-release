@@ -21,7 +21,8 @@ Subcommands:
   scan              per-repo report (counts by class, every avoidable hit with path:line), JSON + Markdown
   lint              fail on a confidential use, or when a file's avoidable hits exceed the committed baseline
   baseline          write the baseline for a repo from its current avoidable hits
-  check-baselines   fail when a committed baseline or confidential-known ledger grew relative to a base ref
+  check-baselines   fail when a committed baseline or confidential-known ledger grew relative to a base ref.
+                    An equal-count path rename with a stated reason is not growth.
 
 A scan reads either a working tree (tracked plus untracked-but-not-ignored files, so .gitignore is
 respected) or, with --git-ref, the blobs of a commit without checking it out.
@@ -1005,10 +1006,47 @@ def r30_findings(report: dict, known: dict | None) -> tuple[list[str], list[str]
     return new, already
 
 
+def _equal_count_renames(current: dict, base: dict, label: str) -> tuple[set[str], list[str]]:
+    """New paths that replace a removed path at the same count, under one stated reason."""
+    record = current.get("pathRenames")
+    if not record:
+        return set(), []
+    reason = record.get("reason") if isinstance(record, dict) else None
+    pairs = record.get("paths") if isinstance(record, dict) else None
+    if not isinstance(reason, str) or not reason.strip() or not isinstance(pairs, list):
+        return set(), [f"{label}: pathRenames needs a reason and a list of paths"]
+    problems = []
+    accepted: set[str] = set()
+    seen_from: set[str] = set()
+    seen_to: set[str] = set()
+    for pair in pairs:
+        old = pair.get("from") if isinstance(pair, dict) else None
+        new = pair.get("to") if isinstance(pair, dict) else None
+        if not isinstance(old, str) or not isinstance(new, str) or not old or not new:
+            problems.append(f"{label}: a path rename needs from and to")
+            continue
+        if old in seen_from or new in seen_to:
+            problems.append(f"{label}: {old} -> {new} reuses a path")
+            continue
+        seen_from.add(old)
+        seen_to.add(new)
+        if old not in base["files"] or new in base["files"]:
+            continue
+        if old in current["files"] or new not in current["files"]:
+            problems.append(f"{label}: {old} -> {new} is not a completed rename")
+            continue
+        if current["files"][new] != base["files"][old]:
+            problems.append(
+                f"{label}: {old} -> {new} count {base['files'][old]} -> {current['files'][new]}, not equal")
+            continue
+        accepted.add(new)
+    return accepted, problems
+
+
 def baseline_growth(current: dict, base: dict | None, kind: str = "baseline") -> list[str]:
     """A baseline (or confidential-known ledger) may only shrink: its total never grows, it stays the sum of its
-    entries, no entry grows, and no entry is added — not even by moving counts from a removed or shrunk entry,
-    so a rename carries its file's uses only once they are gone."""
+    entries, no entry grows, and no entry is added. pathRenames may move a count to a new path when the count
+    stays equal and the record states why."""
     name = current.get("repo", "?")
     problems = []
     if current["total"] != sum(current["files"].values()):
@@ -1016,9 +1054,13 @@ def baseline_growth(current: dict, base: dict | None, kind: str = "baseline") ->
                         f"({sum(current['files'].values())})")
     if base is None:
         return problems
+    accepted, rename_problems = _equal_count_renames(current, base, f"{kind}.{name}")
+    problems.extend(rename_problems)
     if current["total"] > base["total"]:
         problems.append(f"{kind}.{name}: total grew {base['total']} -> {current['total']}")
     for path, count in sorted(current["files"].items()):
+        if path in accepted:
+            continue
         if path not in base["files"]:
             problems.append(f"{kind}.{name}: {path} is a new entry ({count}); an entry may only shrink or go, and "
                             "none is added, not even by redistribution from another file")
@@ -1077,7 +1119,6 @@ def _check_ledgers(root: Path, base_ref: str) -> list[str]:
 
 
 _RETIRED_COMPAT_TERM = re.compile(r"esri[-_ ]?compat(?![A-Za-z])", re.IGNORECASE)
-_MATRIX_PATH_PREFIX = "sources/"
 _UNREAD_PREFIXES = ("certification/ai-arc/heldout", "certification/agent-e2e/")
 
 
@@ -1094,14 +1135,6 @@ def _allowlist_identifier(line: str, start: int, end: int) -> str:
     while end < len(line) and _ALLOWLIST_IDENTIFIER_CHAR.fullmatch(line[end]):
         end += 1
     return line[start:end]
-
-
-def _is_retained_matrix_path(line: str, match: re.Match[str]) -> bool:
-    prefix = line[: match.start()]
-    marker = _MATRIX_PATH_PREFIX
-    if not prefix.endswith(marker):
-        return False
-    return len(prefix) == len(marker) or not prefix[-len(marker) - 1].isalnum()
 
 
 def _retired_term_is_allowlisted(path: str, identifier: str, allowlist: list[Exception_]) -> bool:
@@ -1122,8 +1155,6 @@ def _utf8_text(content: bytes | None) -> str | None:
 
 def _line_names_retired_package(path: str, line: str, allowlist: list[Exception_]) -> bool:
     for match in _RETIRED_COMPAT_TERM.finditer(line):
-        if _is_retained_matrix_path(line, match):
-            continue
         identifier = _allowlist_identifier(line, match.start(), match.end())
         if _retired_term_is_allowlisted(path, identifier, allowlist):
             continue
@@ -1148,7 +1179,7 @@ def _retired_scan_files(root: Path, git_ref: str | None) -> Iterator[tuple[str, 
 def retired_compat_terms(
     files: Iterator[tuple[str, bytes | None]], allowlist: list[Exception_] | None = None
 ) -> list[str]:
-    """Paths whose text names the retired package outside a matrix path or an exact allowlisted identifier."""
+    """Paths whose text names the retired package outside an exact allowlisted identifier."""
     exemptions = allowlist or []
     found = []
     for path, content in files:

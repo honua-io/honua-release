@@ -352,6 +352,41 @@ def test_a_baseline_that_shrinks_passes():
     assert vt.baseline_growth(_baseline({"src/a.cs": 1}), _baseline({"src/a.cs": 2, "src/b.cs": 4})) == []
 
 
+def test_an_equal_count_path_rename_with_a_reason_passes():
+    current = _baseline({"src/new.cs": 2})
+    current["pathRenames"] = {
+        "reason": "The file moved. Its vocabulary is unchanged.",
+        "paths": [{"from": "src/old.cs", "to": "src/new.cs"}],
+    }
+    assert vt.baseline_growth(current, _baseline({"src/old.cs": 2})) == []
+
+
+def test_a_path_rename_without_a_reason_fails():
+    current = _baseline({"src/new.cs": 2})
+    current["pathRenames"] = {"reason": "  ", "paths": [{"from": "src/old.cs", "to": "src/new.cs"}]}
+    assert any("reason" in problem for problem in vt.baseline_growth(current, _baseline({"src/old.cs": 2})))
+
+
+def test_an_unequal_path_rename_fails():
+    current = _baseline({"src/new.cs": 3, "src/other.cs": 1})
+    current["pathRenames"] = {
+        "reason": "The file moved.",
+        "paths": [{"from": "src/old.cs", "to": "src/new.cs"}],
+    }
+    problems = vt.baseline_growth(current, _baseline({"src/old.cs": 2, "src/other.cs": 2}))
+    assert any("not equal" in problem for problem in problems)
+    assert any("new entry" in problem for problem in problems)
+
+
+def test_a_recorded_rename_already_in_the_base_is_ignored():
+    current = _baseline({"src/new.cs": 2})
+    current["pathRenames"] = {
+        "reason": "The file moved.",
+        "paths": [{"from": "src/old.cs", "to": "src/new.cs"}],
+    }
+    assert vt.baseline_growth(current, _baseline({"src/new.cs": 2})) == []
+
+
 def test_a_rename_is_a_new_entry_and_fails():
     # no redistribution at all: a renamed file carries its uses only once they are gone
     problems = vt.baseline_growth(_baseline({"src/Layer.cs": 2}), _baseline({"src/EsriLayer.cs": 3}))
@@ -827,15 +862,16 @@ def test_manifest_paths_leave_unrelated_identifiers_and_endorsement_unexcepted()
         assert not any(entry.covers("honua-release", path, "esri", widget) for entry in entries)
 
 
-def test_retired_compat_term_rejects_a_package_and_keeps_the_matrix_path():
+def test_retired_compat_term_rejects_a_package_and_the_old_matrix_path():
     files = [
         ("notes.md", b"see esri-compat\n"),
         ("floor.json", b'{"source": "certification/sources/esri-compat/matrix/gp-server.matrix.json"}\n'),
-        ("validator.py", b'(ROOT / "sources" / "esri-compat" / "matrix")\n'),
-        ("geometry.py", b'(ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json")\n'),
+        ("geometry.py", b'(ROOT / "certification/sources/esri-compat/matrix/geometry-service.matrix.json")\n'),
         ("portal.ts", b"src/esri-compat/portal.ts\n"),
     ]
-    assert vt.retired_compat_terms(files) == ["notes.md:1", "validator.py:1", "portal.ts:1"]
+    assert vt.retired_compat_terms(files) == [
+        "notes.md:1", "floor.json:1", "geometry.py:1", "portal.ts:1",
+    ]
 
 
 def test_retired_compat_term_keeps_an_allowlisted_published_package(tmp_path):

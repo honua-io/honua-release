@@ -1131,7 +1131,7 @@ def main() -> None:
                 contract=contract, auth_policy=client["auth_policy_revision"], facets=facets,
             )
 
-    matrix_root = ROOT / "sources/esri-compat/matrix"
+    matrix_root = ROOT / "sources/geoservices-rest/matrix"
     matrix_index = load(matrix_root / "index.json")
     matrix_pin = matrix_index["contract_pin"]
     if not re.fullmatch(r"[0-9a-f]{40}", matrix_pin):

@@ -27,7 +27,7 @@
       ],
       "floor_class": "owner-isolation",
       "reason": "Job/Read authorization and per-job ownership are enforced before any job is listed; a failure can surface another caller's jobs.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "esri.gp-server",
@@ -39,7 +39,7 @@
       ],
       "floor_class": "isolation-typed-refusal",
       "reason": "Route binding validation refuses a job id outside the service and task it was submitted to; a failure can read, cancel or return another task's job.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "esri.gp-server",
@@ -49,7 +49,7 @@
       ],
       "floor_class": "input-validation",
       "reason": "Submission resolves the published task against the built-in catalog and validates inputs before a job is persisted, and env:* controls are refused; a failure admits unvalidated work.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "esri.gp-server",
@@ -59,7 +59,7 @@
       ],
       "floor_class": "resource-bound-typed-refusal",
       "reason": "Synchronous execute runs only sync-eligible single-geometry tasks inline and refuses async-only tasks with a typed 400; a failure runs unbounded work on the request path or falls back silently.",
-      "source": "sources/esri-compat/matrix/gp-server.matrix.json"
+      "source": "sources/geoservices-rest/matrix/gp-server.matrix.json"
     },
     {
       "capability_key": "process.ogc-api-processes",
