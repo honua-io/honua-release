@@ -40,7 +40,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 ROOT = Path(__file__).resolve().parent.parent
 TERMS_DIR = ROOT / "tools" / "vendor-terms"
@@ -333,10 +333,13 @@ def _git(root: Path, *args: str, binary: bool = False):
     return result.stdout if binary else result.stdout.decode()
 
 
-def working_tree_files(root: Path) -> Iterator[tuple[str, bytes | None]]:
+def working_tree_files(
+    root: Path, skip: Callable[[str], bool] | None = None
+) -> Iterator[tuple[str, bytes | None]]:
     """Tracked plus untracked-but-not-ignored files; plain directory walk outside a git checkout.
 
     A symlink yields its own path with ``None`` content: its name is classified, its target is not followed.
+    ``skip`` drops a path before its bytes are read.
     """
     try:
         listed = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard",
@@ -346,6 +349,8 @@ def working_tree_files(root: Path) -> Iterator[tuple[str, bytes | None]]:
         paths = sorted(str(p.relative_to(root)).replace(os.sep, "/") for p in root.rglob("*")
                        if (p.is_file() or p.is_symlink()) and ".git" not in p.relative_to(root).parts)
     for relative in paths:
+        if skip is not None and skip(relative):
+            continue
         full = root / relative
         if full.is_symlink():
             yield relative, None
@@ -353,9 +358,11 @@ def working_tree_files(root: Path) -> Iterator[tuple[str, bytes | None]]:
             yield relative, full.read_bytes()
 
 
-def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes | None]]:
+def git_ref_files(
+    root: Path, ref: str, skip: Callable[[str], bool] | None = None
+) -> Iterator[tuple[str, bytes | None]]:
     """Blobs of ``ref`` (tracked content only), read through one ``git cat-file --batch``; symlinks as in
-    ``working_tree_files``."""
+    ``working_tree_files``. ``skip`` drops a path before its blob is read."""
     entries = []
     links = []
     for record in _git(root, "ls-tree", "-r", "-z", "--full-tree", ref, binary=True).split(b"\0"):
@@ -363,10 +370,13 @@ def git_ref_files(root: Path, ref: str) -> Iterator[tuple[str, bytes | None]]:
             continue
         meta, _, name = record.partition(b"\t")
         mode, kind, sha = meta.decode().split()
+        path = name.decode("utf-8", "surrogateescape")
+        if skip is not None and skip(path):
+            continue
         if kind == "blob" and mode == "120000":
-            links.append(name.decode("utf-8", "surrogateescape"))
+            links.append(path)
         elif kind == "blob":
-            entries.append((name.decode("utf-8", "surrogateescape"), sha))
+            entries.append((path, sha))
     yield from ((path, None) for path in sorted(links))
     process = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"], stdin=subprocess.PIPE,
                                stdout=subprocess.PIPE)
@@ -700,12 +710,8 @@ class Classifier:
                 heading = _heading_leads_with_mark(context, line, lines[number] if number < len(lines) else "")
                 cls, category = self._classify(context, number, line, start, end, token, detail, in_fence,
                                                block_open, comment_at, heading)
-                left, right = start, end
-                while left > 0 and re.fullmatch(r"[A-Za-z0-9@._/-]", line[left - 1]):
-                    left -= 1
-                while right < len(line) and re.fullmatch(r"[A-Za-z0-9@._/-]", line[right]):
-                    right += 1
-                exception = self._exception(path, token, line[left:right], category) if cls == "avoidable" else None
+                identifier = _allowlist_identifier(line, start, end)
+                exception = self._exception(path, token, identifier, category) if cls == "avoidable" else None
                 hits.append(Hit(path, number, token, term, cls, category, exception))
         return hits
 
@@ -775,7 +781,7 @@ class Classifier:
         if not prose_line or not context.attributed or heading:
             return False
         if not _is_product(token) and token.lower() not in BARE_MARKS:
-            return False  # compound identifiers (EsriFeatureLayer, esri-compat) are never nominative
+            return False  # a compound identifier such as EsriFeatureLayer is never nominative
         if not _whole_word(line, start, token, word):
             return False
         if line.count("`", 0, start) % 2:
@@ -1070,6 +1076,104 @@ def _check_ledgers(root: Path, base_ref: str) -> list[str]:
     return problems
 
 
+_RETIRED_COMPAT_TERM = re.compile(r"esri[-_ ]?compat(?![A-Za-z])", re.IGNORECASE)
+_MATRIX_PATH_PREFIX = "sources/"
+_UNREAD_PREFIXES = ("certification/ai-arc/heldout", "certification/agent-e2e/")
+
+
+def skips_unread_custody(relative: str) -> bool:
+    return relative.startswith(_UNREAD_PREFIXES)
+
+
+_ALLOWLIST_IDENTIFIER_CHAR = re.compile(r"[A-Za-z0-9@._/-]")
+
+
+def _allowlist_identifier(line: str, start: int, end: int) -> str:
+    while start > 0 and _ALLOWLIST_IDENTIFIER_CHAR.fullmatch(line[start - 1]):
+        start -= 1
+    while end < len(line) and _ALLOWLIST_IDENTIFIER_CHAR.fullmatch(line[end]):
+        end += 1
+    return line[start:end]
+
+
+def _is_retained_matrix_path(line: str, match: re.Match[str]) -> bool:
+    prefix = line[: match.start()]
+    marker = _MATRIX_PATH_PREFIX
+    if not prefix.endswith(marker):
+        return False
+    return len(prefix) == len(marker) or not prefix[-len(marker) - 1].isalnum()
+
+
+def _retired_term_is_allowlisted(path: str, identifier: str, allowlist: list[Exception_]) -> bool:
+    return any(
+        entry.identifiers and entry.covers("honua-release", path, "esri", identifier)
+        for entry in allowlist
+    )
+
+
+def _utf8_text(content: bytes | None) -> str | None:
+    if content is None:
+        return None
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _line_names_retired_package(path: str, line: str, allowlist: list[Exception_]) -> bool:
+    for match in _RETIRED_COMPAT_TERM.finditer(line):
+        if _is_retained_matrix_path(line, match):
+            continue
+        identifier = _allowlist_identifier(line, match.start(), match.end())
+        if _retired_term_is_allowlisted(path, identifier, allowlist):
+            continue
+        return True
+    return False
+
+
+def _retired_hits_in(path: str, text: str, allowlist: list[Exception_]) -> list[str]:
+    return [
+        f"{path}:{number}"
+        for number, line in enumerate(text.splitlines(), 1)
+        if _line_names_retired_package(path, line, allowlist)
+    ]
+
+
+def _retired_scan_files(root: Path, git_ref: str | None) -> Iterator[tuple[str, bytes | None]]:
+    if git_ref:
+        return git_ref_files(root, git_ref, skip=skips_unread_custody)
+    return working_tree_files(root, skip=skips_unread_custody)
+
+
+def retired_compat_terms(
+    files: Iterator[tuple[str, bytes | None]], allowlist: list[Exception_] | None = None
+) -> list[str]:
+    """Paths whose text names the retired package outside a matrix path or an exact allowlisted identifier."""
+    exemptions = allowlist or []
+    found = []
+    for path, content in files:
+        text = _utf8_text(content)
+        if text is None:
+            continue
+        found.extend(_retired_hits_in(path, text, exemptions))
+    return found
+
+
+def _lint_repo(args, report: dict, default_baseline: Path) -> int:
+    status = _lint(args, report, default_baseline)
+    if args.repo != "honua-release":
+        return status
+    root = Path(args.root).resolve()
+    allowlist = load_allowlist(Path(args.allowlist))
+    retired = retired_compat_terms(_retired_scan_files(root, args.git_ref), allowlist)
+    for row in retired:
+        print(f"::error::retired compat term: {row}")
+    if retired:
+        print(f"{len(retired)} retired compat term hits")
+        return 1
+    return status
+
+
 def _lint(args, report: dict, default_baseline: Path) -> int:
     failed = False
     known = load_known(Path(args.known) if args.known else TERMS_DIR / f"confidential-known.{args.repo}.json",
@@ -1182,7 +1286,7 @@ def main(argv: list[str] | None = None) -> int:
           f"avoidable={counts['avoidable']} (excepted {counts['avoidableExcepted']})")
     if args.command == "scan":
         return 0
-    return _lint(args, report, default_baseline)
+    return _lint_repo(args, report, default_baseline)
 
 
 if __name__ == "__main__":

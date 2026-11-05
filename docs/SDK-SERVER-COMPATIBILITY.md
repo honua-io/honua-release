@@ -5,7 +5,7 @@
 2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,
 license enforcement or serving-unit metering. Maturity and safety limits still apply.
 
-Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:cf02ca0b088d93b606c1f97bc5b77c51e828c54a2007385052d4037eef41400a`.
+Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:ad4d64f7ed12113232c2392052cce0577fc1d56258a4f13ce5fd0339b20b406e`.
 
 Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
 
@@ -16,10 +16,10 @@ SDK/server pairing. Certification requires an exact artifact-pair receipt in the
 
 | SDK / protocol | Locked artifact | Minimum server | Qualification |
 | --- | --- | --- | --- |
-| honua-sdk-js | @honua/sdk-js 0.2.10; @honua/mcp-server 0.2.10; @honua/sdk 0.2.10; @honua/sdk-esri-compat 0.2.10; @honua/react 0.2.10; @honua/geometry 0.2.10; @honua/app-platform 0.2.10; create-honua-app 0.2.3 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| honua-sdk-dotnet | Honua.Sdk 1.12.0 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| honua-sdk-python | honua-sdk 0.1.19; honua-admin 0.1.12 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
-| geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json 1.0.0+3c5388a8 | unqualified | unqualified: no consumed protocol/capability manifest is pinned |
+| honua-sdk-js | @honua/sdk-js 0.2.10; @honua/mcp-server 0.2.10; @honua/sdk 0.2.10; @honua/react 0.2.10; @honua/geometry 0.2.10; @honua/app-platform 0.2.10; create-honua-app 0.2.3 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
+| honua-sdk-dotnet | Honua.Sdk 1.12.0 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
+| honua-sdk-python | honua-sdk 0.1.19; honua-admin 0.1.12 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
+| geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json 1.0.0+3c5388a8 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 
 The JavaScript repository also owns `@honua/mcp-server`; its Honua attachment must
 bind the consumed SDK and MCP manifests. Standalone third-party protocol reads do not
@@ -29,9 +29,9 @@ require a Honua Server. `geospatial-mcp` is the protocol specification, not an S
 
 | From server / schema | To server / schema | Supported edge | Previous server reads migrated schema / application rollback | Database rollback | Restore backup required | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| unqualified | unqualified | unqualified | unqualified | unqualified | unqualified | No locked honua-server artifact carries the first release version |
-| pre-release build (nightly or earlier candidate) | unqualified | unqualified | unqualified | unqualified | unqualified | No edge receipt is pinned; pre-release builds are not release identities |
-| unqualified | next honua-server release | unqualified | unqualified | unqualified | unqualified | No later release is locked; each column needs its own receipt |
+| none: honua-server has no earlier release | 2026.1.0-rc.2 / database schema 143 | fresh install only; no upgrade edge into the first release exists | not applicable: no previous server | not applicable | not applicable | Publication-history receipt `sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1` (https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json) |
+| pre-release build (nightly or earlier candidate) | 2026.1.0-rc.2 / database schema 143 | unqualified | unqualified | unqualified | unqualified | No edge receipt is pinned; pre-release builds are not release identities |
+| 2026.1.0-rc.2 / database schema 143 | next honua-server release | unqualified | unqualified | unqualified | unqualified | No later release is locked; each column needs its own receipt |
 
 Application rollback reinstalls the previous server against the migrated database.
 Database rollback restores the previous schema and data state. They require separate evidence.

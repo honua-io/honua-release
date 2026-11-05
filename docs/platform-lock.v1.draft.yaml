@@ -6,15 +6,15 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:9843bd41752eb8fb3af6003bdd2a37cd240b956a6f046a6ed671f932c1d04aa4
+    sha256: sha256:8560994f1e8680d9161858ccdd098c8be4615bc0af37436503bb5ad0741af146
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:1f3d2659e969f61ce5cd61ffc9057b0062ff066b780b03c52723a066cf430b4c
+    sha256: sha256:61dd97c3d2bd3a0969371c3eecbc1802e35e184c835ffc31aa5ab445267e7614
 components:
   honua-server:
     source:
       repository: https://github.com/honua-io/honua-server
-      revision: a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e
+      revision: 8628668794df9f0c22a490e59cedaee409cc1bdd
     contractVersions:
       admin: v1
       metadata: metadata.honua.io/v2alpha1
@@ -26,20 +26,35 @@ components:
       certification-evidence-receipt: '2.0'
       inspector-pagination-observer: v2
       metadata: 2.0.0-alpha.1
-      database: '140'
+      database: '143'
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-server
-      digest: sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37
+      sourceRevision: 8628668794df9f0c22a490e59cedaee409cc1bdd
+      digest: sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da
       architectures:
       - amd64
       - arm64
       platformDigests:
-        amd64: sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574
-        arm64: sha256:5d6154cb7241e590e5e50204b30c977074838168a56134a0465e77102ea34974
+        amd64: sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1
+        arm64: sha256:e40b5463edb3b58082eb70996c3c9df09a67e23a945e029a6ca3c3af36c9f334
+      version: 2026.1.0-rc.2
+    - kind: executor-image
+      coordinate: ghcr.io/honua-io/honua-server
+      version: 2026.1.0-rc.2
+      sourceRevision: 8628668794df9f0c22a490e59cedaee409cc1bdd
+      digest: sha256:817079be768b1a6f6c6265ff2809c2e39f17c319240bb90148af7449e4fecede
+      architectures:
+      - amd64
+      - arm64
+      platformDigests:
+        amd64: sha256:cb18a062975083bf002781470c455c73e74bf7d9c58c42269534ab3203e2f77c
+        arm64: sha256:678573ffdefa0773410077e1a0dc4550da502d3cab57386d7c692a883d82a560
     artifactIdentityModel: published
+    migrationJournalSha256: sha256:16dcbe69b949b5eb14ec8c48646cb5d0b293a706bc1df2e973512488205267d3
     lifecycleStatus: GA
     supportTier: ga
+    releaseVersion: 2026.1.0-rc.2
     publicationHistory:
       path: certification/sources/server-publication-history.v1.json
       uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
@@ -49,8 +64,10 @@ components:
     source:
       repository: https://github.com/honua-io/honua-console
       revision: c63b37fd1788d68333c051760447052c602b7bdd
-    contractVersions: {}
-    schemaVersions: {}
+    contractVersions:
+      admin: v1
+    schemaVersions:
+      diagnostic-bundle: '1.0'
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-console
@@ -62,6 +79,7 @@ components:
       platformDigests:
         amd64: sha256:da16b6fcab25561392ff905ca9d2409d67c1f1c6e5a982eace7c80bb531b742c
         arm64: sha256:2c375e85ebafaa2e04842c2fb6eeae7b1b77d1fb9f63ea4faf5ad59166b61792
+      version: 2026.1.0-rc.2
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -71,7 +89,8 @@ components:
       revision: aada6d8987db0802a3c9de0d976f471afa943c0a
     contractVersions:
       sdk-certification: v1
-    schemaVersions: {}
+    schemaVersions:
+      diagnostic-bundle: '1.0'
     artifacts:
     - kind: nuget
       coordinate: Honua.Sdk
@@ -79,6 +98,50 @@ components:
       sha256: sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d
       sourceRevision: aada6d8987db0802a3c9de0d976f471afa943c0a
     artifactIdentityModel: published
+    serverCompatibility:
+      minimumServerVersion: first-release
+      manifests:
+      - source:
+          repository: https://github.com/honua-io/honua-sdk-dotnet
+          revision: aada6d8987db0802a3c9de0d976f471afa943c0a
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:b0da605db407df1efd3ec14ca7b2b156b94cdfc7f6176de7f751cef167e4819f
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: honua-sdk-dotnet
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - discovery.capability-manifest
+          - serve.geoservices-featureserver
+          - serve.ogc-api-features
+          capabilities:
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.geoservices-featureserver:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-features:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - discovery.capability-manifest
+        - serve.geoservices-featureserver
+        - serve.ogc-api-features
+      declarations:
+      - revision: aada6d8987db0802a3c9de0d976f471afa943c0a
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:525159b5140fb0d606f5be2db9b3751cb44d98ea6b05a4c9ce2edc0d0dd92378
+        minimumServerVersion: first-release
     lifecycleStatus: GA
     supportTier: ga
   honua-sdk-js:
@@ -107,11 +170,6 @@ components:
       sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
       integrity: sha512-5CrY3zyY+97nnbuERfvHOOgTco4eB+ELZ2UuvYsLT8A7d23bmg8KSiKD6T7HJFfeG4zAsdggz+lw6a+DGm/cuA==
     - kind: npm
-      coordinate: '@honua/sdk-esri-compat'
-      version: 0.2.10
-      sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
-      integrity: sha512-tK7PV5rAa3bVVWtE7n9iD+G1vuVIQRADaG0C7EfBmkUJpUgaKVSJz6gtemonn/nSTKSF3fTYHwX13b1WdRn1AQ==
-    - kind: npm
       coordinate: '@honua/react'
       version: 0.2.10
       sourceRevision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
@@ -132,6 +190,130 @@ components:
       sourceRevision: c7d517b0dd12842ed31161d77dd0114abfee2673
       integrity: sha512-c0BtwadHMxHbxIFKyAti3hmugy1Sb+h0/lw7o034mj+rAmDUUQiYFSmU0nZwSaQj2qBdtXSzFHou1qPD9xS2qg==
     artifactIdentityModel: published
+    serverCompatibility:
+      minimumServerVersion: first-release
+      manifests:
+      - source:
+          repository: https://github.com/honua-io/honua-sdk-js
+          revision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: honua-sdk-js
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - discovery.capability-manifest
+          - serve.geoservices-featureserver
+          - serve.ogc-api-features
+          capabilities:
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.geoservices-featureserver:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-features:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - discovery.capability-manifest
+        - serve.geoservices-featureserver
+        - serve.ogc-api-features
+      - source:
+          repository: https://github.com/honua-io/honua-sdk-js
+          revision: c7d517b0dd12842ed31161d77dd0114abfee2673
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: honua-sdk-js
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - discovery.capability-manifest
+          - serve.geoservices-featureserver
+          - serve.ogc-api-features
+          capabilities:
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.geoservices-featureserver:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-features:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - discovery.capability-manifest
+        - serve.geoservices-featureserver
+        - serve.ogc-api-features
+      - source:
+          repository: https://github.com/honua-io/honua-sdk-js
+          revision: 64173dd6a5101736655a8737c4adc592c9989595
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: honua-sdk-js
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - discovery.capability-manifest
+          - serve.geoservices-featureserver
+          - serve.ogc-api-features
+          capabilities:
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.geoservices-featureserver:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-features:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - discovery.capability-manifest
+        - serve.geoservices-featureserver
+        - serve.ogc-api-features
+      declarations:
+      - revision: 965c013637722cb70d1a781c3d2d4f6537e6bf44
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
+        minimumServerVersion: first-release
+      - revision: c7d517b0dd12842ed31161d77dd0114abfee2673
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
+        minimumServerVersion: first-release
+      - revision: 64173dd6a5101736655a8737c4adc592c9989595
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
+        minimumServerVersion: first-release
     lifecycleStatus: GA
     supportTier: ga
   honua-sdk-python:
@@ -140,7 +322,11 @@ components:
       revision: 4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352
     contractVersions:
       protocol-factories: '1'
-    schemaVersions: {}
+      grpc: v1
+    schemaVersions:
+      diagnostic-bundle: '1.0'
+      geospatial.v1: 1.0.0
+      certification-evidence-receipt: '2.0'
     artifacts:
     - kind: wheel
       coordinate: honua-sdk
@@ -153,6 +339,90 @@ components:
       sourceRevision: a2729be7b2fa0e363319043e9d084b2204d30a08
       sha256: sha256:359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759
     artifactIdentityModel: published
+    serverCompatibility:
+      minimumServerVersion: first-release
+      manifests:
+      - source:
+          repository: https://github.com/honua-io/honua-sdk-python
+          revision: 4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:8ab57cc64c1b4f71486e97c0a44b718d1dae84982414c09a944b4ac3bd02da38
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: honua-sdk-python
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - discovery.capability-manifest
+          - serve.geoservices-featureserver
+          - serve.ogc-api-features
+          capabilities:
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.geoservices-featureserver:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-features:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - discovery.capability-manifest
+        - serve.geoservices-featureserver
+        - serve.ogc-api-features
+      - source:
+          repository: https://github.com/honua-io/honua-sdk-python
+          revision: a2729be7b2fa0e363319043e9d084b2204d30a08
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:8ab57cc64c1b4f71486e97c0a44b718d1dae84982414c09a944b4ac3bd02da38
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: honua-sdk-python
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - discovery.capability-manifest
+          - serve.geoservices-featureserver
+          - serve.ogc-api-features
+          capabilities:
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.geoservices-featureserver:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-features:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - discovery.capability-manifest
+        - serve.geoservices-featureserver
+        - serve.ogc-api-features
+      declarations:
+      - revision: 4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:ae0711439652ac14c847e4ce6d80d692a0d7c92f0b4da6309e6e6032fe282252
+        minimumServerVersion: first-release
+      - revision: a2729be7b2fa0e363319043e9d084b2204d30a08
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:ae0711439652ac14c847e4ce6d80d692a0d7c92f0b4da6309e6e6032fe282252
+        minimumServerVersion: first-release
     lifecycleStatus: GA
     supportTier: ga
   geospatial-grpc:
@@ -161,7 +431,8 @@ components:
       revision: 00fca4de0334c6e2304354df7b367faeec5780d6
     contractVersions:
       grpc: v1
-    schemaVersions: {}
+    schemaVersions:
+      conformance: 1.0.3
     artifacts:
     - kind: nuget
       coordinate: Geospatial.Grpc
@@ -175,8 +446,10 @@ components:
     source:
       repository: https://github.com/honua-io/geospatial-mcp
       revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
-    contractVersions: {}
-    schemaVersions: {}
+    contractVersions:
+      geospatial-mcp: '1.0'
+    schemaVersions:
+      geospatial-mcp-schemas: '1.0'
     artifacts:
     - kind: spec
       coordinate: https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json
@@ -184,20 +457,75 @@ components:
       sourceRevision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
       sha256: sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c
     artifactIdentityModel: published
+    serverCompatibility:
+      minimumServerVersion: first-release
+      manifests:
+      - source:
+          repository: https://github.com/honua-io/geospatial-mcp
+          revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+          path: release/sdk-capability-baseline.json
+        sha256: sha256:6b28e7e6997f8eb69ec1e4e2f0e5c874697a0ea7ba9ea2ef3c29f5bb2888c825
+        content:
+          format: honua.sdk-capability-baseline/v1
+          component: geospatial-mcp
+          minimumServerVersion: first-release
+          requiredCapabilities:
+          - ai.mcp-discovery
+          - discovery.capability-manifest
+          capabilities:
+            ai.mcp-discovery:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            discovery.capability-manifest:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+        requiredCapabilities:
+        - ai.mcp-discovery
+        - discovery.capability-manifest
+      declarations:
+      - revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+        path: release/sdk-capability-baseline.json
+        sha256: sha256:bd286450cb67d429eaf122eaf81aef5b5f015207bebeb4666194b5112b0311b9
+        minimumServerVersion: first-release
     lifecycleStatus: Experimental
     supportTier: experimental
   honua-iac:
     source:
       repository: https://github.com/honua-io/honua-iac
-      revision: fa76b1dd050e068547b312004ea7008a9379c9a7
-    contractVersions: {}
-    schemaVersions: {}
+      revision: 0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88
+    contractVersions:
+      operator-contract: honua.operator-contract/v2
+      runtime-binding: honua.runtime-binding/v1
+      lambda-migration-binding: honua.lambda-migration-binding/v1
+      installed-worker-slot: honua.installed-worker-slot/v1
+    schemaVersions:
+      terraform-exact-plan: v1
+      terraform-exec-receipt: v1
+      terraform-plan-lineage: v1
+      terraform-backend-identity: v1
+      standing-cert-plan-envelope: v1
+      standing-cert-plan-recipient: v1
+      standing-cert-plan-receive: v1
+      standing-cert-plan-request: v2
+      standing-cert-plan-packet: v1
+      standing-cert-plan-public: v1
+      standing-cert-bootstrap-artifact: v1
+      standing-cert-module-inputs: v2
+      standing-cert-reviewed-modules: v1
+      standing-cert-reviewed-bootstrap: v1
+      installed-worker-transport: v2
     artifacts:
     - kind: archive
-      coordinate: https://github.com/honua-io/honua-iac/archive/fa76b1dd050e068547b312004ea7008a9379c9a7.tar.gz
-      version: 0.6.3
-      sourceRevision: fa76b1dd050e068547b312004ea7008a9379c9a7
-      sha256: sha256:13dea5f4ca0a6d94292997f77f8f495e899264ca0b6d6a4a7e7d16c1cb0f4858
+      coordinate: https://github.com/honua-io/honua-iac/archive/0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88.tar.gz
+      version: 0.6.4
+      sourceRevision: 0bf1c290ff9854cb5dc6487e930e4c8a84d4eb88
+      sha256: sha256:888fadf53618e234bb512bfbade5213b33337bd5a249d54c793b2b437cd97a75
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
@@ -205,8 +533,10 @@ components:
     source:
       repository: https://github.com/honua-io/honua-helm
       revision: 49a0601a9a9ac338121b44df89850ff0099b92a7
-    contractVersions: {}
-    schemaVersions: {}
+    contractVersions:
+      admin: v1
+    schemaVersions:
+      chart: v2
     artifacts: []
     artifactIdentityModel: preview-out-of-lock
     outOfLock:
@@ -235,6 +565,8 @@ components:
     supportTier: experimental
 contentDigests:
   geospatialMcp: sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c
+  catalog: sha256:b431b88a6941345732fa5a18d5a9c01374adb117ea09c98006e891a0253fda1f
+  okf: sha256:f3e514b3bb6b447679731777dd52a74c1332c9bb5aa504fa03b91a5847901144
 fixtures: []
 sbom: []
 provenance: []

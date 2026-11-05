@@ -1,6 +1,6 @@
 {
   "schema": "honua.dotnet-import-fidelity-requirements/v1",
-  "revision": "sha256:a12699cb73991d9553f75c9148f6d415ee995f60bb068b2812f368a55da59936",
+  "revision": "sha256:52d6da2a632f9a7648d58a6f64437e53069a5f902920bbacb607eae7c6ed256c",
   "issue": "https://github.com/honua-io/honua-release/issues/317",
   "dependencies": [
     "https://github.com/honua-io/honua-release/issues/7",
@@ -19,42 +19,6 @@
     "note": "time_query_parity is not applicable on the frozen baseline and is outside the pass denominator. Journey cells add the published-SDK consumer requirements; they do not replace or shrink the baseline."
   },
   "cells": [
-    {
-      "id": "crosscheck.attachment-hashes",
-      "requirementId": "crosscheck.attachment-hashes",
-      "kind": "supported",
-      "group": "crosscheck"
-    },
-    {
-      "id": "crosscheck.counts-values",
-      "requirementId": "crosscheck.counts-values",
-      "kind": "supported",
-      "group": "crosscheck"
-    },
-    {
-      "id": "crosscheck.geometry-tolerances",
-      "requirementId": "crosscheck.geometry-tolerances",
-      "kind": "supported",
-      "group": "crosscheck"
-    },
-    {
-      "id": "crosscheck.honua-and-esri-clients",
-      "requirementId": "crosscheck.honua-and-esri-clients",
-      "kind": "supported",
-      "group": "crosscheck"
-    },
-    {
-      "id": "crosscheck.relationships",
-      "requirementId": "crosscheck.relationships",
-      "kind": "supported",
-      "group": "crosscheck"
-    },
-    {
-      "id": "crosscheck.schema-metadata",
-      "requirementId": "crosscheck.schema-metadata",
-      "kind": "supported",
-      "group": "crosscheck"
-    },
     {
       "id": "dependency.server-4420",
       "requirementId": "dependency.server-4420",

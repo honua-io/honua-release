@@ -765,20 +765,22 @@ def test_the_gate_pins_its_tooling_and_fails_on_known_confidential_uses():
 
 
 def test_identifier_exception_is_exact_and_preserves_prose_and_path_failures(tmp_path):
+    package = "@honua/sdk-esri-compat"
+    archive = "sdk-esri-compat-0.1.14.tgz"
     allowlist = vt.load_allowlist(_allowlist(tmp_path, [{
         "repo": "honua-test", "paths": ["pins.yaml"], "tokens": ["esri"],
-        "identifiers": ["@honua/sdk-esri-compat", "sdk-esri-compat-0.1.14.tgz"],
+        "identifiers": [package, archive],
         "reason": "published registry identities", "owner": "@owner",
     }]))
     cases = [
-        ("pins.yaml", 'package: "@honua/sdk-esri-compat"', True),
-        ("pins.yaml", 'filename: "sdk-esri-compat-0.1.14.tgz"', True),
-        ("other.yaml", 'package: "@honua/sdk-esri-compat"', False),
-        ("pins.yaml", 'package: "@honua/sdk-esri-compat-extra"', False),
-        ("pins.yaml", 'package: "prefix@honua/sdk-esri-compat"', False),
+        ("pins.yaml", f'package: "{package}"', True),
+        ("pins.yaml", f'filename: "{archive}"', True),
+        ("other.yaml", f'package: "{package}"', False),
+        ("pins.yaml", f'package: "{package}-extra"', False),
+        ("pins.yaml", f'package: "prefix{package}"', False),
         ("pins.yaml", 'filename: "sdk-esri-compat-0.1.15.tgz"', False),
-        ("pins.yaml", 'description: Esri compatibility package', False),
-        ("pins.yaml", 'description: "endorsed by @honua/sdk-esri-compat"', False),
+        ("pins.yaml", "description: Esri compatibility package", False),
+        ("pins.yaml", f'description: "endorsed by {package}"', False),
     ]
     for path, text, excepted in cases:
         hits = vt.Classifier("honua-test", VOCABULARY, allowlist).classify_text(path, text)
@@ -795,52 +797,95 @@ def test_identifier_exception_cannot_cover_confidential_hits_or_nonliteral_patte
             vt.load_allowlist(_allowlist(tmp_path, [{**entry, "identifiers": identifiers}]))
 
 
-@pytest.mark.parametrize("version,next_version", [("0.2.1", "0.2.2"), ("0.2.2", "0.2.3")])
-def test_published_coordinate_exception_is_exact_and_path_scoped(version, next_version):
-    directory = "sdk-" + version.replace(".", "")
-    publication = f"certification/sdk-publication-replay/{directory}/published-release-verification.v1.json"
-    observations = f"certification/sdk-publication-replay/{directory}/registry-observations.json"
+def test_published_sdk_observations_no_longer_carry_vendor_terms():
+    paths = [
+        "certification/sdk-publication-replay/sdk-021/published-release-verification.v1.json",
+        "certification/sdk-publication-replay/sdk-021/registry-observations.json",
+        "certification/sdk-publication-replay/sdk-022/published-release-verification.v1.json",
+        "certification/sdk-publication-replay/sdk-022/registry-observations.json",
+        "certification/sdk-publication-replay/sdk-022/default-vanilla-ts/sdk-package-lock.json",
+        "certification/sdk-publication-replay/sdk-022/default-react-ts/sdk-package-lock.json",
+    ]
     entries = vt.load_allowlist(vt.ALLOWLIST)
-    selected = [entry for entry in entries if publication in entry.paths]
-    assert len(selected) == 1
-    entry = selected[0]
-    assert set(entry.paths) == {"platform-manifest.yaml", publication, observations}
-    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
-    for path in (publication, observations):
-        hits = classifier.classify_text(path, (vt.ROOT / path).read_text())
-        assert hits and all(hit.exception is not None for hit in hits)
-    for identifier in entry.identifiers:
-        for path, value in [(publication, identifier + "-extra"), ("other.json", identifier)]:
-            hits = classifier.classify_text(path, json.dumps({"package": value}))
-            assert hits and all(hit.exception is None for hit in hits)
-        hits = classifier.classify_text(publication, json.dumps({"description": "endorsed by " + identifier}))
-        assert hits and all(hit.exception is None for hit in hits)
-    prose = classifier.classify_text(publication, json.dumps({"description": entry.tokens[0] + " compatibility"}))
-    assert prose and all(hit.exception is None for hit in prose)
-    changed_version = classifier.classify_text(publication, (vt.ROOT / publication).read_text().replace(version, next_version))
-    assert any(hit.exception is None for hit in changed_version)
-
-
-def test_default_consumer_lock_exception_preserves_exact_observed_coordinates_only():
-    paths = {
-        f"certification/sdk-publication-replay/sdk-022/default-{template}/sdk-package-lock.json"
-        for template in ("vanilla-ts", "react-ts")
-    }
-    selected = [entry for entry in vt.load_allowlist(vt.ALLOWLIST) if paths & set(entry.paths)]
-    assert len(selected) == 1 and set(selected[0].paths) == paths
-    classifier = vt.Classifier("honua-release", VOCABULARY, selected)
+    classifier = vt.Classifier("honua-release", VOCABULARY, entries)
     for path in paths:
-        raw = (vt.ROOT / path).read_text()
-        hits = classifier.classify_text(path, raw)
-        assert hits and all(hit.exception is not None for hit in hits)
-        changed = classifier.classify_text(path, raw.replace("0.1.18.tgz", "0.1.19.tgz"))
-        assert any(hit.exception is None for hit in changed)
-        for identifier in selected[0].identifiers:
-            for other_path, value in (("other.json", identifier), (path, identifier + "-extra")):
-                rejected = classifier.classify_text(other_path, json.dumps({"package": value}))
-                assert rejected and all(hit.exception is None for hit in rejected)
-            prose = classifier.classify_text(path, json.dumps({"description": "endorsed by " + identifier}))
-            assert prose and all(hit.exception is None for hit in prose)
+        text = (vt.ROOT / path).read_text(encoding="utf-8")
+        assert not vt._RETIRED_COMPAT_TERM.search(text)
+        assert classifier.classify_text(path, text) == []
+        assert not any(path in entry.paths for entry in entries)
+
+
+def test_manifest_paths_leave_unrelated_identifiers_and_endorsement_unexcepted():
+    entries = vt.load_allowlist(vt.ALLOWLIST)
+    widget = "@honua/esri-widget"
+    paths = ("platform-manifest.yaml", "docs/2026.1-release-decision-overrides.json")
+    for path in paths:
+        assert not any(
+            entry.covers("honua-release", path, "Esri", category="endorsement-claim")
+            for entry in entries
+        )
+        assert not any(entry.covers("honua-release", path, "esri", widget) for entry in entries)
+
+
+def test_retired_compat_term_rejects_a_package_and_keeps_the_matrix_path():
+    files = [
+        ("notes.md", b"see esri-compat\n"),
+        ("floor.json", b'{"source": "certification/sources/esri-compat/matrix/gp-server.matrix.json"}\n'),
+        ("validator.py", b'(ROOT / "sources" / "esri-compat" / "matrix")\n'),
+        ("geometry.py", b'(ROOT / "sources/esri-compat/matrix/geometry-service.matrix.json")\n'),
+        ("portal.ts", b"src/esri-compat/portal.ts\n"),
+    ]
+    assert vt.retired_compat_terms(files) == ["notes.md:1", "validator.py:1", "portal.ts:1"]
+
+
+def test_retired_compat_term_keeps_an_allowlisted_published_package(tmp_path):
+    allowlist = vt.load_allowlist(_allowlist(tmp_path, [{
+        "repo": "honua-release",
+        "paths": ["e2e/agent-map/app/drop-retired-transitive.mjs"],
+        "tokens": ["esri"],
+        "identifiers": ["@honua/sdk-esri-compat"],
+        "reason": "published dependency",
+        "owner": "@owner",
+    }]))
+    kept = b'export const retiredPackage = "@honua/sdk-esri-compat";\n'
+    longer = b'export const archive = "sdk-esri-compat-0.1.15.tgz";\n'
+    files = [
+        ("e2e/agent-map/app/drop-retired-transitive.mjs", kept + longer),
+        ("other.mjs", kept),
+    ]
+    assert vt.retired_compat_terms(files, allowlist) == [
+        "e2e/agent-map/app/drop-retired-transitive.mjs:2",
+        "other.mjs:1",
+    ]
+
+
+def test_unread_custody_paths_stay_out_of_the_term_scan():
+    assert vt.skips_unread_custody("certification/ai-arc/heldout-example.sealed")
+    assert vt.skips_unread_custody("certification/agent-e2e/pack.v2.json")
+    assert vt.skips_unread_custody("certification/agent-e2e/corpus/example.json")
+    assert not vt.skips_unread_custody("tools/check_vendor_terms.py")
+
+
+def test_retired_scan_follows_the_selected_commit(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "kept.md").write_text("see esri-compat\n")
+    held = repo / "certification" / "agent-e2e"
+    held.mkdir(parents=True)
+    (held / "note.md").write_text("see esri-compat\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "seed")
+    (repo / "kept.md").write_text("plain\n")
+    (repo / "extra.md").write_text("see esri-compat\n")
+    assert vt.retired_compat_terms(vt._retired_scan_files(repo, "HEAD")) == ["kept.md:1"]
+    assert vt.retired_compat_terms(vt._retired_scan_files(repo, None)) == ["extra.md:1"]
+
+
+def test_retired_compat_term_is_absent_from_this_checkout():
+    files = vt.working_tree_files(vt.ROOT, skip=vt.skips_unread_custody)
+    allowlist = vt.load_allowlist(vt.ALLOWLIST)
+    assert vt.retired_compat_terms(files, allowlist) == []
 
 
 def test_immutable_gp_guide_exception_is_exact_and_remains_visible():

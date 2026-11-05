@@ -632,31 +632,6 @@
       ],
       "api_source": "https://api.github.com/repos/honua-io/honua-devops"
     },
-    "honua-esri-compat": {
-      "observed_at": "2026-09-06T05:05:57.078231+00:00",
-      "source_sha": "dab7272bff7b8e019f48806679b7d3a50e87c003",
-      "default_branch": "trunk",
-      "protection": {
-        "error": "gh: Branch not protected (HTTP 404)"
-      },
-      "rulesets": [],
-      "codeowners": null,
-      "codeowners_reads": {
-        ".github/CODEOWNERS": {
-          "error": "gh: Not Found (HTTP 404)"
-        },
-        "CODEOWNERS": {
-          "error": "gh: Not Found (HTTP 404)"
-        },
-        "docs/CODEOWNERS": {
-          "error": "gh: Not Found (HTTP 404)"
-        }
-      },
-      "human_writers": [
-        "mikemcdougall"
-      ],
-      "api_source": "https://api.github.com/repos/honua-io/honua-esri-compat"
-    },
     "honua-evidence": {
       "observed_at": "2026-09-06T05:05:45.944888+00:00",
       "source_sha": "e047fdfcb54f7f3255881a68e273f448a43ff8ab",

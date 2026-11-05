@@ -39,8 +39,7 @@ reviewed = yaml.safe_load((root / 'platform-manifest.yaml').read_text())
 validate_candidate(manifest, reviewed)
 expected = selected_versions(reviewed)
 observations = []
-provenance_only_clients = {'honua-sdk', 'honua-sdk-esri-compat', 'honua-react',
-                           'honua-geometry', 'honua-app-platform'}
+provenance_only_clients = {'honua-sdk', 'honua-react', 'honua-geometry', 'honua-app-platform'}
 for key, version in expected.items():
     pin = manifest['clientArtifacts'][key]
     if pin['version'] != version or pin.get('publicationState') != 'published':

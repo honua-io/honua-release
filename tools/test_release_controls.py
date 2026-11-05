@@ -236,7 +236,7 @@ def test_operator_actions_match_the_committed_policy_and_do_not_call_github(monk
     assert rows['independent-code-owner']['repositories'] == sorted(policy['repositories'])
     assert '2026.2' in rows['independent-code-owner']['summary']
     assert rows['missing-check-denominators']['repositories'] == [
-        'honua-esri-compat', 'honua-evidence', 'honua-iac']
+        'honua-evidence', 'honua-iac']
     assert rows['nominate-signing-key']['status'] == 'open'
     assert rows['nominate-signing-key']['repositories'] == [
         'geospatial-grpc', 'honua-helm', 'honua-sdk-dotnet', 'honua-sdk-python']
@@ -275,7 +275,7 @@ def test_committed_inventory_covers_the_adopted_denominator_and_manifest():
     import yaml
     root = Path(__file__).resolve().parents[1]
     policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
-    expected = set('honua-server honua-sdk-js honua-sdk-python honua-sdk-dotnet honua-studio honua-console honua-release honua-iac honua-devops honua-helm honua-site honua-demo-infra honua-evidence honua-esri-compat geospatial-grpc geospatial-mcp honua-support'.split())
+    expected = set('honua-server honua-sdk-js honua-sdk-python honua-sdk-dotnet honua-studio honua-console honua-release honua-iac honua-devops honua-helm honua-site honua-demo-infra honua-evidence geospatial-grpc geospatial-mcp honua-support'.split())
     assert set(policy['repositories']) == expected
     manifest = yaml.safe_load((root / 'platform-manifest.yaml').read_text())
     assert set(manifest['components']) <= expected

@@ -689,17 +689,6 @@
         {
           "component": "honua-sdk-js",
           "kind": "npm",
-          "coordinate": "@honua/sdk-esri-compat",
-          "version": "0.2.10",
-          "digest": "sha512:b4aecf579ac06b76d5556b44ee7f620fe1b5bee548411003686d02ec47c19a4509a5481a295489cfa82d7a6a279ff9d24ca485ddf4d81f05f5ddbd567519f501",
-          "owner": "Mike McDougall",
-          "reason": "published before attestation workflows existed; cannot be attested retroactively",
-          "expires": "first attested release of honua-sdk-js",
-          "target": "2026.1.1"
-        },
-        {
-          "component": "honua-sdk-js",
-          "kind": "npm",
           "coordinate": "@honua/react",
           "version": "0.2.10",
           "digest": "sha512:36d430d836b923034afb17f2da52827c7c6e56353659264a56b4c81e40d72b9e89af6f32ad6b38d0753a6e0b2af8fc974d74903e2dd5fe8709a99c70f53822a8",
@@ -1063,18 +1052,6 @@
       "bucket": "prove-against-candidate",
       "reason": "Exact-candidate operational proof; #183 is explicitly sequenced after cut by 2026-09-04 decision 5."
     },
-    "honua-esri-compat#74": {
-      "bucket": "prove-against-candidate",
-      "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
-    },
-    "honua-esri-compat#75": {
-      "bucket": "prove-against-candidate",
-      "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
-    },
-    "honua-esri-compat#88": {
-      "bucket": "prove-against-candidate",
-      "reason": "External-client and authentication certification receipts feed release#157 on the exact candidate."
-    },
     "honua-evidence#22": {
       "bucket": "must-fix-before-cut",
       "reason": "Required normalized evidence ledger must reject ambiguous/missing evidence before manufacture; feat label describes gate machinery."
@@ -1133,7 +1110,7 @@
     },
     "honua-release#236": {
       "bucket": "must-fix-before-cut",
-      "reason": "Required gate/identity machinery before manufacture. Operator ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519): for 2026.1 the review model is required status checks verified by automation plus operator approval; rulesets applied with no bypass and read back; CODEOWNERS names the operator. Still in scope: required checks on iac/demo-infra/evidence/esri-compat, read-back rulesets across all 17 repos, one denied and one approved change. The two-person code-review rule moves to 2026.2 as an accepted limitation. Bucket unchanged.",
+      "reason": "Required gate/identity machinery before manufacture. Operator ruling 2026-09-29 (https://github.com/honua-io/honua-release/issues/236#issuecomment-5883910519): for 2026.1 the review model is required status checks verified by automation plus operator approval; rulesets applied with no bypass and read back; CODEOWNERS names the operator. Still in scope: required checks on iac/demo-infra/evidence, read-back rulesets across all 17 repos, one denied and one approved change. The two-person code-review rule moves to 2026.2 as an accepted limitation. Bucket unchanged.",
       "ruling": "R10"
     },
     "honua-release#257": {
@@ -2056,16 +2033,6 @@
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: names 'the 2026.1 safe rollout promise'; quality-contract Sec7.2 explicitly requires the GitOps loop to 'detect drift and prove reconciliation and rollback' with 'no unrecorded manual production mutation' \u2014 preauthorized, bounded recovery that a later reconcile cannot silently undo is exactly that already-recorded requirement."
     },
-    "honua-esri-compat#74": {
-      "body_sha256": "28755c8dbbebcda0753c6e0fedbd8c6987d2f65ddacc84996464c0842f3f6476",
-      "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: certification: complete addressable Esri matrix and prove SOAP catalog discovery boundary"
-    },
-    "honua-esri-compat#75": {
-      "body_sha256": "7d0655fe86c9a9520fd4d53c9f9a3b134b2f374d02991de0293f1cd5c3217ba9",
-      "named_promise": true,
-      "reason": "Reviewed body identifies this existing release-evidence invariant: evidence honua-esri-compat#75"
-    },
     "honua-evidence#22": {
       "body_sha256": "8f89f81c2c84174f4d35806d8d077089e5e1b382cd9df2e03fac6cc59c485a4e",
       "named_promise": true,
@@ -2204,7 +2171,7 @@
     "honua-release#316": {
       "body_sha256": "348b2134245f1bd75126389343b19cca12120ad8209119eed2b38ab1056d79f5",
       "named_promise": false,
-      "reason": "Epic ('Low-switching-cost Esri migration'). Per instruction, epics default to false. Its own body frames this as a new selling-point workstream ('Esri compatibility and low switching costs are a primary Honua selling point') dated 2026-09-09; this program does not appear in the quality contract's Sec2 product-contract table, Sec14 gates, or the release decision record, and is not yet adopted by a comment on the canonical rulings issue (release#268, last comment 2026-09-05). New scope."
+      "reason": "Epic ('Low-switching-cost Esri migration'). Per instruction, epics default to false. Its own body frames this as a new selling-point workstream dated 2026-09-09; this program does not appear in the quality contract's Sec2 product-contract table, Sec14 gates, or the release decision record, and is not yet adopted by a comment on the canonical rulings issue (release#268, last comment 2026-09-05). New scope."
     },
     "honua-release#317": {
       "body_sha256": "5007340999fe478097c0f5c63efa1c6af076228ee257fd2f4f37c171db0f1a1c",
@@ -2374,7 +2341,7 @@
     "honua-sdk-python#205": {
       "body_sha256": "d39ec2da79be9b13093a23fc79e5cd4c8255d1c9220c8629db1c1178e27bd1c2",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: evidence honua-esri-compat#70 records silent wrong data in an already-shipped compatibility surface."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: silent wrong data in an already-shipped compatibility surface."
     },
     "honua-sdk-python#21": {
       "body_sha256": "9efc241ece6e49893690fd2d9eeec9e4053aa51170ffe237e4685b2532e7bc0c",
@@ -3234,12 +3201,12 @@
     "honua-server#4614": {
       "body_sha256": "58b04b8d5be3a9a5ee4ce7214f5219c66a8877e122d0658e310664c390cc1cb2",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: evidence honua-esri-compat#74/#75/#88 records failure in an already-advertised compatibility boundary, not new scope."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: failure in an already-advertised compatibility boundary, not new scope."
     },
     "honua-server#4616": {
       "body_sha256": "186b874b00d870212c381914e815f05c9370479f39c13235aadfdd07f4fc0d76",
       "named_promise": true,
-      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' \u2014 the canonical true-case example in the admission rule; the published dotted process names (geometry.buffer) break Esri's Python-toolbox import syntax, an already-advertised REST toolbox compatibility claim tied to honua-esri-compat #74/#75/#88."
+      "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: 'Esri toolbox import works' \u2014 the canonical true-case example in the admission rule; the published dotted process names (geometry.buffer) break Esri's Python-toolbox import syntax, an already-advertised REST toolbox compatibility claim."
     },
     "honua-server#4617": {
       "body_sha256": "e9164b986ddb366356d5e834a2262c33894561ec67875f8c4d7d592fae5bf055",
@@ -3350,11 +3317,6 @@
       "body_sha256": "bbcc26a555b7d6c6493ecca00026f1dfb0176e012b4ef645f9c0e32c1a81ec4c",
       "named_promise": true,
       "reason": "Reviewed body identifies this existing behavior or release-evidence invariant: bug(api): 110 failure producers emit incompatible or bodyless error contracts"
-    },
-    "honua-esri-compat#101": {
-      "body_sha256": "1fcdd94b56290f47674d1bc991e4353a0b677f446c47f234824955f8db4d9e5d",
-      "named_promise": true,
-      "reason": "Reviewed 2026-09-29: the declared GeoServices profile conformance gate (release certification / report, conformance-esri-geoservices) is broken: committed Esri operation matrices are stale and no fresh certification bundle is published, so the documented supported workflow cannot be certified."
     },
     "honua-iac#191": {
       "body_sha256": "880494be41e7aa10b6101335c6e1529c5877f7f1d8b6659ffe1cc1eb9d8e59f4",

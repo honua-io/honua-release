@@ -14,13 +14,6 @@
     "integrity": "sha512-sV+XpwhO6ajwArp3n3mwM5wtZ4uxHLUHRBrMBlExluIKVKxZ/ABc3uUAyMkCWkc8J/vTfzSUPsqn5egoszzU+Q=="
   },
   {
-    "client": "honua-sdk-esri-compat",
-    "metadataUrl": "https://registry.npmjs.org/%40honua%2Fsdk-esri-compat/0.1.16",
-    "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",
-    "registryGitHead": null,
-    "integrity": "sha512-26X/sGEhyDq8qZ6/eS01VBfdAXj2iHjWZ5dJ3OD/iny0CdYQmohaGkLQGD7CVAJQbJSBnF/xBoh085Ne4nQ9BQ=="
-  },
-  {
     "client": "honua-react",
     "metadataUrl": "https://registry.npmjs.org/%40honua%2Freact/0.1.16",
     "sourceSha": "a86b222878939a4c85abd1fe574303b60d81a3b5",

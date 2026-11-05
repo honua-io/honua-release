@@ -386,7 +386,7 @@ class MatrixExpectationTests(unittest.TestCase):
         self.assertEqual(receipt["declaredLimitations"][0]["ruling"], mod.DECLARED_BLOCKED_RULING)
         self.assertEqual(
             [r["status"] for r in receipt["results"]],
-            ["pass", "pass", "pass", "pass", "pass", "pass", "blocked", *(["pass"] * 6)],
+            ["blocked" if cell["status"] == "blocked" else "pass" for cell in matrix["cells"]],
         )
         self.assertEqual(mod.verify_receipt(matrix, receipt), [])
         self.assertEqual(self._main(receipt), 0)

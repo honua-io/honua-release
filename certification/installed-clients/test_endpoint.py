@@ -239,7 +239,7 @@ class EndpointTests(unittest.TestCase):
                  mock.patch.object(run, "execute", return_value=receipt) as execute, \
                  mock.patch.object(run, "verify_receipt", return_value=[]):
                 actual = endpoint.run_cloud(state, context, "app", Path(tmp) / "receipt.json")
-                self.assertEqual(41, len(execute.call_args.args[1]["cells"]))
+                self.assertEqual(len(matrix["cells"]), len(execute.call_args.args[1]["cells"]))
                 self.assertEqual("blocked", actual["status"])
                 self.assertEqual(2, identity.call_count)
                 self.assertEqual(context, execute.call_args.kwargs["endpoint_context"])

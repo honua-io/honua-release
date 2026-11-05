@@ -31,7 +31,7 @@ def snapshot():
 def test_missing_authored_input_keeps_every_requirement_and_specific_blocker(score):
     lane = journeys.Journeys(producer, score, mock.Mock(), [], "http://localhost", "unit")
     lane.run()
-    assert score.receipt()["summary"] == {"denominator": 142, "passed": 0, "failed": 142, "skipped": 0, "notApplicable": 10}
+    assert score.receipt()["summary"] == {"denominator": 136, "passed": 0, "failed": 136, "skipped": 0, "notApplicable": 10}
     for role in journeys.ROLES:
         assert score.cells["fixture." + role]["verdict"] == "blocked"
         assert "authored source manifest" in score.cells["fixture." + role]["reason"]
@@ -192,7 +192,7 @@ def test_missing_authored_fixture_cannot_qualify_client_repoint(score):
     score.record("evidence.rollback-repoint", lane.rollback)
     assert score.cells["evidence.rollback-repoint"]["verdict"] == "blocked"
     assert "rollbackRepoint" not in score.provenance
-    assert score.receipt()["summary"]["denominator"] == 142
+    assert score.receipt()["summary"]["denominator"] == 136
 
 
 def test_unavailable_gdal_never_substitutes_baseline(score):
