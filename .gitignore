@@ -34,3 +34,5 @@ e2e/.cloud-evidence-selftest/
 
 # Release dashboard build output (published to GitHub Pages, never committed)
 /site/
+
+/artifacts/
