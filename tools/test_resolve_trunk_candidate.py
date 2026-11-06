@@ -702,7 +702,7 @@ class MigrationSource:
     def file(self, repository, revision, path):
         self.reads.append(path)
         assert (repository, revision) == ('honua-io/honua-server', NEW)
-        if path == resolver.COMPONENT_VERSIONS_PATH:
+        if path in {resolver.COMPONENT_VERSIONS_PATH, resolver.SERVER_COMPONENT_VERSIONS_PATH}:
             return declaration_bytes('honua-server', schemaVersions=dict(self.schema_versions))
         if path in CONTENT_FILES:
             return CONTENT_FILES[path]
