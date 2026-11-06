@@ -13,6 +13,8 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import check_metric_contract as mc  # noqa: E402
@@ -222,12 +224,13 @@ def test_cli_blocks_when_the_server_checkout_is_missing(tmp_path, capsys):
     assert "blocked" in capsys.readouterr().out
 
 
-def test_cli_fails_on_real_drift(tmp_path):
+@pytest.mark.parametrize("relative_path", [mc.CONTRACT_RELPATH, mc.LEGACY_CONTRACT_RELPATH])
+def test_cli_fails_on_real_drift(tmp_path, relative_path):
     import json
 
-    server = tmp_path / "honua-server" / "observability"
-    server.mkdir(parents=True)
-    (server / "slo-metric-contract.json").write_text(json.dumps(CONTRACT), encoding="utf-8")
+    contract = tmp_path / "honua-server" / relative_path
+    contract.parent.mkdir(parents=True)
+    contract.write_text(json.dumps(CONTRACT), encoding="utf-8")
 
     helm = tmp_path / "honua-helm" / "honua" / "templates"
     helm.mkdir(parents=True)
@@ -262,3 +265,30 @@ def test_unknown_honua_identifier_in_docs_still_fails():
     row = "| `honua_server_enviroment` | typo of a Terraform output |\n"
     problems, _ = mc.check_sources(CONTRACT, {"honua-helm/honua/README.md": row})
     assert any("honua_server_enviroment" in p for p in problems), problems
+
+
+def test_invalid_current_contract_never_falls_back_to_valid_legacy(tmp_path, capsys):
+    import json
+
+    server = tmp_path / "honua-server"
+    current = server / mc.CONTRACT_RELPATH
+    legacy = server / mc.LEGACY_CONTRACT_RELPATH
+    current.parent.mkdir(parents=True)
+    legacy.parent.mkdir(parents=True)
+    current.write_text("{", encoding="utf-8")
+    legacy.write_text(json.dumps(CONTRACT), encoding="utf-8")
+
+    assert mc.main(["--repos-root", str(tmp_path), "--self", str(tmp_path)]) == 2
+    assert str(current) in capsys.readouterr().out
+
+
+def test_current_contract_wins_when_both_layouts_exist(tmp_path):
+    server = tmp_path / "honua-server"
+    current = server / mc.CONTRACT_RELPATH
+    legacy = server / mc.LEGACY_CONTRACT_RELPATH
+    current.parent.mkdir(parents=True)
+    legacy.parent.mkdir(parents=True)
+    current.write_text("{}", encoding="utf-8")
+    legacy.write_text("{}", encoding="utf-8")
+
+    assert mc.resolve_contract_path(str(tmp_path)) == str(current)

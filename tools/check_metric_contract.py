@@ -16,7 +16,7 @@ the rule produces no series, the alert never fires, and every dashboard panel is
 Nothing goes red. A unit test in any single repo cannot see this.
 
 This checker closes the seam from the consumer side. honua-server owns the contract
-(`observability/slo-metric-contract.json`) and proves the PRODUCER end with an integration test
+(`eng/telemetry/slo-metric-contract.v1.json`) and proves the PRODUCER end with an integration test
 that scrapes its real /metrics exposition (SloMetricContractTests). Here we parse the actual alert
 rules / gate configuration and require that every Honua series they reference is declared in that
 contract — either as `emitted` (the server exports it) or as an explicit, justified `not_emitted`
@@ -40,7 +40,8 @@ import os
 import re
 import sys
 
-CONTRACT_RELPATH = os.path.join("observability", "slo-metric-contract.json")
+CONTRACT_RELPATH = os.path.join("eng", "telemetry", "slo-metric-contract.v1.json")
+LEGACY_CONTRACT_RELPATH = os.path.join("observability", "slo-metric-contract.json")
 
 # Consumer surfaces that reference honua-server metric names from another repository. Add a file
 # here whenever new alerting/gating starts naming Honua series, or it is unguarded.
@@ -310,6 +311,12 @@ def collect_sources(repos_root: str, self_root: str | None) -> tuple[dict[str, s
     return sources, missing
 
 
+def resolve_contract_path(repos_root: str) -> str:
+    server_root = os.path.join(repos_root, "honua-server")
+    current_path = os.path.join(server_root, CONTRACT_RELPATH)
+    return current_path if os.path.isfile(current_path) else os.path.join(server_root, LEGACY_CONTRACT_RELPATH)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -318,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--self", dest="self_root", default=".", help="this honua-release checkout")
     args = ap.parse_args(argv)
 
-    contract_path = os.path.join(args.repos_root, "honua-server", CONTRACT_RELPATH)
+    contract_path = resolve_contract_path(args.repos_root)
     try:
         contract = load_contract(contract_path)
     except (OSError, json.JSONDecodeError) as exc:

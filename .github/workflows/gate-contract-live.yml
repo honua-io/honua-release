@@ -1,6 +1,6 @@
 # Release gate — live contract versions (ruling R27, honua-release#376).
 #
-# honua-server's source tree declares its contract versions in release/component-versions.json at
+# honua-server's source tree declares its contract versions in eng/release/component-versions.v1.json (legacy candidates: release/component-versions.json) at
 # the candidate sha (#231 WI-3a, PR #410). That declaration is the input for the lock. This gate
 # boots the EXACT candidate image (image@digest, never a tag) the way e2e-local-docker's Slice-1
 # does: same compose (e2e/harness/compose.candidate.yml), same boot.sh, licensing disabled, no

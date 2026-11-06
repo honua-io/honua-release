@@ -101,7 +101,7 @@ def test_identical_maps_pass(inputs):
         "manifestFindings": [],
         "image": IMAGE_REF,
         "declaration": {"repository": "honua-io/honua-server", "sha": SERVER_SHA,
-                        "path": "release/component-versions.json"},
+                        "path": "eng/release/component-versions.v1.json"},
         "capabilities": "/api/v1/admin/capabilities",
     }
 

@@ -9,7 +9,10 @@ revision the candidate pins.
 ## The file
 
 Every repository named by a `components` or `experimental` row of
-`platform-manifest.yaml` carries `release/component-versions.json` at its root.
+`platform-manifest.yaml` carries `release/component-versions.json` at its root, except
+`honua-server`, which uses `eng/release/component-versions.v1.json`. The server reader
+also accepts the older path at pinned historical revisions; it falls back only when
+the new path returns 404, and never when it is unreadable or invalid.
 [`schemas/component-versions.v1.schema.json`](../schemas/component-versions.v1.schema.json)
 defines it:
 

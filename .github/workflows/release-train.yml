@@ -371,7 +371,7 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref }}
       platform_label: ${{ inputs.platform_label }}
       enforcement: ${{ inputs.dry_run && 'bootstrap' || 'strict' }}
-    secrets: inherit            # RELEASE_GH_TOKEN reads release/component-versions.json at the server sha
+    secrets: inherit            # RELEASE_GH_TOKEN reads eng/release/component-versions.v1.json (legacy candidates: release/component-versions.json) at the server sha
 
   gate_sbom:                   # f) SBOM per candidate artifact + aggregated platform BOM (CycloneDX/SPDX). PLAN §6.
     if: ${{ !inputs.freeze_only }}

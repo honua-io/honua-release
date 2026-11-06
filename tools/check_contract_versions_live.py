@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live contract-version gate (ruling R27, honua-release#376).
 
-honua-server declares its contract versions in `release/component-versions.json` at the candidate
+honua-server declares its contract versions in `eng/release/component-versions.v1.json` at the candidate
 sha (#231 WI-3a, docs/COMPONENT-VERSION-DECLARATIONS.md). That declaration is the input for the
 lock's `contractVersions`. This gate checks it against the exact candidate image: the workflow
 (gate-contract-live.yml) boots `image@digest`, saves the anonymous `/api/v1/admin/capabilities`
@@ -124,10 +124,11 @@ def server_declaration(manifest: dict, declaration: Path | None = None) -> tuple
     if not isinstance(component, dict):
         raise ValueError(f"manifest has no components.{SERVER}")
     source = _DeclarationFile(declaration) if declaration else resolver.GitHub()
-    declared = resolver.component_versions(source, SERVER, component)["contractVersions"]
+    versions, path = resolver.component_version_declaration(source, SERVER, component)
+    declared = versions["contractVersions"]
     repository = str(component.get("repository") or "").removeprefix("https://github.com/")
     provenance = {"repository": repository, "sha": component.get("sha"),
-                  "path": resolver.COMPONENT_VERSIONS_PATH}
+                  "path": path}
     return provenance, declared
 
 

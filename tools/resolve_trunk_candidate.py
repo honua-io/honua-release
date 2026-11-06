@@ -62,11 +62,9 @@ class ResolutionError(ValueError):
 
 
 class MissingDeclaration(ResolutionError):
-    """The contents API answered 404 for release/component-versions.json at a component sha.
-
-    At the manifest's pinned sha this is the same refusal as any other unreadable declaration.
-    Only the trunk walk treats it differently: a commit with no declaration cannot be a candidate,
-    so the walk skips it and keeps looking (release#471)."""
+    def __init__(self, message, paths):
+        super().__init__(message, status=404)
+        self.paths = paths
 
 
 def api_status(exc):
@@ -461,8 +459,8 @@ def select_component(name, component, github, registry, limit, skips=None, decla
             if declare is not None:
                 try:
                     declare(selected)
-                except MissingDeclaration:
-                    skip(sha, f'no {COMPONENT_VERSIONS_PATH} at this commit')
+                except MissingDeclaration as exc:
+                    skip(sha, f'no {" or ".join(exc.paths)} at this commit')
                     continue
             if skips is not None:
                 skips['selected'] = sha
@@ -640,6 +638,10 @@ def select_sdk(name, component, artifacts, identities, github):
 # (schemas/component-versions.v1.schema.json, docs/COMPONENT-VERSION-DECLARATIONS.md). It is read
 # at the revision the candidate pins, so a version map in the manifest is never a hand value.
 COMPONENT_VERSIONS_PATH = 'release/component-versions.json'
+SERVER_COMPONENT_VERSIONS_PATH = 'eng/release/component-versions.v1.json'
+COMPONENT_DECLARATION_PATHS = {
+    'honua-server': (SERVER_COMPONENT_VERSIONS_PATH, COMPONENT_VERSIONS_PATH),
+}
 COMPONENT_VERSIONS_SCHEMA = ROOT / 'schemas' / 'component-versions.v1.schema.json'
 # Schema versions the resolver derives itself; the component declares every other one.
 DERIVED_SCHEMA_VERSIONS = {'honua-server': 'database'}
@@ -664,7 +666,37 @@ def _require_visible_revision(github, where, repository, sha):
                               'did not answer that commit')
 
 
+def read_component_version_file(github, name, component):
+    repository = str(component.get('repository') or '').removeprefix('https://github.com/')
+    sha = str(component.get('sha') or '')
+    paths = COMPONENT_DECLARATION_PATHS.get(name, (COMPONENT_VERSIONS_PATH,))
+    if not SHA.fullmatch(sha):
+        raise ResolutionError(f'{name}: no immutable revision to read {paths[0]} at')
+    preview = component.get('sourcePinnedOnly') is True and name in {'honua-mobile', 'honua-collect'}
+    for path in paths:
+        where = f'{name}: {repository}@{sha}:{path}'
+        try:
+            raw = github.file(repository, sha, path)
+        except (KeyError, TypeError, ValueError) as exc:
+            if getattr(exc, 'status', None) != 404:
+                raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
+            if path != paths[-1]:
+                continue
+            if preview:
+                _require_visible_revision(github, where, repository, sha)
+                return None, path, where
+            attempted = ' or '.join(paths)
+            raise MissingDeclaration(
+                f'{name}: {repository}@{sha}:{attempted} is missing or unreadable: {exc}', paths) from exc
+        return (None if preview and not raw.strip() else raw), path, where
+
+
 def component_versions(github, name, component):
+    versions, _ = component_version_declaration(github, name, component)
+    return versions
+
+
+def component_version_declaration(github, name, component):
     """The declared {contractVersions, schemaVersions} at the component's pinned sha, or a refusal.
 
     Missing declarations for the source-only mobile/collect previews are empty sets (R39).
@@ -673,29 +705,9 @@ def component_versions(github, name, component):
     """
     if 'sourcePinnedOnly' in component and not isinstance(component['sourcePinnedOnly'], bool):
         raise ResolutionError(f'{name}: sourcePinnedOnly must be a boolean')
-    repository = str(component.get('repository') or '').removeprefix('https://github.com/')
-    sha = str(component.get('sha') or '')
-    if not SHA.fullmatch(sha):
-        raise ResolutionError(f'{name}: no immutable revision to read {COMPONENT_VERSIONS_PATH} at')
-    where = f'{name}: {repository}@{sha}:{COMPONENT_VERSIONS_PATH}'
-    preview = component.get('sourcePinnedOnly') is True and name in {'honua-mobile', 'honua-collect'}
-    empty = {'contractVersions': {}, 'schemaVersions': {}}
-    try:
-        raw = github.file(repository, sha, COMPONENT_VERSIONS_PATH)
-    except (KeyError, TypeError, ValueError) as exc:
-        # Only an absent file is exempt. Authentication, network and malformed-response
-        # errors must retain their refusal rather than masquerade as an empty declaration.
-        # GitHub also answers 404 for a repository or revision this token cannot see, so the
-        # exemption needs the pinned commit itself to be readable first.
-        if preview and getattr(exc, 'status', None) == 404:
-            _require_visible_revision(github, where, repository, sha)
-            return empty
-        if getattr(exc, 'status', None) == 404:
-            # Still a refusal at a pinned sha; the trunk walk alone may skip past it.
-            raise MissingDeclaration(f'{where} is missing or unreadable: {exc}', status=404) from exc
-        raise ResolutionError(f'{where} is missing or unreadable: {exc}') from exc
-    if preview and not raw.strip():
-        return empty
+    raw, path, where = read_component_version_file(github, name, component)
+    if raw is None:
+        return {'contractVersions': {}, 'schemaVersions': {}}, path
     try:
         declaration = json.loads(raw.decode('utf-8'), object_pairs_hook=_unique_keys)
     except (UnicodeDecodeError, ValueError) as exc:
@@ -716,7 +728,7 @@ def component_versions(github, name, component):
         except ValueError as exc:
             hint = '' if declaration[group] else ' (an empty map is permitted only for a sourcePinnedOnly component)'
             raise ResolutionError(f'{where}: {group} {exc}{hint}') from exc
-    return declared
+    return declared, path
 
 
 def migration_tree(github, repository, sha):

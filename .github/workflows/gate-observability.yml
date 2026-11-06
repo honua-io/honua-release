@@ -4,7 +4,7 @@
 #  1. metric-contract — REAL and deployment-independent. Parses the platform's actual alert rules
 #     (honua-helm's PrometheusRule, honua-devops' recording/alert rules) and this gate's own metric
 #     names, and requires every Honua series they reference to be declared in honua-server's
-#     observability/slo-metric-contract.json — a contract the server integration-tests against its
+#     eng/telemetry/slo-metric-contract.v1.json — a contract the server integration-tests against its
 #     real /metrics exposition. This is the check that was missing when #5 was filed: three
 #     repositories divided by three different metrics that no Honua component has ever emitted, and
 #     nothing failed, because a PromQL ratio over an absent series is an EMPTY vector — no alert,
@@ -341,11 +341,11 @@ jobs:
           set -uo pipefail
           python - >> "$GITHUB_ENV" <<'PY'
           import json, os
+          from tools.check_metric_contract import resolve_contract_path
           # The scope selector comes from the CANDIDATE server's own contract file so it cannot drift
           # from the server. If it cannot be resolved we emit nothing and the probe refuses to run:
           # falling back to an unscoped denominator is fail-open, the one outcome worse than no signal.
-          contract = os.path.join(os.environ.get("REPOS_ROOT", ""), "honua-server",
-                                  "observability", "slo-metric-contract.json")
+          contract = resolve_contract_path(os.environ.get("REPOS_ROOT", ""))
           try:
               with open(contract, encoding="utf-8") as handle:
                   selector = json.load(handle)["selectors"][os.environ["REQUEST_SELECTOR_KEY"]]
