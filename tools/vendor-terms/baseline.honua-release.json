@@ -2,9 +2,9 @@
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
   "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
-  "total": 1274,
+  "total": 1228,
   "pathRenames": {
-    "reason": "The GeoServices REST matrix directory was renamed. Each file's grandfathered vocabulary is unchanged, so its baseline count moves with the path.",
+    "reason": "Retained gate inputs and protocol matrix directories use stable names; identical content keeps the same vocabulary count at its new path.",
     "paths": [
       {"from": "certification/sources/esri-compat/matrix/feature-server.matrix.json", "to": "certification/sources/geoservices-rest/matrix/feature-server.matrix.json"},
       {"from": "certification/sources/esri-compat/matrix/geocode-server.matrix.json", "to": "certification/sources/geoservices-rest/matrix/geocode-server.matrix.json"},
@@ -19,7 +19,8 @@
       {"from": "certification/sources/esri-compat/matrix/portal-sharing.matrix.json", "to": "certification/sources/geoservices-rest/matrix/portal-sharing.matrix.json"},
       {"from": "certification/sources/esri-compat/matrix/scene-server.matrix.json", "to": "certification/sources/geoservices-rest/matrix/scene-server.matrix.json"},
       {"from": "certification/sources/esri-compat/matrix/vector-tile-server.matrix.json", "to": "certification/sources/geoservices-rest/matrix/vector-tile-server.matrix.json"},
-      {"from": "certification/sources/esri-compat/matrix/version-management-server.matrix.json", "to": "certification/sources/geoservices-rest/matrix/version-management-server.matrix.json"}
+      {"from": "certification/sources/esri-compat/matrix/version-management-server.matrix.json", "to": "certification/sources/geoservices-rest/matrix/version-management-server.matrix.json"},
+      {"from": "certification/first-publication/preflight-2026-10-02.json", "to": "certification/first-publication/preflight.v1.json"}
     ]
   },
   "files": {
@@ -33,11 +34,7 @@
     "certification/conformance-evidence.yaml": 8,
     "certification/console-read-approve/receipt.nightly-42596b4.console-dcb9eb2.json": 1,
     "certification/console-read-approve/receipt.nightly-80e23be.console-dcb9eb2.json": 1,
-    "certification/executable-docs/evidence/first-local-run/full-run-original.json": 17,
-    "certification/executable-docs/evidence/first-local-run/report.json": 17,
-    "certification/first-publication/preflight-2026-09-26.json": 3,
-    "certification/first-publication/preflight-2026-10-02.json": 3,
-    "certification/first-publication/registry-observations-2026-09-06.json": 2,
+    "certification/first-publication/preflight.v1.json": 3,
     "certification/generate-protocol-requirements.py": 21,
     "certification/installed-clients/README.md": 1,
     "certification/installed-clients/dotnet-import-fidelity.requirements.v1.json": 218,
@@ -47,12 +44,7 @@
     "certification/protocol-certification-requirements.v1.schema.json": 2,
     "certification/protocol-certification.v1.schema.json": 2,
     "certification/release-controls/README.md": 2,
-    "certification/release-controls/audit-2026-09-06-windows.json": 1,
-    "certification/release-controls/audit-2026-09-06.json": 1,
-    "certification/release-controls/inventory-2026-09-06.md": 1,
     "certification/release-controls/policy.json": 1,
-    "certification/release-controls/snapshot-2026-09-06-windows.json": 2,
-    "certification/release-controls/snapshot-2026-09-06.json": 2,
     "certification/rollup-checks.yaml": 1,
     "certification/sources/geoservices-rest/matrix/feature-server.matrix.json": 102,
     "certification/sources/geoservices-rest/matrix/geocode-server.matrix.json": 30,

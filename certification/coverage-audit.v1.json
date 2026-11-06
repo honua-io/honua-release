@@ -799,8 +799,8 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/protocol-data.json",
-        "certification/audits/2026-10-18/protocol-data-supplement.json"
+        "certification/coverage-inputs/protocol-data.v1.json",
+        "certification/coverage-inputs/protocol-data-supplement.v1.json"
       ],
       "strong_coverage": [
         {
@@ -929,7 +929,7 @@
       ],
       "supplemental_review": {
         "server_revision": "e4a973997e4444e8c0f97d2cb6a62a0a5825c5e9",
-        "artifact": "certification/audits/2026-10-18/protocol-data-supplement.json",
+        "artifact": "certification/coverage-inputs/protocol-data-supplement.v1.json",
         "sha256": "5e0ba49d238f50378d9ca9cf5821551058d6d778f0bbca3186b651c0cc0d571d",
         "scope": "WCS/WPS/STAC/gRPC assertion and selector review; adapter/native boundaries and four improvement candidates. No exhaustive execution or qualification claim."
       }
@@ -953,8 +953,8 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/protocol-data.json",
-        "certification/audits/2026-10-17/deploy-isolation-raster.json"
+        "certification/coverage-inputs/protocol-data.v1.json",
+        "certification/coverage-inputs/deploy-isolation-raster.v1.json"
       ],
       "strong_coverage": [
         {
@@ -1029,7 +1029,7 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/ai-gp-migration.json"
+        "certification/coverage-inputs/ai-gp-migration.v1.json"
       ],
       "strong_coverage": [
         {
@@ -1111,7 +1111,7 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/ai-gp-migration.json"
+        "certification/coverage-inputs/ai-gp-migration.v1.json"
       ],
       "strong_coverage": [
         {
@@ -1198,7 +1198,7 @@
       "status": "partial-source-review",
       "remaining": "Complete test selection, assertion and live-evidence review; this inventory is not an exhaustive audit.",
       "source_review_artifacts": [
-        "certification/audits/2026-10-17/deploy-isolation-raster.json"
+        "certification/coverage-inputs/deploy-isolation-raster.v1.json"
       ],
       "strong_coverage": [
         {
@@ -1343,19 +1343,19 @@
     "method": "Read source, existing issues and prior audit artifacts. This consolidation parses and joins JSON only; no tests, new queues, source/issue mutations or deployments.",
     "source_artifacts": [
       {
-        "path": "certification/audits/2026-10-17/protocol-data.json",
+        "path": "certification/coverage-inputs/protocol-data.v1.json",
         "sha256": "664f4efae9c414c995a9df7e3e2170dc452ed27868995cd86857e66595f9b1bb"
       },
       {
-        "path": "certification/audits/2026-10-17/ai-gp-migration.json",
+        "path": "certification/coverage-inputs/ai-gp-migration.v1.json",
         "sha256": "a3d988f04779f03001739b38d03e1dfc42d7438f26d0c8712bf343db10a43e01"
       },
       {
-        "path": "certification/audits/2026-10-17/deploy-isolation-raster.json",
+        "path": "certification/coverage-inputs/deploy-isolation-raster.v1.json",
         "sha256": "94a0fab368768a061b243ddf45ab2a54477138521dbfbeef003a922b8c9c572e"
       },
       {
-        "path": "certification/audits/2026-10-26/tier-alignment.json",
+        "path": "certification/coverage-inputs/tier-alignment.v1.json",
         "sha256": "db0d152fc0b8fece95933df89b5c8ab161660c3ca212adb1d778eead8495cbb7"
       }
     ],
