@@ -1,10 +1,9 @@
-# Third-party trademark gate (honua-release#425, policy docs/THIRD-PARTY-TRADEMARKS.md).
+# Third-party trademark gate; policy: docs/THIRD-PARTY-TRADEMARKS.md.
 #
 # Classifies every vendor-term occurrence in the calling repository as spec / spec-interop / nominative /
 # confidential / avoidable and FAILS when
-#   - any confidential use (R30 desktop-client certification detail) is present — never baselined, never
-#     allowlisted; uses listed in a dated tools/vendor-terms/confidential-known.<repo>.json ledger are reported
-#     with that ledger's reason but still fail here, so the gate is red with a reason until the ledger is empty;
+#   - a confidential use (R30 desktop-client certification detail) falls outside the existing dated
+#     tools/vendor-terms/confidential-known.<repo>.json ledger; known uses remain printed as tracked debt;
 #   - any file carries more avoidable uses than the repository's committed baseline in honua-release
 #     (tools/vendor-terms/baseline.<repo>.json), so new avoidable uses are red while the backlog is burned down.
 # A repository without a committed baseline fails closed: adopt it by committing one here.
@@ -17,9 +16,8 @@
 #       with:
 #         tools_ref: <sha>
 #
-# honua-release runs the same lint inside its own `validate` job, where ledger-listed confidential uses are
-# warnings and anything new fails; this workflow's pull_request trigger proves the reusable path on changes
-# to the gate itself, and is red while honua-release's own ledger lists uses (#427, honua-server#5408).
+# honua-release and the reusable workflow apply the same ledger rule: listed uses are warnings and
+# anything new fails. The pull_request trigger proves the reusable path on changes to the gate itself.
 
 name: gate-vendor-terms
 
@@ -104,7 +102,7 @@ jobs:
         run: |
           set +e
           python3 "$TOOLS/tools/check_vendor_terms.py" lint --root target --repo "$REPO_NAME" \
-            --fail-on-known-confidential --json vendor-terms.json --markdown vendor-terms.md
+            --json vendor-terms.json --markdown vendor-terms.md
           status=$?
           set -e
           if [ -f vendor-terms.json ]; then

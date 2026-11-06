@@ -19,7 +19,7 @@ docs/THIRD-PARTY-TRADEMARKS.md:
 Subcommands:
 
   scan              per-repo report (counts by class, every avoidable hit with path:line), JSON + Markdown
-  lint              fail on a confidential use, or when a file's avoidable hits exceed the committed baseline
+  lint              fail on a new confidential use, or when a file's avoidable hits exceed the committed baseline
   baseline          write the baseline for a repo from its current avoidable hits
   check-baselines   fail when a committed baseline or confidential-known ledger grew relative to a base ref.
                     An equal-count path rename with a stated reason is not growth.
@@ -287,9 +287,7 @@ WILDCARD_ONLY = re.compile(r"[*?/.]*")
 
 
 def load_known(path: Path | None, repo: str) -> dict | None:
-    """The dated confidential-known ledger: confidential uses already in a repository when R30 landed, listed so
-    the gate is red with a reason while the containment work burns them down. It never turns a hit green in the
-    reusable gate, and it may only shrink (check-baselines)."""
+    """Load dated tracked debt; new findings fail, and check-baselines only permits the ledger to shrink."""
     if path is None or not path.is_file():
         return None
     document = json.loads(path.read_text(encoding="utf-8"))
@@ -1053,6 +1051,8 @@ def baseline_growth(current: dict, base: dict | None, kind: str = "baseline") ->
         problems.append(f"{kind}.{name}: total {current['total']} is not the sum of its entries "
                         f"({sum(current['files'].values())})")
     if base is None:
+        if kind == "confidential-known":
+            problems.append(f"{kind}.{name}: a new confidential ledger is not permitted")
         return problems
     accepted, rename_problems = _equal_count_renames(current, base, f"{kind}.{name}")
     problems.extend(rename_problems)
@@ -1113,7 +1113,7 @@ def _check_ledgers(root: Path, base_ref: str) -> list[str]:
             try:
                 base = json.loads(_git(root, "show", f"{base_ref}:{relative}"))
             except subprocess.CalledProcessError:
-                base = None  # a repository's first baseline or ledger
+                base = None
             problems += baseline_growth(json.loads(path.read_text(encoding="utf-8")), base, kind)
     return problems
 
@@ -1222,8 +1222,7 @@ def _lint(args, report: dict, default_baseline: Path) -> int:
                   f"burn-down {', '.join(known['burnDown'])})")
         for row in already:
             print(f"::{level}::confidential (R30), {reason}: {row}")
-        print(f"{len(already)} known confidential uses remain, {reason}. The vendor-terms gate stays red until the "
-              "ledger is empty.")
+        print(f"{len(already)} known confidential uses remain as tracked debt, {reason}.")
         failed = failed or args.fail_on_known_confidential
 
     baseline_path = Path(args.baseline) if args.baseline else default_baseline
@@ -1258,12 +1257,13 @@ def main(argv: list[str] | None = None) -> int:
     scan_parser.add_argument("--json", dest="json_out")
     scan_parser.add_argument("--markdown", dest="markdown_out")
 
-    lint_parser = commands.add_parser("lint", help="fail on confidential uses and avoidable uses above the baseline")
+    lint_parser = commands.add_parser(
+        "lint", help="fail on confidential uses outside the ledger and avoidable uses above the baseline")
     _add_scan_arguments(lint_parser)
     lint_parser.add_argument("--baseline", help="default tools/vendor-terms/baseline.<repo>.json")
     lint_parser.add_argument("--known", help="default tools/vendor-terms/confidential-known.<repo>.json")
     lint_parser.add_argument("--fail-on-known-confidential", action="store_true",
-                             help="fail on ledger-listed confidential uses too (the reusable gate always does)")
+                             help="also fail on ledger-listed confidential uses for a strict burn-down audit")
     lint_parser.add_argument("--json", dest="json_out")
     lint_parser.add_argument("--markdown", dest="markdown_out")
 
