@@ -22,5 +22,21 @@
     "schemas/",
     "tools/"
   ],
-  "gate_inputs": {}
+  "gate_inputs": {
+    "certification/hosted-pilot/history/20261023T084000Z.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/20261023T134500Z.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/20261023T161500Z.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/canary-dispatch-40001824669.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/canary-outcome-39987311356.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/canary-reservation-39987311356.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/canary-reservation-40001824669.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/environment-producer-39937421185-observation.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/environment-producer-39937421185-reconciliation.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/environment-producer-39937421185.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/foundation-funding-basis-original-294.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/foundation-funding-basis-original-314.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/legacy-lambda-liabilities-20261023.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/legacy-model-liabilities-20261023.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard.",
+    "certification/hosted-pilot/history/reconciled-20261023T161500Z.json": "Authenticated hosted-pilot funding/custody input read by tools/hosted_pilot; migrate names only under the custody guard."
+  }
 }
