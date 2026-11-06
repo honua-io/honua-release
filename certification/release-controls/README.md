@@ -15,9 +15,9 @@ No live settings have been changed. #236 remains must-fix-before-cut.
 
 ## Windows verification after merge
 
-The fresh `snapshot-2026-09-06-windows.json` records each repository's exact
+The fresh [`snapshot-2026-09-06-windows.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/snapshot-2026-09-06-windows.json) records each repository's exact
 default-branch SHA, observed controls, and observation time. Its companion
-`audit-2026-09-06-windows.json` remains **fail for all 17 repositories**. The release
+[`audit-2026-09-06-windows.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/audit-2026-09-06-windows.json) remains **fail for all 17 repositories**. The release
 promise still unmet is the adopted quality contract sections 4.4, 10.1 and 14:
 reviewed release lines with required checks, no unreviewed bypass, and signed
 native publication tags where applicable. Merging the proposal did not activate
@@ -102,8 +102,9 @@ admin:org scope diagnostic, but its repository permissions include admin.
 ## Evidence and repeatable validation
 
 ```sh
-python3 tools/release_controls.py capture --output /tmp/release-controls-live.json
-python3 tools/release_controls.py audit /tmp/release-controls-live.json --output /tmp/release-controls-result.json
+mkdir -p artifacts/release-controls
+python3 tools/release_controls.py capture --output artifacts/release-controls/snapshot.json
+python3 tools/release_controls.py audit artifacts/release-controls/snapshot.json --output artifacts/release-controls/audit.json
 python3 -m pytest tools/test_release_controls.py -q
 ```
 
@@ -115,7 +116,7 @@ controls as failures, and writes SHA-256 bindings to the policy and snapshot.
 A hash binds these committed bytes; it is not a signature or proof of freshness.
 The committed snapshot is a point-in-time audit, not ongoing enforcement.
 
-The committed `audit-2026-09-06.json` is deliberately **fail**. Reproducing that
+The committed [`audit-2026-09-06.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/audit-2026-09-06.json) is deliberately **fail**. Reproducing that
 failure is expected; do not wire this historical receipt into `validate` as if it
 were a current live gate. The PR's existing `validate` job runs the regression
 suite, which independently specifies the required API values and mutates each
@@ -226,7 +227,7 @@ builds a throwaway repository, generates an ephemeral SSH key inside the test's 
 directory, and makes git produce a real signed tag object. Fingerprints are computed
 independently with `ssh-keygen -lf`, and the tamper test rewrites signed tag bytes and rehashes
 the object so a genuinely broken signature is what fails. Adding `--signing-receipts` did not
-change any committed audit: `audit-2026-09-06.json` and `audit-2026-09-06-windows.json` both
+change any committed audit: [`audit-2026-09-06.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/audit-2026-09-06.json) and [`audit-2026-09-06-windows.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/audit-2026-09-06-windows.json) both
 still reproduce byte-for-byte from their snapshots.
 
 ## Unmet acceptance criteria and sequencing
