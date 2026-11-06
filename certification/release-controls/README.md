@@ -38,7 +38,7 @@ released pre-cut criterion; only the actual-candidate signature receipt must
 wait for its tag.
 
 Native validation: **44 focused tests pass**; the failure receipt's policy and
-snapshot hashes also match the committed Git blobs. The broader Windows trial
+snapshot hashes also match the Git blobs at the linked historical revision. The broader Windows trial
 reports **825 passed, 10 failed**: four Bash-dependent workflow assertions,
 four copied pytest-cache access failures, and two default Windows text-encoding
 failures. The broad run exposed subprocess Bash invocations in existing tests;
@@ -113,10 +113,10 @@ and reads ownership at the inspected source SHA. Transient failures and 403s coo
 down and retry the same command (10/30/60/120/60 seconds); it never authenticates.
 Audit requires the complete repository denominator, records missing/unreadable
 controls as failures, and writes SHA-256 bindings to the policy and snapshot.
-A hash binds these committed bytes; it is not a signature or proof of freshness.
-The committed snapshot is a point-in-time audit, not ongoing enforcement.
+A hash binds the bytes it names; it is not a signature or proof of freshness.
+The September snapshot linked above is a point-in-time audit, not ongoing enforcement.
 
-The committed [`audit-2026-09-06.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/audit-2026-09-06.json) is deliberately **fail**. Reproducing that
+The historical [`audit-2026-09-06.json`](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/release-controls/audit-2026-09-06.json) is deliberately **fail**. Reproducing that
 failure is expected; do not wire this historical receipt into `validate` as if it
 were a current live gate. The PR's existing `validate` job runs the regression
 suite, which independently specifies the required API values and mutates each

@@ -9,8 +9,9 @@ for the 0.1.12 / 1.10.1 set, which cleared the former `blocked-on-train-binding`
 receipt, [preflight-2026-09-26.json](https://github.com/honua-io/honua-release/blob/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/first-publication/preflight-2026-09-26.json),
 stays as historical evidence; it was observed 2026-09-26 UTC and last refreshed 2026-09-29T22:36Z UTC (operator ruling 2026-09-29: mobile is Experimental and its public publication is deferred out of 2026.1, so the mobile channels are now `deferred-experimental`; the probe also observed nuget.org `Geospatial.Grpc` 1.0.3; earlier refresh 2026-09-29T19:34Z, when the probe observed `@honua/sdk-js@0.1.11-beta.0` published and nuget.org `Geospatial.Grpc` 1.0.2; earlier refresh 2026-09-29T10:54Z, when the manifest re-pinned
 honua-iac to v0.2.0 and the probe observed `create-honua-app@0.1.5` and `honua-migrate` 0.8.0). **BLOCKED; #57 remains open.** This supersedes the 2026-09-06
-checkpoint for registry availability. The files under
-`certification/first-publication/` from that date stay as historical evidence. The
+[checkpoint for registry availability](https://github.com/honua-io/honua-release/tree/8d698b336392312f424f35c3c4e3c164cb9cbbf7/certification/first-publication).
+The September checkpoint remains in Git history; the retained byte receipts live under
+[`grpc-1.0.0/`](../certification/first-publication/grpc-1.0.0/). The
 machine receipt `--check` compares against is
 [preflight.v1.json](../certification/first-publication/preflight.v1.json).
 
