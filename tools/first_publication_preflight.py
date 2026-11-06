@@ -34,7 +34,7 @@ import yaml
 from digests import sha256_digest, sha256_hex
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight-2026-10-02.json"
+RECEIPT_PATH = REPO_ROOT / "certification" / "first-publication" / "preflight.v1.json"
 SCHEMA = "honua.first-publication-preflight/v1"
 ISSUE = "honua-io/honua-release#57"
 

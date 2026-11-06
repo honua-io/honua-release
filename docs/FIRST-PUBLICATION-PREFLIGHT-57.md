@@ -1,7 +1,7 @@
 # First-publication wave: anonymous preflight for #57
 
 Observed 2026-10-06T11:32:00Z UTC (receipt
-[preflight-2026-10-02.json](../certification/first-publication/preflight-2026-10-02.json),
+[preflight.v1.json](../certification/first-publication/preflight.v1.json),
 after the R25 advances of `clientArtifacts` to the newest published client identities: npm
 `@honua/sdk-js` 0.1.14 and `@honua/mcp-server` 0.1.14, PyPI `honua-sdk` 0.1.13 and `honua-admin`
 0.1.10, and nuget.org `Honua.Sdk` 1.10.3. The receipt was first written 2026-10-03T00:03:58Z
@@ -12,7 +12,7 @@ honua-iac to v0.2.0 and the probe observed `create-honua-app@0.1.5` and `honua-m
 checkpoint for registry availability. The files under
 `certification/first-publication/` from that date stay as historical evidence. The
 machine receipt `--check` compares against is
-[preflight-2026-10-02.json](../certification/first-publication/preflight-2026-10-02.json).
+[preflight.v1.json](../certification/first-publication/preflight.v1.json).
 
 ```bash
 python3 tools/first_publication_preflight.py --check

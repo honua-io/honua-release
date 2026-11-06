@@ -40,22 +40,7 @@
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#425"
     },
-    {
-      "repo": "honua-release",
-      "paths": [
-        "certification/executable-docs/evidence/sdk-source-build-20261012/initial/executable-docs.json",
-        "certification/executable-docs/evidence/sdk-source-build-20261012/corrected/executable-docs.json"
-      ],
-      "tokens": [
-        "esri",
-        "arcgis",
-        "scanArcGisUsage",
-        "Living Atlas"
-      ],
-      "reason": "Byte-for-byte retained hosted documentation receipts include immutable published package names and tarball URLs, public service URLs, and quoted SDK commands or comments. Renaming these observations would falsify evidence; exact file hashes, upstream document revisions and run identities are recorded beside each receipt. This exception is confined to the two retained raw reports.",
-      "owner": "@mikemcdougall",
-      "issue": "honua-io/honua-release#555"
-    },
+
     {
       "repo": "honua-release",
       "paths": [
@@ -155,7 +140,7 @@
       "repo": "honua-release",
       "paths": [
         "certification/coverage-audit.v1.json",
-        "certification/audits/2026-10-17/ai-gp-migration.json"
+        "certification/coverage-inputs/ai-gp-migration.v1.json"
       ],
       "tokens": [
         "arcgis"
