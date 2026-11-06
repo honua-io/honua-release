@@ -148,7 +148,7 @@ that burn the uses down. It is separate from the baseline and may only shrink; n
 or exceptions are permitted. Both the reusable `gate-vendor-terms` workflow and the repository's own
 validate run print every listed hit as tracked debt and fail on findings outside the existing ledger.
 A hit is known only while its file has no more hits than that ledger lists; an increased count or a
-new file fails. Classification, scanning scope, and avoidable-use baseline enforcement are unchanged.
+new file fails.
 Use `--fail-on-known-confidential` for a strict burn-down audit that also rejects known debt.
 honua-release's own ledger is burned down by honua-release#427 and honua-server#5408. The remaining
 public Python SDK exports must be renamed, released, and re-pinned before GA;

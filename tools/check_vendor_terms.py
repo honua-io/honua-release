@@ -1051,6 +1051,8 @@ def baseline_growth(current: dict, base: dict | None, kind: str = "baseline") ->
         problems.append(f"{kind}.{name}: total {current['total']} is not the sum of its entries "
                         f"({sum(current['files'].values())})")
     if base is None:
+        if kind == "confidential-known":
+            problems.append(f"{kind}.{name}: a new confidential ledger is not permitted")
         return problems
     accepted, rename_problems = _equal_count_renames(current, base, f"{kind}.{name}")
     problems.extend(rename_problems)
@@ -1111,7 +1113,7 @@ def _check_ledgers(root: Path, base_ref: str) -> list[str]:
             try:
                 base = json.loads(_git(root, "show", f"{base_ref}:{relative}"))
             except subprocess.CalledProcessError:
-                base = None  # a repository's first baseline or ledger
+                base = None
             problems += baseline_growth(json.loads(path.read_text(encoding="utf-8")), base, kind)
     return problems
 

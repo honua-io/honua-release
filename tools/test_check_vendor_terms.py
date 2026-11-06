@@ -617,6 +617,24 @@ def test_known_confidential_uses_warn_and_new_uses_fail(tmp_path, capsys):
     (repo / "tools" / "replay.py").write_text(f"import {SCRIPTING}\nimport {SCRIPTING}.mp\n")
     assert vt.main(["lint", *common, "--known", str(known)]) == 1
     assert "never baselined, never allowlisted" in capsys.readouterr().out
+    (repo / "tools" / "replay.py").write_text(f"import {SCRIPTING}\n")
+    (repo / "tools" / "new.py").write_text(f"import {SCRIPTING}\n")
+    assert vt.main(["lint", *common, "--known", str(known)]) == 1
+    assert "tools/new.py:1  desktop-scripting" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("kind", ["baseline", "confidential-known"])
+@pytest.mark.parametrize("files", [{}, {"a.json": 50}])
+def test_only_avoidable_baselines_allow_first_adoption(tmp_path, capsys, kind, files):
+    expected = 1 if kind == "confidential-known" else 0
+    root = _repo(tmp_path)
+    terms = root / "tools" / "vendor-terms"
+    terms.mkdir(parents=True)
+    document = _known(files) if kind == "confidential-known" else _baseline(files)
+    (terms / f"{kind}.honua-test.json").write_text(json.dumps(document))
+    assert vt.main(["check-baselines", "--base-ref", "HEAD", "--repo-root", str(root)]) == expected
+    if expected:
+        assert "new confidential ledger is not permitted" in capsys.readouterr().out
 
 
 def test_a_confidential_known_ledger_may_only_shrink(tmp_path):
