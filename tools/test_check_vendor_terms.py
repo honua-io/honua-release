@@ -623,9 +623,12 @@ def test_known_confidential_uses_warn_and_new_uses_fail(tmp_path, capsys):
     assert "tools/new.py:1  desktop-scripting" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("kind", ["baseline", "confidential-known"])
-@pytest.mark.parametrize("files", [{}, {"a.json": 50}])
-def test_only_avoidable_baselines_allow_first_adoption(tmp_path, capsys, kind, files):
+@pytest.mark.parametrize("ledger_case", [
+    ("baseline", {}), ("confidential-known", {}),
+    ("baseline", {"a.json": 50}), ("confidential-known", {"a.json": 50}),
+])
+def test_only_avoidable_baselines_allow_first_adoption(tmp_path, capsys, ledger_case):
+    kind, files = ledger_case
     expected = 1 if kind == "confidential-known" else 0
     root = _repo(tmp_path)
     terms = root / "tools" / "vendor-terms"
