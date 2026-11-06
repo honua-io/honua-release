@@ -27,7 +27,7 @@
     "certification/hosted-pilot/history/20261023T134500Z.json": "Exact-path restoration of the funding source bound by foundation-funding-basis.json and foundation-inventory.json; checked by tools/hosted_pilot/budget_bootstrap.py.",
     "certification/hosted-pilot/history/20261023T161500Z.json": "Exact-path restoration of the source bound by history/reconciled-20261023T161500Z.json; tools/hosted_pilot/registration_allowance_preparation.py verifies its digest.",
     "certification/hosted-pilot/history/legacy-lambda-liabilities-20261023.json": "Exact-path restoration of liabilities bound by foundation-funding-basis.json and foundation-inventory.json; tools/hosted_pilot/budget_bootstrap.py verifies the source.",
-    "certification/hosted-pilot/history/legacy-model-liabilities-20261023.json": "Exact-path restoration of liabilities bound by foundation-funding-basis.json; checked by tools/hosted_pilot/registration_allowance.py.",
+    "certification/hosted-pilot/history/legacy-model-liabilities-20261023.json": "Exact-path restoration of liabilities bound by foundation-funding-basis.json legacyModelObservation, documented in history/README.md.",
     "certification/hosted-pilot/history/reconciled-20261023T161500Z.json": "Exact-path restoration of the candidate-bound bootstrap input documented in HISTORY-RECONCILIATION.md; tools/hosted_pilot/budget_bootstrap.py verifies its sources."
   }
 }
