@@ -1,0 +1,26 @@
+{
+  "roots": [
+    ".gitattributes",
+    ".github/",
+    ".gitignore",
+    ".trivyignore.yaml",
+    "AGENTS.md",
+    "README.md",
+    "bom/",
+    "certification/",
+    "compatibility-ledger.v1.yaml",
+    "compatibility-matrix.yaml",
+    "contracts/",
+    "customer-install-manifest.json",
+    "docs/",
+    "e2e/",
+    "honua",
+    "mcp/",
+    "platform-manifest.yaml",
+    "release-notes/",
+    "release/",
+    "schemas/",
+    "tools/"
+  ],
+  "gate_inputs": {}
+}
