@@ -12,7 +12,8 @@ the site-root alias.
 This document defines the classes of use, the attribution that compatibility statements need, what is
 never allowed, and how to request an exception. `tools/check_vendor_terms.py` applies it to a checkout.
 The `gate-vendor-terms` workflow fails a pull request that adds an avoidable use or carries any
-confidential use. This is an engineering control; guidance from counsel takes precedence over it.
+confidential use outside its existing ledger. This is an engineering control; guidance from counsel
+takes precedence over it.
 
 ## Marks covered
 
@@ -35,7 +36,7 @@ policy links to those terms rather than restating them.
 | `spec` | GeoServices REST Specification 1.0 identifiers, used verbatim | allowed |
 | `spec-interop` | later ArcGIS REST wire values, each cited (R36) | allowed, reported separately |
 | `nominative` | attributed compatibility statements and stamped labels | allowed |
-| `confidential` | desktop-client certification detail (R30) | always fails |
+| `confidential` | desktop-client certification detail (R30) | new hits fail; existing ledger debt warns |
 | `avoidable` | everything else | fails above the baseline |
 
 ### 1. `spec`: identifiers the specification requires, used verbatim
@@ -137,17 +138,21 @@ statement or a stamped label, it names the product Honua works with, so it is no
 The same name in code, config, tests, data or unattributed prose is confidential, and so is a spelling of
 it fused into an identifier, a path or a lane name.
 
-A confidential use always fails the gate. It is never baselined (the baseline counts avoidable uses
-only), and it is never allowlisted (an allowlist entry does not apply to it). The way out is to move the
-detail to the private repository or to remove it.
+A confidential use outside the existing dated ledger fails the gate. It is never baselined (the
+baseline counts avoidable uses only), and it is never allowlisted (an allowlist entry does not apply
+to it). Remove the detail or move it to the private repository to retire the debt.
 
 A repository that still carries confidential uses from before R30 lists them in a dated
 `tools/vendor-terms/confidential-known.<repo>.json` ledger. The ledger records the date and the issues
-that burn the uses down. It is separate from the baseline and may only shrink. The ledger never turns
-the gate green. The reusable `gate-vendor-terms` workflow fails on every listed use and gives the ledger
-as the reason. The repository's own validate run reports listed uses as warnings and fails on anything
-the ledger does not list. honua-release's own ledger is burned down by honua-release#427 and
-honua-server#5408.
+that burn the uses down. It is separate from the baseline and may only shrink; no new ledger entries
+or exceptions are permitted. Both the reusable `gate-vendor-terms` workflow and the repository's own
+validate run print every listed hit as tracked debt and fail on findings outside the existing ledger.
+A hit is known only while its file has no more hits than that ledger lists; an increased count or a
+new file fails. Classification, scanning scope, and avoidable-use baseline enforcement are unchanged.
+Use `--fail-on-known-confidential` for a strict burn-down audit that also rejects known debt.
+honua-release's own ledger is burned down by honua-release#427 and honua-server#5408. The remaining
+public Python SDK exports must be renamed, released, and re-pinned before GA;
+[honua-sdk-python#364](https://github.com/honua-io/honua-sdk-python/issues/364) tracks that work.
 
 ### 5. `avoidable`: everything else
 
@@ -193,8 +198,8 @@ markdown emphasis do not matter.
 python3 tools/check_vendor_terms.py scan --root ../honua-server --repo honua-server \
   --git-ref origin/trunk --json out.json --markdown out.md
 
-# lint: red on a confidential use, or when any file has more avoidable hits than
-# tools/vendor-terms/baseline.<repo>.json allows (--fail-on-known-confidential: red on ledger-listed uses too)
+# lint: new confidential uses fail; avoidable counts may not exceed the per-file baseline
+# --fail-on-known-confidential also rejects existing tracked debt
 python3 tools/check_vendor_terms.py lint --root . --repo honua-release
 
 # after a burn-down: lock the lower counts in

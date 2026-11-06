@@ -595,7 +595,7 @@ def _known(files: dict[str, int]) -> dict:
             "burnDown": ["honua-io/honua-test#1"], "total": sum(files.values()), "files": files}
 
 
-def test_known_confidential_uses_are_listed_and_fail_the_gate(tmp_path, capsys):
+def test_known_confidential_uses_warn_and_new_uses_fail(tmp_path, capsys):
     repo = _repo(tmp_path)
     (repo / "tools").mkdir()
     (repo / "tools" / "replay.py").write_text(f"import {SCRIPTING}\n")
@@ -606,14 +606,14 @@ def test_known_confidential_uses_are_listed_and_fail_the_gate(tmp_path, capsys):
                     "honua-io/honua-test#1", "--out", str(known)]) == 0
     assert json.loads(known.read_text())["files"] == {"tools/replay.py": 1}
     capsys.readouterr()
-    # listed with its reason; the repository's own validate run passes on the ledger ...
     assert vt.main(["lint", *common, "--known", str(known)]) == 0
     out = capsys.readouterr().out
     assert "::warning::confidential (R30), known since 2026-10-03" in out and "honua-io/honua-test#1" in out
-    # ... the reusable gate is red with the same reason
+    assert "tools/replay.py:1  desktop-scripting" in out
+    assert "1 known confidential uses remain as tracked debt" in out
+    assert "gate stays red" not in out
     assert vt.main(["lint", *common, "--known", str(known), "--fail-on-known-confidential"]) == 1
     assert "::error::confidential (R30), known since 2026-10-03" in capsys.readouterr().out
-    # a confidential use the ledger does not list fails even the validate run
     (repo / "tools" / "replay.py").write_text(f"import {SCRIPTING}\nimport {SCRIPTING}.mp\n")
     assert vt.main(["lint", *common, "--known", str(known)]) == 1
     assert "never baselined, never allowlisted" in capsys.readouterr().out
@@ -792,9 +792,9 @@ def test_the_recorded_leaflet_check_name_is_allowlisted_only_in_the_server_fixtu
     assert not entry.covers("honua-release", other, token)
 
 
-def test_the_gate_pins_its_tooling_and_fails_on_known_confidential_uses():
+def test_the_gate_pins_its_tooling_and_fails_only_on_new_confidential_uses():
     workflow = (vt.ROOT / ".github" / "workflows" / "gate-vendor-terms.yml").read_text()
-    assert "--fail-on-known-confidential" in workflow
+    assert "--fail-on-known-confidential" not in workflow
     assert "^[0-9a-f]{40}$" in workflow and "required: true" in workflow.split("tools_ref:")[2].split("outputs:")[0]
     assert "trunk" not in workflow
 
