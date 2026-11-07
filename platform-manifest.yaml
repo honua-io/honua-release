@@ -1687,16 +1687,9 @@ evidenceSources:
   cite:
     repository: honua-io/honua-server
     workflowPath: .github/workflows/cite-evidence-report.yml
-    # REFRESHED 2026-09-15, 6aad1067 -> 7885b4eb (honua-server trunk HEAD, honua-server#4755 "migrate
-    # fixtures before seeding"; honua-server#4739). The trunk workflow_dispatch run 35003497740 at this
-    # sha is green and published `cite-status` (Last reviewed 2026-09-15); 6aad1067's snapshot was
-    # last reviewed 2026-08-12 and failed cite:freshness. NOTE THE INTENTIONAL
-    # DIFFERENCE from components.honua-server.sha (87966c3): this field pins the revision of the
-    # EVIDENCE PRODUCER WORKFLOW, whereas the component pin must name a commit with a deployable
-    # published image. They are different questions and are allowed to differ. As of the 2026-09-16
-    # re-pins the producer sha is an ANCESTOR of the component pin (compare 7885b4eb...87966c3f ->
-    # ahead_by=17, behind_by=0 at the third re-pin), so the published cite-status is evidence from inside this candidate.
-    producerSha: "035ce3d24371359c76acb7ef7d75e251d992337d"  # 2026-10-22: honua-server#6486, cite-status bound to run 38904075523 @ 2882cf07
+    # Pins the workflow revision carrying the reviewed snapshot; the snapshot itself identifies
+    # the certified server source and suite run, which the conformance gate checks separately.
+    producerSha: "899654e772934b917ed0f53c895400fb37b9cd6a"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: cite-status
