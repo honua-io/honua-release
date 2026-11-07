@@ -853,6 +853,18 @@ def test_licensed_policy_target_and_auth_are_governed():
     assert any("governed entitlement policy" in finding["why"] for finding in report["findings"])
 
 
+def test_licensed_desktop_rows_cannot_bypass_governed_entitlement_policy():
+    valid = _licensed_desktop_cell(client_lane="licensed-desktop-query")
+    assert _evaluate(_ledger(valid), "nightly", now=NOW)["overall_status"] == "pass"
+
+    invalid = _licensed_desktop_cell(
+        client_lane="licensed-desktop-query", policy="unknown-policy-v1",
+    )
+    report = _evaluate(_ledger(invalid), "nightly", now=NOW)
+    assert report["overall_status"] == "fail"
+    assert any("governed entitlement policy" in finding["why"] for finding in report["findings"])
+
+
 def test_release_requires_exact_digest_and_post_cut_execution():
     cell = _cell(image_digest="sha256:" + "c" * 64, completed_at="2026-08-20T08:00:00Z")
     report = _evaluate(_ledger(cell), "release", expected_image_digest=DIGEST, now=NOW)
