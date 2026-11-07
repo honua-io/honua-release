@@ -27,7 +27,7 @@
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
-      "commit": "965c013637722cb70d1a781c3d2d4f6537e6bf44"
+      "commit": "f4d81957ae8d8f46087416ca604d6931a88d88b5"
     },
     "cloud-native-guide": {
       "repository": "cloudnativegeo/cloud-optimized-geospatial-formats-guide",

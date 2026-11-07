@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 import first_publication_preflight as preflight
+import verify_client_artifacts as artifact_verifier
 
 WHEEL = b"pinned-wheel"
 ARCHIVE = b"iac-archive"
@@ -495,6 +496,24 @@ def test_pinned_npm_companion_is_downloaded_too():
 def test_npm_git_head_other_than_the_pinned_source_fails_closed():
     with pytest.raises(preflight.PreflightError, match="gitHead .* not clientArtifacts.honua-sdk-js.sourceSha"):
         _receipt(sdk_git_head="c" * 40)
+
+
+def test_missing_npm_git_head_uses_existing_exact_publisher_verification(monkeypatch):
+    calls = []
+    monkeypatch.setattr(artifact_verifier, "_verify_npm_provenance",
+                        lambda name, artifact, content: calls.append((name, artifact, content)))
+    receipt = _receipt(sdk_git_head=None)
+    assert calls == [("honua-sdk-js", _manifest()["clientArtifacts"]["honua-sdk-js"], SDK_TARBALL)]
+    assert _channel(receipt, "npm:@honua/sdk-js")["source_sha"] == SDK_SOURCE
+
+
+@pytest.mark.parametrize("reason", ["publisher source mismatch", "publisher attestations are missing"])
+def test_missing_npm_git_head_rejects_invalid_publisher_verification(monkeypatch, reason):
+    def rejected(*args):
+        raise artifact_verifier.VerificationError(reason)
+    monkeypatch.setattr(artifact_verifier, "_verify_npm_provenance", rejected)
+    with pytest.raises(preflight.PreflightError, match=reason):
+        _receipt(sdk_git_head=None)
 
 
 def test_npm_tarball_bytes_other_than_the_integrity_fail_closed():

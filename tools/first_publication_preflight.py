@@ -605,8 +605,8 @@ def _npm_published(transport, row: str, artifact: dict) -> dict:
     dist = meta.get("dist") or {}
     if dist.get("integrity") != integrity:
         raise PreflightError(f"npm integrity for the pinned {package} version does not match clientArtifacts")
-    # gitHead is the commit npm publish ran from; the published bytes are that source, not the tag.
-    if meta.get("gitHead") != source_sha:
+    git_head = meta.get("gitHead")
+    if git_head is not None and git_head != source_sha:
         raise PreflightError(
             f"npm gitHead for {package}@{version} is {meta.get('gitHead')}, not clientArtifacts.{row}.sourceSha"
         )
@@ -617,6 +617,12 @@ def _npm_published(transport, row: str, artifact: dict) -> dict:
         raise PreflightError(f"{package}@{version} tarball returned HTTP {tarball.status}")
     if _sha512_sri(tarball.body) != integrity:
         raise PreflightError(f"{package}@{version} tarball does not match the npm integrity")
+    if git_head is None:
+        from verify_client_artifacts import VerificationError, _verify_npm_provenance
+        try:
+            _verify_npm_provenance(row, artifact, tarball.body)
+        except VerificationError as exc:
+            raise PreflightError(str(exc)) from exc
     try:
         with tarfile.open(fileobj=io.BytesIO(tarball.body), mode="r:gz") as archive:
             member = archive.extractfile("package/package.json")

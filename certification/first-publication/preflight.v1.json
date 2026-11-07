@@ -9,6 +9,14 @@
       "publication": "QGIS plugin honua_gis_assistant"
     },
     {
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.2.10 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.2.10 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.2.10': 200}; the platform manifest pins @honua/sdk-js 0.3.2. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "channels": [
+        "npm:create-honua-app"
+      ],
+      "kind": "blocked-on-republish",
+      "publication": "npm create-honua-app@0.2.4 template pins"
+    },
+    {
       "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
       "channels": [
         "helm:oci://ghcr.io/honua-io/charts/honua"
@@ -99,24 +107,24 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "sdk-js-0.2.10.tgz",
-          "registry_integrity": "sha512-luqpr9Xn8A7e0wUFRdSh4wTYdpVFSVQT5YxYPRSJiNu9CM/m8vAPKvkLvAy6u0Mjvl1hBKFJI0E2YMGZr/jicA==",
-          "sha256": "f6733e3b8545ef065b0839ce9994bf6df784e8d88a76d0fd9eb55e4bc23053a4",
-          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.10.tgz"
+          "filename": "sdk-js-0.3.2.tgz",
+          "registry_integrity": "sha512-T/GBHhXjbi/IYU+0chggM5GmXUcAkMOWdPIapz4IX5hZntNjRhyS1+5jVw891hVSBgH0psaXY4ifgzgDTtDeNw==",
+          "sha256": "25d8cc75240da72595388e7512e0dda4ed63daf00e0935e648ed5ebd18f8dbd9",
+          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.3.2.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/sdk-js",
-      "publication": "npm @honua/sdk-js@0.2.10",
-      "source_sha": "965c013637722cb70d1a781c3d2d4f6537e6bf44",
+      "publication": "npm @honua/sdk-js@0.3.2",
+      "source_sha": "f4d81957ae8d8f46087416ca604d6931a88d88b5",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fsdk-js/0.2.10",
-        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.10.tgz"
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.3.2",
+        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.3.2.tgz"
       ],
-      "version": "0.2.10"
+      "version": "0.3.2"
     },
     {
-      "disposition": "published",
+      "disposition": "blocked-on-republish",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
@@ -128,7 +136,7 @@
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
-      "manifest_sdk_pin": "0.2.10",
+      "manifest_sdk_pin": "0.3.2",
       "maplibre_pins": [
         "6.4.1"
       ],
@@ -725,77 +733,77 @@
       ]
     },
     {
-      "digest": "sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da",
+      "digest": "sha256:1320e634c1f3b304043f4423780ab76202136c07c5d4bde26c178c457f3796b5",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-server:nightly-8628668",
-      "image": "ghcr.io/honua-io/honua-server:nightly-8628668",
+      "id": "oci:ghcr.io/honua-io/honua-server:nightly-1c7d0d1",
+      "image": "ghcr.io/honua-io/honua-server:nightly-1c7d0d1",
       "manifest_fields": [
         "components.honua-server.image"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "index_digest": "sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da",
-        "linux_amd64_digest": "sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1"
+        "index_digest": "sha256:1320e634c1f3b304043f4423780ab76202136c07c5d4bde26c178c457f3796b5",
+        "linux_amd64_digest": "sha256:26a3242a37459fca76aa10c8f14185241613d0a79468927e47c4c091629939e3"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1"
+        "linux/amd64": "sha256:26a3242a37459fca76aa10c8f14185241613d0a79468927e47c4c091629939e3"
       },
-      "publication": "ghcr.io/honua-io/honua-server:nightly-8628668",
+      "publication": "ghcr.io/honua-io/honua-server:nightly-1c7d0d1",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-server:pull",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-8628668",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1"
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-1c7d0d1",
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:26a3242a37459fca76aa10c8f14185241613d0a79468927e47c4c091629939e3"
       ]
     },
     {
-      "digest": "sha256:817079be768b1a6f6c6265ff2809c2e39f17c319240bb90148af7449e4fecede",
+      "digest": "sha256:817b740e87333eb4cfe9919defd8a814d3ec433716327a3ed91f1cd8b718aacb",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-server:nightly-compose-executor-8628668",
-      "image": "ghcr.io/honua-io/honua-server:nightly-compose-executor-8628668",
+      "id": "oci:ghcr.io/honua-io/honua-server:nightly-compose-executor-1c7d0d1",
+      "image": "ghcr.io/honua-io/honua-server:nightly-compose-executor-1c7d0d1",
       "manifest_fields": [
         "components.honua-server.composeExecutor.image"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "index_digest": "sha256:817079be768b1a6f6c6265ff2809c2e39f17c319240bb90148af7449e4fecede",
-        "linux_amd64_digest": "sha256:cb18a062975083bf002781470c455c73e74bf7d9c58c42269534ab3203e2f77c"
+        "index_digest": "sha256:817b740e87333eb4cfe9919defd8a814d3ec433716327a3ed91f1cd8b718aacb",
+        "linux_amd64_digest": "sha256:8677e1b94d89c3696e64e15ebafbb5f0366f206333ad187509a820951aff1bfd"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:cb18a062975083bf002781470c455c73e74bf7d9c58c42269534ab3203e2f77c"
+        "linux/amd64": "sha256:8677e1b94d89c3696e64e15ebafbb5f0366f206333ad187509a820951aff1bfd"
       },
-      "publication": "ghcr.io/honua-io/honua-server:nightly-compose-executor-8628668",
+      "publication": "ghcr.io/honua-io/honua-server:nightly-compose-executor-1c7d0d1",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-server:pull",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-compose-executor-8628668",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:cb18a062975083bf002781470c455c73e74bf7d9c58c42269534ab3203e2f77c"
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-compose-executor-1c7d0d1",
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:8677e1b94d89c3696e64e15ebafbb5f0366f206333ad187509a820951aff1bfd"
       ]
     },
     {
-      "digest": "sha256:7454cd31f71a514e0931ec6e192034553a838f98b578a728182346ee551001ab",
+      "digest": "sha256:630e2ca7da4c48068c7b52816ac57cec3dedc99a27031c6a66f3100ee1e2875d",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-server:nightly-lambda-aot-8628668-amd64",
-      "image": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-8628668-amd64",
+      "id": "oci:ghcr.io/honua-io/honua-server:nightly-lambda-aot-1c7d0d1-amd64",
+      "image": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-1c7d0d1-amd64",
       "manifest_fields": [
         "components.honua-server.awsLambdaImage"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "linux_amd64_digest": "sha256:1fc4ac0a32fb0566574cd84494446c4c521ccf2a44a198ff90b2d14948fdc9e7"
+        "linux_amd64_digest": "sha256:71d3440b15e3023ee01980e324c32b28247dba0eb9b493795d865b5decc67588"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:1fc4ac0a32fb0566574cd84494446c4c521ccf2a44a198ff90b2d14948fdc9e7"
+        "linux/amd64": "sha256:71d3440b15e3023ee01980e324c32b28247dba0eb9b493795d865b5decc67588"
       },
-      "publication": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-8628668-amd64",
+      "publication": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-1c7d0d1-amd64",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-server:pull",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-lambda-aot-8628668-amd64",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:1fc4ac0a32fb0566574cd84494446c4c521ccf2a44a198ff90b2d14948fdc9e7"
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-lambda-aot-1c7d0d1-amd64",
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:71d3440b15e3023ee01980e324c32b28247dba0eb9b493795d865b5decc67588"
       ]
     },
     {
@@ -803,25 +811,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_admin-0.1.12-py3-none-any.whl",
-          "registry_sha256": "359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
-          "sha256": "359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
-          "url": "https://files.pythonhosted.org/packages/b6/37/fb02fbdf3114f9f59f885bcff0b3a7e628d93b55f60aa02dd13aa19c06cf/honua_admin-0.1.12-py3-none-any.whl"
+          "filename": "honua_admin-0.2.2-py3-none-any.whl",
+          "registry_sha256": "40bbf4994ba1860befd78936e02bbbb75b2b1a09ee1f4f41ebe2bf5027f81392",
+          "sha256": "40bbf4994ba1860befd78936e02bbbb75b2b1a09ee1f4f41ebe2bf5027f81392",
+          "url": "https://files.pythonhosted.org/packages/f2/4a/dc644a58414f89a26297339a87fc2dccd8046657382c83b7dd3990eece13/honua_admin-0.2.2-py3-none-any.whl"
         },
         {
-          "filename": "honua_admin-0.1.12.tar.gz",
-          "registry_sha256": "a1d7652dbc9b092da55a893760285c7d5da353091f35d9aa62ea8fe6e849a05e",
-          "sha256": "a1d7652dbc9b092da55a893760285c7d5da353091f35d9aa62ea8fe6e849a05e",
-          "url": "https://files.pythonhosted.org/packages/d5/54/d68f289a574074e43861894f3d147c1d88947f6477cb995b59b015ba12c9/honua_admin-0.1.12.tar.gz"
+          "filename": "honua_admin-0.2.2.tar.gz",
+          "registry_sha256": "4bd60cea5a487b9240ddee4d3cea31aa5db7f77345860bf912d445123a2560bb",
+          "sha256": "4bd60cea5a487b9240ddee4d3cea31aa5db7f77345860bf912d445123a2560bb",
+          "url": "https://files.pythonhosted.org/packages/ce/de/2d04366757920d4de23f22914c8915f2eea0f3cb1a5f2d9103876041b9f8/honua_admin-0.2.2.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-admin",
-      "publication": "PyPI honua-admin 0.1.12",
+      "publication": "PyPI honua-admin 0.2.2",
       "urls": [
         "https://pypi.org/pypi/honua-admin/json"
       ],
-      "version": "0.1.12"
+      "version": "0.2.2"
     },
     {
       "disposition": "absent-retired",
@@ -862,25 +870,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-          "registry_sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
-          "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
-          "url": "https://files.pythonhosted.org/packages/1c/ff/2590f0ae061ac726991a428cee5d1c1fcf6aa2da063843345f225ebb445f/honua_sdk-0.1.19-py3-none-any.whl"
+          "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+          "registry_sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
+          "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
+          "url": "https://files.pythonhosted.org/packages/3f/49/ed8b551104e4cd921fe1c8352cfd9c5585f89b876f57577e99cce25a987a/honua_sdk-0.2.2-py3-none-any.whl"
         },
         {
-          "filename": "honua_sdk-0.1.19.tar.gz",
-          "registry_sha256": "77ed2ba519f1ae509031173ecd29b962068aeb2f82577014e4d33b0d0f6dd013",
-          "sha256": "77ed2ba519f1ae509031173ecd29b962068aeb2f82577014e4d33b0d0f6dd013",
-          "url": "https://files.pythonhosted.org/packages/cd/cc/3baa9d0abed7040d259940c8bb023a60074b52a0a29e01afa110263282bf/honua_sdk-0.1.19.tar.gz"
+          "filename": "honua_sdk-0.2.2.tar.gz",
+          "registry_sha256": "3a35dcf18093effe139332340e3441551f0ee05d48a8783a64412301a2c648b3",
+          "sha256": "3a35dcf18093effe139332340e3441551f0ee05d48a8783a64412301a2c648b3",
+          "url": "https://files.pythonhosted.org/packages/bb/8e/636c9cefd03db24d8ea099604593672f330444add7e2951199cdefd24b67/honua_sdk-0.2.2.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-sdk",
-      "publication": "PyPI honua-sdk 0.1.19",
+      "publication": "PyPI honua-sdk 0.2.2",
       "urls": [
         "https://pypi.org/pypi/honua-sdk/json"
       ],
-      "version": "0.1.19"
+      "version": "0.2.2"
     },
     {
       "disposition": "blocked-on-operator",
@@ -895,20 +903,20 @@
     },
     {
       "client_artifact_registry": "nuget.org",
-      "client_artifact_version": "1.12.0",
-      "component_version": "1.12.0",
+      "client_artifact_version": "2.1.0",
+      "component_version": "2.1.0",
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.12.0.nupkg",
-          "sha256": "45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.12.0/honua.sdk.1.12.0.nupkg"
+          "filename": "honua.sdk.2.1.0.nupkg",
+          "sha256": "9bde4098f3d66aae834f14204df3ba706b062dcc71787d6b8b52ba5216937173",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/2.1.0/honua.sdk.2.1.0.nupkg"
         },
         {
-          "filename": "honua.sdk.studio.1.12.0.nupkg",
-          "sha256": "ec23fbaf289505c9a399f5f6a07c6135cf1774a983d38412c261685afd9d1d39",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.12.0/honua.sdk.studio.1.12.0.nupkg"
+          "filename": "honua.sdk.studio.2.1.0.nupkg",
+          "sha256": "2f0bd8385fa66849ddbf8b4bf1e92aca753804d80782cad8dcea3ed2fb243361",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/2.1.0/honua.sdk.studio.2.1.0.nupkg"
         }
       ],
       "http_status": 200,
@@ -917,10 +925,10 @@
         "Honua.Sdk": 200,
         "Honua.Sdk.Studio": 200
       },
-      "publication": "nuget.org Honua.Sdk 1.12.0",
+      "publication": "nuget.org Honua.Sdk 2.1.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.12.0/honua.sdk.1.12.0.nupkg",
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.12.0/honua.sdk.studio.1.12.0.nupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/2.1.0/honua.sdk.2.1.0.nupkg",
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/2.1.0/honua.sdk.studio.2.1.0.nupkg"
       ]
     }
   ],
@@ -930,6 +938,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-07T03:50:43Z",
+  "observed_at": "2026-11-07T08:23:54Z",
   "schema": "honua.first-publication-preflight/v1"
 }
