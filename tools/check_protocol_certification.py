@@ -1088,7 +1088,7 @@ def evaluate(
             fail("requirements.client_package", "governed Python wheel identity is malformed or on another lane")
     external_entitlement_policies = {
         row.get("entitlement_policy_revision") for row in owned_rows
-        if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("desktop-arcpy-")
+        if isinstance(row, dict) and str(row.get("client_lane", "")).startswith("licensed-desktop-")
     }
 
     generated_at = _timestamp(ledger.get("generated_at"))

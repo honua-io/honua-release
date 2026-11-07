@@ -1575,6 +1575,29 @@ def test_qgis_drivers_stay_unlicensed_on_local_docker():
     assert not any(row["deployment_target"] == "windows-licensed" for row in rows)
 
 
+def test_entitlement_schema_accepts_only_canonical_policy_revisions():
+    expected = {"honua-pro-feature-subscriptions-v1", "licensed-desktop-client-v1"}
+    for filename in (
+        "protocol-certification.v1.schema.json",
+        "protocol-certification-requirements.v1.schema.json",
+    ):
+        schema = json.loads((cert.REQUIREMENTS_PATH.parent / filename).read_text(encoding="utf-8"))
+        pending = [schema]
+        governed_enums = []
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                policy = node.get("properties", {}).get("entitlement_policy_revision", {})
+                if "enum" in policy:
+                    governed_enums.append(set(policy["enum"]))
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
+        assert governed_enums, filename
+        assert all(policies <= expected for policies in governed_enums), filename
+        assert set.union(*governed_enums) == expected, filename
+
+
 def test_ledger_schema_governs_the_licensed_desktop_entitlement():
     schema = json.loads(
         (Path(__file__).parents[1] / "certification" / "protocol-certification.v1.schema.json")
@@ -1589,9 +1612,9 @@ def test_ledger_schema_governs_the_licensed_desktop_entitlement():
 def test_geoservices_protocol_client_is_unproduced():
     requirements, _ = cert.load_ledger(cert.REQUIREMENTS_PATH)
     production = requirements["production"]
-    assert not any(row["canonical_client"] == "ArcGIS Pro" for row in requirements["requirements"])
+    assert not any(row["canonical_client"] == "Licensed desktop client" for row in requirements["requirements"])
     assert not any(
-        row["client_lane"].startswith(("desktop-arcpy", "desktop-pro-ui", "arcgis-python-", "esri-dotnet-"))
+        row["client_lane"].startswith(("licensed-desktop-", "desktop-pro-ui", "web-gis-python-", "desktop-dotnet-"))
         for row in requirements["requirements"]
     )
     [raw] = [entry for entry in production["unproduced"] if "raw-geoservices-*" in entry.get("client_lanes", [])]
