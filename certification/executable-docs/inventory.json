@@ -1629,11 +1629,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "71d7eaed71bf1804aaae66b2610debc693cae22a",
+      "revision": "2f82e1487f6483a1996717cb1bedbdfeb104fd58",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/71d7eaed71bf1804aaae66b2610debc693cae22a/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/2f82e1487f6483a1996717cb1bedbdfeb104fd58/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1758,7 +1758,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "8cb1c5549586be537a9c5143d1f10eb05da1811088b2fb29f05e7792e97758ac"
+          "sha256": "2a75d66cf9842a5bb9415a740d2922b096f36dd798f8597f657ff11640d94b09"
         }
       ]
     },
