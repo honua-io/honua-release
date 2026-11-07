@@ -2,32 +2,32 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:b039f4c6939f4bfa638eb17a6485e05b3b1c7c3a4669aaeebfa3333679476253",
+  "requirements_digest": "sha256:f35455f75d0f7d6b088a94395240c5eaf3ea78b5eaa14b3fa4f181f7419e7bf0",
   "production_digest": "sha256:24966a8dcdaec4911ec24e368d5e40c59826292733cdf34205fcc66138b23742",
   "audit_digest": "sha256:324ea9f8b8d6f9609ea97f49a49300bb1c12dcac458b46e3c8047e51c733f8e6",
-  "rows_digest": "sha256:b250f745d3dc9825a60a26057e06a47c1bd5b35683c5bf04d40d345c8e0be8b7",
-  "rows": 1895,
-  "non_licensed_rows": 1893,
+  "rows_digest": "sha256:a39deecce043b4e552040098006af3293c7cabfa4fa92408340366b1d872274b",
+  "rows": 1904,
+  "non_licensed_rows": 1902,
   "external_licensed_rows": 2,
   "non_licensed_registration": {
     "not-addressable": 394,
-    "registered": 514,
-    "unproduced": 985
+    "registered": 522,
+    "unproduced": 986
   },
   "non_licensed_assertion_review": {
     "findings-recorded": 357,
-    "not-reviewed": 1536
+    "not-reviewed": 1545
   },
   "finding_matches": {
     "NC-01": 82,
     "NC-02": 1,
-    "NC-04": 388,
-    "NC-05": 1895,
+    "NC-04": 396,
+    "NC-05": 1904,
     "NC-06": 95,
     "NC-07": 45,
     "NC-08": 1,
-    "NC-09": 1895,
-    "NC-10": 1895,
+    "NC-09": 1904,
+    "NC-10": 1904,
     "NC-11": 82,
     "NC-12": 16,
     "NC-17": 118,
@@ -36,7 +36,7 @@
     "NC-20": 66,
     "NC-21": 1,
     "NC-22": 1,
-    "NC-23": 108,
+    "NC-23": 111,
     "NC-24": 88
   },
   "source_comparison": [
@@ -108,7 +108,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-dotnet",
-        "commit": "aada6d8987db0802a3c9de0d976f471afa943c0a"
+        "commit": "e8f5db032eade0121c539542f1cf90b025545046"
       },
       "same_revision": false
     },
@@ -120,7 +120,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-js",
-        "commit": "965c013637722cb70d1a781c3d2d4f6537e6bf44"
+        "commit": "f4d81957ae8d8f46087416ca604d6931a88d88b5"
       },
       "same_revision": false
     },
