@@ -755,9 +755,11 @@ class LocalOps:
 
     # -- development composition ------------------------------------------------------------
     def compose_env(self, ctx, facts: dict) -> dict:
-        vm, install, cand = ctx.slot.vm, ctx.install, ctx.candidate
-        release = cand['imageDigest'] if cand.get('development') else f"{cand['image']}@{cand['imageDigest']}"
-        return {'HONUA_RELEASE_IMAGE': release, 'HONUA_RELEASE_WORKER_IMAGE': release,
+        from ai_arc_runner import package_lock_for
+        vm, install = ctx.slot.vm, ctx.install
+        images = package_lock_for(ctx.arc, ctx.candidate)
+        return {'HONUA_RELEASE_IMAGE': images['server'], 'HONUA_RELEASE_WORKER_IMAGE': images['worker'],
+                'HONUA_EXECUTOR_IMAGE': images['executor'], 'HONUA_PROJECT_GID': facts['dockerGid'],
                 'HONUA_RELEASE_VERSION': RELEASE_VERSION, 'HONUA_PRIOR_IMAGE': f"{install['image']}@{install['imageDigest']}",
                 'HONUA_PRIOR_MAX_SCHEMA': '140', 'DOCKER_GID': facts['dockerGid'],
                 'DOCKER_COMPOSE_PLUGIN': facts['composePlugin'], 'HONUA_COMPOSE_PROJECT_DIRECTORY': vm.remote_dir,
