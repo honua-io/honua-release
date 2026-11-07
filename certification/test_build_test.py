@@ -7,6 +7,7 @@ Run: python -m pytest certification/test_build_test.py    (or: python certificat
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -682,3 +683,27 @@ def test_evaluate_resolves_the_rule_for_honua_server_only_and_reports_the_record
 def test_main_wires_the_live_resolver():
     import inspect
     assert "validated_examples=live_validated_examples" in inspect.getsource(bt.main)
+
+
+@_pytest.mark.parametrize("report_case", [
+    ("pass", 0, None), ("fail", 1, None),
+    ("pass", 0, "custom/report.json"), ("fail", 1, "custom/report.json"),
+])
+def test_main_creates_output_directory_and_retains_verdict(tmp_path, monkeypatch, report_case):
+    status, expected_exit, output_override = report_case
+    manifest = tmp_path / "manifest.yaml"
+    manifest.write_text("components: []\n")
+    report = {
+        "overallStatus": status,
+        "components": [{"component": "example", "decided": status, "sha": "a" * 40, "why": "authored control"}],
+        "summary": {status: 1},
+    }
+    monkeypatch.setattr(bt, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(bt.BuildTestGate, "evaluate", lambda _gate, _manifest, _enforcement: report)
+
+    output = tmp_path / (output_override or "artifacts/gate-report-build-test.json")
+    arguments = ["--manifest", str(manifest)]
+    if output_override:
+        arguments.extend(["--out", str(output)])
+    assert bt.main(arguments) == expected_exit
+    assert json.loads(output.read_text()) == report
