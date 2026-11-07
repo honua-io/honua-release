@@ -471,7 +471,7 @@ components:
     # separate this pin from trunk HEAD at re-pin time.
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
     sha: 1c7d0d1101809f2288566fb20d1ce1cb0a853869
-    image: ghcr.io/honua-io/honua-server@sha256:1320e634c1f3b304043f4423780ab76202136c07c5d4bde26c178c457f3796b5
+    image: ghcr.io/honua-io/honua-server:nightly-1c7d0d1
     # 2026-11-03 RC2 REDO: index and children re-read anonymously from GHCR (docker buildx imagetools
     # inspect); both child configs label org.opencontainers.image.revision=8628668794df....
     # 2026-11-02 RC2 CUT: index and children re-read anonymously from GHCR (docker buildx imagetools
@@ -500,7 +500,7 @@ components:
     # org.opencontainers.image.revision=8628668794df...; SLSA provenance verifies (signer
     # nightly-container-build.yml, source digest 86286687...).
     composeExecutor:
-      image: ghcr.io/honua-io/honua-server@sha256:817b740e87333eb4cfe9919defd8a814d3ec433716327a3ed91f1cd8b718aacb
+      image: ghcr.io/honua-io/honua-server:nightly-compose-executor-1c7d0d1
       digest: sha256:817b740e87333eb4cfe9919defd8a814d3ec433716327a3ed91f1cd8b718aacb
       architectures: [amd64, arm64]
       platformDigests:
