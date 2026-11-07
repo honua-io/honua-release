@@ -26,6 +26,7 @@ import mcp_publish_result_validation as publication
 import mcp_style_validation as style
 
 FIXTURE = json.loads(Path(__file__).with_name("mcp-6901-replay-41680771276.json").read_text(encoding="utf-8"))
+QUERY_FIXTURE = json.loads(Path(__file__).with_name("mcp-publish-query-replay-41714656270.json").read_text(encoding="utf-8"))
 SUMMARIES = {
     "honua_ops_health": "Ops health snapshot returned in structuredContent.",
     "honua_alert_events": "Alert-event page returned in structuredContent.",
@@ -42,6 +43,16 @@ def results():
 
 
 class ActualServerReplay(unittest.TestCase):
+    def test_retained_publication_queries_preserve_source_ids_and_attributes(self):
+        self.assertEqual(QUERY_FIXTURE["source"]["workflowRun"], 41714656270)
+        self.assertEqual(QUERY_FIXTURE["source"]["serverSourceSha"], FIXTURE["source"]["serverSourceSha"])
+        self.assertEqual(set(QUERY_FIXTURE["clients"]), {"sdk", "inspector"})
+        for client, observations in QUERY_FIXTURE["clients"].items():
+            self.assertEqual(len(observations["queryResults"]), 2)
+            for result in observations["queryResults"]:
+                with self.subTest(client=client):
+                    publication.query_output(result, {}, observations["database"])
+
     def test_fixture_is_the_retained_candidate_evidence(self):
         self.assertEqual(FIXTURE["source"]["workflowRun"], 41680771276)
         self.assertEqual(FIXTURE["source"]["serverSourceSha"], "8628668794df9f0c22a490e59cedaee409cc1bdd")

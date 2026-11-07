@@ -329,6 +329,39 @@ class PublicationControls(unittest.TestCase):
         self.assertTrue(validation.judge(FIXTURE,bootstrap(),rebind(value))["persistedReadback"])
         value["calls"][7]["result"]["structuredContent"]["features"][0]["attributes"]["attributes"] = "{}"; self.assert_refused(rebind(value))
 
+    def test_source_query_allows_matching_integer_object_id(self):
+        value = controls()
+        for index in (7, 10):
+            result = value["calls"][index]["result"]
+            output = result["structuredContent"]
+            for rows, field in ((output["features"], "attributes"), (output["geojson"]["features"], "properties")):
+                for feature in rows:
+                    feature[field]["objectid"] = feature["id"]
+            result["content"] = server_content(output, "Returned 2 authored features")
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), rebind(value))["persistedReadback"])
+
+    def test_source_query_rejects_invalid_object_id_and_schema_changes(self):
+        changes = (
+            lambda attrs: attrs.update(objectid=12),
+            lambda attrs: attrs.update(objectid="11"),
+            lambda attrs: attrs.update(objectid=11.0),
+            lambda attrs: attrs.update(objectid=True),
+            lambda attrs: attrs.update(objectid=None),
+            lambda attrs: attrs.update(unexpected=11),
+            lambda attrs: attrs.pop("id"),
+        )
+        for index in (7, 10):
+            for representation, field in (("features", "attributes"), ("geojson", "properties")):
+                for change in changes:
+                    with self.subTest(index=index, representation=representation, change=change):
+                        value = controls()
+                        result = value["calls"][index]["result"]
+                        output = result["structuredContent"]
+                        rows = output["features"] if representation == "features" else output["geojson"]["features"]
+                        change(rows[0][field])
+                        result["content"] = server_content(output, "Returned 2 authored features")
+                        self.assert_refused(rebind(value))
+
     def test_new_service_layer_order_follows_server_publication_rule(self):
         # PostgreSqlLayerPublishingService.LayerPersistence.cs:819 orders a new service's only layer 1.
         for order in (0, 2, None, "1", True):

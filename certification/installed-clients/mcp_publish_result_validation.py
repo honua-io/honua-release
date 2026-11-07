@@ -674,8 +674,11 @@ def query_output(result, published, database):
             if geojson and feature.get("type") != "Feature":
                 raise ValueError("query GeoJSON type missing")
             attrs = feature.get("properties" if geojson else "attributes")
-            if not isinstance(attrs,dict) or set(attrs) != {"id","attributes"} or type(attrs["id"]) is not int or attrs["id"] != feature["id"]:
+            if (not isinstance(attrs,dict) or set(attrs) not in ({"id","attributes"}, {"id","objectid","attributes"})
+                    or type(attrs["id"]) is not int or attrs["id"] != feature["id"]):
                 raise ValueError("query lost published source schema/primary-key attributes")
+            if "objectid" in attrs and (type(attrs["objectid"]) is not int or attrs["objectid"] != attrs["id"]):
+                raise ValueError("query object-id attribute differs from the source primary key")
             nested = strict_json(attrs["attributes"]) if isinstance(attrs["attributes"],str) else attrs["attributes"]
             if not same_json(nested,original["properties"]) or not same_json(feature.get("geometry"),original["geometry"]):
                 raise ValueError("query changed authored attributes/batch or exact geometry")
