@@ -157,7 +157,7 @@ def ctx(tmp_path):
     slot.vm = Vm()
     return R.StageContext(arc=json.loads(json.dumps(ARC)), target='local-docker', arm=R.arm_by_id(ARC, 'A1'),
                           variant='A', run_dir=tmp_path, private_dir=tmp_path, slot=slot,
-                          candidate={'imageDigest': CAND, 'development': True},
+                          candidate={'imageDigest': CAND, 'development': True, 'executorImage': 'sha256:' + '3' * 64},
                           install=ARC['versionPair']['install'], limits=ARC['limits']['ops'],
                           deadline=time.monotonic() + 60)
 
@@ -456,6 +456,28 @@ class ProbeVm(Vm):
         return subprocess.CompletedProcess([], 0, out, b'')
 
 
+
+@pytest.mark.parametrize('development', [False, True])
+def test_compose_env_uses_the_candidates_immutable_executor_and_project_group(tmp_path, development):
+    context = ctx(tmp_path)
+    context.candidate.update({'image': 'ghcr.io/honua-io/honua-server', 'development': development,
+                              'executorImage': 'ghcr.io/honua-io/honua-compose-executor@sha256:' + '3' * 64})
+    facts = {'dockerGid': '988', 'composePlugin': '/usr/libexec/docker/cli-plugins/docker-compose'}
+    environment = O.LocalOps().compose_env(context, facts)
+    assert environment['HONUA_PROJECT_GID'] == facts['dockerGid']
+    assert environment['HONUA_EXECUTOR_IMAGE'] == context.candidate['executorImage']
+    assert environment['HONUA_RELEASE_IMAGE'] == (CAND if development else context.candidate['image'] + '@' + CAND)
+
+
+@pytest.mark.parametrize('executor', [None, 'ghcr.io/honua-io/honua-compose-executor:nightly'])
+def test_compose_env_refuses_an_absent_or_mutable_executor_image(tmp_path, executor):
+    context = ctx(tmp_path)
+    context.candidate['executorImage'] = executor
+    facts = {'dockerGid': '988', 'composePlugin': '/usr/libexec/docker/cli-plugins/docker-compose'}
+    with pytest.raises(ValueError, match='no immutable compose executor image'):
+        O.LocalOps().compose_env(context, facts)
+
+
 def test_the_executor_composition_follows_the_lifecycle_proof_at_the_arc_pin(tmp_path):
     c = ctx(tmp_path)
     c.slot.vm = ProbeVm()
@@ -465,7 +487,8 @@ def test_the_executor_composition_follows_the_lifecycle_proof_at_the_arc_pin(tmp
     facts = stage.compose_executor(c, source_at=lambda rev, path: raw)
     script = c.slot.vm.scripts[-1]
     for name, value in (('HONUA_RELEASE_IMAGE', CAND), ('HONUA_RELEASE_WORKER_IMAGE', CAND),
-                        ('HONUA_PRIOR_MAX_SCHEMA', '140'), ('DOCKER_GID', '988'), ('HONUA_MANAGER_PORT', '18183'),
+                        ('HONUA_PRIOR_MAX_SCHEMA', '140'), ('DOCKER_GID', '988'), ('HONUA_PROJECT_GID', '988'),
+                        ('HONUA_EXECUTOR_IMAGE', 'sha256:' + '3' * 64), ('HONUA_MANAGER_PORT', '18183'),
                         ('COMPOSE_PROJECT_NAME', 'arc-p'), ('HONUA_COMPOSE_PROJECT_DIRECTORY', '/home/ubuntu/honua-arc/arc-p')):
         assert f'{name} {value}' in script, name
     assert 'chown -R 1001:988' in script and '-f compose.executor.yaml up -d --wait' in script
