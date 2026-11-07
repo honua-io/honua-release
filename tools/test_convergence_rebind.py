@@ -568,7 +568,10 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "8628668794df9f0c22a490e59cedaee409cc1bdd"  # the last verified_server_commits entry
+VERIFIED = next(
+    ruling for ruling in json.loads((ROOT / MODULE.GRPC_OPERATIONS).read_text())["rulings"]
+    if ruling["id"] == MODULE.GRPC_RULING
+)["verified_server_commits"][-1]
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
