@@ -55,7 +55,7 @@ import trunk_reachability as tr  # noqa: E402
 from component_versions import version_map  # noqa: E402
 import platform_version  # noqa: E402
 import deployment_qualification as dq  # noqa: E402
-from image_platforms import image_coordinate, image_platform_digests, verify_image_platform_digests  # noqa: E402
+from image_platforms import image_coordinate, image_platform_digests, verify_image_platform_digests, verify_image_tag_digest  # noqa: E402
 sys.path.append(str(Path(__file__).resolve().parents[1] / "e2e"))  # after tools/: never shadows a tool module
 import expected_ga_observation as ego  # noqa: E402
 
@@ -686,15 +686,22 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
             f.error(f"matrix: {path}: internal keys {counted} are counted in the expected-GA manifest (ruling R29)")
 
 
-def check_registry_platform_digests(manifest: dict, f: Findings, verify=None) -> None:
-    """Every imaged component's declared platform digests are its registry index's Linux children."""
+def check_registry_platform_digests(manifest: dict, f: Findings, verify=None, verify_tag=None) -> None:
+    """Verify registry architecture identities and mutable addresses against their digest bindings."""
     verify = verify or verify_image_platform_digests
+    verify_tag = verify_tag or verify_image_tag_digest
     for name, component in (manifest.get("components") or {}).items():
         if component.get("image"):
             try:
                 verify({**component, "coordinate": image_coordinate(component["image"])})
             except (OSError, TypeError, ValueError) as exc:
                 f.error(f"manifest: {name}.platformDigests: {exc}")
+            for path, artifact in ((name, component), (f"{name}.composeExecutor", component.get("composeExecutor") or {})):
+                if isinstance(artifact, dict) and artifact.get("image"):
+                    try:
+                        verify_tag(artifact["image"], artifact.get("digest"))
+                    except (OSError, TypeError, ValueError) as exc:
+                        f.error(f"manifest: {path}.image: {exc}")
 
 
 def check_expected_ga_snapshot_pin(manifest: dict, policy: dict | None, observation: dict | None,

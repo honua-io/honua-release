@@ -259,9 +259,9 @@ def test_pypi_refuses_missing_or_invalid_provenance(monkeypatch, mutation):
         vca.verify_manifest({'clientArtifacts': {'python': RECORDED_PINS['python']}}, include_identities=True)
 
 
-def _npm_split_publisher(monkeypatch):
+def _npm_split_publisher(monkeypatch, package='@honua/sdk'):
     import mint_nightly_lock as nightly
-    package, version, source = '@honua/sdk', '0.1.14', 'a' * 40
+    version, source = '0.1.14', 'a' * 40
     data = _npm_tarball(package, version)
     pin = {'ecosystem': 'npm', 'package': package, 'version': version,
            'repository': 'honua-io/honua-sdk-js', 'sourceSha': source,
@@ -270,7 +270,7 @@ def _npm_split_publisher(monkeypatch):
     ref = 'refs/tags/js-sdk-v0.1.14'
     statement = {'_type': 'https://in-toto.io/Statement/v1',
         'predicateType': 'https://slsa.dev/provenance/v1',
-        'subject': [{'name': 'pkg:npm/%40honua/sdk@0.1.14',
+        'subject': [{'name': f'pkg:npm/%40{package[1:]}@0.1.14',
                      'digest': {'sha512': hashlib.sha512(data).hexdigest()}}],
         'predicate': {'buildDefinition': {
             'buildType': 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1',
@@ -294,15 +294,16 @@ def _npm_split_publisher(monkeypatch):
     return pin, metadata, statement, bundles, calls
 
 
-def test_missing_npm_githead_requires_publisher_verification_of_exact_bytes(monkeypatch):
-    pin, _, _, _, calls = _npm_split_publisher(monkeypatch)
+@pytest.mark.parametrize('package', ['@honua/sdk', '@honua/sdk-js', '@honua/sdk-client-compat'])
+def test_missing_npm_githead_requires_publisher_verification_of_exact_bytes(monkeypatch, package):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch, package)
     identity, digest = vca._verify_npm('split-sdk', pin)
-    assert identity == 'npm:@honua/sdk@0.1.14'
+    assert identity == f'npm:{package}@0.1.14'
     assert digest.startswith('sha256:')
     [call] = calls
     assert vca._sha256_pin(call[0]) == digest
     assert vca._sha512_sri(call[0]) == pin['integrity']
-    assert call[2] == {'coordinate': '@honua/sdk', 'sourceRevision': 'a' * 40,
+    assert call[2] == {'coordinate': package, 'sourceRevision': 'a' * 40,
         'signerWorkflow': 'honua-io/honua-sdk-js/.github/workflows/publish-js-sdk.yml',
         'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'digestAlgorithm': 'sha512', 'denySelfHosted': True}
     assert call[3:] == ('honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
@@ -324,8 +325,9 @@ def test_matching_npm_githead_preserves_existing_verification(monkeypatch):
 
 
 @pytest.mark.parametrize('drift', ['subject-name', 'subject-digest', 'workflow', 'ref', 'source', 'event', 'runner', 'repository', 'duplicate'])
-def test_missing_githead_provenance_rejects_unbound_claims_before_crypto(monkeypatch, drift):
-    pin, _, statement, bundles, calls = _npm_split_publisher(monkeypatch)
+@pytest.mark.parametrize('package', ['@honua/sdk', '@honua/sdk-js', '@honua/sdk-client-compat'])
+def test_missing_githead_provenance_rejects_unbound_claims_before_crypto(monkeypatch, drift, package):
+    pin, _, statement, bundles, calls = _npm_split_publisher(monkeypatch, package)
     build = statement['predicate']['buildDefinition']
     if drift == 'subject-name': statement['subject'][0]['name'] = 'pkg:npm/other@0.1.14'
     elif drift == 'subject-digest': statement['subject'][0]['digest']['sha512'] = '0' * 128
@@ -338,6 +340,15 @@ def test_missing_githead_provenance_rejects_unbound_claims_before_crypto(monkeyp
     elif drift == 'duplicate': bundles.append({'predicateType': statement['predicateType'], 'bundle': {}})
     with pytest.raises(vca.VerificationError):
         vca._verify_npm('split-sdk', pin)
+    assert calls == []
+
+
+@pytest.mark.parametrize('package', ['@honua/unrelated', '@honua/mcp-server', 'create-honua-app'])
+def test_missing_githead_requires_the_exact_package_publisher(monkeypatch, package):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch)
+    pin['package'] = package
+    with pytest.raises(vca.VerificationError, match='no allowlisted publisher source fallback'):
+        vca._verify_npm_provenance('client', pin, b'package bytes')
     assert calls == []
 
 

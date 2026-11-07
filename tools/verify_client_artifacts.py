@@ -189,12 +189,12 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
     transparency log, package bytes, repository, source, workflow and release ref together.
     Conflicting registry gitHead never reaches this fallback.
     """
-    from mint_nightly_lock import signer_workflow, verify_publisher_bundle
+    from mint_nightly_lock import JS_WORKFLOWS, signer_workflow, verify_publisher_bundle
 
     package, version = str(artifact['package']), str(artifact['version'])
-    split_packages = {'@honua/sdk', '@honua/react', '@honua/geometry', '@honua/app-platform'}
     repository = 'honua-io/honua-sdk-js'
-    if package not in split_packages or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:
+    if (JS_WORKFLOWS.get(package) != 'publish-js-sdk.yml'
+            or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository):
         raise VerificationError(f'{name}: missing npm gitHead has no allowlisted publisher source fallback')
     ref = f'refs/tags/js-sdk-v{version}'
     workflow = signer_workflow({}, {'coordinate': package}, repository)

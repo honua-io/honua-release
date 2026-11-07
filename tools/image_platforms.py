@@ -48,13 +48,8 @@ def image_coordinate(reference: str) -> str:
     return named.rsplit(":", 1)[0] if ":" in named.rsplit("/", 1)[-1] else named
 
 
-def registry_image_platform_digests(coordinate: str, digest: str) -> dict[str, str]:
-    """Resolve Linux children from the immutable registry index, never from a tag."""
-    if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
-        raise ValueError("image requires an exact registry digest")
-    if not isinstance(coordinate, str) or not coordinate or "@" in coordinate:
-        raise ValueError("image requires a registry coordinate")
-    command = ["docker", "buildx", "imagetools", "inspect", f"{coordinate}@{digest}", "--raw"]
+def registry_image_manifest(reference: str) -> bytes:
+    command = ["docker", "buildx", "imagetools", "inspect", reference, "--raw"]
     for delay in (0, 10, 30, 60, 120):
         if delay:
             time.sleep(delay)
@@ -72,7 +67,29 @@ def registry_image_platform_digests(coordinate: str, digest: str) -> dict[str, s
             raise ValueError(f"registry image inspection failed: {error.strip()}")
     else:
         raise ValueError("registry image inspection failed after network retries")
-    raw = result.stdout
+    return result.stdout
+
+
+def verify_image_tag_digest(reference: str, digest: str) -> None:
+    if not isinstance(reference, str) or not reference:
+        raise ValueError("image requires a registry reference")
+    named = reference.split("@", 1)[0]
+    if ":" not in named.rsplit("/", 1)[-1]:
+        return
+    if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
+        raise ValueError("image requires an exact registry digest")
+    raw = registry_image_manifest(named)
+    if "sha256:" + hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError("image tag resolves to a different digest than the recorded binding")
+
+
+def registry_image_platform_digests(coordinate: str, digest: str) -> dict[str, str]:
+    """Resolve Linux children from the immutable registry index, never from a tag."""
+    if not isinstance(digest, str) or not DIGEST_RE.fullmatch(digest):
+        raise ValueError("image requires an exact registry digest")
+    if not isinstance(coordinate, str) or not coordinate or "@" in coordinate:
+        raise ValueError("image requires a registry coordinate")
+    raw = registry_image_manifest(f"{coordinate}@{digest}")
     if "sha256:" + hashlib.sha256(raw).hexdigest() != digest:
         raise ValueError("registry index bytes do not match the pinned digest")
     index = json.loads(raw)

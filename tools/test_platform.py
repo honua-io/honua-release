@@ -1017,9 +1017,13 @@ def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_referen
     }}
     seen = []
     findings = vp.Findings()
-    vp.check_registry_platform_digests(manifest, findings, verify=lambda artifact: seen.append(artifact["coordinate"]))
+    tags = []
+    vp.check_registry_platform_digests(manifest, findings,
+                                      verify=lambda artifact: seen.append(artifact["coordinate"]),
+                                      verify_tag=lambda reference, digest: tags.append((reference, digest)))
     assert findings.errors == []
     assert seen == ["ghcr.io/honua-io/honua-server", "ghcr.io/honua-io/honua-console"]
+    assert tags == [(component["image"], digest) for component in manifest["components"].values()]
 
 
 class StagedRequirementsClient(StubCompareClient):

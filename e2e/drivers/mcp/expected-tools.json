@@ -149,6 +149,11 @@
       "honua_list_capabilities",
       "honua_list_jobs",
       "honua_list_layers",
+      "honua_op_folder_create",
+      "honua_op_folder_delete",
+      "honua_op_folder_list",
+      "honua_op_folder_update",
+      "honua_op_service_move",
       "honua_operate_events",
       "honua_ops_findings",
       "honua_ops_health",
@@ -184,6 +189,7 @@
       "honua_studio_save_version",
       "honua_studio_set_layer_style",
       "honua_studio_set_layer_visibility",
+      "honua_studio_set_map_style",
       "honua_studio_set_view",
       "honua_studio_update_draft",
       "honua_studio_validate_draft",
@@ -219,7 +225,12 @@
         "honua_admin_services_list",
         "honua_admin_services_protocols_set",
         "honua_admin_services_settings_get",
-        "honua_admin_services_timeinfo_set"
+        "honua_admin_services_timeinfo_set",
+        "honua_op_folder_create",
+        "honua_op_folder_delete",
+        "honua_op_folder_list",
+        "honua_op_folder_update",
+        "honua_op_service_move"
       ]
     }
   },
