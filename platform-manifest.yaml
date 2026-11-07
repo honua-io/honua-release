@@ -247,9 +247,9 @@ components:
       manifests:
       - source:
           repository: https://github.com/honua-io/honua-sdk-dotnet
-          revision: aada6d8987db0802a3c9de0d976f471afa943c0a
+          revision: e8f5db032eade0121c539542f1cf90b025545046
           path: release/sdk-capability-baseline.json
-        sha256: sha256:b0da605db407df1efd3ec14ca7b2b156b94cdfc7f6176de7f751cef167e4819f
+        sha256: sha256:095569c83566a72e3b29eab5b92404a25a39b2811fb1909998d7ef118e647b23
         content:
           format: honua.sdk-capability-baseline/v1
           component: honua-sdk-dotnet
@@ -258,6 +258,7 @@ components:
           - discovery.capability-manifest
           - serve.geoservices-featureserver
           - serve.ogc-api-features
+          - serve.ogc-api-tiles
           capabilities:
             discovery.capability-manifest:
               versionModel: semver
@@ -277,14 +278,21 @@ components:
               evidence:
                 uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
                 sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
+            serve.ogc-api-tiles:
+              versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
         requiredCapabilities:
         - discovery.capability-manifest
         - serve.geoservices-featureserver
         - serve.ogc-api-features
+        - serve.ogc-api-tiles
       declarations:
-      - revision: aada6d8987db0802a3c9de0d976f471afa943c0a
+      - revision: e8f5db032eade0121c539542f1cf90b025545046
         path: release/sdk-capability-baseline.json
-        sha256: sha256:525159b5140fb0d606f5be2db9b3751cb44d98ea6b05a4c9ce2edc0d0dd92378
+        sha256: sha256:29387bcf2bcc0e343aeb7b506878dcdc754bc436b8d8dac3ba146b550e1bc7ba
         minimumServerVersion: first-release
     artifactVersion: 2.1.0
     artifactSourceRevision: e8f5db032eade0121c539542f1cf90b025545046
