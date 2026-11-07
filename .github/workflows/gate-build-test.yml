@@ -107,14 +107,14 @@ jobs:
         run: |
           set -uo pipefail
           python certification/check_build_test.py --enforcement "$ENFORCEMENT"; RC=$?
-          OVERALL="$(python -c "import json;print(json.load(open('certification/gate-report-build-test.json'))['overallStatus'])")"
+          OVERALL="$(python -c "import json;print(json.load(open('artifacts/gate-report-build-test.json'))['overallStatus'])")"
           echo "overall_status=$OVERALL" >> "$GITHUB_OUTPUT"
           {
             echo "## Per-repo build/test — $OVERALL (enforcement=$ENFORCEMENT)";
             echo "";
             echo "| component | status | sha | why |";
             echo "|---|---|---|---|";
-            python -c "import json;[print(f\"| {r['component']} | {r['decided']} | {r.get('sha','-')} | {r['why']} |\") for r in json.load(open('certification/gate-report-build-test.json'))['components']]";
+            python -c "import json;[print(f\"| {r['component']} | {r['decided']} | {r.get('sha','-')} | {r['why']} |\") for r in json.load(open('artifacts/gate-report-build-test.json'))['components']]";
           } >> "$GITHUB_STEP_SUMMARY"
           exit $RC
 
@@ -123,5 +123,5 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-test-gate-report
-          path: certification/gate-report-build-test.json
+          path: artifacts/gate-report-build-test.json
           if-no-files-found: warn
