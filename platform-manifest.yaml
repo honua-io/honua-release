@@ -1131,6 +1131,7 @@ components:
         path: release/sdk-capability-baseline.json
         sha256: sha256:ae0711439652ac14c847e4ce6d80d692a0d7c92f0b4da6309e6e6032fe282252
         minimumServerVersion: first-release
+
   geospatial-grpc:
     repository: "https://github.com/honua-io/geospatial-grpc"
     lifecycleStatus: GA

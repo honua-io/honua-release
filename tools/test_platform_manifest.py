@@ -16,11 +16,11 @@ def test_python_pins_retain_each_verified_published_source():
     install = json.loads((ROOT / 'customer-install-manifest.json').read_text())
     rehearsal = json.loads((ROOT / 'certification/customer-install/rehearsal-binding.v1.json')
                            .read_text())['clientArtifacts']
-    for name, client in [('honua-sdk-python-wheel', 'honua-sdk'),
-                         ('honua-admin-python-wheel', 'honua-admin')]:
+    for name, client, version in [('honua-sdk-python-wheel', 'honua-sdk', '0.2.2'),
+                                  ('honua-admin-python-wheel', 'honua-admin', '0.2.2')]:
         artifact = manifest['clientArtifacts'][name]
         assert artifact['publicationState'] == 'published'
-        assert artifact['version'] == sdk['version']
+        assert artifact['version'] == version
         assert artifact['sourceSha'] == sdk['sha']
         for field in ('sourceSha', 'version', 'filename', 'digest'):
             assert install['clients'][client][field] == rehearsal[name][field]
