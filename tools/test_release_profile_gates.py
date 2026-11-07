@@ -106,7 +106,7 @@ def test_moving_an_included_dotnet_operation_out_of_the_profile_omits_it(copied:
         if row["client_lane"] == "sdk-dotnet-certification"
     ]
     assert operation["id"] not in {row["operation"] for row in rows}
-    assert len(rows) == contract["releaseProfile"]["denominator"] == 305
+    assert len(rows) == contract["releaseProfile"]["denominator"] == 313
 
 
 @pytest.mark.parametrize("field,value", [

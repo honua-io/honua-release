@@ -47,7 +47,7 @@ def _gp_rows() -> tuple[list[dict], list[dict]]:
 
 def test_every_gp_row_is_floor_or_preview_and_none_is_dropped():
     floor, preview = _gp_rows()
-    assert (len(floor), len(preview)) == (8, 100)
+    assert (len(floor), len(preview)) == (8, 103)
     assert {row["required_tier"] for row in preview} == {"release"}
     assert {row["required_tier"] for row in floor} == {"nightly"}
     assert {row["operation"] for row in floor if row["surface"] == "gp-server"} == {

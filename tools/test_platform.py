@@ -739,7 +739,7 @@ def test_drift_widening_is_always_allowed():
     manifest, matrix = _real_files()
     baseline = copy.deepcopy(matrix)
     current = copy.deepcopy(matrix)
-    current["contracts"]["geoservices"]["clients"]["honua-sdk-dotnet"] = ">=1.0.0 <2.0.0"  # widened floor down
+    current["contracts"]["geoservices"]["clients"]["honua-sdk-dotnet"] = ">=1.0.0 <3.0.0"
     f = vp.validate(manifest, current, baseline_matrix=baseline)
     assert f.ok, f"widening must always pass, got: {f.errors}"
 

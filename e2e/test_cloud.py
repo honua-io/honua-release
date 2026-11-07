@@ -3610,11 +3610,6 @@ def test_demos_driver_hands_the_topology_to_the_page_driver_before_driving():
     assert "page.route(" not in drive.split("async function checkGeoprocessingRedisOff", 1)[1].split("/* ──", 1)[0]
 
 
-# topology-aware S2 (MCP catalog) and S3 (Studio) drivers
-# The real drivers run against an in-process stub of the candidate. The stub serves a Redis-on
-# server (the canonical 129-tool catalog) or a Redis-off one (minus the 23 durable-control-plane
-# tools, or with them once honua-server S1 has landed), and reports its topology through the
-# capability manifest / proposals endpoint the way the server does.
 _EXPECTED_TOOLS = json.loads((E2E_DIR / "drivers/mcp/expected-tools.json").read_text())
 _FULL_ROSTER = sorted(_EXPECTED_TOOLS["fullCatalog"]["tools"])
 _DURABLE_ONLY = sorted(_EXPECTED_TOOLS["fullCatalog"]["requiresDurableControlPlane"]["tools"])
@@ -3623,20 +3618,12 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_26_redis_gated_admin_tools():
-    # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
-    # 24 durable-control-plane names (+honua_admin_import_upload_object).
-    # RC re-pin #4 (53bb94a, unchanged at a4bde4b): 134 tools (+honua_get_job_results, honua_ingest_job_artifact);
-    # durable set unchanged.
-    # 2026-11-02 rc.2 cut (daf56db2): 135 tools (+honua_admin_api_key_update_restrictions, read from the
-    # booted candidate's full view); durable set unchanged.
-    # rc.2 final candidate (86286687): 137 tools and 26 durable-control-plane names
-    # (+honua_admin_connection_tables_list, honua_admin_connections_list; honua-server #6889, read from
-    # the booted candidate's full view).
-    assert len(_FULL_ROSTER) == 137 and len(set(_FULL_ROSTER)) == 137
-    assert len(_DURABLE_ONLY) == 26 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+def test_durable_control_plane_roster_matches_the_bound_catalog():
+    assert len(_FULL_ROSTER) == 143 and len(set(_FULL_ROSTER)) == 143
+    assert len(_DURABLE_ONLY) == 31 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
-                             "honua_admin_connection_tables_", "honua_admin_import_")) for n in _DURABLE_ONLY)
+                             "honua_admin_connection_tables_", "honua_admin_import_",
+                             "honua_op_folder_", "honua_op_service_move")) for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
 
@@ -3767,27 +3754,27 @@ def _s2(catalog, topology, redis, signal="jobs.runner"):
     return rows[1]
 
 
-def test_s2_redis_on_full_129_catalog_passes():
+def test_s2_redis_on_full_catalog_passes():
     row = _s2(_FULL_ROSTER, "redis-on", None)
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["topology"] == "redis-on"
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_111_catalog_passes_with_topology_recorded():
+def test_s2_redis_off_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 111
+    assert len(catalog) == 112
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 26}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 31}
         assert "redis-off" in row["why"]
 
 
-def test_s2_redis_off_after_server_s1_still_passes_with_the_23_advertised():
+def test_s2_redis_off_accepts_the_complete_durable_roster_when_advertised():
     row = _s2(_FULL_ROSTER, "redis-off", "off", "operations.proposals")
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "advertised"
