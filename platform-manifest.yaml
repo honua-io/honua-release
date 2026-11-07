@@ -233,32 +233,15 @@ components:
       diagnostic-bundle: "1.0"
 
   honua-sdk-dotnet:
-    repository: "https://github.com/honua-io/honua-sdk-dotnet"
+    repository: https://github.com/honua-io/honua-sdk-dotnet
     lifecycleStatus: GA
-    # R25 manual advance 2026-10-22 (rc re-pin): Honua.Sdk 1.12.0 is listed on nuget.org; its catalog
-    # repository.commit, nuspec <repository commit> and the dotnet-sdk-v1.12.0 tag are all aada6d89.
-    # Downloaded nupkg sha256 45e63f89. Earlier advance follows.
-    # R25 manual advance 2026-10-12: Honua.Sdk 1.11.0 is listed on nuget.org (publish run
-    # 38207282456); its catalog repository.commit, nuspec <repository commit> and the
-    # dotnet-sdk-v1.11.0 tag are all 5f09e4fc, which carries release/component-versions.json
-    # and release/sdk-capability-baseline.json and descends from 68158344 (SSH.NET fix, #102).
-    # All 14 Honua.Sdk.* dependency packages are also listed at 1.11.0. 1.11.0 carries
-    # honua-sdk-dotnet#425; no installed-client matrix cell flips (the pinned server lacks #5794).
-    # The 2026-10-12 server re-pin to 0e03bdd carries #5794, so interop-proposal-approval's
-    # publication-url and published-content steps flip to active there.
-    version: "1.12.0"
-    sha: "aada6d8987db0802a3c9de0d976f471afa943c0a"
-    artifact: "nuget:Honua.Sdk"
-    # Version maps: release/component-versions.json at the pinned aada6d89 (dotnet-sdk-v1.12.0).
+    version: 2.1.0
+    sha: e8f5db032eade0121c539542f1cf90b025545046
+    artifact: nuget:Honua.Sdk
     contractVersions:
-      sdk-certification: "v1"
+      sdk-certification: v1
     schemaVersions:
-      diagnostic-bundle: "1.0"
-    # serverCompatibility: read with tools/resolve_trunk_candidate.py sdk_capability_baseline() from
-    # release/sdk-capability-baseline.json at every published source revision (aada6d89).
-    # Content and byte digests are SDK-owned and independent of the server candidate; the
-    # required capabilities were checked against honua-server capability-keys.v1.json at f880a4b4.
-    # The cut re-checks them at the candidate (CUT-PLAN step L2).
+      diagnostic-bundle: '1.0'
     serverCompatibility:
       minimumServerVersion: first-release
       manifests:
@@ -303,6 +286,9 @@ components:
         path: release/sdk-capability-baseline.json
         sha256: sha256:525159b5140fb0d606f5be2db9b3751cb44d98ea6b05a4c9ce2edc0d0dd92378
         minimumServerVersion: first-release
+    artifactVersion: 2.1.0
+    artifactSourceRevision: e8f5db032eade0121c539542f1cf90b025545046
+    artifactSha256: sha256:9bde4098f3d66aae834f14204df3ba706b062dcc71787d6b8b52ba5216937173
 
   honua-sdk-js:
     repository: "https://github.com/honua-io/honua-sdk-js"
@@ -1004,18 +990,17 @@ clientArtifacts:
     - python3
   honua-sdk-dotnet:
     ecosystem: nuget
-    package: "Honua.Sdk"
-    version: "1.12.0"
-    digest: "sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d"
+    package: Honua.Sdk
+    version: 2.1.0
+    digest: sha256:9bde4098f3d66aae834f14204df3ba706b062dcc71787d6b8b52ba5216937173
     repository: honua-io/honua-sdk-dotnet
-    sourceSha: "aada6d8987db0802a3c9de0d976f471afa943c0a"
+    sourceSha: e8f5db032eade0121c539542f1cf90b025545046
     publicationState: published
     registry: nuget.org
-    targets: [net10.0]
-    filename: "honua.sdk.1.12.0.nupkg"
+    targets:
+    - net10.0
+    filename: honua.sdk.2.1.0.nupkg
 
-# Non-shipping workflows whose observations can affect promotion. A full producer commit is the
-# trust root; workflow/event/branch identity prevents evidence from an unreviewed execution path.
 evidenceSources:
   cite:
     repository: honua-io/honua-server

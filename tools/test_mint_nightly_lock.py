@@ -1552,8 +1552,7 @@ def test_recorded_ruling_names_exactly_the_current_pins():
     ruled_keys = set(attestation_exceptions.load())
     assert ruled_keys and ruled_keys <= pinned
     # honua-iac and geospatial-mcp left the set once their pins carried publisher attestations.
-    assert {key[0] for key in ruled_keys} == {'honua-sdk-js', 'honua-sdk-python', 'honua-sdk-dotnet',
-                                              'geospatial-grpc'}
+    assert {key[0] for key in ruled_keys} == {'honua-sdk-js', 'geospatial-grpc'}
 
 
 @pytest.mark.parametrize('listed, minted', [(True, True), (False, False)])

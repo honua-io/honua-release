@@ -731,39 +731,6 @@
           "target": "2026.1.1"
         },
         {
-          "component": "honua-sdk-python",
-          "kind": "wheel",
-          "coordinate": "honua-sdk",
-          "version": "0.1.19",
-          "digest": "sha256:01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
-          "owner": "Mike McDougall",
-          "reason": "published before attestation workflows existed; cannot be attested retroactively",
-          "expires": "first attested release of honua-sdk-python",
-          "target": "2026.1.1"
-        },
-        {
-          "component": "honua-sdk-python",
-          "kind": "wheel",
-          "coordinate": "honua-admin",
-          "version": "0.1.12",
-          "digest": "sha256:359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
-          "owner": "Mike McDougall",
-          "reason": "published before attestation workflows existed; cannot be attested retroactively",
-          "expires": "first attested release of honua-sdk-python",
-          "target": "2026.1.1"
-        },
-        {
-          "component": "honua-sdk-dotnet",
-          "kind": "nuget",
-          "coordinate": "Honua.Sdk",
-          "version": "1.12.0",
-          "digest": "sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d",
-          "owner": "Mike McDougall",
-          "reason": "published before attestation workflows existed; cannot be attested retroactively",
-          "expires": "first attested release of honua-sdk-dotnet",
-          "target": "2026.1.1"
-        },
-        {
           "component": "geospatial-grpc",
           "kind": "nuget",
           "coordinate": "Geospatial.Grpc",
@@ -803,6 +770,48 @@
             "owner": "Mike McDougall",
             "reason": "published before attestation workflows existed; cannot be attested retroactively",
             "expires": "first attested release of honua-iac",
+            "target": "2026.1.1"
+          }
+        },
+        {
+          "note": "These exact bytes are no longer selected. The replacement published SDK requires normal publisher attestation verification; the historical ruling is unchanged.",
+          "entry": {
+            "component": "honua-sdk-python",
+            "kind": "wheel",
+            "coordinate": "honua-sdk",
+            "version": "0.1.19",
+            "digest": "sha256:01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+            "owner": "Mike McDougall",
+            "reason": "published before attestation workflows existed; cannot be attested retroactively",
+            "expires": "first attested release of honua-sdk-python",
+            "target": "2026.1.1"
+          }
+        },
+        {
+          "note": "These exact bytes are no longer selected. The replacement published SDK requires normal publisher attestation verification; the historical ruling is unchanged.",
+          "entry": {
+            "component": "honua-sdk-python",
+            "kind": "wheel",
+            "coordinate": "honua-admin",
+            "version": "0.1.12",
+            "digest": "sha256:359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
+            "owner": "Mike McDougall",
+            "reason": "published before attestation workflows existed; cannot be attested retroactively",
+            "expires": "first attested release of honua-sdk-python",
+            "target": "2026.1.1"
+          }
+        },
+        {
+          "note": "These exact bytes are no longer selected. The replacement published SDK requires normal publisher attestation verification; the historical ruling is unchanged.",
+          "entry": {
+            "component": "honua-sdk-dotnet",
+            "kind": "nuget",
+            "coordinate": "Honua.Sdk",
+            "version": "1.12.0",
+            "digest": "sha256:45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d",
+            "owner": "Mike McDougall",
+            "reason": "published before attestation workflows existed; cannot be attested retroactively",
+            "expires": "first attested release of honua-sdk-dotnet",
             "target": "2026.1.1"
           }
         }

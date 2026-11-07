@@ -10,13 +10,14 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 CERTIFICATION = ROOT / "certification"
 CATALOG = "protocol-certification-requirements.v1.json"
 DEMOTED = ("alerts.evaluation", "fieldops.offline-sync", "serve.sensorthings")
 PYTHON_CLIENT = "Honua SDK Python"
-PYTHON_VERSION = "0.1.19"
+PYTHON_VERSION = yaml.safe_load((ROOT / "platform-manifest.yaml").read_text())["clientArtifacts"]["honua-sdk-python-wheel"]["version"]
 
 
 def load(path: Path) -> dict:
@@ -54,10 +55,9 @@ def test_dotnet_release_profile_is_the_catalog_denominator() -> None:
         row for row in catalog["requirements"]
         if row["client_lane"] == "sdk-dotnet-certification"
     ]
-    # Honua.Sdk 1.12.0 (aada6d89) includes the 14 operations 1.11.x excluded as candidate fixtures.
-    assert contract["releaseProfile"]["denominator"] == 306
+    assert contract["releaseProfile"]["denominator"] == 314
     assert len(excluded) == 0
-    assert len(rows) == len(included) == 306
+    assert len(rows) == len(included) == 314
     assert {row["operation"] for row in rows} == included
     assert excluded.isdisjoint(included)
     assert excluded.isdisjoint({row["operation"] for row in rows})

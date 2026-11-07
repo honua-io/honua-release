@@ -34,6 +34,9 @@ def align_manifest_versions(candidate, versions):
     for source, component, artifact in REBIND.SDK_PRODUCERS:
         manifest["components"][component]["version"] = versions[source]
         manifest["clientArtifacts"][artifact]["version"] = versions[source]
+        if source == "sdk-python":
+            manifest["clientArtifacts"][artifact]["filename"] = f"honua_sdk-{versions[source]}-py3-none-any.whl"
+            manifest["clientArtifacts"][artifact]["digest"] = "sha256:" + "f" * 64
     path.write_text(yaml.safe_dump(manifest, sort_keys=False))
 
 

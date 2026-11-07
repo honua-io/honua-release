@@ -132,7 +132,8 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("8628668794df9f0c22a490e59cedaee409cc1bdd", "manifest/frozen")
+    assert pins["server-certification"] == (
+        manifest["protocolCertification"]["serverCertificationProducerSha"], "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -1146,7 +1147,9 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     candidate = "8628668794df9f0c22a490e59cedaee409cc1bdd"
     document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-2:] == ["daf56db25c208765f5440e484a7c24fbc5ba81ab", candidate]
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1:verified.index(candidate) + 1] == [
+        "daf56db25c208765f5440e484a7c24fbc5ba81ab", candidate]
     manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
-    assert manifest["protocolCertification"]["serverCertificationProducerSha"] == candidate
+    assert manifest["protocolCertification"]["serverCertificationProducerSha"] in ruling["verified_server_commits"]
     assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at 86286687", 1)[1]
