@@ -1,0 +1,529 @@
+{
+  "source": {
+    "workflowRun": 41714656270,
+    "serverSourceSha": "8628668794df9f0c22a490e59cedaee409cc1bdd",
+    "artifactId": 13270967941
+  },
+  "clients": {
+    "sdk": {
+      "queryResults": [
+        {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"serviceId\":\"svc-publish-mcp-result-sdk-4bc4c58b7c59\",\"layerId\":6,\"returnedCount\":2,\"limit\":20,\"resultOffset\":0,\"exceededTransferLimit\":false,\"count\":2,\"features\":[{\"id\":1,\"attributes\":{\"objectid\":1,\"id\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"}},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]}},{\"id\":2,\"attributes\":{\"objectid\":2,\"id\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"}},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]}}],\"geojson\":{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]},\"properties\":{\"objectid\":1,\"id\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"}}},{\"type\":\"Feature\",\"id\":2,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]},\"properties\":{\"objectid\":2,\"id\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"}}}]},\"warnings\":[]}"
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "serviceId": "svc-publish-mcp-result-sdk-4bc4c58b7c59",
+            "layerId": 6,
+            "returnedCount": 2,
+            "limit": 20,
+            "resultOffset": 0,
+            "exceededTransferLimit": false,
+            "count": 2,
+            "features": [
+              {
+                "id": 1,
+                "attributes": {
+                  "objectid": 1,
+                  "id": 1,
+                  "attributes": {
+                    "gid": 1,
+                    "name": "first",
+                    "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                  }
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -100,
+                    40
+                  ]
+                }
+              },
+              {
+                "id": 2,
+                "attributes": {
+                  "objectid": 2,
+                  "id": 2,
+                  "attributes": {
+                    "gid": 2,
+                    "name": "second",
+                    "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                  }
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -101,
+                    41
+                  ]
+                }
+              }
+            ],
+            "geojson": {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": 1,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -100,
+                      40
+                    ]
+                  },
+                  "properties": {
+                    "objectid": 1,
+                    "id": 1,
+                    "attributes": {
+                      "gid": 1,
+                      "name": "first",
+                      "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                    }
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": 2,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -101,
+                      41
+                    ]
+                  },
+                  "properties": {
+                    "objectid": 2,
+                    "id": 2,
+                    "attributes": {
+                      "gid": 2,
+                      "name": "second",
+                      "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                    }
+                  }
+                }
+              ]
+            },
+            "warnings": []
+          }
+        },
+        {
+          "content": [
+            {
+              "type": "text",
+              "text": "{\"serviceId\":\"svc-publish-mcp-result-sdk-4bc4c58b7c59\",\"layerId\":6,\"returnedCount\":2,\"limit\":20,\"resultOffset\":0,\"exceededTransferLimit\":false,\"count\":2,\"features\":[{\"id\":1,\"attributes\":{\"id\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"},\"objectid\":1},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]}},{\"id\":2,\"attributes\":{\"id\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"},\"objectid\":2},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]}}],\"geojson\":{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]},\"properties\":{\"id\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"},\"objectid\":1}},{\"type\":\"Feature\",\"id\":2,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]},\"properties\":{\"id\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-sdk-4bc4c58b7c59\"},\"objectid\":2}}]},\"warnings\":[]}"
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "serviceId": "svc-publish-mcp-result-sdk-4bc4c58b7c59",
+            "layerId": 6,
+            "returnedCount": 2,
+            "limit": 20,
+            "resultOffset": 0,
+            "exceededTransferLimit": false,
+            "count": 2,
+            "features": [
+              {
+                "id": 1,
+                "attributes": {
+                  "id": 1,
+                  "attributes": {
+                    "gid": 1,
+                    "name": "first",
+                    "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                  },
+                  "objectid": 1
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -100,
+                    40
+                  ]
+                }
+              },
+              {
+                "id": 2,
+                "attributes": {
+                  "id": 2,
+                  "attributes": {
+                    "gid": 2,
+                    "name": "second",
+                    "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                  },
+                  "objectid": 2
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -101,
+                    41
+                  ]
+                }
+              }
+            ],
+            "geojson": {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": 1,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -100,
+                      40
+                    ]
+                  },
+                  "properties": {
+                    "id": 1,
+                    "attributes": {
+                      "gid": 1,
+                      "name": "first",
+                      "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                    },
+                    "objectid": 1
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": 2,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -101,
+                      41
+                    ]
+                  },
+                  "properties": {
+                    "id": 2,
+                    "attributes": {
+                      "gid": 2,
+                      "name": "second",
+                      "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+                    },
+                    "objectid": 2
+                  }
+                }
+              ]
+            },
+            "warnings": []
+          }
+        }
+      ],
+      "database": {
+        "rows": [
+          {
+            "id": 1,
+            "properties": {
+              "gid": 1,
+              "name": "first",
+              "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -100,
+                40
+              ]
+            },
+            "srid": 4326
+          },
+          {
+            "id": 2,
+            "properties": {
+              "gid": 2,
+              "name": "second",
+              "__pipeline_batch_id": "mcp-result-sdk-4bc4c58b7c59"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -101,
+                41
+              ]
+            },
+            "srid": 4326
+          }
+        ],
+        "mappings": [
+          {
+            "publication": {
+              "serviceId": "svc-publish-mcp-result-sdk-4bc4c58b7c59",
+              "layerId": 6
+            }
+          }
+        ]
+      }
+    },
+    "inspector": {
+      "queryResults": [
+        {
+          "content": [
+            {
+              "type": "text",
+              "text": "Matched 2 feature(s) in svc-publish-mcp-result-inspector-d3b14fcd008c/7 (count only, no geometry). Count in structuredContent.count."
+            },
+            {
+              "type": "text",
+              "text": "{\"serviceId\":\"svc-publish-mcp-result-inspector-d3b14fcd008c\",\"layerId\":7,\"returnedCount\":2,\"limit\":20,\"resultOffset\":0,\"exceededTransferLimit\":false,\"count\":2,\"features\":[{\"id\":1,\"attributes\":{\"id\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"objectid\":1},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]}},{\"id\":2,\"attributes\":{\"id\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"objectid\":2},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]}}],\"geojson\":{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]},\"properties\":{\"id\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"objectid\":1}},{\"type\":\"Feature\",\"id\":2,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]},\"properties\":{\"id\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"objectid\":2}}]},\"warnings\":[]}"
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "serviceId": "svc-publish-mcp-result-inspector-d3b14fcd008c",
+            "layerId": 7,
+            "returnedCount": 2,
+            "limit": 20,
+            "resultOffset": 0,
+            "exceededTransferLimit": false,
+            "count": 2,
+            "features": [
+              {
+                "id": 1,
+                "attributes": {
+                  "id": 1,
+                  "attributes": {
+                    "gid": 1,
+                    "name": "first",
+                    "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                  },
+                  "objectid": 1
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -100,
+                    40
+                  ]
+                }
+              },
+              {
+                "id": 2,
+                "attributes": {
+                  "id": 2,
+                  "attributes": {
+                    "gid": 2,
+                    "name": "second",
+                    "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                  },
+                  "objectid": 2
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -101,
+                    41
+                  ]
+                }
+              }
+            ],
+            "geojson": {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": 1,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -100,
+                      40
+                    ]
+                  },
+                  "properties": {
+                    "id": 1,
+                    "attributes": {
+                      "gid": 1,
+                      "name": "first",
+                      "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                    },
+                    "objectid": 1
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": 2,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -101,
+                      41
+                    ]
+                  },
+                  "properties": {
+                    "id": 2,
+                    "attributes": {
+                      "gid": 2,
+                      "name": "second",
+                      "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                    },
+                    "objectid": 2
+                  }
+                }
+              ]
+            },
+            "warnings": []
+          }
+        },
+        {
+          "content": [
+            {
+              "type": "text",
+              "text": "Matched 2 feature(s) in svc-publish-mcp-result-inspector-d3b14fcd008c/7 (count only, no geometry). Count in structuredContent.count."
+            },
+            {
+              "type": "text",
+              "text": "{\"serviceId\":\"svc-publish-mcp-result-inspector-d3b14fcd008c\",\"layerId\":7,\"returnedCount\":2,\"limit\":20,\"resultOffset\":0,\"exceededTransferLimit\":false,\"count\":2,\"features\":[{\"id\":1,\"attributes\":{\"objectid\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"id\":1},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]}},{\"id\":2,\"attributes\":{\"objectid\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"id\":2},\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]}}],\"geojson\":{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"id\":1,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-100,40]},\"properties\":{\"objectid\":1,\"attributes\":{\"gid\":1,\"name\":\"first\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"id\":1}},{\"type\":\"Feature\",\"id\":2,\"geometry\":{\"type\":\"Point\",\"coordinates\":[-101,41]},\"properties\":{\"objectid\":2,\"attributes\":{\"gid\":2,\"name\":\"second\",\"__pipeline_batch_id\":\"mcp-result-inspector-d3b14fcd008c\"},\"id\":2}}]},\"warnings\":[]}"
+            }
+          ],
+          "isError": false,
+          "structuredContent": {
+            "serviceId": "svc-publish-mcp-result-inspector-d3b14fcd008c",
+            "layerId": 7,
+            "returnedCount": 2,
+            "limit": 20,
+            "resultOffset": 0,
+            "exceededTransferLimit": false,
+            "count": 2,
+            "features": [
+              {
+                "id": 1,
+                "attributes": {
+                  "objectid": 1,
+                  "attributes": {
+                    "gid": 1,
+                    "name": "first",
+                    "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                  },
+                  "id": 1
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -100,
+                    40
+                  ]
+                }
+              },
+              {
+                "id": 2,
+                "attributes": {
+                  "objectid": 2,
+                  "attributes": {
+                    "gid": 2,
+                    "name": "second",
+                    "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                  },
+                  "id": 2
+                },
+                "geometry": {
+                  "type": "Point",
+                  "coordinates": [
+                    -101,
+                    41
+                  ]
+                }
+              }
+            ],
+            "geojson": {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": 1,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -100,
+                      40
+                    ]
+                  },
+                  "properties": {
+                    "objectid": 1,
+                    "attributes": {
+                      "gid": 1,
+                      "name": "first",
+                      "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                    },
+                    "id": 1
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": 2,
+                  "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                      -101,
+                      41
+                    ]
+                  },
+                  "properties": {
+                    "objectid": 2,
+                    "attributes": {
+                      "gid": 2,
+                      "name": "second",
+                      "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+                    },
+                    "id": 2
+                  }
+                }
+              ]
+            },
+            "warnings": []
+          }
+        }
+      ],
+      "database": {
+        "rows": [
+          {
+            "id": 1,
+            "properties": {
+              "gid": 1,
+              "name": "first",
+              "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -100,
+                40
+              ]
+            },
+            "srid": 4326
+          },
+          {
+            "id": 2,
+            "properties": {
+              "gid": 2,
+              "name": "second",
+              "__pipeline_batch_id": "mcp-result-inspector-d3b14fcd008c"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                -101,
+                41
+              ]
+            },
+            "srid": 4326
+          }
+        ],
+        "mappings": [
+          {
+            "publication": {
+              "serviceId": "svc-publish-mcp-result-inspector-d3b14fcd008c",
+              "layerId": 7
+            }
+          }
+        ]
+      }
+    }
+  }
+}
