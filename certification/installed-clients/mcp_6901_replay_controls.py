@@ -45,12 +45,13 @@ def results():
 class ActualServerReplay(unittest.TestCase):
     def test_retained_publication_queries_preserve_source_ids_and_attributes(self):
         self.assertEqual(QUERY_FIXTURE["source"]["workflowRun"], 41714656270)
-        self.assertEqual(QUERY_FIXTURE["source"]["serverSourceSha"], FIXTURE["source"]["serverSourceSha"])
+        self.assertEqual(QUERY_FIXTURE["source"]["serverSourceSha"], "8628668794df9f0c22a490e59cedaee409cc1bdd")
+        self.assertEqual(QUERY_FIXTURE["source"]["artifactId"], 13270967941)
         self.assertEqual(set(QUERY_FIXTURE["clients"]), {"sdk", "inspector"})
         for client, observations in QUERY_FIXTURE["clients"].items():
             self.assertEqual(len(observations["queryResults"]), 2)
-            for result in observations["queryResults"]:
-                with self.subTest(client=client):
+            for name, result in zip(("fresh", "restarted"), observations["queryResults"]):
+                with self.subTest(client=client, query=name):
                     publication.query_output(result, {}, observations["database"])
 
     def test_fixture_is_the_retained_candidate_evidence(self):

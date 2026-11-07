@@ -180,6 +180,19 @@ def controls():
         "runtimePrePublish":runtime(),"runtimeRestarted":restarted,"runtimeAfter":copy.deepcopy(restarted)})
 
 
+def rewrite_query_attributes(observations, change, representations=("features", "geojson")):
+    for index in (7, 10):
+        result = observations["calls"][index]["result"]
+        output = result["structuredContent"]
+        for representation in representations:
+            rows = output["features"] if representation == "features" else output["geojson"]["features"]
+            field = "attributes" if representation == "features" else "properties"
+            for feature in rows:
+                change(feature[field], feature)
+        result["content"] = server_content(output, "Returned 2 authored features")
+    return rebind(observations)
+
+
 class PublicationControls(unittest.TestCase):
     def assert_refused(self,value):
         with self.assertRaises((ValueError,TypeError,KeyError,IndexError,AttributeError)):
@@ -321,46 +334,33 @@ class PublicationControls(unittest.TestCase):
 
     def test_source_query_jsonb_roundtrip_and_changed_second_representation(self):
         value = controls()
-        for index in (7,10):
-            output = value["calls"][index]["result"]["structuredContent"]
-            for row in output["features"]: row["attributes"]["attributes"] = json.dumps(row["attributes"]["attributes"])
-            for row in output["geojson"]["features"]: row["properties"]["attributes"] = json.dumps(row["properties"]["attributes"])
-            value["calls"][index]["result"]["content"] = server_content(output, value["calls"][index]["result"]["content"][0]["text"])
-        self.assertTrue(validation.judge(FIXTURE,bootstrap(),rebind(value))["persistedReadback"])
-        value["calls"][7]["result"]["structuredContent"]["features"][0]["attributes"]["attributes"] = "{}"; self.assert_refused(rebind(value))
+        rewrite_query_attributes(value, lambda attrs, _: attrs.update(attributes=json.dumps(attrs["attributes"])))
+        self.assertTrue(validation.judge(FIXTURE,bootstrap(),value)["persistedReadback"])
+        rewrite_query_attributes(value, lambda attrs, _: attrs.update(attributes="{}"), ("features",))
+        with self.assertRaisesRegex(ValueError, "query changed authored attributes/batch or exact geometry"):
+            validation.judge(FIXTURE, bootstrap(), value)
 
     def test_source_query_allows_matching_integer_object_id(self):
-        value = controls()
-        for index in (7, 10):
-            result = value["calls"][index]["result"]
-            output = result["structuredContent"]
-            for rows, field in ((output["features"], "attributes"), (output["geojson"]["features"], "properties")):
-                for feature in rows:
-                    feature[field]["objectid"] = feature["id"]
-            result["content"] = server_content(output, "Returned 2 authored features")
-        self.assertTrue(validation.judge(FIXTURE, bootstrap(), rebind(value))["persistedReadback"])
+        value = rewrite_query_attributes(controls(), lambda attrs, feature: attrs.update(objectid=feature["id"]))
+        self.assertTrue(validation.judge(FIXTURE, bootstrap(), value)["persistedReadback"])
 
     def test_source_query_rejects_invalid_object_id_and_schema_changes(self):
-        changes = (
-            lambda attrs: attrs.update(objectid=12),
-            lambda attrs: attrs.update(objectid="11"),
-            lambda attrs: attrs.update(objectid=11.0),
-            lambda attrs: attrs.update(objectid=True),
-            lambda attrs: attrs.update(objectid=None),
-            lambda attrs: attrs.update(unexpected=11),
-            lambda attrs: attrs.pop("id"),
-        )
-        for index in (7, 10):
-            for representation, field in (("features", "attributes"), ("geojson", "properties")):
-                for change in changes:
-                    with self.subTest(index=index, representation=representation, change=change):
-                        value = controls()
-                        result = value["calls"][index]["result"]
-                        output = result["structuredContent"]
-                        rows = output["features"] if representation == "features" else output["geojson"]["features"]
-                        change(rows[0][field])
-                        result["content"] = server_content(output, "Returned 2 authored features")
-                        self.assert_refused(rebind(value))
+        changes = {
+            "mismatch": lambda attrs, feature: attrs.update(objectid=feature["id"] + 1),
+            "string": lambda attrs, feature: attrs.update(objectid=str(feature["id"])),
+            "float": lambda attrs, feature: attrs.update(objectid=float(feature["id"])),
+            "boolean": lambda attrs, _: attrs.update(objectid=True),
+            "null": lambda attrs, _: attrs.update(objectid=None),
+            "extra-key": lambda attrs, _: attrs.update(unexpected=11),
+            "missing-id": lambda attrs, _: attrs.pop("id"),
+        }
+        for representation in ("features", "geojson"):
+            for name, change in changes.items():
+                with self.subTest(representation=representation, change=name):
+                    value = rewrite_query_attributes(controls(), change, (representation,))
+                    reason = "lost published source schema" if name in {"extra-key", "missing-id"} else "object-id attribute differs"
+                    with self.assertRaisesRegex(ValueError, reason):
+                        validation.judge(FIXTURE, bootstrap(), value)
 
     def test_new_service_layer_order_follows_server_publication_rule(self):
         # PostgreSqlLayerPublishingService.LayerPersistence.cs:819 orders a new service's only layer 1.
