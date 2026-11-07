@@ -24,7 +24,7 @@
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352"
+      "commit": "ca6e228578e5db08e8a4dc5ec6b1dae690468874"
     },
     "sdk-python-harness": {
       "repository": "honua-io/honua-sdk-python",
@@ -920,7 +920,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -931,7 +931,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -943,7 +943,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -954,7 +954,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -1835,7 +1835,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1846,7 +1846,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -1858,7 +1858,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1869,7 +1869,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -1881,7 +1881,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1892,7 +1892,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -1904,7 +1904,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -1915,7 +1915,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -2057,7 +2057,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -2069,13 +2069,13 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -2201,7 +2201,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -2212,7 +2212,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -2224,7 +2224,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -2235,7 +2235,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -2247,7 +2247,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -2258,7 +2258,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -10036,7 +10036,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -10047,7 +10047,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -10059,7 +10059,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -10070,7 +10070,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -10174,7 +10174,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -10185,7 +10185,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -10197,7 +10197,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -10208,7 +10208,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -10619,7 +10619,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -10631,13 +10631,13 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -10648,7 +10648,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -10660,13 +10660,13 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -16221,7 +16221,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -16232,7 +16232,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -17702,7 +17702,7 @@
       "maturity": "preview",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "release",
       "licensed": false,
@@ -17713,13 +17713,13 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -18288,7 +18288,7 @@
       "maturity": "preview",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "release",
       "licensed": false,
@@ -18299,7 +18299,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -18311,7 +18311,7 @@
       "maturity": "preview",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "release",
       "licensed": false,
@@ -18322,7 +18322,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -18900,7 +18900,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -18911,7 +18911,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -27047,7 +27047,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27058,7 +27058,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -27070,7 +27070,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27081,7 +27081,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -29521,7 +29521,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -29532,13 +29532,13 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -29549,7 +29549,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -29560,13 +29560,13 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -29577,7 +29577,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29588,13 +29588,13 @@
         "negative",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -29605,7 +29605,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29616,13 +29616,13 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -29633,7 +29633,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29644,13 +29644,13 @@
         "positive",
         "boundary"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -29776,7 +29776,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29787,7 +29787,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -29799,7 +29799,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29810,7 +29810,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -29822,7 +29822,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -29833,7 +29833,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -30774,7 +30774,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -30785,7 +30785,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -30797,7 +30797,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -30808,7 +30808,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -30820,7 +30820,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -30831,7 +30831,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -33215,7 +33215,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33226,7 +33226,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -33238,7 +33238,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33249,7 +33249,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -33261,7 +33261,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33272,7 +33272,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -33284,7 +33284,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -33295,7 +33295,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -33307,7 +33307,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -33318,13 +33318,13 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -34107,7 +34107,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34118,7 +34118,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -34130,7 +34130,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -34141,7 +34141,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -35147,7 +35147,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35158,7 +35158,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -35170,7 +35170,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35181,7 +35181,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -35790,7 +35790,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35801,7 +35801,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -35813,7 +35813,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -35824,7 +35824,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -36518,7 +36518,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-ogc",
-      "client_version": "source-preview@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "client_version": "source-preview@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37325,7 +37325,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "pr",
       "licensed": false,
@@ -37336,13 +37336,13 @@
         "positive",
         "pagination"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -37353,7 +37353,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -37364,13 +37364,13 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },
@@ -38665,7 +38665,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -38676,7 +38676,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -38688,7 +38688,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -38699,7 +38699,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -38711,7 +38711,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -38722,7 +38722,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -38734,7 +38734,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -38745,7 +38745,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -39543,7 +39543,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39554,7 +39554,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -39566,7 +39566,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39577,7 +39577,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -40236,7 +40236,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40247,7 +40247,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -40259,7 +40259,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40270,7 +40270,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -40282,7 +40282,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40293,7 +40293,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -40305,7 +40305,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40316,7 +40316,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -41161,7 +41161,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -41172,7 +41172,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -41184,7 +41184,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -41195,7 +41195,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -41299,7 +41299,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -41310,7 +41310,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -41322,7 +41322,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -41333,7 +41333,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -44181,7 +44181,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44192,7 +44192,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -44204,7 +44204,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44215,7 +44215,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -45165,7 +45165,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45176,7 +45176,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -45188,7 +45188,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -45199,7 +45199,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -46774,7 +46774,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46785,7 +46785,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -46797,7 +46797,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46808,7 +46808,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -46820,7 +46820,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46831,7 +46831,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -46843,7 +46843,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46854,7 +46854,7 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "sdk-python-coverage@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-coverage@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null
@@ -46866,7 +46866,7 @@
       "maturity": "supported",
       "canonical_client": "Honua SDK Python",
       "client_lane": "sdk-python-certification",
-      "client_version": "0.1.19",
+      "client_version": "0.2.2",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46877,13 +46877,13 @@
         "positive",
         "metadata"
       ],
-      "contract_revision": "sdk-python-certification@4b5838cb5ba8c22a082cb2b7bdffc0c3fc1fd352",
+      "contract_revision": "sdk-python-certification@ca6e228578e5db08e8a4dc5ec6b1dae690468874",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "geospatial-grpc@1.0.3",
       "budget_expectations": null,
       "client_package": {
-        "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-        "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
+        "filename": "honua_sdk-0.2.2-py3-none-any.whl",
+        "sha256": "41eea78e95791bb882f500221434de6cc6b83881749c6cb414d44b9d40d387ef",
         "source": "pypi"
       }
     },

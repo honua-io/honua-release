@@ -87,6 +87,21 @@ def test_policy_ids_must_be_supported_by_the_bound_boot():
     assert ego.policy_errors(None, observation)
 
 
+def test_committed_policy_requires_canonical_geoservices_json_capability():
+    policy = ego.load_json(ego.POLICY_PATH)
+    required = ego.checked_ids(policy)
+    canonical_id = "format.read.geoservicesjson"
+    assert canonical_id in required
+    assert "format.read.esrijson" not in required
+
+    observation = ego.load_json(ego.OBSERVATION_PATH)
+    unsupported = copy.deepcopy(observation)
+    for capability in unsupported["capabilities"]:
+        if capability["id"] == canonical_id:
+            capability["supported"] = False
+    assert any(canonical_id in error for error in ego.policy_errors(policy, unsupported))
+
+
 def test_cli_writes_nothing_when_the_boot_refuses(monkeypatch, tmp_path):
     path = tmp_path / "manifest.yaml"
     path.write_text(json.dumps({"components": {"honua-server": SERVER}}), encoding="utf-8")

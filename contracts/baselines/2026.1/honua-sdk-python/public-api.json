@@ -12,16 +12,6 @@
         "AdminMetadataSchemaCompatibility",
         "AdminServiceSummary",
         "AdminVersionResponse",
-        "ArcPyEnvironmentAssignment",
-        "ArcPyImport",
-        "ArcPyLicenseCall",
-        "ArcPyLiteralReference",
-        "ArcPyParameterReference",
-        "ArcPyScanCompleteness",
-        "ArcPyScriptInventoryArtifact",
-        "ArcPyScriptInventorySummary",
-        "ArcPyScriptSource",
-        "ArcPyToolCall",
         "AsyncHonuaAdminClient",
         "BackgroundImportResponse",
         "ColumnInfo",
@@ -31,6 +21,7 @@
         "HonuaAdminClient",
         "ImportResult",
         "KeyRotationResult",
+        "LayerListQuery",
         "LayerStyleResponse",
         "LayerStyleUpdateRequest",
         "MINIMUM_SUPPORTED_CONTROL_PLANE_API_MAJOR",
@@ -79,10 +70,13 @@
         "OperationProposalDetail",
         "OperationProposalSummary",
         "PublishLayerRequest",
+        "PublishedLayerPage",
         "PublishedLayerSummary",
         "ResourceMetadata",
         "SecureConnectionDetail",
         "SecureConnectionSummary",
+        "ServiceListPage",
+        "ServiceListQuery",
         "ServiceSettingsResponse",
         "ServiceSummary",
         "StyleEncoding",
@@ -102,9 +96,7 @@
         "ToolboxTranslationSummary",
         "UpdateSecureConnectionRequest",
         "__version__",
-        "evaluate_admin_compatibility",
-        "scan_arcpy_script",
-        "scan_arcpy_source"
+        "evaluate_admin_compatibility"
       ],
       "symbols": {
         "AccessPolicyResponse": {
@@ -429,355 +421,6 @@
           "qualname": "AdminVersionResponse",
           "signature": "(version: 'str', metadata_api_version: 'str', server_time: 'str | None') -> None"
         },
-        "ArcPyEnvironmentAssignment": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "name"
-            },
-            {
-              "annotation": "Any",
-              "name": "value"
-            },
-            {
-              "annotation": "int",
-              "name": "line"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyEnvironmentAssignment",
-          "signature": "(name: 'str', value: 'Any', line: 'int') -> None"
-        },
-        "ArcPyImport": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "module"
-            },
-            {
-              "annotation": "int",
-              "name": "line"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "name"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "alias"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyImport",
-          "signature": "(module: 'str', line: 'int', name: 'str | None' = None, alias: 'str | None' = None) -> None"
-        },
-        "ArcPyLicenseCall": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "function"
-            },
-            {
-              "annotation": "int",
-              "name": "line"
-            },
-            {
-              "annotation": "str",
-              "name": "action"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "extension"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyLicenseCall",
-          "signature": "(function: 'str', line: 'int', action: 'str', extension: 'str | None' = None) -> None"
-        },
-        "ArcPyLiteralReference": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "kind"
-            },
-            {
-              "annotation": "str",
-              "name": "value"
-            },
-            {
-              "annotation": "int",
-              "name": "line"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "context"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyLiteralReference",
-          "signature": "(kind: 'str', value: 'str', line: 'int', context: 'str | None' = None) -> None"
-        },
-        "ArcPyParameterReference": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "function"
-            },
-            {
-              "annotation": "str",
-              "name": "direction"
-            },
-            {
-              "annotation": "int",
-              "name": "line"
-            },
-            {
-              "annotation": "int | None",
-              "default": "None",
-              "name": "index"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "name"
-            },
-            {
-              "annotation": "Any | None",
-              "default": "None",
-              "name": "value"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyParameterReference",
-          "signature": "(function: 'str', direction: 'str', line: 'int', index: 'int | None' = None, name: 'str | None' = None, value: 'Any | None' = None) -> None"
-        },
-        "ArcPyScanCompleteness": {
-          "fields": [
-            {
-              "annotation": "str",
-              "default": "'complete'",
-              "name": "status"
-            },
-            {
-              "annotation": "list[str]",
-              "defaultFactory": "list",
-              "name": "warnings"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyScanCompleteness",
-          "signature": "(status: 'str' = 'complete', warnings: 'list[str]' = <factory>) -> None"
-        },
-        "ArcPyScriptInventoryArtifact": {
-          "fields": [
-            {
-              "annotation": "ArcPyScriptSource",
-              "name": "source"
-            },
-            {
-              "annotation": "ArcPyScanCompleteness",
-              "name": "scan_completeness"
-            },
-            {
-              "annotation": "ArcPyScriptInventorySummary",
-              "name": "summary"
-            },
-            {
-              "annotation": "list[ArcPyImport]",
-              "defaultFactory": "list",
-              "name": "imports"
-            },
-            {
-              "annotation": "list[ArcPyParameterReference]",
-              "defaultFactory": "list",
-              "name": "parameters"
-            },
-            {
-              "annotation": "list[ArcPyEnvironmentAssignment]",
-              "defaultFactory": "list",
-              "name": "environments"
-            },
-            {
-              "annotation": "list[ArcPyLicenseCall]",
-              "defaultFactory": "list",
-              "name": "license_calls"
-            },
-            {
-              "annotation": "list[ArcPyToolCall]",
-              "defaultFactory": "list",
-              "name": "tool_calls"
-            },
-            {
-              "annotation": "list[ArcPyLiteralReference]",
-              "defaultFactory": "list",
-              "name": "literals"
-            },
-            {
-              "annotation": "str",
-              "default": "'honua.migration.arcpy-script-inventory'",
-              "name": "artifact_kind"
-            },
-            {
-              "annotation": "str",
-              "default": "'1.0'",
-              "name": "artifact_version"
-            },
-            {
-              "annotation": "str",
-              "default": "'arcpy-python-script'",
-              "name": "source_kind"
-            }
-          ],
-          "kind": "class",
-          "methods": {
-            "to_dict": {
-              "kind": "method",
-              "signature": "(self) -> 'dict[str, Any]'"
-            }
-          },
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyScriptInventoryArtifact",
-          "signature": "(source: 'ArcPyScriptSource', scan_completeness: 'ArcPyScanCompleteness', summary: 'ArcPyScriptInventorySummary', imports: 'list[ArcPyImport]' = <factory>, parameters: 'list[ArcPyParameterReference]' = <factory>, environments: 'list[ArcPyEnvironmentAssignment]' = <factory>, license_calls: 'list[ArcPyLicenseCall]' = <factory>, tool_calls: 'list[ArcPyToolCall]' = <factory>, literals: 'list[ArcPyLiteralReference]' = <factory>, artifact_kind: 'str' = 'honua.migration.arcpy-script-inventory', artifact_version: 'str' = '1.0', source_kind: 'str' = 'arcpy-python-script') -> None"
-        },
-        "ArcPyScriptInventorySummary": {
-          "fields": [
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "arcpy_import_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "parameter_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "environment_assignment_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "license_call_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "tool_call_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "automated_candidate_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "unsupported_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "manual_review_count"
-            },
-            {
-              "annotation": "int",
-              "default": "0",
-              "name": "literal_count"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyScriptInventorySummary",
-          "signature": "(arcpy_import_count: 'int' = 0, parameter_count: 'int' = 0, environment_assignment_count: 'int' = 0, license_call_count: 'int' = 0, tool_call_count: 'int' = 0, automated_candidate_count: 'int' = 0, unsupported_count: 'int' = 0, manual_review_count: 'int' = 0, literal_count: 'int' = 0) -> None"
-        },
-        "ArcPyScriptSource": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "path"
-            },
-            {
-              "annotation": "str",
-              "name": "filename"
-            },
-            {
-              "annotation": "str",
-              "name": "sha256"
-            },
-            {
-              "annotation": "int",
-              "name": "line_count"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyScriptSource",
-          "signature": "(path: 'str', filename: 'str', sha256: 'str', line_count: 'int') -> None"
-        },
-        "ArcPyToolCall": {
-          "fields": [
-            {
-              "annotation": "str",
-              "name": "call"
-            },
-            {
-              "annotation": "str",
-              "name": "tool"
-            },
-            {
-              "annotation": "int",
-              "name": "line"
-            },
-            {
-              "annotation": "str",
-              "name": "classification"
-            },
-            {
-              "annotation": "str",
-              "name": "category"
-            },
-            {
-              "annotation": "str",
-              "name": "reason"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "toolbox"
-            },
-            {
-              "annotation": "str | None",
-              "default": "None",
-              "name": "honua_process_id"
-            },
-            {
-              "annotation": "list[Any]",
-              "defaultFactory": "list",
-              "name": "arguments"
-            },
-            {
-              "annotation": "dict[str, Any]",
-              "defaultFactory": "dict",
-              "name": "keywords"
-            }
-          ],
-          "kind": "class",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "ArcPyToolCall",
-          "signature": "(call: 'str', tool: 'str', line: 'int', classification: 'str', category: 'str', reason: 'str', toolbox: 'str | None' = None, honua_process_id: 'str | None' = None, arguments: 'list[Any]' = <factory>, keywords: 'dict[str, Any]' = <factory>) -> None"
-        },
         "AsyncHonuaAdminClient": {
           "kind": "class",
           "methods": {
@@ -900,6 +543,11 @@
               "kind": "method",
               "signature": "(self, conn_id: 'str', service_name: 'str | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[PublishedLayerSummary]'"
             },
+            "list_layers_page": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, conn_id: 'str', query: 'LayerListQuery | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'PublishedLayerPage'"
+            },
             "list_metadata_resources": {
               "async": true,
               "kind": "method",
@@ -914,6 +562,11 @@
               "async": true,
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[ServiceSummary]'"
+            },
+            "list_services_page": {
+              "async": true,
+              "kind": "method",
+              "signature": "(self, query: 'ServiceListQuery | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'ServiceListPage'"
             },
             "list_styles": {
               "async": true,
@@ -1017,7 +670,7 @@
           },
           "module": "honua_admin._async_client",
           "qualname": "AsyncHonuaAdminClient",
-          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3, allow_insecure_http: 'bool' = False) -> 'None'"
         },
         "BackgroundImportResponse": {
           "fields": [
@@ -1340,6 +993,10 @@
               "kind": "method",
               "signature": "(self, conn_id: 'str', service_name: 'str | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[PublishedLayerSummary]'"
             },
+            "list_layers_page": {
+              "kind": "method",
+              "signature": "(self, conn_id: 'str', query: 'LayerListQuery | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'PublishedLayerPage'"
+            },
             "list_metadata_resources": {
               "kind": "method",
               "signature": "(self, kind: 'str | None' = None, namespace: 'str | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[MetadataResource]'"
@@ -1351,6 +1008,10 @@
             "list_services": {
               "kind": "method",
               "signature": "(self, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'list[ServiceSummary]'"
+            },
+            "list_services_page": {
+              "kind": "method",
+              "signature": "(self, query: 'ServiceListQuery | None' = None, *, timeout: 'float | httpx.Timeout | None' = None, extra_headers: 'Mapping[str, str] | None' = None) -> 'ServiceListPage'"
             },
             "list_styles": {
               "kind": "method",
@@ -1435,7 +1096,7 @@
           },
           "module": "honua_admin._client",
           "qualname": "HonuaAdminClient",
-          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3, allow_insecure_http: 'bool' = False) -> 'None'"
         },
         "ImportResult": {
           "fields": [
@@ -1562,6 +1223,34 @@
           "module": "honua_admin._models",
           "qualname": "KeyRotationResult",
           "signature": "(previous_key_version: 'int | None', new_key_version: 'int | None', rotated_at: 'str | None', message: 'str | None') -> None"
+        },
+        "LayerListQuery": {
+          "fields": [
+            {
+              "annotation": "int",
+              "default": "1",
+              "name": "page"
+            },
+            {
+              "annotation": "int",
+              "default": "100",
+              "name": "page_size"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "name_query"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "service_name"
+            }
+          ],
+          "kind": "class",
+          "module": "honua_admin._catalog",
+          "qualname": "LayerListQuery",
+          "signature": "(page: 'int' = 1, page_size: 'int' = 100, name_query: 'str | None' = None, service_name: 'str | None' = None) -> None"
         },
         "LayerStyleResponse": {
           "fields": [
@@ -3566,6 +3255,36 @@
           "qualname": "PublishLayerRequest",
           "signature": "(schema: 'str' = 'public', table: 'str' = '', layer_name: 'str | None' = None, description: 'str | None' = None, geometry_column: 'str | None' = None, geometry_type: 'str | None' = None, srid: 'int | None' = None, primary_key: 'str | None' = None, fields_list: 'list[str] | None' = None, service_name: 'str | None' = None, enabled: 'bool' = True) -> None"
         },
+        "PublishedLayerPage": {
+          "fields": [
+            {
+              "annotation": "list[PublishedLayerSummary]",
+              "name": "items"
+            },
+            {
+              "annotation": "int",
+              "name": "page"
+            },
+            {
+              "annotation": "int",
+              "name": "page_size"
+            },
+            {
+              "annotation": "int",
+              "name": "total"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any] | None') -> 'PublishedLayerPage'"
+            }
+          },
+          "module": "honua_admin._catalog",
+          "qualname": "PublishedLayerPage",
+          "signature": "(items: 'list[PublishedLayerSummary]', page: 'int', page_size: 'int', total: 'int') -> None"
+        },
         "PublishedLayerSummary": {
           "fields": [
             {
@@ -3833,6 +3552,68 @@
           "module": "honua_admin._models",
           "qualname": "SecureConnectionSummary",
           "signature": "(connection_id: 'str', name: 'str', description: 'str | None', host: 'str', port: 'int', database_name: 'str', username: 'str', ssl_required: 'bool', ssl_mode: 'str | None', storage_type: 'str | None', is_active: 'bool', health_status: 'str | None', last_health_check: 'str | None', created_at: 'str | None', created_by: 'str | None') -> None"
+        },
+        "ServiceListPage": {
+          "fields": [
+            {
+              "annotation": "list[AdminServiceSummary]",
+              "name": "items"
+            },
+            {
+              "annotation": "int",
+              "name": "page"
+            },
+            {
+              "annotation": "int",
+              "name": "page_size"
+            },
+            {
+              "annotation": "int",
+              "name": "total"
+            },
+            {
+              "annotation": "int",
+              "name": "layer_total"
+            }
+          ],
+          "kind": "class",
+          "methods": {
+            "from_dict": {
+              "kind": "classmethod",
+              "signature": "(cls, data: 'dict[str, Any] | None') -> 'ServiceListPage'"
+            }
+          },
+          "module": "honua_admin._catalog",
+          "qualname": "ServiceListPage",
+          "signature": "(items: 'list[AdminServiceSummary]', page: 'int', page_size: 'int', total: 'int', layer_total: 'int') -> None"
+        },
+        "ServiceListQuery": {
+          "fields": [
+            {
+              "annotation": "int",
+              "default": "1",
+              "name": "page"
+            },
+            {
+              "annotation": "int",
+              "default": "100",
+              "name": "page_size"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "name_query"
+            },
+            {
+              "annotation": "str | None",
+              "default": "None",
+              "name": "folder_id"
+            }
+          ],
+          "kind": "class",
+          "module": "honua_admin._catalog",
+          "qualname": "ServiceListQuery",
+          "signature": "(page: 'int' = 1, page_size: 'int' = 100, name_query: 'str | None' = None, folder_id: 'str | None' = None) -> None"
         },
         "ServiceSettingsResponse": {
           "fields": [
@@ -4379,18 +4160,6 @@
           "module": "honua_admin._models",
           "qualname": "evaluate_admin_compatibility",
           "signature": "(compatibility: 'AdminCompatibilityMetadata | None', baseline: 'AdminCompatibilityBaseline | None' = None) -> 'AdminCompatibilityCheckResult'"
-        },
-        "scan_arcpy_script": {
-          "kind": "function",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "scan_arcpy_script",
-          "signature": "(path: 'str | Path') -> 'ArcPyScriptInventoryArtifact'"
-        },
-        "scan_arcpy_source": {
-          "kind": "function",
-          "module": "honua_admin._arcpy_scanner",
-          "qualname": "scan_arcpy_source",
-          "signature": "(source: 'str', *, filename: 'str' = '<memory>') -> 'ArcPyScriptInventoryArtifact'"
         }
       }
     },
@@ -4682,7 +4451,7 @@
           },
           "module": "honua_sdk.async_client",
           "qualname": "AsyncHonuaClient",
-          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3, allow_insecure_http: 'bool' = False) -> 'None'"
         },
         "AsyncHonuaGeocodingClient": {
           "kind": "class",
@@ -4710,7 +4479,7 @@
           },
           "module": "honua_sdk.async_geocoding",
           "qualname": "AsyncHonuaGeocodingClient",
-          "signature": "(base_url: 'str', *, locator_name: 'str' = 'World', timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+          "signature": "(base_url: 'str', *, locator_name: 'str' = 'World', timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, client: 'httpx.AsyncClient | None' = None, transport: 'httpx.AsyncBaseTransport | None' = None, max_retries: 'int' = 3, allow_insecure_http: 'bool' = False) -> 'None'"
         },
         "AsyncRefreshableBearerTokenProvider": {
           "kind": "class",
@@ -5572,7 +5341,7 @@
           },
           "module": "honua_sdk.client",
           "qualname": "HonuaClient",
-          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+          "signature": "(base_url: 'str', *, timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, follow_redirects: 'bool' = False, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3, allow_insecure_http: 'bool' = False) -> 'None'"
         },
         "HonuaError": {
           "kind": "class",
@@ -5601,7 +5370,7 @@
           },
           "module": "honua_sdk.geocoding",
           "qualname": "HonuaGeocodingClient",
-          "signature": "(base_url: 'str', *, locator_name: 'str' = 'World', timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3) -> 'None'"
+          "signature": "(base_url: 'str', *, locator_name: 'str' = 'World', timeout: 'float' = 30.0, api_key: 'str | None' = None, bearer_token: 'str | None' = None, auth_provider: 'AuthProvider | None' = None, client: 'httpx.Client | None' = None, transport: 'httpx.BaseTransport | None' = None, max_retries: 'int' = 3, allow_insecure_http: 'bool' = False) -> 'None'"
         },
         "HonuaGrpcError": {
           "kind": "class",

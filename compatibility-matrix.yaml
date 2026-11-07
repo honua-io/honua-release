@@ -44,7 +44,7 @@ contracts:
     clients:
       honua-sdk-js:     ">=0.0.14-alpha.0 <0.3.0"   # sealed SDK 0.2.2 GeoServices run 38492974391
       honua-sdk-dotnet: ">=1.3.0 <2.0.0"            # floor = oldest supported (published artifact is 1.10.4)
-      honua-sdk-python: ">=0.1.4 <0.2.0"            # floor = oldest supported (published artifact is 0.1.12); 0.x: ceiling = next minor
+      honua-sdk-python: ">=0.1.4 <0.3.0"
   # NOTE: the same capability envelope now also advertises ogc-http and stac at contractVersion
   # 1.0.0 (recorded in platform-manifest.yaml honua-server.contractVersions). They are deliberately
   # NOT given contract entries here yet: a contract row is a client SUPPORT WINDOW commitment, and
@@ -102,19 +102,11 @@ deploy:
           status: excluded
           reason: "Published child exists, but native Fargate readiness is not certified for 2026.1 (honua-release#98)."
   honua-iac:
-    # TODO: encode against a released server version once honua-server cuts a tag; today server is
-    # pinned by sha and immutable GHCR digest, so the deploy range is sha-pinned, not semver-ranged.
-    # Tracks components.honua-server.sha by construction — validate_platform.check_coherence hard-fails
-    # if it drifts. Advanced with the 2026-10-27 rc re-pin #4 (8cb074f -> a4bde4b).
-    # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (a4bde4b -> daf56db).
-    # 2026-11-03 RC2 REDO: advanced with the rc.2 redo server pin (daf56db -> 8628668).
-    deploysServerImage: "sha:8628668794df9f0c22a490e59cedaee409cc1bdd"
+    # validate_platform.check_coherence binds deployment to components.honua-server.sha.
+    deploysServerImage: sha:1c7d0d1101809f2288566fb20d1ce1cb0a853869
   honua-helm:
-    # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
-    # Same coupling as honua-iac above; advanced with the 2026-10-27 rc re-pin #4 (a4bde4b).
-    # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (daf56db).
-    # 2026-11-03 RC2 REDO: advanced with the rc.2 redo server pin (8628668).
-    appVersion: "sha:8628668794df9f0c22a490e59cedaee409cc1bdd"
+    # validate_platform.check_coherence binds deployment to components.honua-server.sha.
+    appVersion: sha:1c7d0d1101809f2288566fb20d1ce1cb0a853869
     awsEks:
       target: aws-eks
       architectures:

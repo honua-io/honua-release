@@ -655,8 +655,7 @@ def test_structure_accepts_pending_ecr_mirror_sentinel_and_real_digests():
 def test_coherence_pin_out_of_range_fails():
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)
-    # Bump python past the geoservices ceiling (<0.2.0) without widening the matrix.
-    manifest["components"]["honua-sdk-python"]["version"] = "0.2.0"
+    manifest["components"]["honua-sdk-python"]["version"] = "0.3.0"
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("does NOT satisfy" in e and "honua-sdk-python" in e for e in f.errors)
 
