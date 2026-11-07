@@ -2289,11 +2289,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "57b247b3a3240a948e0b38a689e4d61e62e9c805",
+      "revision": "4efc272e58789ec17ebec2125cec06304b2ce4e4",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/57b247b3a3240a948e0b38a689e4d61e62e9c805/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/4efc272e58789ec17ebec2125cec06304b2ce4e4/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2313,7 +2313,7 @@
         },
         {
           "index": 1,
-          "line": 70,
+          "line": 82,
           "language": "json",
           "infoString": "json",
           "intent": "illustrative",
@@ -2323,7 +2323,7 @@
         },
         {
           "index": 2,
-          "line": 118,
+          "line": 130,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2332,7 +2332,7 @@
         },
         {
           "index": 3,
-          "line": 128,
+          "line": 140,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2341,7 +2341,7 @@
         },
         {
           "index": 4,
-          "line": 138,
+          "line": 150,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2350,7 +2350,7 @@
         },
         {
           "index": 5,
-          "line": 146,
+          "line": 158,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2360,7 +2360,7 @@
         },
         {
           "index": 6,
-          "line": 174,
+          "line": 186,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2369,7 +2369,7 @@
         },
         {
           "index": 7,
-          "line": 183,
+          "line": 195,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2378,7 +2378,7 @@
         },
         {
           "index": 8,
-          "line": 193,
+          "line": 205,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -2388,7 +2388,7 @@
         },
         {
           "index": 9,
-          "line": 446,
+          "line": 458,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
