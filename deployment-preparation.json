@@ -1,0 +1,10 @@
+{
+  "schema": "honua.deployment-preparation/v1",
+  "status": "unadmitted",
+  "candidateQualified": false,
+  "remaining": [
+    "real deployment qualification",
+    "bound protocol ledger",
+    "exact candidate admission"
+  ]
+}
