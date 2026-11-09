@@ -321,6 +321,7 @@ def install_npm(
 # Fixed product contracts, not caller-supplied executable code. Each probe runs only after
 # the selected published archive and installed lock match the manifest identity.
 COMPANION_PROBES = {
+    "honua-sdk-client-compat": ("@honua/sdk-client-compat", "const point = new api.PointCompat({longitude:12, latitude:34}); await point.load(); assert.deepEqual([point.longitude, point.latitude, point.loadStatus], [12,34,'loaded']); point.destroy();"),
     "honua-sdk": ("@honua/sdk", "assert.equal(typeof api.createHonua, 'function'); const client = api.createHonua(); await client.dispose();"),
     "honua-react": ("@honua/react", "const React = await import('react'); const {renderToString} = await import('react-dom/server'); assert.equal(typeof api.useQuery, 'function'); assert.equal(renderToString(React.createElement(api.HonuaProvider, {client:{}}, React.createElement('span', null, 'installed-react'))), '<span>installed-react</span>');"),
     "honua-geometry": ("@honua/geometry", "assert.deepEqual(api.bbox({type:'Point', coordinates:[12,34]}), [12,34,12,34]);"),
