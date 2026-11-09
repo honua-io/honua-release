@@ -4,7 +4,7 @@
 # StudioAi proxy. Every receipt is one attempt on one cell, bound to the platform-lock digest it ran
 # against, and attributes a failure to the model or to infrastructure.
 #
-#   schedule / dispatch target=local-docker  -> the deterministic #123 journey, then the canary, in one
+#   dispatch target=local-docker  -> the deterministic #123 journey, then the canary, in one
 #                                               job on the candidate compose stack (Bedrock via OIDC)
 #   dispatch / call target=aws-ecs/redis-off|on -> e2e-cloud-aws on the selected ECS cell with Bedrock
 #                                               enabled; the cell's journey job runs the canary after

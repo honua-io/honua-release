@@ -130,9 +130,9 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
 
 ## Workflow
 
-Automatic model runs are disabled until an approved provider is wired. The
-terminal-model canary has no schedule, and the canonical nightly passes
-`genuine_model: false` with an explicit policy-skip reason. Opus 5.5 through the
+This canary has no independent schedule. The canonical nightly skips model
+execution until an approved provider is wired, passing `genuine_model: false`
+with an explicit policy-skip reason. Opus 5.5 through the
 Anthropic API and gpt-6.1-sol are the approved models; Bedrock model execution is
 prohibited. The retained manual paths below describe the legacy implementation,
 not authorization to run it. Missing model observations remain unobserved and
