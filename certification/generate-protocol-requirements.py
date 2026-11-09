@@ -604,6 +604,20 @@ def gp_entry_selects(entry: dict, row: dict) -> bool:
     return "lanes" not in entry or row["client_lane"] in entry["lanes"]
 
 
+def validate_harness_preview_annotations(harness: dict) -> None:
+    ruling = load(SOURCES / "gp-preview-floor.v1.json")
+    entries = [(kind, entry) for kind in ("floor", "preview") for entry in ruling[kind]]
+    for assignment in harness["assignments"]:
+        annotations = {key: assignment[key] for key in ("maturity", "required_tier") if key in assignment}
+        if not annotations:
+            continue
+        if annotations != {"maturity": "preview", "required_tier": "release"}:
+            raise ValueError("Server harness Preview annotations must be paired preview/release values")
+        row = {**assignment, "client_lane": harness["client_lane"]}
+        matches = [kind for kind, entry in entries if gp_entry_selects(entry, row)]
+        if matches != ["preview"]:
+            raise ValueError("Server harness annotations must match the existing GP Preview classification")
+
 def apply_gp_preview_floor(requirements: list[dict[str, Any]]) -> dict[str, int]:
     """Label every GP catalog row Preview except its explicitly classified safety floor.
 
@@ -1028,6 +1042,7 @@ def main() -> None:
             )
 
     protocol_harness = load(SOURCES / "server" / "protocol-harness-assignments.v1.json")
+    validate_harness_preview_annotations(protocol_harness)
     harness_source_sha = revisions["server-certification"]["commit"]
     harness_contract = (
         f"server-protocol-harness@{protocol_harness['revision']}+{harness_source_sha}"

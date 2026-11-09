@@ -184,3 +184,41 @@ def test_validator_refuses_a_relabeled_gp_row(certification_copy: Path, operatio
     result = _run(certification_copy, "validate-protocol-requirements.py")
     assert result.returncode != 0
     assert message in result.stderr
+
+
+@pytest.mark.parametrize("annotations", [
+    {"maturity": "preview", "required_tier": "release"},
+    {"maturity": "preview"},
+    {"required_tier": "release"},
+    {"maturity": "supported", "required_tier": "release"},
+    {"maturity": "preview", "required_tier": "nightly"},
+])
+def test_harness_preview_annotations_must_match_the_existing_classification(certification_copy, annotations):
+    path = certification_copy / "sources/server/protocol-harness-assignments.v1.json"
+    harness = _load(path)
+    assignment = next(row for row in harness["assignments"] if row["capability_key"] == "printing.pdf-output")
+    assignment.update(annotations)
+    path.write_text(json.dumps(harness, indent=2) + "\n")
+    result = _run(certification_copy, "generate-protocol-requirements.py")
+    if annotations != {"maturity": "preview", "required_tier": "release"}:
+        assert result.returncode != 0
+        assert "harness Preview annotations" in result.stderr
+        return
+    assert result.returncode == 0, result.stderr
+    validation = _run(certification_copy, "validate-protocol-requirements.py")
+    assert validation.returncode == 0, validation.stderr
+    catalog = _load(certification_copy / CATALOG)
+    rows = [row for row in catalog["requirements"] if row["operation"] == assignment["operation"]]
+    assert rows
+    assert all((row["maturity"], row["required_tier"]) == ("preview", "release") for row in rows)
+    assert _load(path) == harness
+
+
+def test_harness_annotations_cannot_demote_the_required_gp_floor():
+    generator = runpy.run_path(str(CERTIFICATION / "generate-protocol-requirements.py"))
+    harness = {"client_lane": "py-owslib", "assignments": [{
+        "capability_key": "process.ogc-api-processes", "surface": "ogc-api-processes",
+        "operation": "process.ogc-api-processes", "maturity": "preview", "required_tier": "release",
+    }]}
+    with pytest.raises(ValueError, match="existing GP Preview classification"):
+        generator["validate_harness_preview_annotations"](harness)

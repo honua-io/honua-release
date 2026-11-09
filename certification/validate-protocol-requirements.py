@@ -411,9 +411,9 @@ def main() -> None:
         raise ValueError("Server protocol harness must govern at least the 32 public operations of revision 2026-08-21.1.")
     allowed_assignment_fields = {
         "capability_key", "catalog_capability_key", "surface", "operation", "test_ids",
-        "scenario_facets",
+        "scenario_facets", "maturity", "required_tier",
     }
-    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key", "maturity", "required_tier"}
     known_capabilities = {capability["key"] for capability in server["capabilities"]}
     for assignment in harness_assignments:
         if assignment.get("capability_key") not in known_capabilities:
@@ -427,6 +427,7 @@ def main() -> None:
         facets = assignment["scenario_facets"]
         if not facets or len(facets) != len(set(facets)):
             raise ValueError("Server protocol harness scenario facets must be non-empty and unique.")
+    _generator_module().validate_harness_preview_annotations(protocol_harness)
     harness_keys = [
         (assignment["capability_key"], assignment["surface"], assignment["operation"])
         for assignment in harness_assignments
