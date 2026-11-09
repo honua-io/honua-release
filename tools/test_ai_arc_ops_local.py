@@ -456,7 +456,6 @@ class ProbeVm(Vm):
         return subprocess.CompletedProcess([], 0, out, b'')
 
 
-
 @pytest.mark.parametrize('development', [False, True])
 def test_compose_env_uses_the_candidates_immutable_executor_and_project_group(tmp_path, development):
     context = ctx(tmp_path)

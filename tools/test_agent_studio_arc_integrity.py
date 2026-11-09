@@ -374,10 +374,13 @@ def arc_partial_case(tmp_path, monkeypatch):
                'tables': {n: {'schema': 'honua_data', 'table': 'import_' + n} for n in names}, 'layers': {}}
     def event(n, stage):
         i = names.index(n)
+        timestamp = stamp(-20) if stage == 3 else (
+            datetime.fromisoformat(rec.records['p08-maps-before'].recorded_at)
+            + timedelta(seconds=state.get('stage4_audit_offset_seconds', 0))).isoformat()
         return {'auditId': stage*10+i, 'resourceId': f'op_{stage}_{n}', 'resourceType': 'operation_instance',
                 'action': 'operation.completed', 'outcome': 'Success',
                 'actor': 'api-key:stage3' if stage == 3 else ('foreign' if state['wrong_actor'] else 'api-key:stage4'),
-                'timestamp': stamp(-20) if stage == 3 else datetime.now(timezone.utc).isoformat(),
+                'timestamp': timestamp,
                 'details': ('operationId=admin.layer.publish;status=Completed' if n in state['admin']
                             else 'operationId=service.publish;status=Completed')}
     def admin_response(n):
@@ -574,6 +577,32 @@ def test_arc_credits_publication_with_uppercase_connection_guid(arc_partial_case
     stack, _, _ = run(0)
     assert stack.extra['arcLineageVerified']
     assert all(row['stage'] == 4 for row in stack.extra['arcServicesLineage'].values())
+
+
+def test_arc_publication_fixture_ignores_a_delayed_audit_read(arc_partial_case, monkeypatch):
+    import sys
+
+    class DelayedAuditClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return super().now(tz) + timedelta(minutes=5)
+
+    monkeypatch.setattr(sys.modules[__name__], 'datetime', DelayedAuditClock)
+    run, state = arc_partial_case
+    state['request_override'] = {'connectionId': 'ABCDEF01-2345-6789-ABCD-EF0123456789'}
+    stack, _, _ = run(0)
+    assert stack.extra['arcLineageVerified']
+    assert all(row['stage'] == 4 for row in stack.extra['arcServicesLineage'].values())
+
+
+@pytest.mark.parametrize('offset_seconds', [-60, 60])
+def test_arc_rejects_a_publication_outside_the_customer_session(arc_partial_case, offset_seconds):
+    from agent_e2e_local_recorder import ProjectionError
+
+    run, state = arc_partial_case
+    state['stage4_audit_offset_seconds'] = offset_seconds
+    with pytest.raises(ProjectionError, match='stage-four publish outside customer session'):
+        run(0)
 
 
 @pytest.mark.parametrize('retry', [False, True])
