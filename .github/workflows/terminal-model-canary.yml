@@ -18,16 +18,12 @@
 # lock_run_id reads this run's candidate-manifest artifact. Named endpoints have no independently
 # observed image and therefore cannot produce a lock-bound receipt.
 #
-# The nightly train runs the ECS Redis-off canary inside its own cloud cell (release-train.yml
+# When enabled, the nightly train runs the ECS Redis-off canary inside its own cloud cell (release-train.yml
 # gate_cloud_parity with genuine_model_bedrock), because the cell's ingress admits only that run's journey
 # runner and its artifact names are per run; its row becomes promotion-receipts/nightly-model-journey.
 name: Terminal model canary harness
 
 on:
-  schedule:
-    # 08:45 UTC: after the nightly deterministic local-docker (07:00) and cloud (07:17) journeys.
-    # The schedule supplies no inputs and runs the local-docker canary bound to the server image it runs.
-    - cron: "45 8 * * *"
   workflow_dispatch:
     inputs:
       target:

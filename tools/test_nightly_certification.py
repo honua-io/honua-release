@@ -55,6 +55,12 @@ def test_nightly_skips_model_execution_until_an_approved_provider_is_wired(tmp_p
     assert 'not qualification evidence' in explanation
 
 
+def test_model_canary_has_no_schedule_until_an_approved_provider_is_wired():
+    triggers = workflow('terminal-model-canary.yml')['triggers']
+    assert 'schedule' not in triggers
+    assert 'workflow_dispatch' in triggers
+
+
 # ── GitHub expression evaluation (the subset these job conditions use) ──────────────────────
 
 TOKEN = re.compile(r"\s*(?:('(?:[^']|'')*')|(&&|\|\||==|!=|!|\(|\))|([A-Za-z_][A-Za-z0-9_.-]*))")

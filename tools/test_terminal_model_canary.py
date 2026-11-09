@@ -868,7 +868,7 @@ def test_schema_rejects_false_model_attribution_without_selection_evidence():
 
 def test_workflow_references_the_single_123_journey_contract_and_never_runs_on_pull_requests():
     workflow, triggers = _workflow()
-    assert set(triggers) == {"schedule", "workflow_dispatch", "workflow_call"}
+    assert set(triggers) == {"workflow_dispatch", "workflow_call"}
     assert "driver_command" not in triggers["workflow_dispatch"]["inputs"]
     job = workflow["jobs"]["harness"]
     commands = "\n".join(str(step.get("run", "")) for step in job["steps"])
@@ -878,9 +878,9 @@ def test_workflow_references_the_single_123_journey_contract_and_never_runs_on_p
     assert job["runs-on"] == "${{ inputs.runner }}"
 
 
-def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
+def test_workflow_runs_only_on_explicit_call_bound_to_a_lock_for_both_cells():
     workflow, triggers = _workflow()
-    assert triggers["schedule"] and all("cron" in row for row in triggers["schedule"])
+    assert "schedule" not in triggers
     call = triggers["workflow_call"]
     assert set(call["inputs"]) >= {"target", "lock_digest"}
     assert call["inputs"]["lock_digest"]["required"] is True

@@ -130,17 +130,24 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
 
 ## Workflow
 
+Automatic model runs are disabled until an approved provider is wired. The
+terminal-model canary has no schedule, and the canonical nightly passes
+`genuine_model: false` with an explicit policy-skip reason. Opus 5.5 through the
+Anthropic API and gpt-6.1-sol are the approved models; Bedrock model execution is
+prohibited. The retained manual paths below describe the legacy implementation,
+not authorization to run it. Missing model observations remain unobserved and
+provide no qualification pass.
+
 `.github/workflows/terminal-model-canary.yml`:
 
-- **schedule** (08:45 UTC, after the deterministic local-docker and cloud journeys) and
-  **dispatch `target=local-docker`** — one job runs the deterministic #123 journey
+- **dispatch `target=local-docker`** — one job runs the deterministic #123 journey
   (`certification/terminal-journey/run.py --mode live --target targets/local-docker.json`) first, then
   assumes the Bedrock-enabled role over OIDC and runs the canary against the candidate stack with that
   job's receipt as `--deterministic-receipt`. `targets/build-compose.yml` routes the candidate's
   `StudioAiProxy` to Bedrock (`StudioAiProxy__Enabled`, `DefaultProvider=bedrock`,
   `Providers__bedrock__{Kind,Model,Region}`) only when the job sets `HONUA_CANARY_STUDIO_AI_ENABLED`.
   The session credentials reach the server container under non-ambient `HONUA_CANARY_AWS_*` names;
-  no `AWS_*` variable enters the job environment. Without a `lock_digest` input (the schedule) it binds the
+  no `AWS_*` variable enters the job environment. Without a `lock_digest` input it binds the
   manifest-pinned server image the job composes; it no longer needs a minted `nightly-lock/*` tag.
 - **dispatch or call `target=aws-ecs/redis-off`** — calls `e2e-cloud-aws.yml` for the ECS Redis-off
   cell with `genuine_model_bedrock: true`. The cell is provisioned with `enable_bedrock_ai=true` and
@@ -150,8 +157,9 @@ the model proxy: a driver that composed a local stack cannot certify a cloud cel
   and no `lock_digest` (no nightly lock minted yet) runs the canary once unbound: the harness writes
   its own `blocked` receipt and `tools/model_journey_report.py` a `blocked` row with a null lock digest,
   surfaced as a notice. It counts for no lock and is never a pass.
-- **nightly train** — `nightly-certification.yml` passes `genuine_model` to `release-train.yml`, which
-  forwards it with the qualification lock digest to its own cloud cells (`gate_cloud_parity`). The
+- **nightly train** — `nightly-certification.yml` currently passes `genuine_model: false`, so no model
+  cell runs. When enabled, `release-train.yml` forwards the flag with the qualification lock digest to
+  its own cloud cells (`gate_cloud_parity`). The
   selected GA cells upload distinct `journey-gate-report-nightly-model-<cell>-<attempt>` artifacts, which the train's
   `--declare-evidence` step reads. The canary runs inside that cell rather than a second workflow
   because the cell admits only its own run's journey runner.
