@@ -686,10 +686,9 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
             f.error(f"matrix: {path}: internal keys {counted} are counted in the expected-GA manifest (ruling R29)")
 
 
-def check_registry_platform_digests(manifest: dict, f: Findings, verify=None, verify_tag=None) -> None:
+def check_registry_platform_digests(manifest: dict, f: Findings, verify=None) -> None:
     """Verify registry architecture identities and mutable addresses against their digest bindings."""
     verify = verify or verify_image_platform_digests
-    verify_tag = verify_tag or verify_image_tag_digest
     for name, component in (manifest.get("components") or {}).items():
         if component.get("image"):
             try:
@@ -699,7 +698,7 @@ def check_registry_platform_digests(manifest: dict, f: Findings, verify=None, ve
             for path, artifact in ((name, component), (f"{name}.composeExecutor", component.get("composeExecutor") or {})):
                 if isinstance(artifact, dict) and artifact.get("image"):
                     try:
-                        verify_tag(artifact["image"], artifact.get("digest"))
+                        verify_image_tag_digest(artifact["image"], artifact.get("digest"))
                     except (OSError, TypeError, ValueError) as exc:
                         f.error(f"manifest: {path}.image: {exc}")
 

@@ -1007,7 +1007,7 @@ def test_validate_cli_fails_when_the_observation_is_of_another_server(monkeypatc
     assert "belongs to another server" in capsys.readouterr().out
 
 
-def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_reference():
+def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_reference(monkeypatch):
     """The nightly resolver pins images as <coordinate>@sha256:<index>; the registry check must
     inspect that coordinate, not refuse the reference as having none (2026.1 nightly freeze/bind)."""
     digest = "sha256:" + "d" * 64
@@ -1018,9 +1018,10 @@ def test_exact_candidate_registry_check_reads_the_coordinate_of_a_digest_referen
     seen = []
     findings = vp.Findings()
     tags = []
+    monkeypatch.setattr(vp, "verify_image_tag_digest",
+                        lambda reference, digest: tags.append((reference, digest)))
     vp.check_registry_platform_digests(manifest, findings,
-                                      verify=lambda artifact: seen.append(artifact["coordinate"]),
-                                      verify_tag=lambda reference, digest: tags.append((reference, digest)))
+                                      verify=lambda artifact: seen.append(artifact["coordinate"]))
     assert findings.errors == []
     assert seen == ["ghcr.io/honua-io/honua-server", "ghcr.io/honua-io/honua-console"]
     assert tags == [(component["image"], digest) for component in manifest["components"].values()]
