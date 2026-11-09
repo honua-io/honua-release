@@ -93,6 +93,10 @@ def test_published_release_identity_selects_configuration(retained):
 
 
 @pytest.mark.parametrize("mutate", [
+    lambda entry: entry.pop("platformDigests"),
+    lambda entry: entry.update(platformDigests={}),
+    lambda entry: entry["platformDigests"].update({"linux/amd64": "sha256:bad"}),
+    lambda entry: entry["platformDigests"].update({"windows/amd64": "sha256:" + "0" * 64}),
     lambda entry: entry.pop("release"),
     lambda entry: entry.pop("source"),
     lambda entry: entry["source"].update(revision="mutable-branch"),

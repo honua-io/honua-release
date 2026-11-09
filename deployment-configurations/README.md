@@ -1,8 +1,8 @@
 # Image-matched deployment configurations
 
 `catalog.v1.json` retains deployment configuration bytes by immutable server
-image index reference. Verified child digests are recorded as metadata. Each file has a SHA-256 checksum and each image records the
-source revision and rollback mode. Validate the committed catalog with:
+image index reference. Platform child digests are recorded as metadata. Each file
+has a SHA-256 checksum and each image records the source revision and rollback mode. Validate the committed catalog with:
 
 ```sh
 python3 tools/deployment_configuration.py --check
