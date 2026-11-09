@@ -9,8 +9,8 @@ import deployment_configuration as configuration
 
 @pytest.fixture
 def retained(tmp_path):
-    shutil.copytree(configuration.ROOT / "deployment-configurations",
-                    tmp_path / "deployment-configurations")
+    shutil.copytree(configuration.ROOT / "release/deployment-configurations",
+                    tmp_path / "release/deployment-configurations")
     return tmp_path
 
 
@@ -49,7 +49,7 @@ def test_unretained_helm_configuration_is_refused(retained):
 
 
 def test_changed_configuration_is_refused(retained):
-    path = retained / "deployment-configurations/2026.1-rc.1/compose.yaml"
+    path = retained / "release/deployment-configurations/2026.1-rc.1/compose.yaml"
     path.write_text(path.read_text().replace("read_only: true", "read_only: false"))
     with pytest.raises(ValueError, match="checksum mismatch"):
         configuration.select(retained, image(retained), "compose")
@@ -66,9 +66,9 @@ def test_paths_outside_catalog_are_refused(retained, path):
 def test_symlink_escape_is_refused(retained):
     outside = retained / "outside.yaml"
     outside.write_text("outside configuration catalog")
-    (retained / "deployment-configurations/link.yaml").symlink_to(outside)
+    (retained / "release/deployment-configurations/link.yaml").symlink_to(outside)
     rewrite(retained, lambda entry: entry["configurations"]["compose"][0].update(
-        path="deployment-configurations/link.yaml"))
+        path="release/deployment-configurations/link.yaml"))
     with pytest.raises(ValueError, match="escapes"):
         configuration.select(retained, image(retained), "compose")
 

@@ -12,7 +12,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from digests import file_sha256_hex
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOG = Path("deployment-configurations/catalog.v1.json")
+CATALOG = Path("release/deployment-configurations/catalog.v1.json")
 SCHEMA = ROOT / "schemas/deployment-configurations.v1.schema.json"
 
 
@@ -21,7 +21,7 @@ def checked_file(root: Path, record: dict) -> str:
     if relative.is_absolute() or ".." in relative.parts:
         raise ValueError("configuration path must be relative without parent traversal")
     path = (root / relative).resolve(strict=True)
-    if not path.is_relative_to(root / "deployment-configurations"):
+    if not path.is_relative_to(root / "release/deployment-configurations"):
         raise ValueError("configuration path escapes deployment-configurations")
     if not path.is_file():
         raise ValueError(f"configuration is not a regular file: {relative}")

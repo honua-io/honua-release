@@ -12,7 +12,7 @@
       "configurations": {
         "compose": [
           {
-            "path": "deployment-configurations/2026.1-rc.1/compose.yaml",
+            "path": "release/deployment-configurations/2026.1-rc.1/compose.yaml",
             "sha256": "3ce610311dd4c05473c8df3be95ef6dd6dcdc53f66d4b519adae8d0725d347cc"
           }
         ]
