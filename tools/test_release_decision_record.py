@@ -167,23 +167,53 @@ def test_snapshot_and_generated_record_are_complete_and_current():
     assert ledger['issues'] == rows
 
 
-def test_transient_failures_retry_identical_request_for_full_budget():
+@pytest.fixture
+def github_command():
+    with patch.object(decision, 'subprocess') as process:
+        yield process.run
+
+
+@pytest.fixture
+def retry_sleep():
+    with patch.object(decision, 'time') as clock:
+        yield clock.sleep
+
+
+@pytest.mark.parametrize('channel', ['subprocess', 'clock'])
+def test_retry_mocks_do_not_capture_other_process_io(channel, github_command, retry_sleep):
+    import subprocess
+    import sys
+    import time
+
+    failure = type('Result', (), {'returncode': 1, 'stderr': 'HTTP 403', 'stdout': ''})()
+    github_command.return_value = failure
+    if channel == 'subprocess':
+        external = subprocess.run([sys.executable, '-c', 'raise SystemExit(7)'], capture_output=True)
+        assert external.returncode == 7
+    else:
+        time.sleep(0.001)
+    with pytest.raises(ValueError, match='300-second'):
+        decision.gh('api', 'orgs/honua-io/repos')
+    assert sum(call.args[0] for call in retry_sleep.call_args_list) == 300
+
+
+def test_transient_failures_retry_identical_request_for_full_budget(github_command, retry_sleep):
     failure = type('Result', (), {'returncode':1,'stderr':'error connecting to api.github.com','stdout':''})()
-    with patch.object(decision.subprocess, 'run', return_value=failure) as run, patch.object(decision.time,'sleep') as sleep:
-        with pytest.raises(ValueError, match='300-second'):
-            decision.gh('api','orgs/honua-io/repos')
-        assert run.call_count == 6
-        assert all(call == run.call_args_list[0] for call in run.call_args_list)
-        assert sum(call.args[0] for call in sleep.call_args_list) == 300
+    github_command.return_value = failure
+    with pytest.raises(ValueError, match='300-second'):
+        decision.gh('api','orgs/honua-io/repos')
+    assert github_command.call_count == 6
+    assert all(call == github_command.call_args_list[0] for call in github_command.call_args_list)
+    assert sum(call.args[0] for call in retry_sleep.call_args_list) == 300
 
 
-def test_403_sleeps_then_retries_without_authentication():
+def test_403_sleeps_then_retries_without_authentication(github_command, retry_sleep):
     forbidden = type('Result', (), {'returncode':1,'stderr':'HTTP 403','stdout':''})()
     success = type('Result', (), {'returncode':0,'stderr':'','stdout':'[]'})()
-    with patch.object(decision.subprocess, 'run', side_effect=[forbidden,success]) as run, patch.object(decision.time,'sleep') as sleep:
-        assert decision.gh('api','orgs/honua-io/repos') == []
-        sleep.assert_called_once_with(60)
-        assert run.call_args_list[0] == run.call_args_list[1]
+    github_command.side_effect = [forbidden, success]
+    assert decision.gh('api','orgs/honua-io/repos') == []
+    retry_sleep.assert_called_once_with(60)
+    assert github_command.call_args_list[0] == github_command.call_args_list[1]
 
 
 @pytest.mark.parametrize('errors', [
@@ -191,29 +221,26 @@ def test_403_sleeps_then_retries_without_authentication():
     ['error connecting to api.github.com', 'HTTP 403'],
     ['HTTP 403', 'error connecting to api.github.com'],
 ])
-def test_403_and_transient_failures_share_one_retry_budget(errors):
+def test_403_and_transient_failures_share_one_retry_budget(errors, github_command, retry_sleep):
     failures = [type('Result', (), {'returncode':1, 'stderr':error, 'stdout':''})()
                 for error in errors] * 10
     success = type('Result', (), {'returncode':0, 'stderr':'', 'stdout':'[]'})()
-    # A final success ensures the old unbounded loop fails this test without hanging.
-    with patch.object(decision.subprocess, 'run', side_effect=[*failures, success]) as run, \
-            patch.object(decision.time, 'sleep') as sleep:
-        with pytest.raises(ValueError, match='300-second'):
-            decision.gh('api', 'repos/honua-io/honua-release/labels', '--method', 'POST',
-                        payload={'name':'bucket/2026.2'})
-        assert sum(call.args[0] for call in sleep.call_args_list) == 300
-        assert all(call.args[0] > 0 for call in sleep.call_args_list)
-        assert run.call_count == sleep.call_count + 1
-        assert all(call == run.call_args_list[0] for call in run.call_args_list)
+    github_command.side_effect = [*failures, success]
+    with pytest.raises(ValueError, match='300-second'):
+        decision.gh('api', 'repos/honua-io/honua-release/labels', '--method', 'POST',
+                    payload={'name':'bucket/2026.2'})
+    assert sum(call.args[0] for call in retry_sleep.call_args_list) == 300
+    assert all(call.args[0] > 0 for call in retry_sleep.call_args_list)
+    assert github_command.call_count == retry_sleep.call_count + 1
+    assert all(call == github_command.call_args_list[0] for call in github_command.call_args_list)
 
 
-def test_403_can_recover_on_final_budgeted_attempt():
+def test_403_can_recover_on_final_budgeted_attempt(github_command, retry_sleep):
     forbidden = type('Result', (), {'returncode':1, 'stderr':'HTTP 403', 'stdout':''})()
     success = type('Result', (), {'returncode':0, 'stderr':'', 'stdout':'[]'})()
-    with patch.object(decision.subprocess, 'run', side_effect=[forbidden] * 5 + [success]), \
-            patch.object(decision.time, 'sleep') as sleep:
-        assert decision.gh('api', 'orgs/honua-io/repos') == []
-        assert sum(call.args[0] for call in sleep.call_args_list) == 300
+    github_command.side_effect = [forbidden] * 5 + [success]
+    assert decision.gh('api', 'orgs/honua-io/repos') == []
+    assert sum(call.args[0] for call in retry_sleep.call_args_list) == 300
 
 
 def test_interrupted_apply_retains_new_cohort_before_removing_release_label(tmp_path, monkeypatch):

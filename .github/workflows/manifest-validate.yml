@@ -48,6 +48,8 @@ jobs:
         partition: [0, 1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - name: Enforce immutable GitHub Actions pins
         env:
           GH_TOKEN: ${{ github.token }}
@@ -59,6 +61,7 @@ jobs:
           cache-dependency-path: tools/requirements-validation.txt
       - name: Install deps
         run: python -m pip install -r tools/requirements-validation.txt
+      # CI must reject a missing verifier instead of skipping keyless tag verification.
       - name: Install gitsign (keyless tag verification)
         run: bash tools/install_gitsign.sh "$RUNNER_TEMP/gitsign-bin"
       - name: Self-test the tools gates
@@ -111,8 +114,6 @@ jobs:
       - name: Conserve the complete self-test inventory
         run: python tools/self_test_partitions.py verify artifacts/self-tests
 
-      # The tools/ gates' own tests must pass — they prove the manifest/matrix validator and the
-      # release finalizer both redden on a bad input (a gate that can't fail is worse than no gate).
       - name: Verify coverage audit inventory and source revision drift
         run: python3 tools/coverage_audit.py --check
 

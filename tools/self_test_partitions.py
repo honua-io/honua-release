@@ -4,6 +4,7 @@ import json
 import math
 import os
 from pathlib import Path
+import sys
 
 import pytest
 
@@ -15,14 +16,18 @@ SELF_TEST_PATHS = (
 )
 
 
-def partition_inventory(inventory, file_seconds):
+def require_unique_inventory(inventory):
     if not inventory or len(inventory) != len(set(inventory)):
         raise ValueError("self-test inventory must be nonempty and unique")
+
+
+def partition_inventory(inventory, file_seconds):
+    require_unique_inventory(inventory)
     files = defaultdict(list)
     for node in sorted(inventory):
         files[node.split("::", 1)[0]].append(node)
     costs = {file: file_seconds.get(file, 1.0) for file in files}
-    if any(not isinstance(cost, (int, float)) or not math.isfinite(cost) or cost <= 0
+    if any(type(cost) not in (int, float) or not math.isfinite(cost) or cost <= 0
            for cost in costs.values()):
         raise ValueError("self-test scheduling costs must be positive finite seconds")
     groups = [[] for _ in range(PARTITION_COUNT)]
@@ -42,6 +47,7 @@ class PartitionSelection:
         self.selected = []
         self.executed = []
 
+    @pytest.hookimpl(trylast=True)
     def pytest_collection_modifyitems(self, config, items):
         self.inventory = sorted(item.nodeid for item in items)
         self.selected = partition_inventory(self.inventory, self.file_seconds)[self.partition]
@@ -51,25 +57,40 @@ class PartitionSelection:
         config.hook.pytest_deselected(items=deselected)
 
     def pytest_runtest_logreport(self, report):
-        if report.when == "setup":
+        is_test_call = report.when == "call" and not hasattr(report, "context")
+        if is_test_call or (report.when == "setup" and report.skipped):
             self.executed.append(report.nodeid)
+
+
+def require_complete_execution(selected, executed):
+    if not selected or Counter(executed) != Counter(selected):
+        raise ValueError("self-test partition did not execute its full selection")
 
 
 def run_partition(root, partition, output):
     if partition not in range(PARTITION_COUNT):
         raise ValueError("invalid self-test partition")
     costs_path = root / ".github/self-test-costs.json"
-    costs = json.loads(costs_path.read_text()) if costs_path.exists() else {}
+    costs = json.loads(costs_path.read_text())
     selection = PartitionSelection(partition, costs)
     output = output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     previous_directory = Path.cwd()
+    previous_import_path = list(sys.path)
     try:
         os.chdir(root)
+        sys.path.insert(0, str(root))
         exit_code = int(pytest.main([*SELF_TEST_PATHS, "-q", f"--junitxml={output.with_suffix('.xml')}"],
                                    plugins=[selection]))
     finally:
         os.chdir(previous_directory)
+        sys.path[:] = previous_import_path
+    if exit_code == 0:
+        try:
+            require_complete_execution(selection.selected, selection.executed)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            exit_code = 1
     output.write_text(json.dumps({"partition": partition, "inventory": selection.inventory,
                                   "selected": selection.selected, "executed": sorted(selection.executed),
                                   "exitCode": exit_code}, indent=2) + "\n")
@@ -77,19 +98,18 @@ def run_partition(root, partition, output):
 
 
 def verify_receipts(receipts):
-    if len(receipts) != PARTITION_COUNT or sorted(receipt["partition"] for receipt in receipts) != list(range(PARTITION_COUNT)):
+    indexes = sorted(receipt["partition"] for receipt in receipts)
+    if len(receipts) != PARTITION_COUNT or indexes != list(range(PARTITION_COUNT)):
         raise ValueError("missing or duplicate self-test partitions")
     inventory = receipts[0]["inventory"]
-    if not inventory or len(inventory) != len(set(inventory)):
-        raise ValueError("self-test inventory must be nonempty and unique")
+    require_unique_inventory(inventory)
     selected = []
     for receipt in receipts:
         if receipt["exitCode"] != 0:
             raise ValueError("self-test partition failed")
         if receipt["inventory"] != inventory:
             raise ValueError("self-test collection drift between partitions")
-        if not receipt["selected"] or sorted(receipt["executed"]) != sorted(receipt["selected"]):
-            raise ValueError("self-test partition did not execute its full selection")
+        require_complete_execution(receipt["selected"], receipt["executed"])
         selected.extend(receipt["selected"])
     if Counter(selected) != Counter(inventory):
         raise ValueError("self-test selections must cover the inventory exactly once")
