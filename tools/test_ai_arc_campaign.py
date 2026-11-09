@@ -328,9 +328,27 @@ def test_a_decision_that_keeps_the_run_counted_is_validated_too(tmp_path, decisi
     assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001']
 
 
+def test_hold_adjudication_worker_stops_when_campaign_setup_is_interrupted(tmp_path, monkeypatch):
+    def interrupt_campaign(**kwargs):
+        raise RuntimeError('campaign setup interrupted')
+
+    monkeypatch.setattr(C, 'run_campaign', interrupt_campaign)
+    previous_threads = set(threading.enumerate())
+    try:
+        with pytest.raises(RuntimeError, match='campaign setup interrupted'):
+            test_a_fresh_hold_after_an_adjudication_needs_a_fresh_decision(tmp_path)
+        assert set(threading.enumerate()) <= previous_threads
+    finally:
+        holds = tmp_path / 'holds'
+        holds.mkdir(exist_ok=True)
+        (holds / 'local-docker-A1-001.hold').write_text('cleanup\n')
+        for thread in set(threading.enumerate()) - previous_threads:
+            thread.join(timeout=1)
+
+
 def test_a_fresh_hold_after_an_adjudication_needs_a_fresh_decision(tmp_path):
-    """Sol 4ac23739 item 2: acknowledgement is bound to the hold generation it answered."""
     log = []
+    stop = threading.Event()
     holds = tmp_path / 'holds'
 
     def gate(row):
@@ -344,14 +362,22 @@ def test_a_fresh_hold_after_an_adjudication_needs_a_fresh_decision(tmp_path):
 
     def decide():
         while not (holds / 'local-docker-A1-001.hold').is_file():
-            time.sleep(0.01)
-        time.sleep(0.05)
+            if stop.wait(0.01):
+                return
+        if stop.wait(0.05):
+            return
         (tmp_path / 'adjudications' / 'local-docker-A1-001.json').write_text(json.dumps(dict(GOOD, finding='product-failure')))
-    threading.Thread(target=decide, daemon=True).start()
-    with pytest.raises(TimeoutError):
-        C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
-                       common=[], wait_poll=0.01, max_wait=1.0, launch=fake_launch(tmp_path, {}, log, gate=gate))
-    assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:002']
+    worker = threading.Thread(target=decide)
+    worker.start()
+    try:
+        with pytest.raises(TimeoutError):
+            C.run_campaign(target='local-docker', arm='A1', schedule_rows=rows(3), out=tmp_path, hosts=['h1'], per_host=1,
+                           common=[], wait_poll=0.01, max_wait=1.0, launch=fake_launch(tmp_path, {}, log, gate=gate))
+        assert [r['runId'] for r, _, _ in log] == ['local-docker:A1:001', 'local-docker:A1:002']
+    finally:
+        stop.set()
+        worker.join(timeout=1)
+        assert not worker.is_alive()
 
 
 
