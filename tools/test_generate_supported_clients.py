@@ -1,6 +1,10 @@
 import pytest
 
-from generate_supported_clients import update_table
+from generate_supported_clients import main, update_table
+
+
+def test_release_notes_supported_clients_match_manifest():
+    assert main(["--check"]) == 0
 
 
 def test_table_uses_exact_published_artifacts_and_preserves_surrounding_prose():

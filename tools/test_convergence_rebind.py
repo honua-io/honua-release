@@ -1155,4 +1155,16 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
         "daf56db25c208765f5440e484a7c24fbc5ba81ab", candidate]
     manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
     assert manifest["protocolCertification"]["serverCertificationProducerSha"] in ruling["verified_server_commits"]
-    assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at 86286687", 1)[1]
+    evidence = ruling["evidence"].split("Re-checked at 86286687", 1)[1].split("Re-checked at ", 1)[0]
+    assert "No RPC was added or removed" in evidence
+
+
+def test_grpc_ruling_records_the_bound_cohort_scope_verification():
+    candidate = "1c7d0d1101809f2288566fb20d1ce1cb0a853869"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    assert candidate in ruling["verified_server_commits"]
+    evidence = ruling["evidence"].split(f"Re-checked at {candidate}", 1)[1].split("Re-checked at ", 1)[0]
+    assert "No RPC was added or removed" in evidence
+    assert "all six mapped services have identical public override signatures" in evidence
+    assert "no .proto file changed" in evidence
