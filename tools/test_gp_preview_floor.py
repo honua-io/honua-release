@@ -114,6 +114,9 @@ def _run(certification: Path, script: str) -> subprocess.CompletedProcess[str]:
 
 @pytest.mark.parametrize("capability,expected", [
     ({"key": "serve.wms", "maturity": {"implemented": 1}}, True),
+    ({"key": "serve.wps", "maturity": {"preview": 10}}, True),
+    ({"key": "serve.wps", "maturity": {"planned": 10}}, False),
+    ({"key": "serve.wps", "maturity": {}}, False),
     ({"key": "process.ogc-api-processes", "maturity": {"preview": 10}}, True),
     ({"key": "serve.wms", "maturity": {"preview": 1}}, False),
     ({"key": "process.ogc-api-processes", "maturity": {"planned": 10}}, False),
@@ -148,6 +151,28 @@ def test_source_preview_retains_the_classified_gp_rows_and_safety_floor(certific
     assert _load(matrix_path) == matrix
     validation = _run(certification_copy, "validate-protocol-requirements.py")
     assert validation.returncode == 0, validation.stderr
+
+
+def test_source_preview_retains_supported_wps_obligations(certification_copy: Path):
+    before = _load(certification_copy / CATALOG)
+    matrix_path = certification_copy / "sources/server/capability-matrix.v1.json"
+    matrix = _load(matrix_path)
+    capability = next(row for row in matrix["capabilities"] if row["key"] == "serve.wps")
+    capability["maturity"] = {"preview": 10}
+    matrix_path.write_text(json.dumps(matrix, indent=2) + "\n", encoding="utf-8")
+
+    result = _run(certification_copy, "generate-protocol-requirements.py")
+    assert result.returncode == 0, result.stderr
+    after = _load(certification_copy / CATALOG)
+    before_wps = [row for row in before["requirements"] if row["capability_key"] == "serve.wps"]
+    after_wps = [row for row in after["requirements"] if row["capability_key"] == "serve.wps"]
+    assert len(before_wps) == 22
+    assert after_wps == before_wps
+    assert {row["maturity"] for row in after_wps} == {"supported"}
+    assert _load(matrix_path) == matrix
+    validation = _run(certification_copy, "validate-protocol-requirements.py")
+    assert validation.returncode == 0, validation.stderr
+
 
 def test_generator_refuses_an_unclassified_gp_row(certification_copy: Path):
     path = certification_copy / RULING

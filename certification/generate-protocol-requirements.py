@@ -592,7 +592,9 @@ GP_PREVIEW_CAPABILITIES = frozenset(load(SOURCES / "gp-preview-floor.v1.json")["
 def capability_has_governed_rows(capability: dict) -> bool:
     maturity = capability.get("maturity", {})
     return bool(maturity.get("implemented") or (
-        maturity.get("preview") and capability["key"] in GP_PREVIEW_CAPABILITIES
+        maturity.get("preview") and (
+            capability["key"] in GP_PREVIEW_CAPABILITIES or capability["key"] == "serve.wps"
+        )
     ))
 
 
