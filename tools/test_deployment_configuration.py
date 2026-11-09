@@ -83,3 +83,49 @@ def test_cli_refuses_corrupt_catalog_without_selection(retained, capsys):
 
 def test_committed_catalog_is_valid():
     assert configuration.main(["--check"]) == 0
+
+
+RC1_INDEX = "ghcr.io/honua-io/honua-server@sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37"
+
+
+def test_published_release_identity_selects_configuration(retained):
+    assert configuration.select(retained, RC1_INDEX, "compose")["release"] == "2026.1-rc.1"
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda entry: entry.pop("release"),
+    lambda entry: entry.pop("source"),
+    lambda entry: entry["source"].update(revision="mutable-branch"),
+    lambda entry: entry["source"].update(repository=""),
+    lambda entry: entry["source"].update(path=""),
+    lambda entry: entry.update(configurations={}),
+    lambda entry: entry["configurations"].update(kustomize=[]),
+    lambda entry: entry["configurations"]["compose"][0].update(sha256="bad"),
+    lambda entry: entry.update(unexpected="value"),
+])
+def test_check_refuses_invalid_entry(retained, mutate, capsys):
+    rewrite(retained, mutate)
+    assert configuration.main(["--root", str(retained), "--check"]) == 1
+    assert not capsys.readouterr().out
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda catalog: catalog.update(schema="unsupported"),
+    lambda catalog: catalog.update(images={}),
+    lambda catalog: catalog.update(images={"ghcr.io/honua-io/honua-server:latest": next(iter(catalog["images"].values()))}),
+])
+def test_check_refuses_invalid_catalog(retained, mutate, capsys):
+    path = retained / configuration.CATALOG
+    catalog = json.loads(path.read_text())
+    mutate(catalog)
+    path.write_text(json.dumps(catalog))
+    assert configuration.main(["--root", str(retained), "--check"]) == 1
+    assert not capsys.readouterr().out
+
+
+def test_check_refuses_duplicate_keys(retained, capsys):
+    path = retained / configuration.CATALOG
+    text = path.read_text()
+    path.write_text(text.replace('"release":', '"release": "ambiguous", "release":', 1))
+    assert configuration.main(["--root", str(retained), "--check"]) == 1
+    assert not capsys.readouterr().out

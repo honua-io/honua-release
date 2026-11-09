@@ -1,7 +1,7 @@
 # Image-matched deployment configurations
 
 `catalog.v1.json` retains deployment configuration bytes by immutable server
-image reference. Each file has a SHA-256 checksum and each image records the
+image index reference. Verified child digests are recorded as metadata. Each file has a SHA-256 checksum and each image records the
 source revision and rollback mode. Validate the committed catalog with:
 
 ```sh
@@ -12,7 +12,7 @@ Select an image's configuration from a trusted, pinned release-repo checkout:
 
 ```sh
 python3 tools/deployment_configuration.py \
-  --image ghcr.io/honua-io/honua-server@sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574 \
+  --image ghcr.io/honua-io/honua-server@sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37 \
   --kind compose
 ```
 
