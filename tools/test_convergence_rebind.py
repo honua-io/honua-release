@@ -1183,3 +1183,31 @@ def test_official_projection_keeps_the_classified_gp_preview_surface(tmp_path):
     assert json.loads(projected)["capabilities"] == json.loads(original)["capabilities"]
     assert assignment_path.read_bytes() == original
     assert json.loads(path.read_bytes()) == matrix
+
+
+@pytest.mark.parametrize("lane", ["arcgis-stub", "geoservices-rest-stub"])
+def test_contract_stub_lane_keeps_its_client_and_unproduced_disposition(tmp_path, lane):
+    root = fixture(tmp_path)
+    catalog_path = root / MODULE.CATALOG
+    before = json.loads(catalog_path.read_bytes())
+    identity = ("capability_key", "surface", "operation", "canonical_client", "client_version")
+    expected = [tuple(row[key] for key in identity) for row in before["requirements"]
+                if row["client_lane"] == "arcgis-stub"]
+    assert expected
+    matrix_path = root / "certification/sources/server/capability-matrix.v1.json"
+    matrix = json.loads(matrix_path.read_bytes())
+    for capability in matrix["capabilities"]:
+        for interop in capability.get("interop", []):
+            if interop["clientLane"] == "arcgis-stub":
+                interop["clientLane"] = lane
+    matrix_path.write_text(json.dumps(matrix, indent=2) + "\n")
+    MODULE.run_catalog(root, before["receipt_schema_min"])
+    after = json.loads(catalog_path.read_bytes())
+    assert [tuple(row[key] for key in identity) for row in after["requirements"]
+            if row["client_lane"] == lane] == expected
+    owners = [entry for entry in after["production"]["unproduced"] if lane in entry.get("client_lanes", [])]
+    [owner] = owners
+    assert owner["owner"] == "honua-io/honua-server"
+    assert owner["issue"] == "https://github.com/honua-io/honua-server/issues/3481"
+    assert owner["cells"] > 0
+    assert not any(lane in entry.get("client_lanes", []) for entry in after["production"]["producers"])

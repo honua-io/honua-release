@@ -981,6 +981,7 @@ def main() -> None:
         "js-cesium": ("CesiumJS", "1.132.0"),
         "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
         "arcgis-stub": ("ArcGIS REST contract client", "11.3"),
+        "geoservices-rest-stub": ("ArcGIS REST contract client", "11.3"),
         "bi-excel": ("Microsoft Excel", "Microsoft 365"),
         "bi-powerbi": ("Microsoft Power BI", "2026.08"),
         "ci-bi": ("Microsoft.OData.Client", "8.3"),
