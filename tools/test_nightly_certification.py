@@ -40,6 +40,21 @@ def step(job, name_prefix):
     return next(s for s in job['steps'] if s.get('name', '').startswith(name_prefix))
 
 
+def test_nightly_skips_model_execution_until_an_approved_provider_is_wired(tmp_path):
+    jobs = workflow()['jobs']
+    assert jobs['train']['with']['genuine_model'] is False
+    policy = step(jobs['resolve'], 'Record genuine-model policy skip')
+    summary = tmp_path / 'summary.md'
+    result = subprocess.run(['bash', '-euc', policy['run']], cwd=tmp_path,
+                            env={**os.environ, 'GITHUB_STEP_SUMMARY': str(summary)},
+                            text=True, capture_output=True, check=True)
+    explanation = summary.read_text() + result.stdout
+    assert 'skipped' in explanation.lower()
+    assert 'Bedrock is prohibited' in explanation
+    assert 'Opus 5.5' in explanation and 'gpt-6.1-sol' in explanation
+    assert 'not qualification evidence' in explanation
+
+
 # ── GitHub expression evaluation (the subset these job conditions use) ──────────────────────
 
 TOKEN = re.compile(r"\s*(?:('(?:[^']|'')*')|(&&|\|\||==|!=|!|\(|\))|([A-Za-z_][A-Za-z0-9_.-]*))")

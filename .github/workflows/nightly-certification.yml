@@ -35,6 +35,15 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
+      - name: Record genuine-model policy skip
+        run: |
+          reason='Bedrock is prohibited. The approved Opus 5.5 Anthropic API and gpt-6.1-sol providers are not wired into this nightly cell.'
+          echo "::notice title=Genuine-model journey skipped::$reason"
+          {
+            echo '## Genuine-model journey: skipped'
+            echo "$reason"
+            echo 'This skip is not qualification evidence; the model journey remains unobserved.'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
@@ -490,10 +499,9 @@ jobs:
       candidate_ref: ${{ needs.protocol_ledger.outputs.candidate_ref }}
       capacity_receipt_url: ${{ needs.capacity.outputs.receipt_url }}
       dr_receipt_url: ${{ needs.dr.outputs.receipt_url }}
-      # R19: every night runs the genuine-model canary on its ECS Redis-off cell; the night takes no
-      # hand-supplied input, so this is not switchable here. Cost-free cloud runs use e2e-cloud-aws,
-      # whose genuine_model input defaults to false.
-      genuine_model: true
+      # The current model cell uses a prohibited provider. Keep its evidence unobserved
+      # until an approved provider is wired; resolve records the reason in the run summary.
+      genuine_model: false
     secrets: inherit
 
   mint:
