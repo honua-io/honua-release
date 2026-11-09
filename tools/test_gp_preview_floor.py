@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import runpy
 import shutil
 import subprocess
 import sys
@@ -109,6 +110,44 @@ def _run(certification: Path, script: str) -> subprocess.CompletedProcess[str]:
         cwd=certification, capture_output=True, text=True, timeout=600,
     )
 
+
+
+@pytest.mark.parametrize("capability,expected", [
+    ({"key": "serve.wms", "maturity": {"implemented": 1}}, True),
+    ({"key": "process.ogc-api-processes", "maturity": {"preview": 10}}, True),
+    ({"key": "serve.wms", "maturity": {"preview": 1}}, False),
+    ({"key": "process.ogc-api-processes", "maturity": {"planned": 10}}, False),
+    ({"key": "process.ogc-api-processes", "maturity": {}}, False),
+])
+def test_governed_rows_do_not_admit_other_preview_or_unimplemented_sources(capability, expected):
+    generator = runpy.run_path(str(CERTIFICATION / "generate-protocol-requirements.py"))
+    before = json.dumps(capability, sort_keys=True)
+    assert generator["capability_has_governed_rows"](capability) is expected
+    assert json.dumps(capability, sort_keys=True) == before
+
+def test_source_preview_retains_the_classified_gp_rows_and_safety_floor(certification_copy: Path):
+    before = _load(certification_copy / CATALOG)
+    keys = set(_load(certification_copy / RULING)["capability_keys"])
+    matrix_path = certification_copy / "sources/server/capability-matrix.v1.json"
+    matrix = _load(matrix_path)
+    capability = next(row for row in matrix["capabilities"] if row["key"] == "process.ogc-api-processes")
+    capability["maturity"] = {"preview": 10}
+    matrix_path.write_text(json.dumps(matrix, indent=2) + "\n", encoding="utf-8")
+
+    result = _run(certification_copy, "generate-protocol-requirements.py")
+    assert result.returncode == 0, result.stderr
+    after = _load(certification_copy / CATALOG)
+    before_gp = [row for row in before["requirements"] if row["capability_key"] in keys]
+    after_gp = [row for row in after["requirements"] if row["capability_key"] in keys]
+    assert after_gp == before_gp
+    floor = [row for row in after_gp if row["maturity"] == "supported"]
+    assert len(floor) == 8
+    assert {row["client_lane"] for row in floor if row["surface"] == "ogc-api-processes"} == {
+        "cite-ogc-api-processes", "py-owslib",
+    }
+    assert _load(matrix_path) == matrix
+    validation = _run(certification_copy, "validate-protocol-requirements.py")
+    assert validation.returncode == 0, validation.stderr
 
 def test_generator_refuses_an_unclassified_gp_row(certification_copy: Path):
     path = certification_copy / RULING

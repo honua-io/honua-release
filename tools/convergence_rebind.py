@@ -375,25 +375,18 @@ def fetch_snapshots(root: Path, gh: GitHub, revisions: dict[str, Any], pins: dic
 
 
 def project_official_protocol_assignments(root: Path) -> tuple[str, bytes]:
-    """Follow the exact vendored implemented protocol surface; never edit snapshots.
-
-    This is the existing validator's equality rule, applied to release-owned policy
-    during PLAN/APPLY. The plan exposes additions/demotions for normal review.
-    Historical catalog and policy files stay unchanged until that apply.
-    """
+    """Project the governed protocol surface and SDK versions from exact pinned snapshots."""
     path = "certification/sources/official-sdk-protocol-assignments.v1.json"
     assignments = load_json(root, Path(path))
     original = copy.deepcopy(assignments)
     matrix = load_json(root, Path("certification/sources/server/capability-matrix.v1.json"))
+    declarations = runpy.run_path(str(root / "certification/generate-protocol-requirements.py"))
     prefixes = ("serve.", "process.", "editing.", "routing.", "geocoding.", "styling.")
     implemented = sorted(row["key"] for row in matrix["capabilities"]
-                         if row["key"].startswith(prefixes) and row.get("maturity", {}).get("implemented"))
+                         if row["key"].startswith(prefixes) and declarations["capability_has_governed_rows"](row))
     if len(implemented) != len(set(implemented)):
         raise Finding("candidate matrix repeats an implemented protocol capability")
     assignments["capabilities"] = implemented
-    # Execute only the checked-out canonical generator, never vendored source code.
-    # Reuse its exact identity/version validation after the pinned data is fetched.
-    declarations = runpy.run_path(str(root / "certification/generate-protocol-requirements.py"))
     identities = {"sdk-js": "@honua/sdk-js", "sdk-python": "Honua SDK Python", "sdk-dotnet": "Honua SDK .NET"}
     seen = set()
     manifest = load_manifest(root)

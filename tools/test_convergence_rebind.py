@@ -1168,3 +1168,18 @@ def test_grpc_ruling_records_the_bound_cohort_scope_verification():
     assert "No RPC was added or removed" in evidence
     assert "all six mapped services have identical public override signatures" in evidence
     assert "no .proto file changed" in evidence
+
+
+def test_official_projection_keeps_the_classified_gp_preview_surface(tmp_path):
+    root = fixture(tmp_path)
+    path = root / "certification/sources/server/capability-matrix.v1.json"
+    matrix = json.loads(path.read_bytes())
+    capability = next(row for row in matrix["capabilities"] if row["key"] == "process.ogc-api-processes")
+    capability["maturity"] = {"preview": 10}
+    path.write_text(json.dumps(matrix, indent=2) + "\n")
+    assignment_path = root / "certification/sources/official-sdk-protocol-assignments.v1.json"
+    original = assignment_path.read_bytes()
+    _, projected = MODULE.project_official_protocol_assignments(root)
+    assert json.loads(projected)["capabilities"] == json.loads(original)["capabilities"]
+    assert assignment_path.read_bytes() == original
+    assert json.loads(path.read_bytes()) == matrix

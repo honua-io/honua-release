@@ -586,6 +586,14 @@ def dotnet_release_profile(contract: dict) -> dict[str, int]:
 
 
 GP_PREVIEW_FLOOR_RULING = "gp-preview-floor-2026-10-26"
+GP_PREVIEW_CAPABILITIES = frozenset(load(SOURCES / "gp-preview-floor.v1.json")["capability_keys"])
+
+
+def capability_has_governed_rows(capability: dict) -> bool:
+    maturity = capability.get("maturity", {})
+    return bool(maturity.get("implemented") or (
+        maturity.get("preview") and capability["key"] in GP_PREVIEW_CAPABILITIES
+    ))
 
 
 def gp_entry_selects(entry: dict, row: dict) -> bool:
@@ -754,10 +762,9 @@ def main() -> None:
             release_bucket: str | None = None,
             client_driver: str | None = None,
             client_package_digest: str | None = None) -> None:
-        # Every row is stamped maturity "supported". A capability the pinned matrix has not
-        # implemented must not enter the release denominator, on any lane.
+        # GP Preview rows are classified by the explicit floor ruling before publication.
         recorded = server_by_key.get(capability)
-        if recorded is not None and not recorded.get("maturity", {}).get("implemented"):
+        if recorded is not None and not capability_has_governed_rows(recorded):
             return
         # The preview-surfaces ruling (release#351) covers every client driver (R40), not only
         # the bounded roster: an addressable driver row on a Preview capability would be a
@@ -1005,7 +1012,7 @@ def main() -> None:
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
     for assignment in assignments["assignments"]:
         capability = server_by_key.get(assignment["capability_key"])
-        if not capability or not capability.get("maturity", {}).get("implemented"):
+        if not capability or not capability_has_governed_rows(capability):
             continue
         for client_id in assignment["clients"]:
             client = assignments["clients"][client_id]
@@ -1029,7 +1036,7 @@ def main() -> None:
     }
     for assignment in protocol_harness["assignments"]:
         capability = server_by_key.get(assignment["capability_key"])
-        if not capability or not capability.get("maturity", {}).get("implemented"):
+        if not capability or not capability_has_governed_rows(capability):
             continue
         add(
             capability=assignment["capability_key"], surface=assignment["surface"],
@@ -1047,7 +1054,7 @@ def main() -> None:
     sdk_protocols = load(SOURCES / "official-sdk-protocol-assignments.v1.json")
     for capability_key in sdk_protocols["capabilities"]:
         capability = server_by_key.get(capability_key)
-        if not capability or not capability.get("maturity", {}).get("implemented"):
+        if not capability or not capability_has_governed_rows(capability):
             continue
         if capability_key not in harness_capabilities and not any(
             sdk_capability_operations.get((client["source"], capability_key))
@@ -1081,7 +1088,7 @@ def main() -> None:
                 f"{classification}"
             )
         capability = server_by_key.get(capability_key)
-        if not capability or not capability.get("maturity", {}).get("implemented"):
+        if not capability or not capability_has_governed_rows(capability):
             continue
         contract = f"canonical-client-applicability@{applicability['revision']}"
         if classification == "official-sdk-required":

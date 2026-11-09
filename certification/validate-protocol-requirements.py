@@ -365,17 +365,17 @@ def main() -> None:
         for row in catalog["requirements"]
     }
     expected_assignments = set()
+    has_governed_rows = _generator_module().capability_has_governed_rows
     implemented_keys = {
         capability["key"]
         for capability in server["capabilities"]
-        if capability.get("maturity", {}).get("implemented")
+        if has_governed_rows(capability)
     }
     roster_preview_cells = {
         (cell["canonical_client"], cell["surface"], cell["operation"])
         for cell in bounded_roster["preview_cells"]
     }
     for assignment in assignments["assignments"]:
-        # The generator only emits assignments for implemented capabilities.
         if assignment["capability_key"] not in implemented_keys:
             continue
         for client_id in assignment["clients"]:
@@ -551,19 +551,19 @@ def main() -> None:
         capability["key"]
         for capability in server["capabilities"]
         if capability["key"].startswith(protocol_prefixes)
-        and capability.get("maturity", {}).get("implemented")
+        and has_governed_rows(capability)
     }
     declared_protocols = set(sdk_protocols["capabilities"])
     if implemented_protocols != declared_protocols:
         raise ValueError(
-            "Official SDK protocol assignments differ from the implemented public protocol surface "
+            "Official SDK protocol assignments differ from the governed public protocol surface "
             f"(missing={sorted(implemented_protocols - declared_protocols)}, "
             f"unexpected={sorted(declared_protocols - implemented_protocols)})"
         )
     implemented_capabilities = {
         capability["key"]
         for capability in server["capabilities"]
-        if capability.get("maturity", {}).get("implemented")
+        if has_governed_rows(capability)
     }
     decisions = applicability["decisions"]
     decision_capabilities = {decision["capability_key"] for decision in decisions}
@@ -928,9 +928,10 @@ def _load_desktop_source(roster: dict) -> SimpleNamespace:
     ))
     matrix = json.loads((ROOT / "sources" / "server" / "capability-matrix.v1.json").read_text(encoding="utf-8"))
     matrix_keys = {capability["key"] for capability in matrix["capabilities"]}
+    has_governed_rows = _generator_module().capability_has_governed_rows
     implemented = {
         capability["key"] for capability in matrix["capabilities"]
-        if capability.get("maturity", {}).get("implemented")
+        if has_governed_rows(capability)
     }
     return SimpleNamespace(
         source=source, qgis=qgis, drivers=drivers, must_fix=must_fix, prove=prove,
