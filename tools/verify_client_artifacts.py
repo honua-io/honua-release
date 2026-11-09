@@ -193,10 +193,16 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
 
     package, version = str(artifact['package']), str(artifact['version'])
     repository = 'honua-io/honua-sdk-js'
-    if (JS_WORKFLOWS.get(package) != 'publish-js-sdk.yml'
+    publisher_workflow = JS_WORKFLOWS.get(package)
+    publisher_policy = {
+        'publish-js-sdk.yml': ('js-sdk-v', {'workflow_dispatch', 'release'}),
+        'publish-mcp-server.yml': ('mcp-server-v', {'workflow_dispatch', 'push'}),
+    }.get(publisher_workflow)
+    if (publisher_policy is None
             or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository):
         raise VerificationError(f'{name}: missing npm gitHead has no allowlisted publisher source fallback')
-    ref = f'refs/tags/js-sdk-v{version}'
+    tag_prefix, events = publisher_policy
+    ref = f'refs/tags/{tag_prefix}{version}'
     workflow = signer_workflow({}, {'coordinate': package}, repository)
     predicate_type = 'https://slsa.dev/provenance/v1'
     response = _request_json('https://registry.npmjs.org/-/npm/v1/attestations/'
@@ -221,9 +227,9 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
         if build.get('buildType') != 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1':
             raise ValueError('publisher build type mismatch')
         if build['externalParameters']['workflow'] != {'ref': ref,
-                'repository': f'https://github.com/{repository}', 'path': '.github/workflows/publish-js-sdk.yml'}:
+                'repository': f'https://github.com/{repository}', 'path': f'.github/workflows/{publisher_workflow}'}:
             raise ValueError('publisher workflow or release ref mismatch')
-        if build['internalParameters']['github']['event_name'] not in {'workflow_dispatch', 'release'}:
+        if build['internalParameters']['github']['event_name'] not in events:
             raise ValueError('publisher event mismatch')
         if build.get('resolvedDependencies') != [{'uri': f'git+https://github.com/{repository}@{ref}',
                 'digest': {'gitCommit': artifact['sourceSha']}}]:
