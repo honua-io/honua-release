@@ -73,7 +73,7 @@ while (await Console.In.ReadLineAsync() is { } line)
                 var token = Environment.GetEnvironmentVariable("IMPORT_FIDELITY_SOURCE_TOKEN");
                 if (string.IsNullOrEmpty(token))
                     throw new ArgumentException("source token missing");
-                handler = new ArcGisSourceCredentialHandler(new ArcGisSourceCredential { Mode = ArcGisCredentialMode.Token, Token = token }, transport);
+                handler = new GeoServicesSourceCredentialHandler(new GeoServicesSourceCredential { Mode = GeoServicesCredentialMode.Token, Token = token }, transport);
             }
             if (configuredRead)
                 handler = new ReadbackRequestObserver(handler, observedRequests);
@@ -103,7 +103,7 @@ while (await Console.In.ReadLineAsync() is { } line)
             }
             else
             {
-                var root = ArcGisServiceRoot.Parse(address);
+                var root = GeoServicesServiceRoot.Parse(address);
                 IHonuaFeatureServerClient client = new HonuaFeatureServerClient(http, root.ToClientOptions());
                 var layer = request.TryGetProperty("layerId", out var layerElement) ? layerElement.GetInt32() : 0;
                 var query = request.TryGetProperty("query", out var queryElement)
@@ -314,7 +314,7 @@ internal sealed record ReadbackTarget(string BaseUrl, int LayerId, bool Candidat
         if (sourceAuth && (address.Scheme != "https" ||
             address.AbsoluteUri.TrimEnd('/') != Environment.GetEnvironmentVariable("IMPORT_FIDELITY_AUTH_SOURCE_URL")?.TrimEnd('/')))
             throw new ArgumentException("configured source credential destination mismatch");
-        ArcGisServiceRoot.Parse(address);
+        GeoServicesServiceRoot.Parse(address);
         return new ReadbackTarget(address.AbsoluteUri.TrimEnd('/'), layer, candidate, sourceAuth);
     }
 }
