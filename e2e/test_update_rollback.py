@@ -903,6 +903,6 @@ def test_missing_lambda_pins_refused_when_preview_ruling_ends(tmp_path, monkeypa
         server.pop(field)
     (directory / 'platform-manifest.yaml').write_text(yaml.safe_dump({
         'platformRelease': '2026.1-rc.2', 'components': {'honua-server': server}}))
-    monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy: None)
+    monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy, overrides=None: None)
     with pytest.raises(proof.ProofError, match='outside the Preview ruling'):
         proof.load_release(directory, 'rehearsal', run=lambda *args, **kwargs: pytest.fail('must refuse before I/O'))
