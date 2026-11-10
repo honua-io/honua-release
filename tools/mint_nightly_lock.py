@@ -279,6 +279,15 @@ def lambda_out_of_lock(deploy: dict, overrides: Path | None = None) -> str | Non
     return LAMBDA_OUT_OF_LOCK_RULING
 
 
+def lambda_pins_absent(server: dict) -> bool:
+    return not any(server.get(field) for field in
+                   ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'))
+
+
+def lambda_pins_exempt(server: dict, deploy: dict, overrides: Path | None = None) -> bool:
+    return lambda_pins_absent(server) and bool(lambda_out_of_lock(deploy, overrides))
+
+
 def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, *,
                       github=None, registry=None, attestations=publisher_attestations,
                       artifact_bytes=published_artifact_bytes, verifier=verify_publisher_bundle,
@@ -388,8 +397,9 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     lambda_target = 'awsLambda' in (deploy.get('honua-server') or {})
     preview_out_of_lock = []
     lambda_ruling = lambda_out_of_lock(deploy, overrides)
-    has_lambda_pin = any(server.get(field) for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'))
-    if ((lambda_target and not lambda_ruling) or has_lambda_pin) and not (
+    lambda_required = (lambda_target and not lambda_pins_exempt(server, deploy, overrides)
+                       or not lambda_pins_absent(server))
+    if lambda_required and not (
             server.get('awsLambdaImage') and re.fullmatch(
             r'sha256:[0-9a-f]{64}', str(server.get('awsLambdaDigest', '')))):
         errors.append('honua-server Lambda: declared deployment target requires an exact image and digest')
@@ -398,7 +408,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
         preview_out_of_lock.append({'ruling': lambda_ruling, 'component': 'honua-server',
                                     'field': 'awsLambdaImage', 'image': server['awsLambdaImage'],
                                     'digest': server['awsLambdaDigest'], 'lifecycleStatus': 'Preview'})
-    elif (lambda_target and not lambda_ruling) or has_lambda_pin:
+    elif lambda_required:
         coordinate = server['awsLambdaImage'].split('@', 1)[0].rsplit(':', 1)[0]
         oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda',
             server.get('repository', ''), server.get('sha', ''), server)

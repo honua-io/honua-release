@@ -34,7 +34,7 @@ def test_missing_preview_lambda_pins_structure_requires_the_ruling(required, mon
     for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
         manifest['components']['honua-server'].pop(field, None)
     if required:
-        monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy: None)
+        monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy, overrides=None: None)
     findings = vp.Findings()
     vp.check_structure(manifest, matrix, findings)
     errors = [error for error in findings.errors if 'awsLambdaEcrDigest' in error]

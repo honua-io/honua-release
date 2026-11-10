@@ -96,11 +96,11 @@ class Release:
 
 
 def authenticated_lambda(server, source, run):
-    if not any(server.get(field) for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest')):
-        from mint_nightly_lock import lambda_out_of_lock
+    from mint_nightly_lock import lambda_pins_absent, lambda_pins_exempt
+    if lambda_pins_absent(server):
         try:
             matrix = yaml.safe_load((TOOLS.parent / 'compatibility-matrix.yaml').read_text())
-            ruling = lambda_out_of_lock(matrix.get('deploy', {}))
+            ruling = lambda_pins_exempt(server, matrix.get('deploy', {}))
         except (OSError, ValueError, TypeError, AttributeError, yaml.YAMLError):
             ruling = None
         require(ruling, 'Lambda pins missing outside the Preview ruling')

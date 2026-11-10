@@ -1791,3 +1791,14 @@ def test_preview_lambda_ecr_pin_alone_is_not_absent(inputs, candidate, tmp_path)
         nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
             attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
             verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))
+
+
+@pytest.mark.parametrize('pins', [(), ('awsLambdaImage',), ('awsLambdaDigest',),
+                                  ('awsLambdaEcrDigest',),
+                                  ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest')])
+@pytest.mark.parametrize('ruling', [None, nightly.LAMBDA_OUT_OF_LOCK_RULING])
+def test_lambda_pin_exemption_requires_all_pins_absent_and_preview_ruling(monkeypatch, pins, ruling):
+    server = {field: 'present' for field in pins}
+    monkeypatch.setattr(nightly, 'lambda_out_of_lock', lambda deploy, overrides: ruling)
+    assert nightly.lambda_pins_absent(server) is (not pins)
+    assert nightly.lambda_pins_exempt(server, {}) is (not pins and ruling is not None)

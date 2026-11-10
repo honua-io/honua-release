@@ -186,7 +186,7 @@ jobs:
           import yaml
           import sys
           sys.path.insert(0, "tools")
-          from mint_nightly_lock import lambda_out_of_lock
+          from mint_nightly_lock import lambda_pins_exempt
 
           manifest = yaml.safe_load(open("platform-manifest.yaml", encoding="utf-8"))
           components = manifest.get("components") or {}
@@ -219,9 +219,8 @@ jobs:
           # `repository` is the digest- and tag-free coordinate computed above for server_image.
           pins["gp_batch_image"] = f"{repository}@{amd64}"
           matrix = yaml.safe_load(open("compatibility-matrix.yaml", encoding="utf-8"))
-          has_lambda_pin = any(server.get(field) for field in ("awsLambdaImage", "awsLambdaDigest", "awsLambdaEcrDigest"))
-          if (has_lambda_pin or os.environ.get("REQUESTED_TARGET") == "aws-serverless"
-                  or not lambda_out_of_lock(matrix.get("deploy", {}))):
+          if (os.environ.get("REQUESTED_TARGET") == "aws-serverless"
+                  or not lambda_pins_exempt(server, matrix.get("deploy", {}))):
               lambda_image = str(server.get("awsLambdaImage", ""))
               lambda_digest = str(server.get("awsLambdaDigest", ""))
               lambda_ecr_digest = str(server.get("awsLambdaEcrDigest", ""))
