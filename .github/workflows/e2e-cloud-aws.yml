@@ -1,3 +1,5 @@
+# rc.2 certification: ECS Fargate + RDS PostGIS + ElastiCache + Console S3/CloudFront.
+# Lambda and Kubernetes/Helm are not certified for rc.2; explicit Preview runs remain available.
 # AWS promise journeys: two required GA cells, aws-ecs x Redis off/on, plus Lambda and EKS Preview, where
 # aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
 # Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18; the founder
@@ -53,7 +55,7 @@ on:
         type: boolean
         default: true
       genuine_model_bedrock:
-        description: "Enable Bedrock on selected ECS/Lambda GA cells for the genuine-model journey (billed tokens)"
+        description: "Enable Bedrock on selected ECS cells (or explicitly requested Preview Lambda cells) for the genuine-model journey (billed tokens)"
         type: boolean
         default: false
       bedrock_model:

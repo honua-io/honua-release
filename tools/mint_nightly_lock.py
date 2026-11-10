@@ -567,7 +567,7 @@ ADVISORY_NIGHTLY_CLASSES = frozenset({'nightly-model-journey'})
 CLASS_GATES = {
     'build-test': 'build-test', 'contract': 'contract', 'sbom': 'sbom',
     'security': 'security', 'upgrade': 'upgrade', 'capacity-soak': 'capacity-soak',
-    'dr': 'dr', 'lambda-certification': 'cloud-parity',
+    'dr': 'dr', 'ecs-certification': 'cloud-parity',
     'protocol-ledger': 'protocol-certification',
     'deterministic-journey': 'journey', 'nightly-model-journey': 'journey',
     'executable-docs': 'executable-docs',

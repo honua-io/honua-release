@@ -436,7 +436,7 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
                               'lockDigest': digest, 'status': 'pass'}]
     for row in record['evidence']:
         if row['class'] in ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak',
-                            'dr', 'lambda-certification', 'protocol-ledger', 'deterministic-journey',
+                            'dr', 'ecs-certification', 'protocol-ledger', 'deterministic-journey',
                             'nightly-model-journey', 'executable-docs', 'installed-clients'):
             row.update(runId='4242', completedAt='2026-09-30T06:04:00Z')
             gh.artifacts[('4242', 'promotion-receipt-' + row['class'])] = [
@@ -448,7 +448,7 @@ def test_recorded_minting_run_uploads_fetch_into_a_complete_layout(inputs, tmp_p
     assert (out / 'trains/4242/platform-lock.json').read_bytes() == (minted / 'platform-lock.json').read_bytes()
     nightly_paths = {path.parent.parent.name for path in (out / 'evidence').glob('*/4242/receipt.json')}
     assert nightly_paths == {'build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                             'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                             'ecs-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
                              'executable-docs', 'installed-clients'}
     for name in nightly_paths:
         assert (out / 'evidence' / name / '4242/receipt.json').read_bytes() == (

@@ -81,7 +81,7 @@
         "upgrade",
         "capacity-soak",
         "dr",
-        "lambda-certification",
+        "ecs-certification",
         "protocol-ledger",
         "deterministic-journey",
         "nightly-model-journey",
@@ -113,7 +113,7 @@
         "dr": {
           "const": "nightly"
         },
-        "lambda-certification": {
+        "ecs-certification": {
           "const": "nightly"
         },
         "protocol-ledger": {

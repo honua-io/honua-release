@@ -1491,7 +1491,7 @@ def test_without_a_declare_hook_the_walk_never_reads_a_declaration():
 def test_resolve_walks_trunk_components_with_the_declaration_hook(monkeypatch):
     seen = {}
 
-    def capture(name, component, github, registry, limit, walk, declare=None):
+    def capture(name, component, github, registry, limit, walk, declare=None, resolve_lambda=True):
         seen[name] = declare
         raise resolver.ResolutionError(f'{name}: stop after capture')
 
@@ -2156,3 +2156,40 @@ def test_only_a_released_archive_skips_the_trunk_walk():
     assert resolver.released_archive(released_iac())
     assert not resolver.released_archive(released_iac(version='pre-release'))
     assert not resolver.released_archive({**released_iac(), 'artifact': 'oci-chart:honua'})
+
+
+def test_preview_lambda_does_not_block_ecs_candidate_resolution():
+    registry, _, _ = _lambda_registry(NEW, 'attestation-only')
+    component = {**_lambda_component(), 'repository': 'https://github.com/honua-io/honua-server'}
+    selected = resolver.select_component('honua-server', component, GitHub(), registry, 1,
+                                         resolve_lambda=False)
+    assert selected['sha'] == NEW
+    assert selected['artifactSourceRevision'] == NEW
+    # Preview metadata is disclosed as historical; it is not a candidate Lambda qualification.
+    assert selected['awsLambdaImage'] == component['awsLambdaImage']
+
+
+def test_required_lambda_still_refuses_unusable_candidate_image():
+    registry, _, _ = _lambda_registry(NEW, 'attestation-only')
+    component = {**_lambda_component(), 'repository': 'https://github.com/honua-io/honua-server'}
+    with pytest.raises(resolver.ResolutionError, match='single linux/amd64'):
+        resolver.select_component('honua-server', component, GitHub(), registry, 1)
+
+
+@pytest.mark.parametrize('scope,required', [('preview', False), ('ga-target', True), (None, True)])
+def test_resolve_uses_preview_ruling_to_select_lambda_requirement(monkeypatch, scope, required):
+    observed = []
+
+    def capture(*args, **kwargs):
+        observed.append(kwargs['resolve_lambda'])
+        raise resolver.ResolutionError('stop after scope capture')
+
+    monkeypatch.setattr(resolver, 'select_component', capture)
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *args, **kwargs: None)
+    matrix = {'deploy': {'honua-server': {'awsLambda': {'architectures': {
+        'x86_64': {'status': 'preview', 'releaseScope': scope}}}}}}
+    with pytest.raises(resolver.ResolutionError, match='stop after scope capture'):
+        resolver.resolve({'components': {'honua-server': {
+            'repository': 'https://github.com/honua-io/honua-server', 'sha': OLD}}},
+            matrix, None, None)
+    assert observed == [required]

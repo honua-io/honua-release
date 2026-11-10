@@ -401,7 +401,8 @@ class Registry:
         raise ResolutionError('no published SHA-bound image' + (': ' + '; '.join(reasons) if reasons else f' for {sha}'))
 
 
-def select_component(name, component, github, registry, limit, skips=None, declare=None):
+def select_component(name, component, github, registry, limit, skips=None, declare=None,
+                     resolve_lambda=True):
     """`skips`, when given, receives every newer trunk commit passed over and why, whether or not
     a commit qualifies; a sha weeks behind its trunk head must never be selected silently.
 
@@ -437,7 +438,11 @@ def select_component(name, component, github, registry, limit, skips=None, decla
             selected = {**component, 'sha': sha}
             if component.get('image'):
                 try:
-                    selected.update(registry.image(name, component, sha))
+                    # Preview metadata stays disclosed as historical out-of-lock data. It is
+                    # not a qualification of this candidate; explicit Lambda runs stay strict.
+                    image_component = component if resolve_lambda else {
+                        key: value for key, value in component.items() if key != 'awsLambdaImage'}
+                    selected.update(registry.image(name, image_component, sha))
                 except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                     skip(sha, str(exc))
                     continue
@@ -989,6 +994,10 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
     exact-candidate check still refuses, and the bound candidate is re-checked in full.
     `skips`, when given, receives each trunk-selected component's skip report, also on refusal."""
+    # Share the existing founder-ruling guard used by lock minting. Import lazily
+    # because mint_nightly_lock also uses this module's retry helper.
+    from mint_nightly_lock import lambda_out_of_lock
+    resolve_lambda = not lambda_out_of_lock(matrix.get('deploy', {}))
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     if prepare_deployments:
         if protocol_ledger != 'produce':
@@ -1027,7 +1036,8 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
                 if name in SDK_COMPONENTS else select_release(name, component, github)
                 if released_archive(component) else select_component(
                     name, component, github, registry, limit, walk,
-                    declare=lambda selected, name=name: component_versions(github, name, selected)))
+                    declare=lambda selected, name=name: component_versions(github, name, selected),
+                    resolve_lambda=resolve_lambda))
             selected = candidate['components'][name]
             image = selected.get('image')
             print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))

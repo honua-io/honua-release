@@ -76,7 +76,7 @@ COMPATIBILITY_CERTIFICATE_CLASS = "esri-bundle"
 
 EVIDENCE_CLASSES = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
-                     "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
+                     "capacity-soak", "dr", "ecs-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients"), "nightly"),
     **dict.fromkeys(("genuine-model-journey", "update-rollback", COMPATIBILITY_CERTIFICATE_CLASS, "cite"), "qualifying"),
 }
@@ -89,7 +89,7 @@ GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
 # class without a maximum here refuses.
 MAX_FRESHNESS = {
     **dict.fromkeys(("build-test", "contract", "sbom", "security", "upgrade",
-                     "capacity-soak", "dr", "lambda-certification", "protocol-ledger",
+                     "capacity-soak", "dr", "ecs-certification", "protocol-ledger",
                      "deterministic-journey", "nightly-model-journey", "executable-docs", "installed-clients",
                      "genuine-model-journey", "update-rollback"), timedelta(days=7)),
     **dict.fromkeys((COMPATIBILITY_CERTIFICATE_CLASS, "cite"), timedelta(days=14)),
