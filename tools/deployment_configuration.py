@@ -9,6 +9,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
 
+from check_protocol_certification import _DuplicateJsonKey, _unique_json_object
 from digests import file_sha256_hex
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,17 +31,12 @@ def checked_file(root: Path, record: dict) -> str:
     return str(path)
 
 
-def unique_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"catalog contains duplicate JSON key {key!r}")
-        result[key] = value
-    return result
-
-
 def verified_catalog(root: Path) -> dict:
-    catalog = json.loads((root / CATALOG).read_text(encoding="utf-8"), object_pairs_hook=unique_keys)
+    try:
+        catalog = json.loads((root / CATALOG).read_text(encoding="utf-8"),
+                             object_pairs_hook=_unique_json_object)
+    except _DuplicateJsonKey as exc:
+        raise ValueError(f"catalog contains duplicate JSON key {exc.args[0]!r}") from exc
     validator = Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
     try:
         validator.validate(catalog)
