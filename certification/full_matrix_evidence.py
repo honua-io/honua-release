@@ -12,6 +12,7 @@ import re
 from urllib.parse import quote
 
 ACTIONS_APP_ID = 15368
+AFFECTED_RUN_TITLE_PREFIX = 'CI affected '
 
 
 def positive(value):
@@ -19,9 +20,11 @@ def positive(value):
 
 
 def selected_run(payload, policy, sha):
+    """Newest completed full-matrix run on the sha; selective post-merge affected runs never certify."""
     runs = [r for r in payload.get('_workflow_runs', []) if isinstance(r, dict)
             and r.get('path') == policy['workflow'] and r.get('event') in policy['events']
-            and r.get('head_sha') == sha and r.get('status') == 'completed']
+            and r.get('head_sha') == sha and r.get('status') == 'completed'
+            and not str(r.get('display_title') or '').startswith(AFFECTED_RUN_TITLE_PREFIX)]
     if not runs:
         raise ValueError('missing completed full-matrix run for the pinned sha')
     return max(runs, key=lambda r: (str(r.get('updated_at') or r.get('created_at') or ''),
