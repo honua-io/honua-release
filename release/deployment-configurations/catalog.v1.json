@@ -1,0 +1,25 @@
+{
+  "schema": "honua.deployment-configurations/v1",
+  "images": {
+    "ghcr.io/honua-io/honua-server@sha256:c8d7aef98761618145725530b6a4e4b25ea4a9ae121da168362f9be4cf5f7d37": {
+      "release": "2026.1-rc.1",
+      "source": {
+        "repository": "honua-io/honua-server",
+        "revision": "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e",
+        "path": "docs/get-started/quickstart.md"
+      },
+      "rollbackMode": "manual",
+      "configurations": {
+        "compose": [
+          {
+            "path": "release/deployment-configurations/2026.1-rc.1/compose.yaml",
+            "sha256": "3ce610311dd4c05473c8df3be95ef6dd6dcdc53f66d4b519adae8d0725d347cc"
+          }
+        ]
+      },
+      "platformDigests": {
+        "linux/amd64": "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a3932ea95dc574"
+      }
+    }
+  }
+}
