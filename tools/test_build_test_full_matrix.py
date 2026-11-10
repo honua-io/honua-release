@@ -115,6 +115,27 @@ def test_full_matrix_green_run_with_all_expected_lanes_passes():
     assert "complete pinned shard execution" in why
 
 
+def _affected_run(*, run_id=42, updated_at="2026-08-25T01:00:00Z"):
+    return {"id": run_id, "path": ".github/workflows/ci.yml", "event": "workflow_dispatch", "head_sha": PINNED_SHA,
+            "status": "completed", "conclusion": "success", "run_attempt": 1, "check_suite_id": 4242,
+            "updated_at": updated_at, "display_title": f"CI affected {'9' * 12}..{PINNED_SHA[:12]}"}
+
+
+def test_newer_post_merge_affected_run_never_supersedes_a_full_matrix():
+    payload = _full_matrix_payload()
+    payload["_workflow_runs"].append(_affected_run())
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "pass", why
+
+
+def test_post_merge_affected_run_alone_does_not_certify():
+    payload = _full_matrix_payload()
+    payload["_workflow_runs"] = [_affected_run()]
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "fail"
+    assert "missing completed full-matrix run" in why
+
+
 def test_evaluate_rejects_green_subset_when_full_matrix_evidence_is_absent():
     manifest = {"components": {"honua-server": {"sha": PINNED_SHA}}}
     green_subset = {"check_runs": [{
