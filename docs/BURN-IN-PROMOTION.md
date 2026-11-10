@@ -52,6 +52,8 @@ stack. Docker Compose is for local evaluation. Lambda and Kubernetes/Helm are no
 in 2026.1 rc.2. The required `ecs-certification` receipt takes its verdict from `cloud-parity`,
 which checks both ECS cells; it replaces the historical `lambda-certification` receipt name.
 Every receipt remains bound to the exact candidate digest and minting workflow.
+Previously retained promotion records using `lambda-certification` must be replaced by a fresh
+nightly train and its ECS receipt before promotion; historical receipts are not relabeled.
 
 - `deterministic-journey`: deterministic passes on both GA cells.
 - `nightly-model-journey`: a genuine-model pass on ECS with Redis off.

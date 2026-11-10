@@ -1760,3 +1760,18 @@ def test_retired_geoservices_producer_is_not_a_fixture_gate_and_its_record_is_re
     stray = {**complete[0], 'gate': 'certification', 'job': 'conformance-retired'}
     with pytest.raises(ValueError, match='not a fixture gate'):
         fixture_revisions.declare([*complete, stray], run_id=RUN)
+
+
+def test_unavailable_preview_lambda_does_not_block_ecs_lock(inputs, candidate, tmp_path):
+    report, paths = inputs
+    preview_lambda_candidate(report, paths)
+    manifest = yaml.safe_load(paths[0].read_text())
+    server = manifest['components']['honua-server']
+    server.pop('awsLambdaImage')
+    server.pop('awsLambdaDigest')
+    paths[0].write_text(yaml.safe_dump(manifest))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    refs = nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+        verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))
+    assert not refs.get('previewOutOfLock')

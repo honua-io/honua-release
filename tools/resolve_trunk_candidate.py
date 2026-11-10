@@ -401,8 +401,25 @@ class Registry:
         raise ResolutionError('no published SHA-bound image' + (': ' + '; '.join(reasons) if reasons else f' for {sha}'))
 
 
-def select_component(name, component, github, registry, limit, skips=None, declare=None,
-                     resolve_lambda=True):
+class EcsCandidateRegistry:
+    def __init__(self, registry):
+        self.registry = registry
+
+    def candidate_tags(self, repository, sha):
+        return self.registry.candidate_tags(repository, sha)
+
+    def image(self, name, component, sha):
+        try:
+            return self.registry.image(name, component, sha)
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            ecs_component = {key: value for key, value in component.items() if key != 'awsLambdaImage'}
+            result = self.registry.image(name, ecs_component, sha)
+            # Never carry pins or a mirror from a different source revision.
+            return {**result, 'awsLambdaImage': None, 'awsLambdaDigest': None, 'awsLambdaEcrDigest': None}
+
+
+
+def select_component(name, component, github, registry, limit, skips=None, declare=None):
     """`skips`, when given, receives every newer trunk commit passed over and why, whether or not
     a commit qualifies; a sha weeks behind its trunk head must never be selected silently.
 
@@ -438,11 +455,8 @@ def select_component(name, component, github, registry, limit, skips=None, decla
             selected = {**component, 'sha': sha}
             if component.get('image'):
                 try:
-                    # Preview metadata stays disclosed as historical out-of-lock data. It is
-                    # not a qualification of this candidate; explicit Lambda runs stay strict.
-                    image_component = component if resolve_lambda else {
-                        key: value for key, value in component.items() if key != 'awsLambdaImage'}
-                    selected.update(registry.image(name, image_component, sha))
+                    selected.update(registry.image(name, component, sha))
+                    selected = {key: value for key, value in selected.items() if value is not None}
                 except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                     skip(sha, str(exc))
                     continue
@@ -997,7 +1011,8 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     # Share the existing founder-ruling guard used by lock minting. Import lazily
     # because mint_nightly_lock also uses this module's retry helper.
     from mint_nightly_lock import lambda_out_of_lock
-    resolve_lambda = not lambda_out_of_lock(matrix.get('deploy', {}))
+    if registry is not None and lambda_out_of_lock(matrix.get('deploy', {})):
+        registry = EcsCandidateRegistry(registry)
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     if prepare_deployments:
         if protocol_ledger != 'produce':
@@ -1036,8 +1051,7 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
                 if name in SDK_COMPONENTS else select_release(name, component, github)
                 if released_archive(component) else select_component(
                     name, component, github, registry, limit, walk,
-                    declare=lambda selected, name=name: component_versions(github, name, selected),
-                    resolve_lambda=resolve_lambda))
+                    declare=lambda selected, name=name: component_versions(github, name, selected)))
             selected = candidate['components'][name]
             image = selected.get('image')
             print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))

@@ -388,7 +388,9 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     lambda_target = 'awsLambda' in (deploy.get('honua-server') or {})
     preview_out_of_lock = []
     lambda_ruling = lambda_out_of_lock(deploy, overrides)
-    if lambda_target and not (server.get('awsLambdaImage') and re.fullmatch(
+    has_lambda_pin = bool(server.get('awsLambdaImage') or server.get('awsLambdaDigest'))
+    if ((lambda_target and not lambda_ruling) or has_lambda_pin) and not (
+            server.get('awsLambdaImage') and re.fullmatch(
             r'sha256:[0-9a-f]{64}', str(server.get('awsLambdaDigest', '')))):
         errors.append('honua-server Lambda: declared deployment target requires an exact image and digest')
     elif lambda_ruling and server.get('awsLambdaImage'):
@@ -396,7 +398,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
         preview_out_of_lock.append({'ruling': lambda_ruling, 'component': 'honua-server',
                                     'field': 'awsLambdaImage', 'image': server['awsLambdaImage'],
                                     'digest': server['awsLambdaDigest'], 'lifecycleStatus': 'Preview'})
-    elif lambda_target or server.get('awsLambdaImage'):
+    elif (lambda_target and not lambda_ruling) or has_lambda_pin:
         coordinate = server['awsLambdaImage'].split('@', 1)[0].rsplit(':', 1)[0]
         oci('honua-server', coordinate, server.get('awsLambdaDigest', ''), 'honua-server Lambda',
             server.get('repository', ''), server.get('sha', ''), server)
