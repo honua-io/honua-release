@@ -381,7 +381,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                     help="YAML of per-component advisory check names and workflow paths")
     ap.add_argument("--required", default=str(files.required),
                     help="YAML of per-component required build/test lanes (workflow path -> job names)")
-    ap.add_argument("--out", default=str(REPO_ROOT / "certification" / "gate-report-build-test.json"))
+    ap.add_argument("--out", default=str(REPO_ROOT / "artifacts" / "gate-report-build-test.json"))
     return ap.parse_args(argv)
 
 
@@ -391,7 +391,9 @@ def main(argv: list[str] | None = None) -> int:
     policy = BuildTestPolicy.load(_policy_files(args))
     gate = BuildTestGate(github_fetcher(policy), policy, validated_examples=live_validated_examples)
     report = gate.evaluate(manifest, args.enforcement)
-    Path(args.out).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    report_path = Path(args.out)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     print(f"== build-test (per-repo CI on pinned SHAs) — {report['overallStatus'].upper()} "
           f"(enforcement={args.enforcement}) ==")
