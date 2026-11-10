@@ -429,7 +429,7 @@ jobs:
 
       - name: Create kind cluster
         if: (steps.chart.outcome == 'success' || (steps.trunk_chart.outcome == 'success' && steps.trunk_prior_chart.outcome == 'success')) && steps.pull.outputs.pullable == '1'
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           cluster_name: honua-upgrade
 
@@ -1321,7 +1321,7 @@ jobs:
 
       - name: Install cosign (Sigstore)
         if: steps.pair.outputs.prior_source == 'nightly-lock'
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
 
       - name: Verify the prior nightly lock's keyless signature
         id: lock
