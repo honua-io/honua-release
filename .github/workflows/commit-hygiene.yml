@@ -15,4 +15,4 @@ concurrency:
 
 jobs:
   commit-hygiene:
-    uses: honua-io/.github/.github/workflows/commit-hygiene.yml@f4bdc749161f1a037a0a9c55b6995aa5295ba2c7 # v1.0.0
+    uses: honua-io/.github/.github/workflows/commit-hygiene.yml@98f1eaa3f36528790f846ddae9ac40683738e852 # v1.0.0
