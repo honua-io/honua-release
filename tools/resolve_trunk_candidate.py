@@ -417,8 +417,6 @@ class EcsCandidateRegistry:
             # Never carry pins or a mirror from a different source revision.
             return {**result, 'awsLambdaImage': None, 'awsLambdaDigest': None, 'awsLambdaEcrDigest': None}
 
-
-
 def select_component(name, component, github, registry, limit, skips=None, declare=None):
     """`skips`, when given, receives every newer trunk commit passed over and why, whether or not
     a commit qualifies; a sha weeks behind its trunk head must never be selected silently.
@@ -456,7 +454,9 @@ def select_component(name, component, github, registry, limit, skips=None, decla
             if component.get('image'):
                 try:
                     selected.update(registry.image(name, component, sha))
-                    selected = {key: value for key, value in selected.items() if value is not None}
+                    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+                        if selected.get(field) is None:
+                            selected.pop(field, None)
                 except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                     skip(sha, str(exc))
                     continue

@@ -1775,3 +1775,19 @@ def test_unavailable_preview_lambda_does_not_block_ecs_lock(inputs, candidate, t
         attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
         verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))
     assert not refs.get('previewOutOfLock')
+
+
+def test_preview_lambda_ecr_pin_alone_is_not_absent(inputs, candidate, tmp_path):
+    report, paths = inputs
+    preview_lambda_candidate(report, paths)
+    manifest = yaml.safe_load(paths[0].read_text())
+    server = manifest['components']['honua-server']
+    server.pop('awsLambdaImage')
+    server.pop('awsLambdaDigest')
+    server['awsLambdaEcrDigest'] = LAMBDA_DIGEST
+    paths[0].write_text(yaml.safe_dump(manifest))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    with pytest.raises(ValueError, match='Lambda'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+            attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+            verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))

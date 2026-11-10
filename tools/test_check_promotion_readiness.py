@@ -17,6 +17,23 @@ OTHER_LOCK = "sha256:" + "f" * 64
 ECS_IMAGE = "sha256:" + "b" * 64
 LAMBDA_IMAGE = "sha256:" + "c" * 64
 
+
+def test_ecs_only_rollback_receipt_passes_schema_and_readiness(tmp_path):
+    fixture = _fixture(tmp_path)
+    path = _receipt(fixture, 'update-rollback')
+    def remove_lambda(receipt):
+        for cell in receipt['cells']:
+            for phase in ('prior', 'candidate'):
+                cell[phase].pop('lambdaImageDigest')
+    _edit(path, remove_lambda)
+    schema = json.loads((Path(__file__).resolve().parents[1] / 'certification/promotion-evidence.v1.schema.json').read_text())
+    validator = Draft202012Validator({'$defs': schema['$defs'], '$ref': '#/$defs/updateRollbackRelease'})
+    receipt = json.loads(path.read_text())
+    for cell in receipt['cells']:
+        for phase in ('prior', 'candidate'):
+            validator.validate(cell[phase])
+    assert _decision(fixture)['status'] == 'pass'
+
 # Expectations are written out here rather than read from the module under test, so
 # dropping a class, journey or cell from the checker fails these tests.
 NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "capacity-soak", "dr",

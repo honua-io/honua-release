@@ -91,7 +91,8 @@ class Release:
     def public(self):
         return {"manifestDigest": self.manifest_digest, "lockDigest": self.lock_digest,
                 "sourceRevision": self.source, "schemaVersion": self.schema, "releaseVersion": self.version,
-                "imageDigest": self.image.rsplit("@", 1)[1], "lambdaImageDigest": self.lambda_digest}
+                "imageDigest": self.image.rsplit("@", 1)[1],
+                **({"lambdaImageDigest": self.lambda_digest} if self.lambda_digest else {})}
 
 
 def authenticated_lambda(server, source, run):
@@ -100,7 +101,7 @@ def authenticated_lambda(server, source, run):
         try:
             matrix = yaml.safe_load((TOOLS.parent / 'compatibility-matrix.yaml').read_text())
             ruling = lambda_out_of_lock(matrix.get('deploy', {}))
-        except (OSError, ValueError, TypeError, AttributeError):
+        except (OSError, ValueError, TypeError, AttributeError, yaml.YAMLError):
             ruling = None
         require(ruling, 'Lambda pins missing outside the Preview ruling')
         return '', '', False, None

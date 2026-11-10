@@ -890,6 +890,7 @@ def test_ecs_release_without_preview_lambda_authenticates_only_ecs(tmp_path):
     selected = proof.load_release(directory, 'rehearsal', run=runner)
     assert len(calls) == 1
     assert selected.image_for('aws-ecs/redis-on').endswith(server['digest'])
+    assert 'lambdaImageDigest' not in selected.public()
     with pytest.raises(proof.ProofError, match='Lambda'):
         selected.image_for('aws-serverless/redis-on')
 

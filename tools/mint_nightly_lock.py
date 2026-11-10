@@ -388,7 +388,7 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
     lambda_target = 'awsLambda' in (deploy.get('honua-server') or {})
     preview_out_of_lock = []
     lambda_ruling = lambda_out_of_lock(deploy, overrides)
-    has_lambda_pin = bool(server.get('awsLambdaImage') or server.get('awsLambdaDigest'))
+    has_lambda_pin = any(server.get(field) for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'))
     if ((lambda_target and not lambda_ruling) or has_lambda_pin) and not (
             server.get('awsLambdaImage') and re.fullmatch(
             r'sha256:[0-9a-f]{64}', str(server.get('awsLambdaDigest', '')))):

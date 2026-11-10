@@ -12,6 +12,22 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+
+@pytest.mark.parametrize('target,allowed', [('all', True), ('aws-ecs', True), ('aws-serverless', False)])
+def test_cloud_pin_step_handles_absent_preview_lambda(tmp_path, target, allowed):
+    manifest = yaml.safe_load((REPO_ROOT / 'platform-manifest.yaml').read_text())
+    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+        manifest['components']['honua-server'].pop(field, None)
+    (tmp_path / 'platform-manifest.yaml').write_text(yaml.safe_dump(manifest))
+    shutil.copy(REPO_ROOT / 'compatibility-matrix.yaml', tmp_path)
+    workflow = _workflow('e2e-cloud-aws.yml')
+    step = next(step for job in workflow['jobs'].values() for step in job.get('steps', []) if step.get('id') == 'pins')
+    code = step['run'].split("python - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
+    env = {**os.environ, 'GITHUB_OUTPUT': str(tmp_path / 'outputs'), 'REQUESTED_TARGET': target,
+           'PYTHONPATH': str(REPO_ROOT / 'tools')}
+    result = subprocess.run([sys.executable, '-c', code], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert (result.returncode == 0) == allowed, result.stderr
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_contract_suppression as ccs  # noqa: E402
 import check_release_promotion_approval as cpa  # noqa: E402
@@ -1607,9 +1623,10 @@ def test_cloud_candidate_pins_take_the_coordinate_of_a_digest_pinned_server_imag
                          "awsLambdaDigest": "sha256:" + "3" * 64, "awsLambdaEcrDigest": "pending-ecr-mirror",
                          "awsLambdaArchitecture": "x86_64"}}}
     (tmp_path / "platform-manifest.yaml").write_text(yaml.safe_dump(manifest))
+    (tmp_path / "compatibility-matrix.yaml").write_text((REPO_ROOT / "compatibility-matrix.yaml").read_text())
     output = tmp_path / "out"
     subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True,
-                   env={**os.environ, "GITHUB_OUTPUT": str(output)})
+                   env={**os.environ, "GITHUB_OUTPUT": str(output), "PYTHONPATH": str(REPO_ROOT / "tools")})
     pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert pins["server_image"] == f"ghcr.io/honua-io/honua-server@{index}"
     assert pins["gp_batch_image"] == f"ghcr.io/honua-io/honua-server@{amd64}"

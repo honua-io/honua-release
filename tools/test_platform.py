@@ -26,6 +26,21 @@ import trunk_reachability as tr
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize('required', [False, True])
+def test_missing_preview_lambda_pins_structure_requires_the_ruling(required, monkeypatch):
+    import mint_nightly_lock
+    manifest = vp._load_yaml(vp.MANIFEST_PATH)
+    matrix = vp._load_yaml(vp.MATRIX_PATH)
+    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+        manifest['components']['honua-server'].pop(field, None)
+    if required:
+        monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy: None)
+    findings = vp.Findings()
+    vp.check_structure(manifest, matrix, findings)
+    errors = [error for error in findings.errors if 'awsLambdaEcrDigest' in error]
+    assert bool(errors) == required
+
+
 def test_semver_ordering_prerelease_below_release():
     assert semver.parse("1.0.0-alpha") < semver.parse("1.0.0")
     assert semver.parse("1.0.0-alpha.1") < semver.parse("1.0.0-alpha.2")
