@@ -91,17 +91,20 @@ class Release:
     def public(self):
         return {"manifestDigest": self.manifest_digest, "lockDigest": self.lock_digest,
                 "sourceRevision": self.source, "schemaVersion": self.schema, "releaseVersion": self.version,
-                "imageDigest": self.image.rsplit("@", 1)[1], "lambdaImageDigest": self.lambda_digest}
+                "imageDigest": self.image.rsplit("@", 1)[1],
+                **({"lambdaImageDigest": self.lambda_digest} if self.lambda_digest else {})}
 
 
-def load_release(directory: Path, mode: str, *, run=subprocess.run):
-    """Authenticate the actual bytes before any deployment mutation; no `verified: true` inputs."""
-    raw = (directory / "platform-manifest.yaml").read_bytes()
-    manifest = yaml.safe_load(raw)
-    server = manifest["components"]["honua-server"]
-    source = server.get("sha")
-    require(isinstance(source, str) and SHA.fullmatch(source), "full immutable server source commit required")
-    image = immutable(server.get("image"), server.get("digest"))
+def authenticated_lambda(server, source, run):
+    from mint_nightly_lock import lambda_pins_absent, lambda_pins_exempt
+    if lambda_pins_absent(server):
+        try:
+            matrix = yaml.safe_load((TOOLS.parent / 'compatibility-matrix.yaml').read_text())
+            ruling = lambda_pins_exempt(server, matrix.get('deploy', {}))
+        except (OSError, ValueError, TypeError, AttributeError, yaml.YAMLError):
+            ruling = None
+        require(ruling, 'Lambda pins missing outside the Preview ruling')
+        return '', '', False, None
     lambda_image = immutable(server.get("awsLambdaImage"), server.get("awsLambdaDigest"))
     # A byte-identical mirror has the same manifest digest. A rewritten mirror needs a separately
     # authenticated mapping, which this producer deliberately does not infer from a declaration.
@@ -111,9 +114,6 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
     lambda_mirrored = mirror != PENDING_ECR_MIRROR
     require(not lambda_mirrored or DIGEST.fullmatch(mirror) is not None, "observed Lambda mirror digest required")
     require(not lambda_mirrored or mirror == server["awsLambdaDigest"], "Lambda mirror must preserve attested manifest bytes")
-    schema = str(server.get("dbSchema", ""))
-    require(re.fullmatch(r"[1-9][0-9]*", schema) is not None, "exact database schema required")
-    from check_image_attestation import check, AttestationMismatch
     # Lambda is deployed as a single-architecture child. The maintained build attests the
     # parent index; authenticate it and prove the child membership instead of demanding an
     # attestation for a subject the producer never signs.
@@ -130,7 +130,22 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
     except (ValueError, KeyError, TypeError) as exc:
         raise ProofError("Lambda attested parent index is invalid") from exc
     lambda_parent = lambda_image.split("@", 1)[0] + "@" + digest(index_raw.encode())
-    for reference in (image, lambda_parent):
+    return lambda_image, server['awsLambdaDigest'], lambda_mirrored, lambda_parent
+
+
+def load_release(directory: Path, mode: str, *, run=subprocess.run):
+    """Authenticate the actual bytes before any deployment mutation; no `verified: true` inputs."""
+    raw = (directory / "platform-manifest.yaml").read_bytes()
+    manifest = yaml.safe_load(raw)
+    server = manifest["components"]["honua-server"]
+    source = server.get("sha")
+    require(isinstance(source, str) and SHA.fullmatch(source), "full immutable server source commit required")
+    image = immutable(server.get("image"), server.get("digest"))
+    schema = str(server.get("dbSchema", ""))
+    require(re.fullmatch(r"[1-9][0-9]*", schema) is not None, "exact database schema required")
+    from check_image_attestation import check, AttestationMismatch
+    lambda_image, lambda_digest, lambda_mirrored, lambda_parent = authenticated_lambda(server, source, run)
+    for reference in filter(None, (image, lambda_parent)):
         verification = checked(run, ["gh", "attestation", "verify", "oci://" + reference,
                       "--repo", "honua-io/honua-server", "--format", "json", "--source-digest", source,
                       "--signer-workflow", "honua-io/honua-server/.github/workflows/nightly-container-build.yml"],
@@ -162,7 +177,7 @@ def load_release(directory: Path, mode: str, *, run=subprocess.run):
     else:
         require(mode == "rehearsal", "unknown update/rollback mode")
     require(bool(version) and len(version) <= 100, "declared platform release version missing")
-    return Release(manifest, digest(raw), lock_digest, source, schema, image, lambda_image, server["awsLambdaDigest"], version,
+    return Release(manifest, digest(raw), lock_digest, source, schema, image, lambda_image, lambda_digest, version,
                    lambda_mirrored)
 
 

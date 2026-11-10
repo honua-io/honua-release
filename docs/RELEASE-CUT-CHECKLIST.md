@@ -6,12 +6,16 @@ The 2026.1 cut follows continuous certification on trunk, as adopted by
 captain selects a lock to burn and qualify; promotion publishes that lock and moves the public channels.
 There is no freeze train or hand re-pin cycle. Gates can fail and cannot be overridden.
 
-The M1 developer preview is not a cut. M2 requires the first certified lock `2026.1-rc.3` and the
-genuine-model journey on both GA cells (`aws-ecs` Redis off and on) against a certified lock. Under the
-2026-10-25 re-tier the GA topology is Docker Compose on-prem plus AWS ECS; Lambda, EKS, Helm and the GP
-catalog are Preview, and x86_64 is the only architecture. M3 promotes rc.N with signed
-rc.3 → rc.N → rc.3 update and rollback proof. Read `origin/trunk` or immutable revisions, never a shared
-checkout, when checking sources. The manifest and compatibility matrix describe each lock's exact scope.
+**2026.1 rc.2 certification scope (founder ruling, 2026-11-09):** the sole production
+deployment target is AWS ECS Fargate with RDS PostGIS, ElastiCache, and Console hosted in
+S3/CloudFront, using the `honua-iac` ECS stack. Required deployment cells are
+`aws-ecs/redis-off` and `aws-ecs/redis-on`; Redis off exercises the supported refusal behavior.
+Lambda and Kubernetes/Helm are **not certified in 2026.1 rc.2** and their optional evidence
+cannot block or replace ECS evidence. Docker Compose remains the local evaluation path,
+not a certified production target. This scope supersedes earlier Compose/Lambda/Helm
+certification requirements below. x86_64 is the only certified architecture.
+Read `origin/trunk` or immutable revisions when checking sources. The manifest and
+compatibility matrix describe each lock's exact scope.
 
 ## Roles and evidence
 
@@ -33,25 +37,26 @@ can override a gate.
   client artifact identities. Verify trunk reachability and immutable package/image provenance.
 - [ ] Produce the matching manifest and matrix within the train. Establish live contract/schema facts
   from the exact booted server image; verify published client bytes. Do not reuse snapshot-derived facts.
-- [ ] Resolve the Lambda x86_64 image and actual registry-specific ECR mirror digest. Compare source/ECR
-  config and rootfs. A floating tag, pending mirror sentinel or another revision's digest fails.
+- [ ] Deploy the exact candidate with the `honua-iac` ECS stack: Fargate, RDS PostGIS,
+  ElastiCache and S3/CloudFront Console. Retain the immutable stack/preset revision and
+  live deployment receipt; static stack validation alone is not certification.
 - [ ] Produce every nightly evidence class: build/test, contract, SBOM, security, upgrade, capacity soak,
-  DR, Lambda certification, protocol ledger and journey evidence. Declare consumed classes as nightly
+  DR, ECS certification (`ecs-certification`), protocol ledger and journey evidence. Declare consumed classes as nightly
   or qualifying. No hand-supplied receipt URL or pin is part of the scheduled train.
 - [ ] Bind protocol requirements, producer revisions and ledger digest to this train's candidate through
   the producer workflow; do not hand re-pin the ledger after a cut.
-- [ ] Run the deterministic journey on {All-ECS, Lambda + Batch} × {Redis off, on}, plus the genuine
+- [ ] Run the deterministic journey on ECS × {Redis off, on}, plus the genuine
   model on ECS with Redis off. Each deterministic cell passes within two recorded attempts; a first
   failure is attributed to model or infrastructure and the last attempt passes. The genuine-model cell
   qualifies on its first attempt. `undetermined` counts as a failure. An infrastructure retry is
-  recorded separately and does not qualify. Under the October 16 owner amendment, EKS/Helm is informational
-  Preview, superseding decisions 12/18. Preserve unknown/failing EKS observations; no EKS success replaces
-  an ECS/Lambda requirement. Redis-on executes full workflows; a Redis-off typed refusal never proves GP
+  recorded separately and does not qualify. Lambda and EKS/Helm observations are optional,
+  not certified for rc.2; preserve unknown/failing observations. No Preview success replaces
+  an ECS requirement. Redis-on executes full workflows; a Redis-off typed refusal never proves GP
   executed. Enforce the cost ceiling before teardown; overruns fail and tear down.
 - [ ] Run all strict automated gates. A green night mints and signs `2026.1-rc.N`; a red night mints
   nothing. Retain the exact lock, manifest, matrix, full gate report and workflow provenance.
 
-The live Lambda proof must include exact-digest deploy/invoke/verify/teardown, true ECR digest,
+Optional Lambda proof (not an rc.2 gate) must include exact-digest deploy/invoke/verify/teardown, true ECR digest,
 asserted fixture row count, staging write round-trip, authorization denial and cold-start duration.
 Use the isolated staging target. Health-only evidence cannot discharge
 [release#282](https://github.com/honua-io/honua-release/issues/282); see the
@@ -69,7 +74,7 @@ blocked; it is not evidence that no prior release exists. Same-image lifecycle c
 replace the required two-revision application proof below.
 
 **Compose upgrade/rollback gate (founder decision D9, 2026-10-26, [#950](https://github.com/honua-io/honua-release/issues/950)).**
-The upgrade gate's required runtime fragment is the GA Docker Compose cell `upgrade-compose-normal`
+Historical GA upgrade coverage (not rc.2 production certification) uses the Docker Compose cell `upgrade-compose-normal`
 (`gate-upgrade.yml` job `compose-upgrade`; customer steps in
 [UPGRADE-RUNBOOK.md](UPGRADE-RUNBOOK.md#6-docker-compose-ga-upgrade-and-roll-back)), plus the scheduled
 `upgrade-compose-negative-control`. Its prior is the honua-server digest of the newest published
@@ -101,14 +106,14 @@ and never requires it. It stays a GA gate; the workflow, tools and tests above a
   and prove it finishes exactly once, rc.3 serves on rc.N's schema or refuses cleanly, and no
   version-skew corruption occurs. Verify restored data, client import/publish/query, serving health,
   graceful draining and cleanup. Same-version traffic shifting or a manual alias flip is insufficient.
-- [ ] For any Lambda (Preview) evidence, attach the exact lock, server SHA, x86_64 source/ECR digests, run URL/times,
+- For any optional Lambda evidence (not certified for rc.2), attach the exact lock, server SHA, x86_64 source/ECR digests, run URL/times,
   function/alias and before/after/rollback versions, executed serving assertions and teardown inventory
   and outcomes. Re-read contracts from the booted candidate. A source-built substitute or health-only
   receipt cannot discharge the bill's application upgrade/rollback items.
 - [ ] Produce fresh Esri and CITE evidence against this lock during the burn, with immutable provenance
   and bounds of at most 14 days. Every qualifying class is declared and bound to this digest; no class
   is carried forward from another lock or hand-minted outside a workflow.
-- [ ] Verify Lambda Preview labeling consistency. The matrix row is `preview` / `pending`; supported
+- Preserve Lambda Preview labeling consistency (informational for rc.2). The matrix row is `preview` / `pending`; supported
   status requires the full passed bill and a real HTTPS `qualificationReceipt` bound by
   `qualification_candidate_digest` to the exact manifest. A receipt reference alone is insufficient.
 

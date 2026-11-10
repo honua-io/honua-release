@@ -401,6 +401,22 @@ class Registry:
         raise ResolutionError('no published SHA-bound image' + (': ' + '; '.join(reasons) if reasons else f' for {sha}'))
 
 
+class EcsCandidateRegistry:
+    def __init__(self, registry):
+        self.registry = registry
+
+    def candidate_tags(self, repository, sha):
+        return self.registry.candidate_tags(repository, sha)
+
+    def image(self, name, component, sha):
+        try:
+            return self.registry.image(name, component, sha)
+        except (OSError, ValueError, subprocess.CalledProcessError):
+            ecs_component = {key: value for key, value in component.items() if key != 'awsLambdaImage'}
+            result = self.registry.image(name, ecs_component, sha)
+            # Never carry pins or a mirror from a different source revision.
+            return {**result, 'awsLambdaImage': None, 'awsLambdaDigest': None, 'awsLambdaEcrDigest': None}
+
 def select_component(name, component, github, registry, limit, skips=None, declare=None):
     """`skips`, when given, receives every newer trunk commit passed over and why, whether or not
     a commit qualifies; a sha weeks behind its trunk head must never be selected silently.
@@ -438,6 +454,9 @@ def select_component(name, component, github, registry, limit, skips=None, decla
             if component.get('image'):
                 try:
                     selected.update(registry.image(name, component, sha))
+                    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+                        if selected.get(field) is None:
+                            selected.pop(field, None)
                 except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                     skip(sha, str(exc))
                     continue
@@ -989,6 +1008,11 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
     ledger for the server selected here, so an unbound ledger is not a refusal yet. Every other
     exact-candidate check still refuses, and the bound candidate is re-checked in full.
     `skips`, when given, receives each trunk-selected component's skip report, also on refusal."""
+    # Share the existing founder-ruling guard used by lock minting. Import lazily
+    # because mint_nightly_lock also uses this module's retry helper.
+    from mint_nightly_lock import lambda_out_of_lock
+    if registry is not None and lambda_out_of_lock(matrix.get('deploy', {})):
+        registry = EcsCandidateRegistry(registry)
     candidate, candidate_matrix = copy.deepcopy(manifest), copy.deepcopy(matrix)
     if prepare_deployments:
         if protocol_ledger != 'produce':

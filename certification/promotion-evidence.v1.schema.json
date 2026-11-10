@@ -81,7 +81,7 @@
         "upgrade",
         "capacity-soak",
         "dr",
-        "lambda-certification",
+        "ecs-certification",
         "protocol-ledger",
         "deterministic-journey",
         "nightly-model-journey",
@@ -113,7 +113,7 @@
         "dr": {
           "const": "nightly"
         },
-        "lambda-certification": {
+        "ecs-certification": {
           "const": "nightly"
         },
         "protocol-ledger": {
@@ -645,6 +645,16 @@
             "properties": {
               "actuator": {
                 "const": "honua-gitops-aws-lambda"
+              },
+              "prior": {
+                "required": [
+                  "lambdaImageDigest"
+                ]
+              },
+              "candidate": {
+                "required": [
+                  "lambdaImageDigest"
+                ]
               }
             }
           }
@@ -661,6 +671,16 @@
             "properties": {
               "actuator": {
                 "const": "honua-gitops-aws-lambda"
+              },
+              "prior": {
+                "required": [
+                  "lambdaImageDigest"
+                ]
+              },
+              "candidate": {
+                "required": [
+                  "lambdaImageDigest"
+                ]
               }
             }
           }
@@ -840,8 +860,7 @@
         "manifestDigest",
         "sourceRevision",
         "schemaVersion",
-        "imageDigest",
-        "lambdaImageDigest"
+        "imageDigest"
       ],
       "properties": {
         "manifestDigest": {

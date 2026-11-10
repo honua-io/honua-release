@@ -873,3 +873,36 @@ def test_receipt_records_the_hermetic_controller_store_identity():
     receipt = run(runtime)
     assert receipt["controllerStore"]["images"] == native.CONTROLLER_STORE_IMAGES
     assert "controllerStore" not in run(Runtime())
+
+
+def test_ecs_release_without_preview_lambda_authenticates_only_ecs(tmp_path):
+    import yaml
+    directory, server = bundle(tmp_path)
+    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+        server.pop(field)
+    (directory / 'platform-manifest.yaml').write_text(yaml.safe_dump({
+        'platformRelease': '2026.1-rc.2', 'components': {'honua-server': server}}))
+    calls = []
+    def runner(argv, **kwargs):
+        calls.append(argv)
+        assert argv[:2] == ['gh', 'attestation']
+        return SimpleNamespace(returncode=0, stdout=json.dumps(_attestation(server['sha'], server['digest'])))
+    selected = proof.load_release(directory, 'rehearsal', run=runner)
+    assert len(calls) == 1
+    assert selected.image_for('aws-ecs/redis-on').endswith(server['digest'])
+    assert 'lambdaImageDigest' not in selected.public()
+    with pytest.raises(proof.ProofError, match='Lambda'):
+        selected.image_for('aws-serverless/redis-on')
+
+
+def test_missing_lambda_pins_refused_when_preview_ruling_ends(tmp_path, monkeypatch):
+    import mint_nightly_lock
+    import yaml
+    directory, server = bundle(tmp_path)
+    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+        server.pop(field)
+    (directory / 'platform-manifest.yaml').write_text(yaml.safe_dump({
+        'platformRelease': '2026.1-rc.2', 'components': {'honua-server': server}}))
+    monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy, overrides=None: None)
+    with pytest.raises(proof.ProofError, match='outside the Preview ruling'):
+        proof.load_release(directory, 'rehearsal', run=lambda *args, **kwargs: pytest.fail('must refuse before I/O'))
