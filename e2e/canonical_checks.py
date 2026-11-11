@@ -263,6 +263,21 @@ def check_geoprocessing(endpoint: str, fetch: Fetcher) -> CheckResult:
                        "catalog reachable but no GPServer/geoprocessing service advertised on this target")
 
 
+def _authenticated_capabilities(authenticated_fetch: Fetcher, url: str) -> tuple[dict | None, str]:
+    """Capabilities by id from the authenticated manifest, or None and the reason it is unusable."""
+    response = authenticated_fetch(url)
+    if response.status != 200:
+        return None, f"authenticated GET /api/v1/capabilities/manifest -> {response.status}"
+    try:
+        manifest = json.loads(response.body)
+    except (ValueError, TypeError):
+        manifest = None
+    caps = manifest.get("capabilities") if isinstance(manifest, dict) else None
+    if not isinstance(caps, list):
+        return None, "authenticated manifest is not valid JSON / missing capabilities[]"
+    return {c.get("id"): c for c in caps if isinstance(c, dict) and c.get("id")}, ""
+
+
 def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict | None = None,
                               authenticated_fetch: Fetcher | None = None,
                               frozen_server_sha: str | None = None,
@@ -382,23 +397,10 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
                            f"expected-GA ids not supported=true: {unsupported}", evidence)
 
     if authenticated_fetch is not None:
-        ar = authenticated_fetch(url)
-        if ar.status != 200:
+        aby_id, refusal = _authenticated_capabilities(authenticated_fetch, url)
+        if aby_id is None:
             evidence["authenticated"] = False
-            return CheckResult("capability-manifest", "fail",
-                               f"authenticated GET /api/v1/capabilities/manifest -> {ar.status}", evidence)
-        acaps = None
-        try:
-            aobj = json.loads(ar.body)
-            if isinstance(aobj, dict):
-                acaps = aobj.get("capabilities")
-        except (ValueError, TypeError):
-            acaps = None
-        if not isinstance(acaps, list):
-            evidence["authenticated"] = False
-            return CheckResult("capability-manifest", "fail",
-                               "authenticated manifest is not valid JSON / missing capabilities[]", evidence)
-        aby_id = {c.get("id"): c for c in acaps if isinstance(c, dict) and c.get("id")}
+            return CheckResult("capability-manifest", "fail", refusal, evidence)
         # An expected-GA id entirely OMITTED from the authenticated manifest is exactly as bad as one
         # present with available != true — both must fail, not silently drop out of `unavailable`.
         # The authenticated leg answers with the id the public leg resolved, never its own choice.
