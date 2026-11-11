@@ -659,6 +659,7 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
         f.error("matrix: capabilities must be a mapping")
         return
     ga_keys = set((expected_ga or {}).get("expectedGa") or [])
+    ga_keys |= set(ego.legacy_ids(expected_ga or {}).values())  # a declared legacy id counts as its policy id
     for name, row in capabilities.items():
         path = f"capabilities.{name}"
         if not isinstance(row, dict):
