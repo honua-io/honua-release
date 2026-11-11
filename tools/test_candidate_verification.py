@@ -51,27 +51,27 @@ def test_plan_command_refuses_while_switched_off(tmp_path, monkeypatch):
     assert "gate-executable-docs" not in completed.stderr
 
 
-def _row(sha: str, ticket: int, result: str, run_url: str) -> str:
-    return cv.result_row(WHEN, sha, cv.Outcome(ticket, result, run_url))
+def _row(sha: str, outcome: cv.Outcome) -> str:
+    return cv.result_row(WHEN, sha, outcome)
 
 
 def test_row_replaces_the_same_candidate_and_keeps_other_shas():
-    other = _row("a" * 40, 1131, "pass", "https://example.test/older")
-    first = _row(SHA, 1131, "fail", "https://example.test/1")
-    second = _row(SHA, 1131, "pass", "https://example.test/2")
+    other = _row("a" * 40, cv.Outcome(1131, "pass", "https://example.test/older"))
+    first = _row(SHA, cv.Outcome(1131, "fail", "https://example.test/1"))
+    second = _row(SHA, cv.Outcome(1131, "pass", "https://example.test/2"))
     body = cv.upsert_row(other + "\n" + first, second)
     assert body.splitlines() == [other, second]
 
 
 def test_row_rejects_a_short_sha_or_unknown_result():
     with pytest.raises(ValueError):
-        _row("abc", 1131, "pass", "https://example.test/1")
+        _row("abc", cv.Outcome(1131, "pass", "https://example.test/1"))
     with pytest.raises(ValueError):
-        _row(SHA, 1131, "green", "https://example.test/1")
+        _row(SHA, cv.Outcome(1131, "green", "https://example.test/1"))
 
 
 def test_failure_issue_names_the_lane_once():
-    row = _row(SHA, 1132, "fail", "https://example.test/run")
+    row = _row(SHA, cv.Outcome(1132, "fail", "https://example.test/run"))
     body = cv.failure_body([row])
     assert "Owning lane: s-qa-live." in body
     assert SHA in body
@@ -85,7 +85,7 @@ def test_record_posts_one_row_per_ticket_and_one_failure_issue(monkeypatch):
     def post(kind, target, body):
         calls.append((kind, target, body))
 
-    older = _row("b" * 40, 1131, "blocked", "https://example.test/old")
+    older = _row("b" * 40, cv.Outcome(1131, "blocked", "https://example.test/old"))
     rows = cv.record(
         cv.Recording(
             WHEN,
