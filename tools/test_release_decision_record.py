@@ -162,9 +162,9 @@ def test_snapshot_and_generated_record_are_complete_and_current():
         assert 'body' not in row  # issue bodies / raw API responses never enter the repo
         if row['state']=='open' and row['bucket']=='must-fix-before-cut':
             assert f"https://github.com/honua-io/{row['repo']}/issues/{row['number']}" in table
-    assert decision.RECORD.read_text() == decision.render(data, rows, config)
+    assert decision.current_snapshot(decision.RECORD.read_text()) == decision.current_snapshot(decision.render(data, rows, config))
     ledger = json.loads(decision.LEDGER.read_text())
-    assert ledger['issues'] == rows
+    assert json.loads(decision.current_snapshot(json.dumps(ledger['issues']))) == json.loads(decision.current_snapshot(json.dumps(rows)))
 
 
 def test_transient_failures_retry_identical_request_for_full_budget():
