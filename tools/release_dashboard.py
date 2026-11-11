@@ -286,15 +286,18 @@ footer { color:var(--text-2); font-size:.85rem; margin:24px 0; } .id { white-spa
 """
 
 
-def render(data, rules, coverage=None, series=()):
-    # Keep archived points intact on disk while combining the renamed bucket in memory.
+def current_burndown_series(series):
     current_series = []
     for point in series:
         counts = Counter()
         for bucket, count in point['open'].items():
             counts[record.current_release_name(bucket)] += count
         current_series.append({**point, 'open': dict(counts)})
-    series = current_series
+    return current_series
+
+
+def render(data, rules, coverage=None, series=()):
+    series = current_burndown_series(series)
     rows = record.decisions(data, rules, strict=False)
     rows = [{**row, 'labels': [record.current_release_name(label) for label in row['labels']]}
             for row in rows]
