@@ -36,6 +36,14 @@ class Outcome:
     run_url: str
 
 
+@dataclass(frozen=True)
+class Recording:
+    when: str
+    candidate_sha: str
+    outcomes: tuple[Outcome, ...]
+    existing: tuple[tuple[int, str], ...] = ()
+
+
 TICKETS = (
     Ticket(1131, "s-rc2-vendor", ("gate-executable-docs",)),
     Ticket(1132, "s-qa-live", ("e2e-local-docker",)),
@@ -61,18 +69,19 @@ def dispatch_workflows() -> tuple[str, ...]:
     return tuple(seen)
 
 
-def result_row(when: str, candidate_sha: str, ticket: int, result: str, run_url: str, lane: str) -> str:
+def result_row(when: str, candidate_sha: str, outcome: Outcome) -> str:
     if not SHA_RE.fullmatch(candidate_sha):
         raise ValueError("candidate sha must be 40 lowercase hex characters")
-    if result not in RESULTS:
+    if outcome.result not in RESULTS:
         raise ValueError("result must be pass, fail or blocked")
-    if ticket not in _BY_NUMBER:
+    ticket = _BY_NUMBER.get(outcome.ticket)
+    if ticket is None:
         raise ValueError("unknown verification ticket")
-    if not when or not run_url or not lane:
-        raise ValueError("when, run_url and lane are required")
+    if not when or not outcome.run_url:
+        raise ValueError("when and run_url are required")
     return (
-        f"{when} sha={candidate_sha} ticket={ticket} result={result} "
-        f"run={run_url} lane={lane}"
+        f"{when} sha={candidate_sha} ticket={outcome.ticket} result={outcome.result} "
+        f"run={outcome.run_url} lane={ticket.lane}"
     )
 
 
@@ -110,21 +119,14 @@ def failure_body(rows: list[str]) -> str:
     return "\n".join(lines)
 
 
-def record(
-    when: str,
-    candidate_sha: str,
-    outcomes: tuple[Outcome, ...],
-    post,
-    existing: dict[int, str] | None = None,
-) -> dict[int, str]:
+def record(recording: Recording, post) -> dict[int, str]:
     if not switched_on():
         raise RuntimeError("candidate verification is switched off")
-    previous = existing or {}
+    previous = dict(recording.existing)
     rows: dict[int, str] = {}
     failures: list[str] = []
-    for outcome in outcomes:
-        ticket = _BY_NUMBER[outcome.ticket]
-        row = result_row(when, candidate_sha, outcome.ticket, outcome.result, outcome.run_url, ticket.lane)
+    for outcome in recording.outcomes:
+        row = result_row(recording.when, recording.candidate_sha, outcome)
         rows[outcome.ticket] = row
         post("comment", outcome.ticket, upsert_row(previous.get(outcome.ticket, ""), row))
         if outcome.result == "fail":
@@ -167,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     when = os.environ.get("CANDIDATE_VERIFICATION_WHEN") or datetime.now().astimezone().isoformat(timespec="seconds")
     outcomes = load_outcomes(Path(args.results))
-    record(when, args.candidate_sha, outcomes, lambda *_: None)
+    record(Recording(when, args.candidate_sha, outcomes), lambda *_: None)
     return 0
 
 

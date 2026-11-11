@@ -51,23 +51,27 @@ def test_plan_command_refuses_while_switched_off(tmp_path, monkeypatch):
     assert "gate-executable-docs" not in completed.stderr
 
 
+def _row(sha: str, ticket: int, result: str, run_url: str) -> str:
+    return cv.result_row(WHEN, sha, cv.Outcome(ticket, result, run_url))
+
+
 def test_row_replaces_the_same_candidate_and_keeps_other_shas():
-    other = cv.result_row(WHEN, "a" * 40, 1131, "pass", "https://example.test/older", "s-rc2-vendor")
-    first = cv.result_row(WHEN, SHA, 1131, "fail", "https://example.test/1", "s-rc2-vendor")
-    second = cv.result_row(WHEN, SHA, 1131, "pass", "https://example.test/2", "s-rc2-vendor")
+    other = _row("a" * 40, 1131, "pass", "https://example.test/older")
+    first = _row(SHA, 1131, "fail", "https://example.test/1")
+    second = _row(SHA, 1131, "pass", "https://example.test/2")
     body = cv.upsert_row(other + "\n" + first, second)
     assert body.splitlines() == [other, second]
 
 
 def test_row_rejects_a_short_sha_or_unknown_result():
     with pytest.raises(ValueError):
-        cv.result_row(WHEN, "abc", 1131, "pass", "https://example.test/1", "s-rc2-vendor")
+        _row("abc", 1131, "pass", "https://example.test/1")
     with pytest.raises(ValueError):
-        cv.result_row(WHEN, SHA, 1131, "green", "https://example.test/1", "s-rc2-vendor")
+        _row(SHA, 1131, "green", "https://example.test/1")
 
 
 def test_failure_issue_names_the_lane_once():
-    row = cv.result_row(WHEN, SHA, 1132, "fail", "https://example.test/run", "s-qa-live")
+    row = _row(SHA, 1132, "fail", "https://example.test/run")
     body = cv.failure_body([row])
     assert "Owning lane: s-qa-live." in body
     assert SHA in body
@@ -81,16 +85,18 @@ def test_record_posts_one_row_per_ticket_and_one_failure_issue(monkeypatch):
     def post(kind, target, body):
         calls.append((kind, target, body))
 
-    older = cv.result_row(WHEN, "b" * 40, 1131, "blocked", "https://example.test/old", "s-rc2-vendor")
+    older = _row("b" * 40, 1131, "blocked", "https://example.test/old")
     rows = cv.record(
-        WHEN,
-        SHA,
-        (
-            cv.Outcome(1131, "pass", "https://example.test/docs"),
-            cv.Outcome(1132, "fail", "https://example.test/live"),
+        cv.Recording(
+            WHEN,
+            SHA,
+            (
+                cv.Outcome(1131, "pass", "https://example.test/docs"),
+                cv.Outcome(1132, "fail", "https://example.test/live"),
+            ),
+            ((1131, older),),
         ),
         post,
-        {1131: older},
     )
     assert [call[0] for call in calls] == ["comment", "comment", "issue"]
     assert calls[0][1] == 1131 and "result=pass" in calls[0][2]
