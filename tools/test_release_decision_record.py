@@ -68,9 +68,9 @@ def test_bugs_and_ci_are_pre_cut_whatever_the_priority():
     assert decision.classify(titled, rules())[0] == 'must-fix-before-cut'
     ci = issue('priority/P3'); ci['title'] = 'perf(ci): build-time deep cut'
     assert decision.classify(ci, rules())[0] == 'must-fix-before-cut'
-    # Explicit 2026.2 still wins; epics and hunt program issues are not bugs.
-    later = issue('priority/P2', 'bug', 'release/2026.2')
-    assert decision.classify(later, rules())[0] == '2026.2'
+    # Explicit 2027.1 still wins; epics and hunt program issues are not bugs.
+    later = issue('priority/P2', 'bug', 'release/2027.1')
+    assert decision.classify(later, rules())[0] == '2027.1'
     program = issue('bug-hunt/2026-09-03'); program['title'] = '2026.1 GA Bug-Hunt & Quality Program'
     assert decision.classify(program, rules())[0] == 'post-cut-hardening'
     epic = issue('priority/P2', 'bug'); epic['title'] = 'Epic: hunt follow-ups'
@@ -84,9 +84,9 @@ def test_unknown_or_conflicting_priority_fails():
 
 
 def test_label_plan_preserves_unrelated_labels_and_removes_release_for_later():
-    row = {**issue('priority/P1','security','release/2026.1','bucket/must-fix-before-cut'), 'bucket':'2026.2'}
+    row = {**issue('priority/P1','security','release/2026.1','bucket/must-fix-before-cut'), 'bucket':'2027.1'}
     add, remove, rejected = decision.label_plan(row, rules())
-    assert add == ['bucket/2026.2','release/2026.2']
+    assert add == ['bucket/2027.1','release/2027.1']
     assert remove == ['bucket/must-fix-before-cut','release/2026.1']
     assert not rejected
     row['labels'] = sorted((set(row['labels']) | set(add)) - set(remove))
@@ -138,16 +138,16 @@ def test_closed_implementation_never_proves_candidate():
 
 
 def test_release_label_drift_is_reported_and_never_silently_reconciled():
-    kept = {**issue('priority/P1', 'release/2026.2'), 'bucket':'post-cut-hardening'}
-    moved = {**issue('priority/P1', 'release/2026.1', number=2), 'bucket':'2026.2'}
+    kept = {**issue('priority/P1', 'release/2027.1'), 'bucket':'post-cut-hardening'}
+    moved = {**issue('priority/P1', 'release/2026.1', number=2), 'bucket':'2027.1'}
     agreed = {**issue('priority/P1', 'release/2026.1', number=3), 'bucket':'must-fix-before-cut'}
-    closed = {**issue('priority/P1', 'release/2026.2', number=4), 'bucket':'post-cut-hardening', 'state':'closed'}
+    closed = {**issue('priority/P1', 'release/2027.1', number=4), 'bucket':'post-cut-hardening', 'state':'closed'}
     drift = dict(decision.label_drift([kept, moved, agreed, closed]))
-    assert drift == {'honua-server#1':'recorded post-cut-hardening, labelled release/2026.2',
-                     'honua-server#2':'recorded 2026.2, labelled release/2026.1'}
+    assert drift == {'honua-server#1':'recorded post-cut-hardening, labelled release/2027.1',
+                     'honua-server#2':'recorded 2027.1, labelled release/2026.1'}
     # The recorded bucket is what the record and the totals keep; drift is reported, not applied.
     assert decision.label_plan(kept, rules())[:2] == (['bucket/post-cut-hardening'], [])
-    assert 'release/2026.2' not in decision.label_plan(kept, rules())[1]
+    assert 'release/2027.1' not in decision.label_plan(kept, rules())[1]
 
 
 def test_snapshot_and_generated_record_are_complete_and_current():
@@ -162,9 +162,9 @@ def test_snapshot_and_generated_record_are_complete_and_current():
         assert 'body' not in row  # issue bodies / raw API responses never enter the repo
         if row['state']=='open' and row['bucket']=='must-fix-before-cut':
             assert f"https://github.com/honua-io/{row['repo']}/issues/{row['number']}" in table
-    assert decision.RECORD.read_text() == decision.render(data, rows, config)
+    assert decision.current_snapshot(decision.RECORD.read_text()) == decision.current_snapshot(decision.render(data, rows, config))
     ledger = json.loads(decision.LEDGER.read_text())
-    assert ledger['issues'] == rows
+    assert json.loads(decision.current_snapshot(json.dumps(ledger['issues']))) == json.loads(decision.current_snapshot(json.dumps(rows)))
 
 
 def test_transient_failures_retry_identical_request_for_full_budget():
@@ -200,7 +200,7 @@ def test_403_and_transient_failures_share_one_retry_budget(errors):
             patch.object(decision.time, 'sleep') as sleep:
         with pytest.raises(ValueError, match='300-second'):
             decision.gh('api', 'repos/honua-io/honua-release/labels', '--method', 'POST',
-                        payload={'name':'bucket/2026.2'})
+                        payload={'name':'bucket/2027.1'})
         assert sum(call.args[0] for call in sleep.call_args_list) == 300
         assert all(call.args[0] > 0 for call in sleep.call_args_list)
         assert run.call_count == sleep.call_count + 1
@@ -418,3 +418,29 @@ def test_redacted_title_keeps_the_bucket_the_live_title_produced():
     corrupt = {**issue(), 'title': 'Evidence honua-server#1', 'title_signals': ['secret']}
     with pytest.raises(ValueError, match='invalid title_signals'):
         decision.classify(corrupt, rules())
+
+
+def test_legacy_snapshot_classifies_with_current_release_without_mutation():
+    row = issue('priority/P2', 'bug', 'release/2026.2', 'bucket/2026.2')
+    original = json.loads(json.dumps(row))
+    config = rules()
+    config['exceptions']['honua-server#1'] = {'bucket': '2026.2', 'reason': 'Dated scope ruling.'}
+    assert decision.classify(row, config) == ('2027.1', 'Dated scope ruling.')
+    data = {'issues': [row], 'candidate_digest': 'not yet cut'}
+    classified = decision.decisions(data, config)[0]
+    assert classified['bucket'] == '2027.1'
+    assert classified['labels'] == row['labels']
+    assert row == original
+    assert config['exceptions']['honua-server#1']['bucket'] == '2026.2'
+
+
+def test_label_plan_retires_legacy_bucket_without_recreating_old_release():
+    row = {**issue('release/2027.1', 'bucket/2026.2'), 'bucket': '2027.1'}
+    assert decision.label_plan(row, rules()) == (['bucket/2027.1'], ['bucket/2026.2'], False)
+
+
+def test_snapshot_comparison_accepts_rename_but_preserves_history_and_other_drift():
+    archived = 'Historical ruling: move to 2026.2.\n| 2026.2 |\n"bucket": "2026.2", "labels": ["release/2026.2", "bucket/2026.2"]'
+    current = 'Historical ruling: move to 2026.2.\n| 2027.1 |\n"bucket": "2027.1", "labels": ["release/2027.1", "bucket/2027.1"]'
+    assert decision.current_snapshot(archived) == current
+    assert decision.current_snapshot(archived) != current.replace('Historical ruling', 'Changed ruling')

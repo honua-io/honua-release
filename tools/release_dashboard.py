@@ -31,7 +31,7 @@ OUT = record.ROOT / 'site/index.html'
 UNBUCKETED = 'unbucketed'
 NAMES = {**record.BUCKETS, UNBUCKETED: 'UNBUCKETED (the rules cannot classify it yet)'}
 SHORT = {'must-fix-before-cut': 'Must fix', 'prove-against-candidate': 'Prove',
-         'post-cut-hardening': 'Post-cut', '2026.2': '2026.2', UNBUCKETED: 'Unbucketed'}
+         'post-cut-hardening': 'Post-cut', '2027.1': '2027.1', UNBUCKETED: 'Unbucketed'}
 # Categorical slot per bucket, in fixed order; the chart, legend and totals share it.
 SLOT = {bucket: i + 1 for i, bucket in enumerate(record.BUCKETS)}
 HIDDEN_LABELS = {'release/2026.1'}
@@ -286,8 +286,21 @@ footer { color:var(--text-2); font-size:.85rem; margin:24px 0; } .id { white-spa
 """
 
 
+def current_burndown_series(series):
+    current_series = []
+    for point in series:
+        counts = Counter()
+        for bucket, count in point['open'].items():
+            counts[record.current_release_name(bucket)] += count
+        current_series.append({**point, 'open': dict(counts)})
+    return current_series
+
+
 def render(data, rules, coverage=None, series=()):
+    series = current_burndown_series(series)
     rows = record.decisions(data, rules, strict=False)
+    rows = [{**row, 'labels': [record.current_release_name(label) for label in row['labels']]}
+            for row in rows]
     _, decision_line = record.decision(data, rows, rules)
     verdict = decision_line.split()[1]
     open_sec = [f['id'] for f in record.security_findings(rules) if f['status'] != 'fixed']

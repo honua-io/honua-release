@@ -21,7 +21,7 @@ DATA = {
         issue('honua-server', 10, 'fix: crash on empty layer', ['bucket/must-fix-before-cut', 'bug', 'priority/P2', 'release/2026.1'], '2026-09-01T00:00:00Z'),
         issue('honua-server', 11, 'fix(ci): flaky shard', ['release/2026.1'], '2026-09-20T00:00:00Z'),
         issue('honua-server', 12, 'Add a <widget>', ['priority/P1', 'release/2026.1'], '2026-09-30T00:00:00Z'),
-        issue('honua-server', 13, 'Later work', ['release/2026.2'], '2026-09-02T00:00:00Z'),
+        issue('honua-server', 13, 'Later work', ['release/2027.1'], '2026-09-02T00:00:00Z'),
         issue('honua-support', 3, 'evidence: support receipt', ['evidence', 'release/2026.1'], '2026-09-15T00:00:00Z'),
     ],
 }
@@ -37,8 +37,8 @@ COVERAGE = {
     'closes': {'honua-server#11': [{'repo': 'honua-server', 'number': 40, 'merge_state': 'CLEAN'}]},
 }
 SERIES = [
-    {'date': '2026-09-11', 'observed_at': '2026-09-11T16:09:45Z', 'open': {'must-fix-before-cut': 9, 'prove-against-candidate': 2, 'post-cut-hardening': 1, '2026.2': 1}},
-    {'date': '2026-10-04', 'observed_at': '2026-10-04T02:00:00Z', 'open': {'must-fix-before-cut': 2, 'prove-against-candidate': 1, 'post-cut-hardening': 1, '2026.2': 1}},
+    {'date': '2026-09-11', 'observed_at': '2026-09-11T16:09:45Z', 'open': {'must-fix-before-cut': 9, 'prove-against-candidate': 2, 'post-cut-hardening': 1, '2027.1': 1}},
+    {'date': '2026-10-04', 'observed_at': '2026-10-04T02:00:00Z', 'open': {'must-fix-before-cut': 2, 'prove-against-candidate': 1, 'post-cut-hardening': 1, '2027.1': 1}},
 ]
 
 
@@ -220,7 +220,7 @@ def test_burndown_append_is_idempotent_per_day(tmp_path):
     before = {**first, 'date': '2026-10-01', 'observed_at': '2026-10-01T00:00:00Z'}
     decision.append_burndown(before, path)
     assert [p['date'] for p in decision.read_burndown(path)] == ['2026-10-01', '2026-10-04']
-    assert first['open'] == {'must-fix-before-cut': 2, 'prove-against-candidate': 0, 'post-cut-hardening': 1, '2026.2': 0}
+    assert first['open'] == {'must-fix-before-cut': 2, 'prove-against-candidate': 0, 'post-cut-hardening': 1, '2027.1': 0}
 
 
 def test_refresh_appends_the_burndown_point(tmp_path, monkeypatch):
@@ -237,7 +237,7 @@ def test_refresh_appends_the_burndown_point(tmp_path, monkeypatch):
     decision.main()
     assert decision.read_burndown(paths['BURNDOWN']) == [{
         'date': '2026-10-04', 'observed_at': '2026-10-04T02:00:00Z',
-        'open': {'must-fix-before-cut': 2, 'prove-against-candidate': 1, 'post-cut-hardening': 2, '2026.2': 1}}]
+        'open': {'must-fix-before-cut': 2, 'prove-against-candidate': 1, 'post-cut-hardening': 2, '2027.1': 1}}]
 
 
 def test_normalize_records_creation_time_for_ticket_age():
@@ -265,3 +265,12 @@ def test_page_is_theme_aware_and_phone_safe():
     assert '@media (prefers-color-scheme: dark)' in html
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in html
     assert html.count('<div class="scroll"><table>') == 7  # every table scrolls inside its card
+
+
+def test_archived_burndown_uses_current_bucket_without_mutation():
+    legacy = json.loads(json.dumps(SERIES))
+    for point in legacy:
+        point['open']['2026.2'] = point['open'].pop('2027.1')
+    original = json.loads(json.dumps(legacy))
+    assert dashboard.render(DATA, RULES, COVERAGE, legacy) == page()
+    assert legacy == original

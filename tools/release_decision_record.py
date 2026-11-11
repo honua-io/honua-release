@@ -36,9 +36,27 @@ BUCKETS = {
     'must-fix-before-cut': 'MUST FIX BEFORE CANDIDATE CUT',
     'prove-against-candidate': 'MUST PROVE AGAINST THE CANDIDATE BEFORE GA',
     'post-cut-hardening': 'POST-CUT HARDENING',
-    '2026.2': '2026.2',
+    '2027.1': '2027.1',
 }
 LABELS = {'bucket/' + b for b in BUCKETS}
+# Dated inventories and scope rulings retain the former release name on disk.
+LEGACY_BUCKET = 'bucket/2026.2'
+
+
+def current_release_name(value):
+    return {'2026.2': '2027.1', 'release/2026.2': 'release/2027.1',
+            LEGACY_BUCKET: 'bucket/2027.1'}.get(value, value)
+
+
+def current_snapshot(text):
+    """Compare archived generated fields without rewriting dated prose or files."""
+    for old, new in [('release/2026.2', 'release/2027.1'),
+                     ('bucket/2026.2', 'bucket/2027.1'),
+                     ('"2026.2"', '"2027.1"'), ('| 2026.2 |', '| 2027.1 |'),
+                     ('recorded 2026.2,', 'recorded 2027.1,')]:
+        text = text.replace(old, new)
+    return text
+
 CONTRACT = 'https://github.com/honua-io/honua-flow/blob/trunk/docs/2026.1-quality-contract.md'
 RULING = 'https://github.com/honua-io/honua-release/issues/268#issuecomment-5545729823'
 # A working-candidate train is described by what produced it, never by a fixed label.
@@ -226,7 +244,7 @@ def _title_facts(issue):
 
 def classify(issue, rules):
     key = issue_key(issue)
-    labels = set(issue['labels'])
+    labels = {current_release_name(label) for label in issue['labels']}
     unknown_buckets = {s for s in labels if s.startswith('bucket/')} - LABELS
     if unknown_buckets:
         raise ValueError(f'{key}: unclassified: unknown bucket labels {sorted(unknown_buckets)}')
@@ -235,19 +253,19 @@ def classify(issue, rules):
         raise ValueError(f'{key}: unclassified: ambiguous/unknown priority {sorted(priorities)}')
     exception = rules['exceptions'].get(key)
     if exception:
-        if exception.get('bucket') not in BUCKETS or not exception.get('reason', '').strip():
+        if current_release_name(exception.get('bucket')) not in BUCKETS or not exception.get('reason', '').strip():
             raise ValueError(f'{key}: unclassified: invalid exception or missing reason')
         # A scope/sequence override is always visible, including exceptional P0s.
-        return exception['bucket'], exception['reason']
+        return current_release_name(exception['bucket']), exception['reason']
     if 'priority/P0' in labels:
         return 'must-fix-before-cut', 'Every priority/P0 is required before cut (operator 2026-09-05).'
     # Operator ruling 2026-09-11 ("bugs and ci should be pre cut"): a bug or a CI
     # item is must-fix-before-cut whatever its priority; only an explicit
-    # release/2026.2 label overrides. Test-expansion items (test(...)),
+    # release/2027.1 label overrides. Test-expansion items (test(...)),
     # bug-hunt PROGRAM/tracking issues and epics are not bugs and keep their
     # bucket rules. A redacted title carries those facts in title_signals.
     excluded, is_test, title_is_ci, title_is_bug = _title_facts(issue)
-    if 'release/2026.2' not in labels and not excluded:
+    if 'release/2027.1' not in labels and not excluded:
         is_ci = 'area/ci' in labels or title_is_ci
         is_bug = ('bug' in labels
                   or title_is_bug
@@ -267,11 +285,11 @@ def classify(issue, rules):
                 return 'must-fix-before-cut', 'First-release gate body names an existing release promise: ' + review['reason']
             return 'post-cut-hardening', 'No named existing release promise; 2026-09-04 admission rule.'
     # Operator ruling 2026-09-10: a release/2026.1 label is authoritative scope.
-    # Only an explicit release/2026.2 label sends an issue to 2026.2; feature-type
+    # Only an explicit release/2027.1 label sends an issue to 2027.1; feature-type
     # labels no longer demote 2026.1 work (nine tickets were stripped of
     # release/2026.1 by this rule on 2026-09-10 and had to be restored).
-    if 'release/2026.2' in labels:
-        return '2026.2', 'Explicit release/2026.2 label; outside the 2026.1 supported scope.'
+    if 'release/2027.1' in labels:
+        return '2027.1', 'Explicit release/2027.1 label; outside the 2026.1 supported scope.'
     if labels & {'qualification', 'evidence', 'certification', 'type/qualification', 'type/evidence'}:
         return 'prove-against-candidate', 'Qualification/evidence label requires a receipt bound to the candidate.'
     if 'priority/P1' in labels:
@@ -401,9 +419,9 @@ def label_plan(row, rules):
     labels = set(row['labels'])
     target = 'bucket/' + row['bucket']
     add = {target} - labels
-    remove = (labels & LABELS) - {target}
-    if row['bucket'] == '2026.2':
-        add |= {'release/2026.2'} - labels
+    remove = (labels & (LABELS | {LEGACY_BUCKET})) - {target}
+    if row['bucket'] == '2027.1':
+        add |= {'release/2027.1'} - labels
         remove |= {'release/2026.1'} & labels
     review = rules['admission_reviews'].get(issue_key(row), {})
     rejected = 'first-release-gate' in labels and review.get('named_promise') is False
@@ -417,7 +435,7 @@ def apply_labels(rows, rules):
     # Validate the entire org before the first write; reruns repair partial application.
     for repo in sorted({r['repo'] for r in rows if r['state'] == 'open'}):
         existing = {i['name'] for i in pages(f'repos/honua-io/{repo}/labels?per_page=100')}
-        for label in sorted(LABELS | {'release/2026.2'}):
+        for label in sorted(LABELS | {'release/2027.1'}):
             if label not in existing:
                 gh('api', f'repos/honua-io/{repo}/labels', '--method', 'POST',
                    payload={'name': label, 'color': 'b60205' if label.endswith('must-fix-before-cut') else '5319e7',
@@ -463,11 +481,11 @@ def label_drift(rows):
     for row in rows:
         if row['state'] != 'open':
             continue
-        labels = set(row['labels'])
-        if row['bucket'] == '2026.2' and 'release/2026.1' in labels:
-            drift.append((issue_key(row), 'recorded 2026.2, labelled release/2026.1'))
-        elif row['bucket'] != '2026.2' and 'release/2026.2' in labels:
-            drift.append((issue_key(row), f"recorded {row['bucket']}, labelled release/2026.2"))
+        labels = {current_release_name(label) for label in row['labels']}
+        if row['bucket'] == '2027.1' and 'release/2026.1' in labels:
+            drift.append((issue_key(row), 'recorded 2027.1, labelled release/2026.1'))
+        elif row['bucket'] != '2027.1' and 'release/2027.1' in labels:
+            drift.append((issue_key(row), f"recorded {row['bucket']}, labelled release/2027.1"))
     return drift
 
 
@@ -483,7 +501,7 @@ def family_text(row):
 
 def tables(rows):
     active = [r for r in rows if r['state'] == 'open']
-    lines = ['| Repo | MUST FIX BEFORE CANDIDATE CUT | MUST PROVE AGAINST THE CANDIDATE BEFORE GA | POST-CUT HARDENING | 2026.2 | Total |',
+    lines = ['| Repo | MUST FIX BEFORE CANDIDATE CUT | MUST PROVE AGAINST THE CANDIDATE BEFORE GA | POST-CUT HARDENING | 2027.1 | Total |',
              '|---|---:|---:|---:|---:|---:|']
     for repo in sorted({r['repo'] for r in rows}):
         counts = Counter(r['bucket'] for r in active if r['repo'] == repo)
@@ -643,13 +661,17 @@ def main():
         rows = decisions(data, rules)
         verify_labels(rows, rules)
     elif args.verify_live or args.check:
-        verify_labels(rows, rules)
+        # Offline checks accept the names in archived inventories. Live verification
+        # keeps raw labels so --apply can remove an actual obsolete bucket label.
+        checked_rows = ([{**row, 'labels': [current_release_name(label) for label in row['labels']]}
+                         for row in rows] if args.check else rows)
+        verify_labels(checked_rows, rules)
     artifacts = {RECORD: render(data, rows, rules), LEDGER: compact_snapshot({'observed_at':data['observed_at'], 'candidate_digest':data['candidate_digest'], 'issues':rows})}
     if args.refresh:
         artifacts[INPUTS] = compact_snapshot(public_snapshot(data))
     for path, text in artifacts.items():
         if args.check:
-            if not path.exists() or path.read_text() != text:
+            if not path.exists() or current_snapshot(path.read_text()) != current_snapshot(text):
                 raise ValueError(f'{path.name}: regeneration drift')
         else:
             path.write_text(text)
