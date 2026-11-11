@@ -71,7 +71,7 @@ def predecessor_errors(policy: dict) -> list[str]:
     for entry in entries:
         entry = entry if isinstance(entry, dict) else {}
         pid, legacy, reason = entry.get("id"), entry.get("legacyId"), entry.get("reason")
-        if pid not in expected:
+        if not isinstance(pid, str) or pid not in expected:
             errors.append(f"{where}: {pid!r} is not an expectedGa id")
         elif not isinstance(legacy, str) or not legacy or legacy in policy_ids:
             errors.append(f"{where}: legacyId {legacy!r} of {pid!r} is missing or is itself a policy id")
@@ -79,7 +79,8 @@ def predecessor_errors(policy: dict) -> list[str]:
             errors.append(f"{where}: {pid!r} needs a reason")
         elif pid in seen:
             errors.append(f"{where}: {pid!r} is declared more than once")
-        seen.add(pid)
+        if isinstance(pid, str):
+            seen.add(pid)
     return errors
 
 
@@ -93,7 +94,7 @@ def legacy_ids(policy: dict) -> dict[str, str]:
 def resolve_id(policy_id: str, advertised: Any, legacy: dict[str, str]) -> str:
     """The advertised id that answers for `policy_id`: the id itself whenever the server advertises
     it, its declared legacy id only when the server advertises that instead, else `policy_id`."""
-    if policy_id not in advertised and legacy.get(policy_id) in advertised:
+    if policy_id not in advertised and policy_id in legacy and legacy[policy_id] in advertised:
         return legacy[policy_id]
     return policy_id
 

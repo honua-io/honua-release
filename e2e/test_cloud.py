@@ -6599,3 +6599,9 @@ def test_capability_manifest_accepts_a_declared_legacy_id_only_when_the_neutral_
     # The authenticated leg resolves the same way and still requires available=true.
     gone = run(("a.one", True), ("l.legacy", True), auth_caps=[("a.one", True)])
     assert gone.status == "fail" and "n.neutral" in gone.why
+    # Both legs answer with the id the public manifest resolved: the authenticated leg cannot swap
+    # the neutral id for the legacy one (or back).
+    swapped = run(("a.one", True), ("n.neutral", True), auth_caps=[("a.one", True), ("l.legacy", True)])
+    assert swapped.status == "fail" and "n.neutral" in swapped.why
+    back = run(("a.one", True), ("l.legacy", True), auth_caps=[("a.one", True), ("n.neutral", True)])
+    assert back.status == "fail" and "n.neutral" in back.why

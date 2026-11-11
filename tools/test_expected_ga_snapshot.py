@@ -149,6 +149,9 @@ def test_a_declared_legacy_id_satisfies_its_neutral_policy_id_only_when_the_neut
     ([{"id": "n.neutral", "legacyId": "l.legacy", "reason": "r"},
       {"id": "n.neutral", "legacyId": "l.other", "reason": "r"}], "more than once"),
     ("not-a-list", "must be a list"),
+    ([{"id": ["n.neutral"], "legacyId": "l.legacy", "reason": "r"}], "not an expectedGa id"),
+    ([{"id": "n.neutral", "legacyId": ["l.legacy"], "reason": "r"}], "is itself a policy id"),
+    (["not-an-object"], "not an expectedGa id"),
 ])
 def test_a_malformed_predecessor_declaration_refuses(entries, problem):
     policy = {**RENAMED, "predecessors": entries}
@@ -167,3 +170,10 @@ def test_the_reviewed_policy_binds_both_the_frozen_pin_and_post_rename_candidate
         if cap["id"] == legacy:
             cap["id"] = "format.read.geoservicesjson"
     assert ego.policy_errors(policy, renamed) == []
+
+
+def test_an_observed_entry_without_an_id_is_a_clean_refusal_not_a_crash():
+    observation = {"capabilities": [{"supported": True}]}
+    for policy in ({"expectedGa": ["n.neutral"], "excluded": []}, RENAMED):
+        errors = ego.policy_errors(policy, observation)
+        assert errors and "n.neutral" in errors[0]

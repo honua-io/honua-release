@@ -401,10 +401,10 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
         aby_id = {c.get("id"): c for c in acaps if isinstance(c, dict) and c.get("id")}
         # An expected-GA id entirely OMITTED from the authenticated manifest is exactly as bad as one
         # present with available != true — both must fail, not silently drop out of `unavailable`.
-        auth_id = {i: ego.resolve_id(i, aby_id, legacy) for i in checked}
+        # The authenticated leg answers with the id the public leg resolved, never its own choice.
         unavailable = sorted(i for i in availability_checked
-                             if aby_id.get(auth_id[i], {}).get("available") is not True)
-        avail_auth = sum(1 for i in availability_checked if aby_id.get(auth_id[i], {}).get("available") is True)
+                             if aby_id.get(public_id[i], {}).get("available") is not True)
+        avail_auth = sum(1 for i in availability_checked if aby_id.get(public_id[i], {}).get("available") is True)
         evidence["authenticated"] = True
         evidence["availableCountAuthenticated"] = avail_auth
         if unavailable:
@@ -412,7 +412,7 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
                                f"expected-GA ids not available=true when authenticated: {unavailable}", evidence)
         # The authenticated manifest must not contradict the public one: every checked id, gated or
         # not, must still be present and supported=true there. Gating relaxes only available=true.
-        auth_unsupported = sorted(i for i in checked if aby_id.get(auth_id[i], {}).get("supported") is not True)
+        auth_unsupported = sorted(i for i in checked if aby_id.get(public_id[i], {}).get("supported") is not True)
         if auth_unsupported:
             return CheckResult("capability-manifest", "fail",
                                f"expected-GA ids missing or not supported=true when authenticated: "
