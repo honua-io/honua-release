@@ -357,9 +357,18 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
                  if isinstance(e, dict) and e.get("id")}
     availability_checked = [i for i in checked if i not in gated_ids]
 
-    missing = sorted(i for i in checked if i not in by_id)
-    unsupported = sorted(i for i in checked if i in by_id and by_id[i].get("supported") is not True)
-    available_count = sum(1 for i in checked if by_id.get(i, {}).get("available") is True)
+    # A declared predecessor (honua-server#6831 renames) answers for its policy id only when the
+    # server does not advertise the policy id itself; a malformed declaration refuses outright.
+    shape = ego.predecessor_errors(expected)
+    if shape:
+        return CheckResult("capability-manifest", "fail", "; ".join(shape),
+                           {"schemaVersion": schema, "totalCapabilities": len(caps), "enforcement": enforcement})
+    legacy = ego.legacy_ids(expected)
+    public_id = {i: ego.resolve_id(i, by_id, legacy) for i in checked}
+    missing = sorted(i for i in checked if public_id[i] not in by_id)
+    unsupported = sorted(i for i in checked
+                         if public_id[i] in by_id and by_id[public_id[i]].get("supported") is not True)
+    available_count = sum(1 for i in checked if by_id.get(public_id[i], {}).get("available") is True)
 
     evidence = {"schemaVersion": schema, "totalCapabilities": len(caps), "expectedGaCount": len(checked),
                "excludedCount": len(excluded_ids), "availabilityGatedCount": len(gated_ids & set(checked)),
@@ -392,8 +401,10 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
         aby_id = {c.get("id"): c for c in acaps if isinstance(c, dict) and c.get("id")}
         # An expected-GA id entirely OMITTED from the authenticated manifest is exactly as bad as one
         # present with available != true — both must fail, not silently drop out of `unavailable`.
-        unavailable = sorted(i for i in availability_checked if aby_id.get(i, {}).get("available") is not True)
-        avail_auth = sum(1 for i in availability_checked if aby_id.get(i, {}).get("available") is True)
+        auth_id = {i: ego.resolve_id(i, aby_id, legacy) for i in checked}
+        unavailable = sorted(i for i in availability_checked
+                             if aby_id.get(auth_id[i], {}).get("available") is not True)
+        avail_auth = sum(1 for i in availability_checked if aby_id.get(auth_id[i], {}).get("available") is True)
         evidence["authenticated"] = True
         evidence["availableCountAuthenticated"] = avail_auth
         if unavailable:
@@ -401,7 +412,7 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
                                f"expected-GA ids not available=true when authenticated: {unavailable}", evidence)
         # The authenticated manifest must not contradict the public one: every checked id, gated or
         # not, must still be present and supported=true there. Gating relaxes only available=true.
-        auth_unsupported = sorted(i for i in checked if aby_id.get(i, {}).get("supported") is not True)
+        auth_unsupported = sorted(i for i in checked if aby_id.get(auth_id[i], {}).get("supported") is not True)
         if auth_unsupported:
             return CheckResult("capability-manifest", "fail",
                                f"expected-GA ids missing or not supported=true when authenticated: "

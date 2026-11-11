@@ -48,7 +48,7 @@
     "format.read.filegdb",
     "format.read.flatgeobuf",
     "format.read.geoparquet",
-    "format.read.esrijson",
+    "format.read.geoservicesjson",
     "format.read.wkb",
     "import.background",
     "import.objectStore"
@@ -91,6 +91,13 @@
     {
       "id": "alerts.geofence",
       "reason": "Gated: disabled-by-configuration (geofence enter/exit alerting is not enabled on every deployment profile). Present in the manifest as supported=true but not asserted available on a bare/demo deployment."
+    }
+  ],
+  "predecessors": [
+    {
+      "id": "format.read.geoservicesjson",
+      "legacyId": "format.read.esrijson",
+      "reason": "honua-server#6831 (feat!, 2026-11-04, first in trunk d2ab05f) gave this file-import read capability its neutral GeoServices JSON id. The frozen rc.2 pin 8628668 predates the rename and advertises only legacyId; every later candidate advertises id. legacyId answers only when id is absent. Drop this entry once the bound candidate is past d2ab05f."
     }
   ]
 }

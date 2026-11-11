@@ -844,6 +844,14 @@ def test_internal_capability_is_not_counted_in_the_ga_denominator():
     assert any("counted in the expected-GA manifest" in e for e in f.errors), f.errors
 
 
+def test_an_internal_key_counted_through_a_declared_legacy_id_is_still_refused():
+    f = vp.Findings()
+    policy = {"expectedGa": ["serve.wfs", "n.neutral"],
+              "predecessors": [{"id": "n.neutral", "legacyId": "admin.multi-tenancy", "reason": "r"}]}
+    vp.check_capability_lifecycle(_internal_matrix(), f, policy)
+    assert any("counted in the expected-GA manifest" in e for e in f.errors), f.errors
+
+
 def test_internal_capability_rejects_missing_or_empty_keys():
     for row in ({"capabilityKeys": []},):
         f = vp.Findings()
