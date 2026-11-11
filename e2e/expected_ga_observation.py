@@ -56,9 +56,8 @@ def predecessor_errors(policy: dict) -> list[str]:
     """Why the policy's `predecessors` declaration is malformed; [] when it is absent or well formed.
 
     A predecessor entry {id, legacyId, reason} says the server renamed the `expectedGa` id `id`
-    from `legacyId` (e.g. the honua-server#6831 GeoServices JSON rename),
-    so a candidate built before the rename still binds. Each id is declared at most once, and a
-    legacy id is never itself a policy id."""
+    from `legacyId`, so a candidate built before the rename still binds. Each id is declared at
+    most once, and a legacy id is never itself a policy id."""
     entries = policy.get("predecessors")
     if entries is None:
         return []

@@ -119,7 +119,7 @@ def test_committed_observation_is_the_committed_server_and_satisfies_the_policy(
     assert copy.deepcopy(observation)["totalCapabilities"] == len(observation["capabilities"])
 
 
-# Declared predecessors (honua-server#6831 renamed a file-import read id to format.read.geoservicesjson):
+# Declared predecessors (a server-side id rename):
 # a policy id is satisfied by its declared legacy id only when the neutral id is absent, so the frozen
 # pin and every post-rename candidate both bind; nothing else changes meaning.
 RENAMED = {"expectedGa": ["n.neutral"], "excluded": [],

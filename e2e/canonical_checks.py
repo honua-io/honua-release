@@ -357,7 +357,7 @@ def check_capability_manifest(endpoint: str, fetch: Fetcher, *, expected: dict |
                  if isinstance(e, dict) and e.get("id")}
     availability_checked = [i for i in checked if i not in gated_ids]
 
-    # A declared predecessor (honua-server#6831 renames) answers for its policy id only when the
+    # A declared predecessor (a renamed id) answers for its policy id only when the
     # server does not advertise the policy id itself; a malformed declaration refuses outright.
     shape = ego.predecessor_errors(expected)
     if shape:
