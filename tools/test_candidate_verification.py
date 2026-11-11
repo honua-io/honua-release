@@ -161,3 +161,29 @@ def test_record_results_round_trip(tmp_path):
     path = tmp_path / "results.json"
     path.write_text(json.dumps([{"ticket": 1131, "result": "blocked", "run_url": "https://example.test/x"}]))
     assert cv.load_outcomes(path) == (cv.Outcome(1131, "blocked", "https://example.test/x"),)
+
+
+def test_record_command_refuses_valid_results_until_they_can_be_kept(tmp_path):
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps([
+        {"ticket": 1131, "result": "fail", "run_url": "https://example.test/docs"},
+    ]))
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(REPO / "tools" / "candidate_verification.py"),
+            "record",
+            "--candidate-sha",
+            SHA,
+            "--results",
+            str(results),
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, cv.SWITCH_ENV: "on"},
+    )
+    assert completed.returncode == cv.RECORDING_UNAVAILABLE
+    assert completed.stdout == ""
+    assert "persistence" in completed.stderr

@@ -1,7 +1,9 @@
 """Plan candidate verification and record one row per ticket.
 
 The trigger stays off until HONUA_CANDIDATE_VERIFICATION=on. A caller that
-has not set that value gets no plan, no row and no issue.
+has not set that value gets no plan, no row and no issue. The record command
+has no persistence sink and refuses, so it cannot report success for a
+discarded result.
 """
 
 from __future__ import annotations
@@ -12,11 +14,11 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 SWITCH_ENV = "HONUA_CANDIDATE_VERIFICATION"
 SWITCHED_OFF = 3
+RECORDING_UNAVAILABLE = 4
 FAILURE_TITLE = "candidate verification failed"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RESULTS = frozenset({"pass", "fail", "blocked"})
@@ -167,10 +169,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not args.results:
         return 2
-    when = os.environ.get("CANDIDATE_VERIFICATION_WHEN") or datetime.now().astimezone().isoformat(timespec="seconds")
-    outcomes = load_outcomes(Path(args.results))
-    record(Recording(when, args.candidate_sha, outcomes), lambda *_: None)
-    return 0
+    load_outcomes(Path(args.results))
+    sys.stderr.write("recording has no persistence sink\n")
+    return RECORDING_UNAVAILABLE
 
 
 if __name__ == "__main__":
