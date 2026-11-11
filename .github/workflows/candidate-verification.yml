@@ -1,0 +1,31 @@
+# Listens for a published candidate. The job condition is false, and plan
+# returns before it prints a workflow, unless HONUA_CANDIDATE_VERIFICATION=on.
+# Both have to change before this can dispatch or spend a runner minute.
+# Server GP evidence is not in this repository, so plan does not name it.
+
+name: candidate-verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: "Full candidate commit"
+        required: true
+        type: string
+  repository_dispatch:
+    types: [candidate-published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show the verification plan
+        env:
+          CANDIDATE_SHA: ${{ github.event.client_payload.candidate_sha || inputs.candidate_sha }}
+        run: python3 tools/candidate_verification.py plan --candidate-sha "$CANDIDATE_SHA"
