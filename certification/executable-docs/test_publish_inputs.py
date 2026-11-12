@@ -88,22 +88,30 @@ def test_image_placeholders_bind_only_to_supplied_candidate():
         assert render(entry["value"], {}) == "{candidate.image}"
 
 
-PREVIOUS_SAMPLES_IMAGE = (
-    "ghcr.io/honua-io/honua-server:nightly-8cb074f"
-    "@sha256:2d7877c4d1cb3b30647fb225893d41b13728f0448997997cdf4bf40fe99be07d"
+SAMPLES_IMAGE = (
+    "ghcr.io/honua-io/honua-server:nightly-jit-9d2169c"
+    "@sha256:48d73e13bf47c3c837106f3ee959230c20bfeac926754b1dfecd4cad29b0486e"
 )
 
 
 def test_samples_image_binds_to_the_candidate():
+    """The key must be the literal the pinned page names (README.md:200 at 0069030c, wms-getmap-check
+    README.md:21 at 4f14ce4f); a stale key silently boots the page's own image instead of the candidate."""
     from run import substitute
-    code = f"export HONUA_SERVER_IMAGE={PREVIOUS_SAMPLES_IMAGE}\n"
+    forms = (
+        (f"export HONUA_SERVER_IMAGE={SAMPLES_IMAGE}\n", "export HONUA_SERVER_IMAGE=test@sha256:abc\n"),
+        (f'export HONUA_SERVER_IMAGE="${{HONUA_SERVER_IMAGE:-{SAMPLES_IMAGE}}}"\n',
+         'export HONUA_SERVER_IMAGE="${HONUA_SERVER_IMAGE:-test@sha256:abc}"\n'),
+    )
     for document in ("honua-samples-readme", "honua-samples-samples-wms-getmap-check-readme"):
         variables = load_vars(HERE / "vars", document)
-        entry = variables["substitute"][PREVIOUS_SAMPLES_IMAGE]
+        assert list(variables["substitute"]) == [SAMPLES_IMAGE]
+        entry = variables["substitute"][SAMPLES_IMAGE]
         assert entry["value"] == "{candidate.image}"
-        assert "nightly-8cb074f" in entry["documentedAt"]
-        table = {PREVIOUS_SAMPLES_IMAGE: render(entry["value"], {"candidate.image": "test@sha256:abc"})}
-        assert substitute(code, table) == 'export HONUA_SERVER_IMAGE=test@sha256:abc\n'
+        assert "nightly-jit-9d2169c" in entry["documentedAt"]
+        table = {SAMPLES_IMAGE: render(entry["value"], {"candidate.image": "test@sha256:abc"})}
+        for code, expected in forms:
+            assert substitute(code, table) == expected
 
 
 def test_create_honua_app_sdk_flag_binds_to_the_manifest_pin():
