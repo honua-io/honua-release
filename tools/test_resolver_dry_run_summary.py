@@ -126,3 +126,12 @@ def test_org_token_is_passed_only_on_trunk():
     assert "if: github.ref == 'refs/heads/trunk'" in workflow
     assert "GH_TOKEN: ${{ github.ref == 'refs/heads/trunk' && secrets.RELEASE_GH_TOKEN || github.token }}" in workflow
     assert 'GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}' not in workflow
+
+
+def test_dry_run_walks_the_same_commit_window_as_the_nightly():
+    workflows = Path(__file__).resolve().parents[1] / '.github/workflows'
+    def window(name):
+        resolve = next(line for line in (workflows / name).read_text().splitlines()
+                       if 'resolve_trunk_candidate.py' in line)
+        return resolve.split('--max-commits', 1)[1].split()[0] if '--max-commits' in resolve else None
+    assert window('resolver-dry-run.yml') == window('nightly-certification.yml') is not None
