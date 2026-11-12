@@ -1,0 +1,46 @@
+{
+  "schema": "honua.client-artifact-adoption-proposal/v1",
+  "state": "review-required",
+  "client": "honua-sdk",
+  "previousArtifact": {
+    "ecosystem": "npm",
+    "package": "@honua/sdk",
+    "version": "0.2.10",
+    "integrity": "sha512-5CrY3zyY+97nnbuERfvHOOgTco4eB+ELZ2UuvYsLT8A7d23bmg8KSiKD6T7HJFfeG4zAsdggz+lw6a+DGm/cuA==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "965c013637722cb70d1a781c3d2d4f6537e6bf44",
+    "publicationState": "published",
+    "targets": [
+      "node",
+      "browser"
+    ],
+    "filename": "sdk-0.2.10.tgz"
+  },
+  "proposedArtifact": {
+    "ecosystem": "npm",
+    "package": "@honua/sdk",
+    "version": "0.3.3",
+    "integrity": "sha512-CCp+0tdrCl6zTiCtv3S2lJhdSnaEu2X4RRLhirmRbDcSiCFOm4P+71hpzOXv166ssAi1gUfuTanf2oz2VFjwCQ==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "7158b5e8b4c0c61fe934ce4051429365016b3218",
+    "publicationState": "published",
+    "targets": [
+      "node",
+      "browser"
+    ],
+    "filename": "sdk-0.3.3.tgz"
+  },
+  "verifiedIdentity": {
+    "version": "0.3.3",
+    "sourceRevision": "7158b5e8b4c0c61fe934ce4051429365016b3218",
+    "sha256": "sha256:9354b1e6588dbfa6a699cf571a9b98bba0c285f1d66597e29cbae7a05b45b64b"
+  },
+  "candidateQualification": "pending",
+  "nextSteps": [
+    "review registry-derived artifact adoption",
+    "regenerate governed requirements through normal automation",
+    "run normal resolver and NIGHTLY-STAGE",
+    "join exact candidate receipts through NIGHTLY-BIND"
+  ],
+  "manifestSha256": "sha256:a6f1ec204d7012ecd6e595e84e23c18b27ac0066d6bdd8092fe2fcc4961baa21"
+}

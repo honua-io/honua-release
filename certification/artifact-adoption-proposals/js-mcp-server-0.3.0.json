@@ -1,0 +1,46 @@
+{
+  "schema": "honua.client-artifact-adoption-proposal/v1",
+  "state": "review-required",
+  "client": "honua-mcp-server",
+  "previousArtifact": {
+    "ecosystem": "npm",
+    "package": "@honua/mcp-server",
+    "version": "0.2.10",
+    "integrity": "sha512-D3j29U5BfyhUN38SQ1NvzqiCTSWwepXubOXzRLzziqA/4Z6PyEjP0Jmv2b9hMJsvABy1EERsNDp6FUdpO0qQJg==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "64173dd6a5101736655a8737c4adc592c9989595",
+    "publicationState": "published",
+    "targets": [
+      "node",
+      "honua-mcp-proxy"
+    ],
+    "filename": "mcp-server-0.2.10.tgz"
+  },
+  "proposedArtifact": {
+    "ecosystem": "npm",
+    "package": "@honua/mcp-server",
+    "version": "0.3.0",
+    "integrity": "sha512-gjk8aCRS2osl6Ea5HgSmkL8HKyeEDUtx2o09RP8AgfEvq2A8KwZxFfWk60xIGWyhe2KkrWxY5wtTzxVem1a9TQ==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "815921a26603f4e4fbe21f9ec3b1f7ed80884eba",
+    "publicationState": "published",
+    "targets": [
+      "node",
+      "honua-mcp-proxy"
+    ],
+    "filename": "mcp-server-0.3.0.tgz"
+  },
+  "verifiedIdentity": {
+    "version": "0.3.0",
+    "sourceRevision": "815921a26603f4e4fbe21f9ec3b1f7ed80884eba",
+    "sha256": "sha256:b6b71b4d17c3ee0c5b42e4a13d8ca909741f4d69b45b9096157d7aec2be82dc4"
+  },
+  "candidateQualification": "pending",
+  "nextSteps": [
+    "review registry-derived artifact adoption",
+    "regenerate governed requirements through normal automation",
+    "run normal resolver and NIGHTLY-STAGE",
+    "join exact candidate receipts through NIGHTLY-BIND"
+  ],
+  "manifestSha256": "sha256:a6f1ec204d7012ecd6e595e84e23c18b27ac0066d6bdd8092fe2fcc4961baa21"
+}
