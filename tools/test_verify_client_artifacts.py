@@ -339,6 +339,18 @@ def test_missing_githead_refuses_another_packages_publisher_or_tag(monkeypatch, 
     assert calls == []
 
 
+@pytest.mark.parametrize('package,tag,workflow,event', [
+    ('@honua/mcp-server', 'mcp-server-v', 'publish-mcp-server.yml', 'pull_request'),
+    ('@honua/sdk-js', 'js-sdk-v', 'publish-js-sdk.yml', 'push'),
+    ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'push'),
+])
+def test_missing_githead_refuses_an_event_its_publisher_does_not_release_on(monkeypatch, package, tag, workflow, event):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch, package, tag, workflow, event)
+    with pytest.raises(vca.VerificationError, match='publisher event mismatch'):
+        vca._verify_npm('sdk-js-package', pin)
+    assert calls == []
+
+
 def test_missing_githead_refuses_a_package_without_a_declared_publisher(monkeypatch):
     pin, _, _, _, calls = _npm_split_publisher(monkeypatch, '@honua/unlisted')
     with pytest.raises(vca.VerificationError, match='no allowlisted publisher'):

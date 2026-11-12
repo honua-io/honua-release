@@ -17,6 +17,7 @@ import argparse
 import base64
 import copy
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -77,11 +78,25 @@ PUBLISHER_WORKFLOWS = {
     'honua-io/geospatial-mcp': 'attest-spec-index.yml',
     'honua-io/honua-iac': 'attest-source-archive.yml',
 }
-JS_WORKFLOWS = {'@honua/sdk-js': 'publish-js-sdk.yml',
-                **{package: 'publish-js-sdk.yml' for package in ('@honua/sdk', '@honua/react',
-                    '@honua/geometry', '@honua/app-platform')},
-                '@honua/mcp-server': 'publish-mcp-server.yml',
-                'create-honua-app': 'publish-create-honua-app.yml'}
+
+
+@dataclass(frozen=True)
+class JsPublisher:
+    workflow: str
+    tag_prefix: str
+    events: frozenset[str]
+
+
+_JS_SDK_PUBLISHER = JsPublisher('publish-js-sdk.yml', 'js-sdk-v', frozenset({'workflow_dispatch', 'release'}))
+JS_PUBLISHERS = {
+    **{package: _JS_SDK_PUBLISHER for package in ('@honua/sdk-js', '@honua/sdk', '@honua/react',
+                                                  '@honua/geometry', '@honua/app-platform')},
+    '@honua/mcp-server': JsPublisher('publish-mcp-server.yml', 'mcp-server-v',
+                                     frozenset({'workflow_dispatch', 'release', 'push'})),
+    'create-honua-app': JsPublisher('publish-create-honua-app.yml', 'create-honua-app-v',
+                                    frozenset({'workflow_dispatch', 'release'})),
+}
+JS_WORKFLOWS = {package: publisher.workflow for package, publisher in JS_PUBLISHERS.items()}
 
 
 def signer_workflow(component: dict, artifact: dict, repository: str) -> str:
