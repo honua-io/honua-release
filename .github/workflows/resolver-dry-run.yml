@@ -35,7 +35,8 @@ jobs:
           GH_TOKEN: ${{ github.ref == 'refs/heads/trunk' && secrets.RELEASE_GH_TOKEN || github.token }}
         run: |
           set +e
-          python3 tools/resolve_trunk_candidate.py --dry-run --max-commits 500 > resolver-dry-run.log 2>&1
+          python3 tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --protocol-ledger produce --prepare-deployments \
+            --out-dir resolved-candidate > resolver-dry-run.log 2>&1
           status=$?
           set -e
           echo "status=$status" >> "$GITHUB_OUTPUT"
