@@ -20,7 +20,7 @@ import sys
 import tempfile
 import urllib.parse
 from unittest import mock
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
 
@@ -259,6 +259,16 @@ def test_demo_canary_refuses_missing_or_stale_live_revision():
     stale = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, stale_body))])
     result, revision = demo_canary._live_deployment_revision("http://x", stale, TEST_SERVER_SHA)
     assert result.status == "fail" and revision == stale_sha
+
+
+def test_demo_canary_without_a_candidate_fails_outside_the_revision_lag_quarantine():
+    body = json.dumps({"server": {"deploymentRevision": TEST_SERVER_SHA}})
+    fetch = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body))])
+    result, _ = demo_canary._live_deployment_revision("http://x", fetch, None)
+    entries = demo_canary.load_quarantine()
+    out, audit = demo_canary.apply_quarantine([result], entries, today=date(2026, 11, 12))
+    assert result.status == "fail" and "no candidate revision" in result.why
+    assert out[0].status == "fail" and audit["applied"] == []
 
 
 def test_capability_manifest_observation_of_another_server_fails_closed_by_default():

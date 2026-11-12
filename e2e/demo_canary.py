@@ -109,7 +109,12 @@ def _live_deployment_revision(base: str, fetch, expected_sha: str | None) -> tup
     if not revision:
         return CheckResult("deployment-revision", "fail",
                            "live capability manifest does not advertise server.deploymentRevision", evidence), ""
-    if not expected_sha or revision != expected_sha:
+    if not expected_sha:
+        # Kept apart from the mismatch text: the #475 quarantine matches only a real revision lag.
+        return CheckResult("deployment-revision", "fail",
+                           f"live deployment revision {revision!r} has no candidate revision to compare against",
+                           evidence), revision
+    if revision != expected_sha:
         return CheckResult("deployment-revision", "fail",
                            f"live deployment revision {revision!r} does not match candidate {expected_sha!r}",
                            evidence), revision
