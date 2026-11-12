@@ -1,0 +1,46 @@
+{
+  "schema": "honua.client-artifact-adoption-proposal/v1",
+  "state": "review-required",
+  "client": "honua-geometry",
+  "previousArtifact": {
+    "ecosystem": "npm",
+    "package": "@honua/geometry",
+    "version": "0.2.10",
+    "integrity": "sha512-KkqFsBGkUIBSAK73pwwyjKfEXbVAFHw5i5P7Ntbzkgno1RdHO4llrZNSWZ5pi8ta6Y3roH4i4xzqZDqafHJ8fA==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "965c013637722cb70d1a781c3d2d4f6537e6bf44",
+    "publicationState": "published",
+    "targets": [
+      "node",
+      "browser"
+    ],
+    "filename": "geometry-0.2.10.tgz"
+  },
+  "proposedArtifact": {
+    "ecosystem": "npm",
+    "package": "@honua/geometry",
+    "version": "0.3.3",
+    "integrity": "sha512-7ZzKos7GiWneTqe+7evbwf/Qbp6ynBo311bKuDb6fN72AhoBr0G5iYpxprqNCkDNxYNfbD6NuWQCGZBboJeFlA==",
+    "repository": "honua-io/honua-sdk-js",
+    "sourceSha": "7158b5e8b4c0c61fe934ce4051429365016b3218",
+    "publicationState": "published",
+    "targets": [
+      "node",
+      "browser"
+    ],
+    "filename": "geometry-0.3.3.tgz"
+  },
+  "verifiedIdentity": {
+    "version": "0.3.3",
+    "sourceRevision": "7158b5e8b4c0c61fe934ce4051429365016b3218",
+    "sha256": "sha256:6b3928019d9de75cb227cc21b648bcb0871909b805b1daf29f37dd9b1c798b83"
+  },
+  "candidateQualification": "pending",
+  "nextSteps": [
+    "review registry-derived artifact adoption",
+    "regenerate governed requirements through normal automation",
+    "run normal resolver and NIGHTLY-STAGE",
+    "join exact candidate receipts through NIGHTLY-BIND"
+  ],
+  "manifestSha256": "sha256:a6f1ec204d7012ecd6e595e84e23c18b27ac0066d6bdd8092fe2fcc4961baa21"
+}

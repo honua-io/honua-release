@@ -76,7 +76,7 @@ def test_live_geoprocessing_page_is_out_of_scope_for_rc2_with_its_reason():
     assert "honua-site-docs-geoprocessing-index" not in {d["id"] for d in frozen["documents"]}
     assert entry in frozen["outOfScope"]
     assert not (HERE / "vars/honua-site-docs-geoprocessing-index.json").exists()
-    assert len(frozen["documents"]) == 36
+    assert len(frozen["documents"]) == 35
 
 
 @pytest.mark.parametrize("mutation", ["absent-block", "unknown-key", "runtime", "wrong-language", "hash", "bool-index",

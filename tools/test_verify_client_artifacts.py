@@ -259,24 +259,25 @@ def test_pypi_refuses_missing_or_invalid_provenance(monkeypatch, mutation):
         vca.verify_manifest({'clientArtifacts': {'python': RECORDED_PINS['python']}}, include_identities=True)
 
 
-def _npm_split_publisher(monkeypatch):
+def _npm_split_publisher(monkeypatch, package='@honua/sdk', tag='js-sdk-v',
+                         workflow='publish-js-sdk.yml', event='workflow_dispatch'):
     import mint_nightly_lock as nightly
-    package, version, source = '@honua/sdk', '0.1.14', 'a' * 40
+    version, source = '0.1.14', 'a' * 40
     data = _npm_tarball(package, version)
     pin = {'ecosystem': 'npm', 'package': package, 'version': version,
            'repository': 'honua-io/honua-sdk-js', 'sourceSha': source,
            'integrity': vca._sha512_sri(data), 'publicationState': 'published'}
     repository = 'https://github.com/honua-io/honua-sdk-js'
-    ref = 'refs/tags/js-sdk-v0.1.14'
+    ref = f'refs/tags/{tag}0.1.14'
     statement = {'_type': 'https://in-toto.io/Statement/v1',
         'predicateType': 'https://slsa.dev/provenance/v1',
-        'subject': [{'name': 'pkg:npm/%40honua/sdk@0.1.14',
+        'subject': [{'name': f'pkg:npm/{package.replace("@", "%40")}@0.1.14',
                      'digest': {'sha512': hashlib.sha512(data).hexdigest()}}],
         'predicate': {'buildDefinition': {
             'buildType': 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1',
             'externalParameters': {'workflow': {'ref': ref, 'repository': repository,
-                'path': '.github/workflows/publish-js-sdk.yml'}},
-            'internalParameters': {'github': {'event_name': 'workflow_dispatch'}},
+                'path': f'.github/workflows/{workflow}'}},
+            'internalParameters': {'github': {'event_name': event}},
             'resolvedDependencies': [{'uri': f'git+{repository}@{ref}', 'digest': {'gitCommit': source}}]},
             'runDetails': {'builder': {'id': 'https://github.com/actions/runner/github-hosted'}}}}
     metadata = {'dist': {'integrity': pin['integrity'], 'tarball': 'https://registry.npmjs.org/package.tgz'}}
@@ -306,6 +307,55 @@ def test_missing_npm_githead_requires_publisher_verification_of_exact_bytes(monk
         'signerWorkflow': 'honua-io/honua-sdk-js/.github/workflows/publish-js-sdk.yml',
         'sourceRef': 'refs/tags/js-sdk-v0.1.14', 'digestAlgorithm': 'sha512', 'denySelfHosted': True}
     assert call[3:] == ('honua-io/honua-sdk-js', 'https://slsa.dev/provenance/v1')
+
+
+SDK_JS_REPOSITORY_PUBLISHERS = [
+    ('@honua/sdk-js', 'js-sdk-v', 'publish-js-sdk.yml', 'workflow_dispatch'),
+    ('@honua/mcp-server', 'mcp-server-v', 'publish-mcp-server.yml', 'push'),
+    ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'workflow_dispatch'),
+]
+
+
+@pytest.mark.parametrize('package,tag,workflow,event', SDK_JS_REPOSITORY_PUBLISHERS)
+def test_missing_githead_admits_each_sdk_js_package_through_its_own_publisher(monkeypatch, package, tag, workflow, event):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch, package, tag, workflow, event)
+    identity, _ = vca._verify_npm('sdk-js-package', pin)
+    assert identity == f'npm:{package}@0.1.14'
+    [call] = calls
+    assert call[2]['signerWorkflow'] == f'honua-io/honua-sdk-js/.github/workflows/{workflow}'
+    assert call[2]['sourceRef'] == f'refs/tags/{tag}0.1.14'
+
+
+@pytest.mark.parametrize('package,tag,workflow', [
+    ('@honua/mcp-server', 'js-sdk-v', 'publish-mcp-server.yml'),
+    ('@honua/mcp-server', 'mcp-server-v', 'publish-js-sdk.yml'),
+    ('create-honua-app', 'js-sdk-v', 'publish-js-sdk.yml'),
+    ('@honua/sdk', 'mcp-server-v', 'publish-mcp-server.yml'),
+])
+def test_missing_githead_refuses_another_packages_publisher_or_tag(monkeypatch, package, tag, workflow):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch, package, tag, workflow)
+    with pytest.raises(vca.VerificationError):
+        vca._verify_npm('sdk-js-package', pin)
+    assert calls == []
+
+
+@pytest.mark.parametrize('package,tag,workflow,event', [
+    ('@honua/mcp-server', 'mcp-server-v', 'publish-mcp-server.yml', 'pull_request'),
+    ('@honua/sdk-js', 'js-sdk-v', 'publish-js-sdk.yml', 'push'),
+    ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'push'),
+])
+def test_missing_githead_refuses_an_event_its_publisher_does_not_release_on(monkeypatch, package, tag, workflow, event):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch, package, tag, workflow, event)
+    with pytest.raises(vca.VerificationError, match='publisher event mismatch'):
+        vca._verify_npm('sdk-js-package', pin)
+    assert calls == []
+
+
+def test_missing_githead_refuses_a_package_without_a_declared_publisher(monkeypatch):
+    pin, _, _, _, calls = _npm_split_publisher(monkeypatch, '@honua/unlisted')
+    with pytest.raises(vca.VerificationError, match='no allowlisted publisher'):
+        vca._verify_npm('sdk-js-package', pin)
+    assert calls == []
 
 
 def test_present_conflicting_npm_githead_cannot_use_provenance_fallback(monkeypatch):

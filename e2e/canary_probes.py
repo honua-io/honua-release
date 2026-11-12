@@ -80,7 +80,10 @@ def check_health_live_ready(fetch: Fetcher, base: str) -> CheckResult:
 
 
 def check_security_headers(fetch: Fetcher, base: str) -> CheckResult:
-    """Beat 2 (demo-b-probes.sh): the security header baseline on the root response.
+    """Beat 2 (demo-b-probes.sh): the security header baseline on the target's own root response.
+
+    Pass a fetcher that does not follow redirects: a root that redirects to another site is judged
+    by the headers on its 3xx, not by the page it points at.
 
     Asserts every header the endpoint's transport can carry, and says which one it did not assert
     when the transport cannot carry it — see the header tables above for why HSTS is scheme-bound.
@@ -436,10 +439,11 @@ def run_canary(base: str, fetch: Fetcher, *, admin_fetch: Fetcher | None = None,
     `.github/workflows/demo-canary.yml`, against https://demo.honua.io).
 
     https_redirect is the cell's (expected, reason) from its target; None (the demo canary) leaves
-    the redirect probe out."""
+    the redirect probe out. redirect_fetch must not follow redirects; the redirect and
+    security-header probes use it when given."""
     results = [
         check_health_live_ready(fetch, base),
-        check_security_headers(fetch, base),
+        check_security_headers(redirect_fetch or fetch, base),
         check_metrics_gated(fetch, base, admin_fetch),
         check_admin_metrics_health(admin_fetch, base),
         check_render_query_smoke(fetch, base, service_id, tile_layer_id if tile_layer_id is not None else 0),

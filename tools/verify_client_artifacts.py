@@ -189,14 +189,14 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
     transparency log, package bytes, repository, source, workflow and release ref together.
     Conflicting registry gitHead never reaches this fallback.
     """
-    from mint_nightly_lock import signer_workflow, verify_publisher_bundle
+    from mint_nightly_lock import JS_PUBLISHERS, signer_workflow, verify_publisher_bundle
 
     package, version = str(artifact['package']), str(artifact['version'])
-    split_packages = {'@honua/sdk', '@honua/react', '@honua/geometry', '@honua/app-platform'}
     repository = 'honua-io/honua-sdk-js'
-    if package not in split_packages or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:
+    publisher = JS_PUBLISHERS.get(package)
+    if publisher is None or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:
         raise VerificationError(f'{name}: missing npm gitHead has no allowlisted publisher source fallback')
-    ref = f'refs/tags/js-sdk-v{version}'
+    ref = f'refs/tags/{publisher.tag_prefix}{version}'
     workflow = signer_workflow({}, {'coordinate': package}, repository)
     predicate_type = 'https://slsa.dev/provenance/v1'
     response = _request_json('https://registry.npmjs.org/-/npm/v1/attestations/'
@@ -221,9 +221,9 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
         if build.get('buildType') != 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1':
             raise ValueError('publisher build type mismatch')
         if build['externalParameters']['workflow'] != {'ref': ref,
-                'repository': f'https://github.com/{repository}', 'path': '.github/workflows/publish-js-sdk.yml'}:
+                'repository': f'https://github.com/{repository}', 'path': workflow.removeprefix(f'{repository}/')}:
             raise ValueError('publisher workflow or release ref mismatch')
-        if build['internalParameters']['github']['event_name'] not in {'workflow_dispatch', 'release'}:
+        if build['internalParameters']['github']['event_name'] not in publisher.events:
             raise ValueError('publisher event mismatch')
         if build.get('resolvedDependencies') != [{'uri': f'git+https://github.com/{repository}@{ref}',
                 'digest': {'gitCommit': artifact['sourceSha']}}]:

@@ -40,7 +40,6 @@
     {"repo": "honua-io/honua-server", "path": "docs/sdks/python/python-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "python"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/dotnet/dotnet-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
     {"repo": "honua-io/honua-samples", "path": "README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "README.md:162 — \"Bash, `curl`, `jq` and `od`\"", "python": "README.md:161 — \"Python 3 on `PATH` as `python`\"", "sudo": "README.md:165-166 — \"`--with-deps` also installs Chromium's system libraries (it uses `sudo` on Linux)\""}},
-    {"repo": "honua-io/honua-samples", "path": "samples/browser-featureserver-query/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/browser-featureserver-query"}},
     {"repo": "honua-io/honua-samples", "path": "samples/geocode-single-line/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/geocode-single-line"}},
     {"repo": "honua-io/honua-samples", "path": "samples/hello-featureserver-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/hello-featureserver-rest"}},
     {"repo": "honua-io/honua-samples", "path": "samples/odata-query-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/odata-query-rest"}},
