@@ -7,16 +7,18 @@ certification (`certification/`, `e2e/`), BOM and release notes. Overview: `READ
 
 ## Commands (from `.github/workflows/manifest-validate.yml`, the required `validate` check)
 ```bash
-python -m pip install "pyyaml>=6.0" "jsonschema>=4.23" "cryptography>=45.0" "boto3>=1.35,<2" pytest
+python -m pip install -r tools/requirements-validation.txt
 python3 tools/check_action_pins.py                     # every action pinned to a SHA
 python tools/validate_platform.py                      # manifest + matrix structure, coherence, drift
 python3 tools/validate_customer_install_manifest.py customer-install-manifest.json
 python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 python3 tools/coverage_audit.py --check
 python3 tools/release_decision_record.py --check
-python -m pytest tools/ -q                             # gate self-tests (CI adds e2e/test_*.py files)
+python -m pytest tools/ -q                             # local tools subset
 python -m pytest certification/agent-ops -q            # operate harness; own process, not mixed with e2e/
 ```
+CI runs the tools and selected e2e self-tests through six `tools/self_test_partitions.py run`
+jobs, then requires `tools/self_test_partitions.py verify` to conserve their execution receipts.
 Run the steps that cover what you changed; the workflow lists the rest.
 
 ## Invariants
