@@ -20,15 +20,16 @@
 #     canary prints it; keeping it around re-hides the next genuine regression).
 #   * Entries naming a probe the canary does not emit are reported as unknown — usually a rename.
 #
-# Every field is required. `issue` must be a full URL so the run summary is one click from the owner.
+# `failureContains` (optional) narrows an entry to failures whose reason contains that text; any
+# other failure of the same probe stays red. Every other field is required. `issue` must be a full URL so the run summary is one click from the owner.
 
 quarantine:
-  security-headers:
-    issue: https://github.com/honua-io/honua-release/issues/87
+  deployment-revision:
+    issue: https://github.com/honua-io/honua-release/issues/475
     reason: >-
-      demo.honua.io's root `/` is a CloudFront function-generated stub, not an origin response, and that
-      function emits only CSP/referrer-policy/x-content-type-options — no HSTS, no COOP, no XFO. Every
-      origin-served path (/rest/services, /healthz/live) carries the full baseline, so this is a demo CDN
-      gap rather than a honua-server regression. Fix is in the demo infra's CloudFront function.
-    since: "2026-08-16"
-    reviewBy: "2026-09-30"
+      The founder holds demo.honua.io on its current build until the rc.2 cut, so the live deployment
+      revision stays behind the manifest's honua-server pin. At the cut the demo moves to the Launch
+      Stack on the cut candidate; this entry must then go stale and be deleted.
+    failureContains: "does not match candidate"
+    since: "2026-11-09"
+    reviewBy: "2026-11-30"

@@ -35,6 +35,11 @@ class QuarantineEntry:
     reason: str
     since: str
     review_by: str
+    failure_contains: str = ""
+
+    def covers(self, result: CheckResult) -> bool:
+        """Only the owned failure: an entry with failureContains leaves any other failure red."""
+        return result.status == "fail" and self.failure_contains in result.why
 
     def expired(self, today: date) -> bool:
         """A quarantine past its reviewBy stops applying — it cannot silently become permanent."""
@@ -42,7 +47,8 @@ class QuarantineEntry:
 
     def as_dict(self) -> dict:
         return {"probe": self.probe, "issue": self.issue, "reason": self.reason,
-                "since": self.since, "reviewBy": self.review_by}
+                "since": self.since, "reviewBy": self.review_by,
+                **({"failureContains": self.failure_contains} if self.failure_contains else {})}
 
 
 def _parse_date(value: str) -> date:
@@ -75,7 +81,8 @@ def load_quarantine(path: Path | str = QUARANTINE_PATH) -> dict[str, QuarantineE
         _parse_date(review_by)
         entries[str(probe)] = QuarantineEntry(probe=str(probe), issue=issue,
                                               reason=" ".join(str(body["reason"]).split()),
-                                              since=str(body["since"]).strip(), review_by=review_by)
+                                              since=str(body["since"]).strip(), review_by=review_by,
+                                              failure_contains=str(body.get("failureContains") or "").strip())
     return entries
 
 
@@ -100,7 +107,7 @@ def apply_quarantine(results: list[CheckResult], entries: dict[str, QuarantineEn
     out: list[CheckResult] = []
     for r in results:
         entry = entries.get(r.name)
-        if entry is None or r.status != "fail":
+        if entry is None or not entry.covers(r):
             out.append(r)
             continue
         if entry.expired(today):
