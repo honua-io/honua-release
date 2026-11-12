@@ -287,7 +287,9 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
     # documented sentinel (honua-release#99). Anything else — a stale digest from a previous pin, an
     # invented one, "TBD" — is rejected here rather than sailing past the cloud gate's regex.
     ecr_digest = str(server.get("awsLambdaEcrDigest", "")).strip()
-    if ecr_digest != PENDING_ECR_MIRROR and not re.fullmatch(r"sha256:[0-9a-f]{64}", ecr_digest):
+    from mint_nightly_lock import lambda_pins_exempt
+    absent_preview_lambda = lambda_pins_exempt(server, matrix.get('deploy', {}))
+    if not absent_preview_lambda and ecr_digest != PENDING_ECR_MIRROR and not re.fullmatch(r"sha256:[0-9a-f]{64}", ecr_digest):
         f.error(
             f"manifest: honua-server.awsLambdaEcrDigest must be an exact sha256:<64hex> digest or "
             f"the literal {PENDING_ECR_MIRROR!r} sentinel, got {ecr_digest!r}"
@@ -657,6 +659,7 @@ def check_capability_lifecycle(matrix: dict, f: Findings, expected_ga: dict | No
         f.error("matrix: capabilities must be a mapping")
         return
     ga_keys = set((expected_ga or {}).get("expectedGa") or [])
+    ga_keys |= set(ego.legacy_ids(expected_ga or {}).values())  # a declared legacy id counts as its policy id
     for name, row in capabilities.items():
         path = f"capabilities.{name}"
         if not isinstance(row, dict):

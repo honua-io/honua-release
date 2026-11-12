@@ -2156,3 +2156,50 @@ def test_only_a_released_archive_skips_the_trunk_walk():
     assert resolver.released_archive(released_iac())
     assert not resolver.released_archive(released_iac(version='pre-release'))
     assert not resolver.released_archive({**released_iac(), 'artifact': 'oci-chart:honua'})
+
+
+def test_preview_lambda_does_not_block_ecs_candidate_resolution():
+    registry, _, _ = _lambda_registry(NEW, 'attestation-only')
+    component = {**_lambda_component(), 'repository': 'https://github.com/honua-io/honua-server'}
+    selected = resolver.select_component('honua-server', component, GitHub(),
+                                         resolver.EcsCandidateRegistry(registry), 1)
+    assert selected['sha'] == NEW
+    assert selected['artifactSourceRevision'] == NEW
+    assert not any(selected.get(field) for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'))
+
+
+def test_required_lambda_still_refuses_unusable_candidate_image():
+    registry, _, _ = _lambda_registry(NEW, 'attestation-only')
+    component = {**_lambda_component(), 'repository': 'https://github.com/honua-io/honua-server'}
+    with pytest.raises(resolver.ResolutionError, match='single linux/amd64'):
+        resolver.select_component('honua-server', component, GitHub(), registry, 1)
+
+
+@pytest.mark.parametrize('scope,required', [('preview', False), ('ga-target', True), (None, True)])
+def test_resolve_uses_preview_ruling_to_select_lambda_requirement(monkeypatch, scope, required):
+    observed = []
+
+    def capture(*args, **kwargs):
+        observed.append(not isinstance(args[3], resolver.EcsCandidateRegistry))
+        raise resolver.ResolutionError('stop after scope capture')
+
+    monkeypatch.setattr(resolver, 'select_component', capture)
+    monkeypatch.setattr(resolver, 'verify_manifest', lambda *args, **kwargs: None)
+    matrix = {'deploy': {'honua-server': {'awsLambda': {'architectures': {
+        'x86_64': {'status': 'preview', 'releaseScope': scope}}}}}}
+    with pytest.raises(resolver.ResolutionError, match='stop after scope capture'):
+        resolver.resolve({'components': {'honua-server': {
+            'repository': 'https://github.com/honua-io/honua-server', 'sha': OLD}}},
+            matrix, None, object())
+    assert observed == [required]
+
+
+def test_preview_lambda_keeps_only_pins_from_selected_commit():
+    registry, _, child = _lambda_registry(NEW, 'index')
+    component = {**_lambda_component(), 'repository': 'https://github.com/honua-io/honua-server'}
+    selected = resolver.select_component('honua-server', component, GitHub(),
+                                         resolver.EcsCandidateRegistry(registry), 1)
+    assert selected['awsLambdaDigest'] == child
+    assert selected['awsLambdaEcrDigest'] == 'pending-ecr-mirror'
+    assert NEW[:7] in selected['awsLambdaImage']
+

@@ -52,6 +52,52 @@ def checked_ids(policy: dict) -> list[str]:
     return [i for i in (policy.get("expectedGa") or []) if isinstance(i, str) and i not in excluded]
 
 
+def predecessor_errors(policy: dict) -> list[str]:
+    """Why the policy's `predecessors` declaration is malformed; [] when it is absent or well formed.
+
+    A predecessor entry {id, legacyId, reason} says the server renamed the `expectedGa` id `id`
+    from `legacyId`, so a candidate built before the rename still binds. Each id is declared at
+    most once, and a legacy id is never itself a policy id."""
+    entries = policy.get("predecessors")
+    if entries is None:
+        return []
+    where = f"{POLICY_PATH.name}: predecessors"
+    if not isinstance(entries, list):
+        return [f"{where} must be a list"]
+    expected = {i for i in (policy.get("expectedGa") or []) if isinstance(i, str)}
+    policy_ids = expected | _ids(policy.get("excluded")) | _ids(policy.get("availabilityGated"))
+    errors, seen = [], set()
+    for entry in entries:
+        entry = entry if isinstance(entry, dict) else {}
+        pid, legacy, reason = entry.get("id"), entry.get("legacyId"), entry.get("reason")
+        if not isinstance(pid, str) or pid not in expected:
+            errors.append(f"{where}: {pid!r} is not an expectedGa id")
+        elif not isinstance(legacy, str) or not legacy or legacy in policy_ids:
+            errors.append(f"{where}: legacyId {legacy!r} of {pid!r} is missing or is itself a policy id")
+        elif not isinstance(reason, str) or not reason.strip():
+            errors.append(f"{where}: {pid!r} needs a reason")
+        elif pid in seen:
+            errors.append(f"{where}: {pid!r} is declared more than once")
+        if isinstance(pid, str):
+            seen.add(pid)
+    return errors
+
+
+def legacy_ids(policy: dict) -> dict[str, str]:
+    """{policy id: declared legacy id} from a well-formed `predecessors` declaration."""
+    if predecessor_errors(policy):
+        return {}
+    return {e["id"]: e["legacyId"] for e in policy.get("predecessors") or []}
+
+
+def resolve_id(policy_id: str, advertised: Any, legacy: dict[str, str]) -> str:
+    """The advertised id that answers for `policy_id`: the id itself whenever the server advertises
+    it, its declared legacy id only when the server advertises that instead, else `policy_id`."""
+    if policy_id not in advertised and policy_id in legacy and legacy[policy_id] in advertised:
+        return legacy[policy_id]
+    return policy_id
+
+
 def _capabilities(manifest: Any, label: str) -> dict[str, dict]:
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != CAPABILITY_MANIFEST_SCHEMA:
         raise ValueError(f"{label} capability manifest is not {CAPABILITY_MANIFEST_SCHEMA}")
@@ -158,8 +204,13 @@ def policy_errors(policy: Any, observation: dict) -> list[str]:
     """Policy ids the bound observation does not advertise supported=true; [] when all are."""
     if not isinstance(policy, dict) or not isinstance(policy.get("expectedGa"), list):
         return [f"{POLICY_PATH.name} is missing or malformed"]
+    shape = predecessor_errors(policy)
+    if shape:
+        return shape
     observed = {c.get("id"): c for c in observation.get("capabilities") or [] if isinstance(c, dict)}
-    missing = sorted(i for i in checked_ids(policy) if observed.get(i, {}).get("supported") is not True)
+    legacy = legacy_ids(policy)
+    missing = sorted(i for i in checked_ids(policy)
+                     if observed.get(resolve_id(i, observed, legacy), {}).get("supported") is not True)
     if missing:
         return [f"{OBSERVATION_PATH.name}: the candidate boot does not advertise expected-GA ids "
                 f"supported=true: {missing}"]

@@ -6574,3 +6574,34 @@ def test_s10_reshaped_disclosure_fails_the_cell_through_verify_and_teardown(monk
                                           cost_report=Path(directory) / "run-cost.json")
     assert report["status"] == "fail" and report["disclosureMismatch"]
     assert report["teardown"]["attempted"]
+
+
+def test_capability_manifest_accepts_a_declared_legacy_id_only_when_the_neutral_id_is_absent():
+    expected = _expected_ga(["a.one", "n.neutral"])
+    expected["predecessors"] = [{"id": "n.neutral", "legacyId": "l.legacy", "reason": "renamed upstream"}]
+
+    def run(*caps, auth_caps=None):
+        def body(cs):
+            return json.dumps({"schemaVersion": "honua.capability_manifest.v1", "capabilities": [
+                {"id": i, "supported": s, "available": True} for i, s in cs]})
+        public = _fetcher([("/api/v1/capabilities/manifest", cc.HttpResponse(200, body(caps)))])
+        auth = _fetcher([("/api/v1/capabilities/manifest",
+                          cc.HttpResponse(200, body(auth_caps if auth_caps is not None else caps)))])
+        return cc.check_capability_manifest("http://x", public, expected=expected, authenticated_fetch=auth,
+                                            frozen_server=TEST_SERVER, observation=_observation())
+
+    assert run(("a.one", True), ("n.neutral", True)).status == "pass"
+    assert run(("a.one", True), ("l.legacy", True)).status == "pass"
+    shadowed = run(("a.one", True), ("n.neutral", False), ("l.legacy", True))
+    assert shadowed.status == "fail" and "n.neutral" in shadowed.why
+    absent = run(("a.one", True))
+    assert absent.status == "fail" and "n.neutral" in absent.why
+    # The authenticated leg resolves the same way and still requires available=true.
+    gone = run(("a.one", True), ("l.legacy", True), auth_caps=[("a.one", True)])
+    assert gone.status == "fail" and "n.neutral" in gone.why
+    # Both legs answer with the id the public manifest resolved: the authenticated leg cannot swap
+    # the neutral id for the legacy one (or back).
+    swapped = run(("a.one", True), ("n.neutral", True), auth_caps=[("a.one", True), ("l.legacy", True)])
+    assert swapped.status == "fail" and "n.neutral" in swapped.why
+    back = run(("a.one", True), ("l.legacy", True), auth_caps=[("a.one", True), ("n.neutral", True)])
+    assert back.status == "fail" and "n.neutral" in back.why

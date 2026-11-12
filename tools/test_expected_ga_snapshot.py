@@ -117,3 +117,63 @@ def test_committed_observation_is_the_committed_server_and_satisfies_the_policy(
     assert ego.binding_errors(observation, server) == []
     assert ego.policy_errors(ego.load_json(ego.POLICY_PATH), observation) == []
     assert copy.deepcopy(observation)["totalCapabilities"] == len(observation["capabilities"])
+
+
+# Declared predecessors (a server-side id rename):
+# a policy id is satisfied by its declared legacy id only when the neutral id is absent, so the frozen
+# pin and every post-rename candidate both bind; nothing else changes meaning.
+RENAMED = {"expectedGa": ["n.neutral"], "excluded": [],
+           "predecessors": [{"id": "n.neutral", "legacyId": "l.legacy", "reason": "renamed upstream"}]}
+
+
+def observed(*caps):
+    return {"capabilities": [{"id": i, "supported": s} for i, s in caps]}
+
+
+def test_a_declared_legacy_id_satisfies_its_neutral_policy_id_only_when_the_neutral_id_is_absent():
+    assert ego.policy_errors(RENAMED, observed(("n.neutral", True))) == []
+    assert ego.policy_errors(RENAMED, observed(("l.legacy", True))) == []
+    # The neutral id, once advertised, is the one asserted: a supported legacy id cannot mask it.
+    assert "n.neutral" in ego.policy_errors(RENAMED, observed(("n.neutral", False), ("l.legacy", True)))[0]
+    assert "n.neutral" in ego.policy_errors(RENAMED, observed(("l.legacy", False)))[0]
+    assert "n.neutral" in ego.policy_errors(RENAMED, observed())[0]
+    # Without the declaration the legacy id satisfies nothing.
+    plain = {"expectedGa": ["n.neutral"], "excluded": []}
+    assert ego.policy_errors(plain, observed(("l.legacy", True)))
+
+
+@pytest.mark.parametrize("entries, problem", [
+    ([{"id": "x.other", "legacyId": "l.legacy", "reason": "r"}], "not an expectedGa id"),
+    ([{"id": "n.neutral", "legacyId": "n.neutral", "reason": "r"}], "is itself a policy id"),
+    ([{"id": "n.neutral", "legacyId": "l.legacy"}], "reason"),
+    ([{"id": "n.neutral", "legacyId": "l.legacy", "reason": "r"},
+      {"id": "n.neutral", "legacyId": "l.other", "reason": "r"}], "more than once"),
+    ("not-a-list", "must be a list"),
+    ([{"id": ["n.neutral"], "legacyId": "l.legacy", "reason": "r"}], "not an expectedGa id"),
+    ([{"id": "n.neutral", "legacyId": ["l.legacy"], "reason": "r"}], "is itself a policy id"),
+    (["not-an-object"], "not an expectedGa id"),
+])
+def test_a_malformed_predecessor_declaration_refuses(entries, problem):
+    policy = {**RENAMED, "predecessors": entries}
+    errors = ego.policy_errors(policy, observed(("n.neutral", True)))
+    assert errors and problem in errors[0]
+
+
+def test_the_reviewed_policy_binds_both_the_frozen_pin_and_post_rename_candidates():
+    policy = ego.load_json(ego.POLICY_PATH)
+    pinned = ego.load_json(ego.OBSERVATION_PATH)
+    assert ego.policy_errors(policy, pinned) == []
+    legacy = ego.legacy_ids(policy)["format.read.geoservicesjson"]
+    assert legacy in {c["id"] for c in pinned["capabilities"]}
+    renamed = copy.deepcopy(pinned)
+    for cap in renamed["capabilities"]:
+        if cap["id"] == legacy:
+            cap["id"] = "format.read.geoservicesjson"
+    assert ego.policy_errors(policy, renamed) == []
+
+
+def test_an_observed_entry_without_an_id_is_a_clean_refusal_not_a_crash():
+    observation = {"capabilities": [{"supported": True}]}
+    for policy in ({"expectedGa": ["n.neutral"], "excluded": []}, RENAMED):
+        errors = ego.policy_errors(policy, observation)
+        assert errors and "n.neutral" in errors[0]

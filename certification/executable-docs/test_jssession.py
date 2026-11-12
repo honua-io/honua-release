@@ -682,6 +682,7 @@ def test_repeated_inactive_unref_does_not_retain_owned_listeners_or_remove_user_
 
 @pytest.mark.parametrize('mode', ['output', 'error', 'timeout'])
 def test_synchronous_cleanup_new_referenced_work_stays_in_original_block(reader, mode):
+    assert run(reader, "void 0;").status == "pass"
     callbacks = {
         'output': "setTimeout(() => { require('node:fs').appendFileSync('cleanup-once', 'once'); "
                   "console.log('cleanup-output'); }, 10);",
@@ -839,6 +840,7 @@ def test_cleanup_callbacks_are_captured_before_pass_with_explicit_native_differe
     ("setInterval(() => {}, 1000);", 'timed out'),
 ])
 def test_cleanup_errors_or_nondraining_callbacks_fail_original_block(reader, callback, expected):
+    assert run(reader, "void 0;").status == "pass"
     result = run(reader, "const s = require('node:net').createServer(); "
         "await new Promise(resolve => s.listen(0, '127.0.0.1', resolve)); "
         f"s.on('close', () => {{ {callback} }}); s.unref();", timeout=0.5)

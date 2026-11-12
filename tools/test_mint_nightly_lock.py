@@ -695,7 +695,7 @@ def test_cli_refuses_to_stamp_or_mint_without_synced_history(inputs, tmp_path):
 
 
 NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
-                    'lambda-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
+                    'ecs-certification', 'protocol-ledger', 'deterministic-journey', 'nightly-model-journey',
                     'executable-docs', 'installed-clients')
 QUALIFYING_EXPECTED = ('genuine-model-journey', 'update-rollback', 'esri-bundle', 'cite')
 
@@ -1760,3 +1760,45 @@ def test_retired_geoservices_producer_is_not_a_fixture_gate_and_its_record_is_re
     stray = {**complete[0], 'gate': 'certification', 'job': 'conformance-retired'}
     with pytest.raises(ValueError, match='not a fixture gate'):
         fixture_revisions.declare([*complete, stray], run_id=RUN)
+
+
+def test_unavailable_preview_lambda_does_not_block_ecs_lock(inputs, candidate, tmp_path):
+    report, paths = inputs
+    preview_lambda_candidate(report, paths)
+    manifest = yaml.safe_load(paths[0].read_text())
+    server = manifest['components']['honua-server']
+    server.pop('awsLambdaImage')
+    server.pop('awsLambdaDigest')
+    paths[0].write_text(yaml.safe_dump(manifest))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    refs = nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+        attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+        verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))
+    assert not refs.get('previewOutOfLock')
+
+
+def test_preview_lambda_ecr_pin_alone_is_not_absent(inputs, candidate, tmp_path):
+    report, paths = inputs
+    preview_lambda_candidate(report, paths)
+    manifest = yaml.safe_load(paths[0].read_text())
+    server = manifest['components']['honua-server']
+    server.pop('awsLambdaImage')
+    server.pop('awsLambdaDigest')
+    server['awsLambdaEcrDigest'] = LAMBDA_DIGEST
+    paths[0].write_text(yaml.safe_dump(manifest))
+    report['candidate']['artifacts'][paths[0].name] = {'sha256': _sha256(paths[0]), 'size': paths[0].stat().st_size}
+    with pytest.raises(ValueError, match='Lambda'):
+        nightly.collect_post_gate(report, *paths, tmp_path / 'collected',
+            attestations=publisher_bundles, artifact_bytes=lambda artifact: candidate[2],
+            verifier=lambda *args: None, overrides=lambda_ruling_file(tmp_path))
+
+
+@pytest.mark.parametrize('pins', [(), ('awsLambdaImage',), ('awsLambdaDigest',),
+                                  ('awsLambdaEcrDigest',),
+                                  ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest')])
+@pytest.mark.parametrize('ruling', [None, nightly.LAMBDA_OUT_OF_LOCK_RULING])
+def test_lambda_pin_exemption_requires_all_pins_absent_and_preview_ruling(monkeypatch, pins, ruling):
+    server = {field: 'present' for field in pins}
+    monkeypatch.setattr(nightly, 'lambda_out_of_lock', lambda deploy, overrides: ruling)
+    assert nightly.lambda_pins_absent(server) is (not pins)
+    assert nightly.lambda_pins_exempt(server, {}) is (not pins and ruling is not None)

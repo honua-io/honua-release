@@ -97,7 +97,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22.23.3"
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: "10.0.x"
 
@@ -165,7 +165,7 @@ jobs:
       # Honua.Sdk 1.12.0's global.json pins SDK 10.0.401 with rollForward disable and a
       # workloadVersion. The runner image ships a different patch and no 10.0.401 workload set, so
       # install exactly the pinned SDK and drop only the workload-set pin; the seam probes use no workload.
-      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           global-json-file: _e2e-sdk-dotnet/global.json
       - name: Drop the pinned .NET SDK's workload-set pin
@@ -270,7 +270,7 @@ jobs:
       # never boots, and per honua-release#303 that FAILS the job rather than reporting a green
       # check over 13 identical BLOCKED rows.
       - name: Log in to ghcr
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -287,7 +287,7 @@ jobs:
       # closed on drift, preserving the manifest as the release source of truth while preventing an
       # unreviewed revision from reaching npm or MSBuild.
       - name: Set up .NET (console live suite)
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: '10.0.x'
 
@@ -507,7 +507,7 @@ jobs:
         run: bash e2e/harness/run_all.sh check
 
       - name: Log in to ghcr
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

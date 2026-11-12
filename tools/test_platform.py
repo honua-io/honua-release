@@ -26,6 +26,21 @@ import trunk_reachability as tr
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize('required', [False, True])
+def test_missing_preview_lambda_pins_structure_requires_the_ruling(required, monkeypatch):
+    import mint_nightly_lock
+    manifest = vp._load_yaml(vp.MANIFEST_PATH)
+    matrix = vp._load_yaml(vp.MATRIX_PATH)
+    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+        manifest['components']['honua-server'].pop(field, None)
+    if required:
+        monkeypatch.setattr(mint_nightly_lock, 'lambda_out_of_lock', lambda deploy, overrides=None: None)
+    findings = vp.Findings()
+    vp.check_structure(manifest, matrix, findings)
+    errors = [error for error in findings.errors if 'awsLambdaEcrDigest' in error]
+    assert bool(errors) == required
+
+
 def test_semver_ordering_prerelease_below_release():
     assert semver.parse("1.0.0-alpha") < semver.parse("1.0.0")
     assert semver.parse("1.0.0-alpha.1") < semver.parse("1.0.0-alpha.2")
@@ -826,6 +841,14 @@ def test_internal_capability_rejects_customer_claims(claim):
 def test_internal_capability_is_not_counted_in_the_ga_denominator():
     f = vp.Findings()
     vp.check_capability_lifecycle(_internal_matrix(), f, {"expectedGa": ["serve.wfs", "admin.multi-tenancy"]})
+    assert any("counted in the expected-GA manifest" in e for e in f.errors), f.errors
+
+
+def test_an_internal_key_counted_through_a_declared_legacy_id_is_still_refused():
+    f = vp.Findings()
+    policy = {"expectedGa": ["serve.wfs", "n.neutral"],
+              "predecessors": [{"id": "n.neutral", "legacyId": "admin.multi-tenancy", "reason": "r"}]}
+    vp.check_capability_lifecycle(_internal_matrix(), f, policy)
     assert any("counted in the expected-GA manifest" in e for e in f.errors), f.errors
 
 
