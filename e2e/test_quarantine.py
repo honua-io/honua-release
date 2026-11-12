@@ -118,7 +118,7 @@ def test_every_quarantined_probe_is_a_probe_the_canary_can_emit():
     entries = load_quarantine(QUARANTINE_PATH)
     known = set(demo_canary.PROBE_CAPABILITY_KEYS) | {
         "health", "geoservices-error", "service-catalog", "capabilities", "geoprocessing",
-        "security-headers", "deploy-preflight",
+        "security-headers", "deploy-preflight", "deployment-revision",
     }
     assert set(entries) <= known, f"unknown probe name(s) in canary-quarantine.yaml: {set(entries) - known}"
 
@@ -143,3 +143,30 @@ def test_quarantined_probe_is_still_red_in_the_evidence_envelope(monkeypatch):
     assert probe["lastGreenAt"] == ""
     assert "issues/87" in probe["detail"]
     assert envelope["overallStatus"] == "partial"
+
+
+def test_failure_contains_quarantines_only_the_owned_failure():
+    entry = QuarantineEntry(probe="p-fail", issue="https://github.com/honua-io/honua-release/issues/475",
+                            reason="demo held", since="2026-11-09", review_by="2026-11-30",
+                            failure_contains="does not match candidate")
+    owned = [CheckResult("p-fail", "fail", "live revision 'a' does not match candidate 'b'")]
+    other = [CheckResult("p-fail", "fail", "manifest does not advertise the revision")]
+    assert apply_quarantine(owned, {"p-fail": entry}, today=date(2026, 11, 12))[0][0].status == QUARANTINED
+    out, audit = apply_quarantine(other, {"p-fail": entry}, today=date(2026, 11, 12))
+    assert out[0].status == "fail" and audit["applied"] == [] and audit["stale"] == []
+
+
+def test_quarantined_check_without_an_envelope_probe_keeps_the_envelope_red(monkeypatch):
+    monkeypatch.setattr(demo_canary, "make_fetch", lambda *a, **k: (lambda url: None))
+    monkeypatch.setattr(demo_canary, "run_canonical", lambda *a, **k: [])
+    monkeypatch.setattr(demo_canary, "_live_deployment_revision",
+                        lambda *a, **k: (CheckResult("deployment-revision", "fail", "lagging"), "a" * 40))
+    monkeypatch.setattr(demo_canary.canary_probes, "run_canary", lambda *a, **k: [])
+    monkeypatch.setattr(demo_canary, "load_quarantine",
+                        lambda *a, **k: {"deployment-revision": _entry(probe="deployment-revision")})
+
+    report, envelope = demo_canary.run("https://demo.honua.io", None, None, None, True, 3000.0, None)
+
+    assert report["status"] == "blocked"
+    assert "deployment-revision" not in demo_canary.PROBE_CAPABILITY_KEYS
+    assert envelope["overallStatus"] == "red"

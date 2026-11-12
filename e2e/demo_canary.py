@@ -137,6 +137,13 @@ def _target_environment(base: str) -> str:
     return CANONICAL_DEMO_HOST if host == CANONICAL_DEMO_HOST else base
 
 
+def _envelope_status(overall: str, quarantined: list[str]) -> str:
+    """A quarantined check with no envelope probe would vanish from the evidence, so it stays red."""
+    if any(name not in PROBE_CAPABILITY_KEYS for name in quarantined):
+        return "red"
+    return "partial" if quarantined else {"pass": "green", "fail": "red"}.get(overall, "partial")
+
+
 def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer_id: int | None,
         assert_stac_non_empty: bool, geocode_budget_ms: float, candidate_sha: str | None, *,
         bound_candidate: bool = False) -> tuple[dict, dict]:
@@ -151,7 +158,8 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
     canary = canary_probes.run_canary(base, fetch, admin_fetch=admin_fetch, service_id=service_id,
                                       tile_layer_id=tile_layer_id,
                                       assert_stac_non_empty=assert_stac_non_empty,
-                                      geocode_budget_ms=geocode_budget_ms)
+                                      geocode_budget_ms=geocode_budget_ms,
+                                      redirect_fetch=make_fetch(follow_redirects=False))
     all_results = canonical + canary
 
     # Issue-linked quarantine (honua-release#84, e2e/canary-quarantine.yaml): a KNOWN, OWNED failure is
@@ -217,8 +225,7 @@ def run(base: str, admin_api_key: str | None, service_id: str | None, tile_layer
         "targetEnvironment": _target_environment(base),
         "targetUrl": base,
         "runAt": generated_at,
-        "overallStatus": ("partial" if quarantined else
-                          {"pass": "green", "fail": "red"}.get(overall, "partial")),
+        "overallStatus": _envelope_status(overall, quarantined),
         "sourceRepo": "honua-io/honua-release",
         "sourceRef": os.environ.get("GITHUB_SHA", ""),
         "sourceRunUrl": run_url,

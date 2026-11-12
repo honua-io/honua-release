@@ -384,6 +384,15 @@ def test_https_redirect_is_blocked_with_the_reason_on_cells_that_are_not_https()
     assert r.status == "blocked" and r.why == "aws-ecs is a plain-HTTP cell" and calls == []
 
 
+def test_run_canary_judges_security_headers_on_the_targets_own_redirect():
+    followed = _fetcher([("/", cc.HttpResponse(200, "", {}))])
+    own = _fetcher([("/", cc.HttpResponse(307, "", {"location": "https://elsewhere/", **_SEC_HEADERS}))])
+    by_name = {r.name: r for r in canary.run_canary("https://x", followed)}
+    assert by_name["security-headers"].status == "fail"
+    by_name = {r.name: r for r in canary.run_canary("https://x", followed, redirect_fetch=own)}
+    assert by_name["security-headers"].status == "pass"
+
+
 def test_run_canary_adds_the_redirect_probe_only_when_the_cell_states_an_expectation():
     fetch = _fetcher([])
     assert "https-redirect" not in [r.name for r in canary.run_canary("https://x", fetch)]
