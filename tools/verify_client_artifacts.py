@@ -182,6 +182,16 @@ def _verify_npm(name: str, artifact: dict) -> tuple[str, str]:
 
 
 
+# Each npm package honua-sdk-js publishes, by the tag its publisher workflow releases from.
+# The workflow itself comes from mint_nightly_lock.JS_WORKFLOWS.
+SDK_JS_RELEASE_TAG_PREFIXES = {
+    **{package: 'js-sdk-v' for package in ('@honua/sdk-js', '@honua/sdk', '@honua/react',
+                                           '@honua/geometry', '@honua/app-platform')},
+    '@honua/mcp-server': 'mcp-server-v',
+    'create-honua-app': 'create-honua-app-v',
+}
+
+
 def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
     """Missing gitHead is admissible only with the exact publisher's verified npm bundle.
 
@@ -192,11 +202,11 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
     from mint_nightly_lock import signer_workflow, verify_publisher_bundle
 
     package, version = str(artifact['package']), str(artifact['version'])
-    split_packages = {'@honua/sdk', '@honua/react', '@honua/geometry', '@honua/app-platform'}
     repository = 'honua-io/honua-sdk-js'
-    if package not in split_packages or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:
+    tag_prefix = SDK_JS_RELEASE_TAG_PREFIXES.get(package)
+    if tag_prefix is None or str(artifact.get('repository', '')).removeprefix('https://github.com/') != repository:
         raise VerificationError(f'{name}: missing npm gitHead has no allowlisted publisher source fallback')
-    ref = f'refs/tags/js-sdk-v{version}'
+    ref = f'refs/tags/{tag_prefix}{version}'
     workflow = signer_workflow({}, {'coordinate': package}, repository)
     predicate_type = 'https://slsa.dev/provenance/v1'
     response = _request_json('https://registry.npmjs.org/-/npm/v1/attestations/'
@@ -221,9 +231,9 @@ def _verify_npm_provenance(name: str, artifact: dict, data: bytes) -> None:
         if build.get('buildType') != 'https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1':
             raise ValueError('publisher build type mismatch')
         if build['externalParameters']['workflow'] != {'ref': ref,
-                'repository': f'https://github.com/{repository}', 'path': '.github/workflows/publish-js-sdk.yml'}:
+                'repository': f'https://github.com/{repository}', 'path': workflow.removeprefix(f'{repository}/')}:
             raise ValueError('publisher workflow or release ref mismatch')
-        if build['internalParameters']['github']['event_name'] not in {'workflow_dispatch', 'release'}:
+        if build['internalParameters']['github']['event_name'] not in {'workflow_dispatch', 'release', 'push'}:
             raise ValueError('publisher event mismatch')
         if build.get('resolvedDependencies') != [{'uri': f'git+https://github.com/{repository}@{ref}',
                 'digest': {'gitCommit': artifact['sourceSha']}}]:
