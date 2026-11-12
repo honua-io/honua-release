@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "9182b812563581b243b9658e5e2015e603426ab0",
+      "revision": "6660089cfed90914ea0fd423de17d40e6b90aac0",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/9182b812563581b243b9658e5e2015e603426ab0/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/6660089cfed90914ea0fd423de17d40e6b90aac0/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -1629,11 +1629,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "003c598dd5187f5fd826fcda4a8863eab6ec1418",
+      "revision": "e46ea99e5c17e79e9047bfa22fb535bc1d593baa",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/003c598dd5187f5fd826fcda4a8863eab6ec1418/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/e46ea99e5c17e79e9047bfa22fb535bc1d593baa/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1679,7 +1679,7 @@
         },
         {
           "index": 4,
-          "line": 360,
+          "line": 361,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1688,7 +1688,7 @@
         },
         {
           "index": 5,
-          "line": 380,
+          "line": 381,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1697,7 +1697,7 @@
         },
         {
           "index": 6,
-          "line": 403,
+          "line": 404,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1706,7 +1706,7 @@
         },
         {
           "index": 7,
-          "line": 419,
+          "line": 420,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1715,7 +1715,7 @@
         },
         {
           "index": 8,
-          "line": 428,
+          "line": 429,
           "language": "python",
           "infoString": "python",
           "intent": "file",
@@ -1725,7 +1725,7 @@
         },
         {
           "index": 9,
-          "line": 460,
+          "line": 461,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1734,7 +1734,7 @@
         },
         {
           "index": 10,
-          "line": 529,
+          "line": 530,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -1744,7 +1744,7 @@
         },
         {
           "index": 11,
-          "line": 569,
+          "line": 570,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1753,7 +1753,7 @@
         },
         {
           "index": 12,
-          "line": 603,
+          "line": 604,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
