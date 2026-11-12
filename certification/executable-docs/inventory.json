@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "6660089cfed90914ea0fd423de17d40e6b90aac0",
+      "revision": "2698c5e236993279cb21328b5978c9bb6c47f822",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/6660089cfed90914ea0fd423de17d40e6b90aac0/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/2698c5e236993279cb21328b5978c9bb6c47f822/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
