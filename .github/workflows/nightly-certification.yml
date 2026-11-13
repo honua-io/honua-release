@@ -31,6 +31,7 @@ jobs:
       platform_label: ${{ steps.stamp.outputs.platform_label }}
       server_sha: ${{ steps.server.outputs.server_sha }}
       server_image: ${{ steps.server.outputs.server_image }}
+      no_candidate_yet: ${{ steps.resolver.outputs.no_candidate_yet }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,6 +49,7 @@ jobs:
       # Resolve intrinsic pins only. These inputs are explicitly unadmitted until newly
       # executed deployment proof and the protocol ledger pass below.
       - name: Resolve the newest qualifying trunk candidate
+        id: resolver
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
         run: |
@@ -60,14 +62,27 @@ jobs:
           # never as a provenance refusal (run 39630172050, PyPI integrity 503).
           rc=0
           python tools/resolve_trunk_candidate.py --dry-run --max-commits 500 --protocol-ledger produce --prepare-deployments \
-            --out-dir resolved-candidate || rc=$?
+            --out-dir resolved-candidate > "$RUNNER_TEMP/resolve.log" 2>&1 || rc=$?
+          cat "$RUNNER_TEMP/resolve.log"
           if [ "$rc" = 75 ]; then
             echo "::error title=transient-registry-unavailable::a package registry was unavailable after bounded retries; this is not a provenance refusal (see the resolved-candidate-outcome artifact)"
             { echo "## Resolve outcome: transient-registry-unavailable"; echo;
               echo "A registry outage outlasted the bounded retry. No pin was refused; re-run the night once the registry is healthy."; } >> "$GITHUB_STEP_SUMMARY"
           fi
+          # A refusal whose only cause is that no trunk commit has a published SHA-bound server image yet
+          # means there is nothing to certify: the night ends here as "no candidate yet" and every later
+          # step and job is skipped. Any other refusal, or a log the summary cannot parse, stays red.
+          if [ "$rc" = 1 ] && python tools/resolver_dry_run_summary.py "$RUNNER_TEMP/resolve.log" 1 \
+              --json-out "$RUNNER_TEMP/resolve-summary.json" \
+              && python -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1]))["no_candidate_yet"] else 1)' \
+                "$RUNNER_TEMP/resolve-summary.json"; then
+            echo "::notice title=no-candidate-yet::no trunk commit has a published SHA-bound server image; nothing to certify tonight"
+            exit 0
+          fi
+          echo "no_candidate_yet=false" >> "$GITHUB_OUTPUT"
           exit "$rc"
       - name: Stamp the next 2026.1-rc label
+        if: steps.resolver.outputs.no_candidate_yet != 'true'
         id: stamp
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
@@ -81,6 +96,7 @@ jobs:
       # The server the night certifies is fixed here; protocol_ledger binds the ledger for exactly
       # this server and capacity soaks it in parallel.
       - name: Read the resolved server
+        if: steps.resolver.outputs.no_candidate_yet != 'true'
         id: server
         run: |
           set -euo pipefail
@@ -95,6 +111,7 @@ jobs:
           print(f"server_image={image}")
           PY
       - name: Publish unadmitted resolved inputs for capacity
+        if: steps.resolver.outputs.no_candidate_yet != 'true'
         id: prepared
         run: |
           set -euo pipefail
@@ -120,6 +137,7 @@ jobs:
           git push origin "${sha}:refs/prepared-deployments/${sha}"
           echo "prepared_ref=${sha}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.resolver.outputs.no_candidate_yet != 'true'
         with:
           name: resolved-candidate
           path: |
@@ -150,6 +168,7 @@ jobs:
   # by the train's cloud cells. A target the matrix re-scopes to ga-target is required again.
   deployment_qualification:
     needs: resolve
+    if: needs.resolve.outputs.no_candidate_yet != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 330
     permissions:
@@ -193,6 +212,7 @@ jobs:
   # nothing, and the bind then refuses (honua-release#183).
   expected_ga:
     needs: resolve
+    if: needs.resolve.outputs.no_candidate_yet != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -381,6 +401,7 @@ jobs:
   # this input snapshot is never a qualified candidate or a mint authorization.
   capacity:
     needs: resolve
+    if: needs.resolve.outputs.no_candidate_yet != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
     outputs:
