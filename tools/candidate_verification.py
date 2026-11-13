@@ -48,8 +48,8 @@ class Recording:
 
 TICKETS = (
     Ticket(1131, "s-rc2-vendor", ("gate-executable-docs",)),
-    Ticket(1132, "s-qa-live", ("e2e-local-docker",)),
-    Ticket(1133, "s-rc2-vendor", ("gate-installed-clients", "gate-protocol-certification")),
+    Ticket(1132, "s-release-rc2", ("e2e-local-docker",)),
+    Ticket(1133, "s-release-rc2", ("gate-installed-clients", "gate-protocol-certification")),
     Ticket(1136, "s-rc2-vendor", ()),
     Ticket(1137, "s-rc2-vendor", ("gate-protocol-certification",)),
     Ticket(1250, "s-rc2-vendor", ("gate-executable-docs",)),
