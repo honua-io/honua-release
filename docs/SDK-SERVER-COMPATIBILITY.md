@@ -19,7 +19,7 @@ SDK/server pairing. Certification requires an exact artifact-pair receipt in the
 | honua-sdk-js | @honua/sdk-js 0.2.10; @honua/mcp-server 0.2.10; @honua/sdk 0.2.10; @honua/react 0.2.10; @honua/geometry 0.2.10; @honua/app-platform 0.2.10; create-honua-app 0.2.3 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 | honua-sdk-dotnet | Honua.Sdk 1.12.0 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 | honua-sdk-python | honua-sdk 0.1.19; honua-admin 0.1.12 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
-| geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json 1.0.0+3c5388a8 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
+| geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/1f657ccda04cc344701c92283d4a078bbcc5b9a4/spec/schemas/index.json 1.0.0+1f657ccd | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 
 The JavaScript repository also owns `@honua/mcp-server`; its Honua attachment must
 bind the consumed SDK and MCP manifests. Standalone third-party protocol reads do not
