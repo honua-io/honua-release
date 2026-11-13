@@ -73,7 +73,7 @@ def test_row_rejects_a_short_sha_or_unknown_result():
 def test_failure_issue_names_the_lane_once():
     row = _row(SHA, cv.Outcome(1132, "fail", "https://example.test/run"))
     body = cv.failure_body([row])
-    assert "Owning lane: s-qa-live." in body
+    assert "Owning lane: s-release-rc2." in body
     assert SHA in body
     assert cv.failure_body([]) == ""
 
@@ -101,7 +101,7 @@ def test_record_posts_one_row_per_ticket_and_one_failure_issue(monkeypatch):
     assert [call[0] for call in calls] == ["comment", "comment", "issue"]
     assert calls[0][1] == 1131 and "result=pass" in calls[0][2]
     assert older in calls[0][2]
-    assert calls[1][1] == 1132 and "lane=s-qa-live" in calls[1][2]
+    assert calls[1][1] == 1132 and "lane=s-release-rc2" in calls[1][2]
     assert calls[2][1] == cv.FAILURE_TITLE
     assert rows[1131].startswith(WHEN)
     assert set(rows) == {1131, 1132}
@@ -187,3 +187,16 @@ def test_record_command_refuses_valid_results_until_they_can_be_kept(tmp_path):
     assert completed.returncode == cv.RECORDING_UNAVAILABLE
     assert completed.stdout == ""
     assert "persistence" in completed.stderr
+
+
+def test_installed_client_failures_route_to_release_owner(monkeypatch):
+    monkeypatch.setenv(cv.SWITCH_ENV, "on")
+    calls = []
+    cv.record(
+        cv.Recording(WHEN, SHA, (cv.Outcome(1133, "fail", "https://example.test/clients"),)),
+        lambda *args: calls.append(args),
+    )
+    assert calls[0][0:2] == ("comment", 1133)
+    assert "lane=s-release-rc2" in calls[0][2]
+    assert calls[1][0:2] == ("issue", cv.FAILURE_TITLE)
+    assert "Owning lane: s-release-rc2." in calls[1][2]
