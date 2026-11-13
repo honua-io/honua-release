@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -42,7 +43,7 @@ NIGHTLY_CLASSES = ("build-test", "contract", "sbom", "security", "upgrade", "cap
 QUALIFYING_CLASSES = ("genuine-model-journey", "update-rollback", "esri-bundle", "cite")
 CLASSES = {**dict.fromkeys(NIGHTLY_CLASSES, "nightly"), **dict.fromkeys(QUALIFYING_CLASSES, "qualifying")}
 # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target; Lambda and EKS are Preview.
-GA_CELLS = ("aws-ecs/redis-off", "aws-ecs/redis-on")
+GA_CELLS = ("aws-ecs/redis-off",)
 LAMBDA_PREVIEW_CELLS = ("aws-serverless/redis-off", "aws-serverless/redis-on")
 JOURNEYS = {
     "deterministic-journey": ("deterministic", GA_CELLS),
@@ -618,9 +619,9 @@ def test_update_rollback_status_is_checked_per_ga_cell(tmp_path, mutation):
         if mutation == "dict-all-failed":
             receipt["cells"] = {cell: {"updateStatus": "fail", "rollbackStatus": "fail"} for cell in GA_CELLS}
         elif mutation == "names-only": receipt["cells"] = list(GA_CELLS)
-        elif mutation == "cell-update-failed": cells[1]["updateStatus"] = "fail"
+        elif mutation == "cell-update-failed": cells[0]["updateStatus"] = "fail"
         elif mutation == "cell-rollback-failed": cells[0]["rollbackStatus"] = "skipped"
-        elif mutation == "cell-status-missing": del cells[1]["rollbackStatus"]
+        elif mutation == "cell-status-missing": del cells[0]["rollbackStatus"]
         elif mutation == "duplicate-cell": cells.append(copy.deepcopy(cells[0]))
         elif mutation == "extra-preview-cell":
             cells.append({"cell": "aws-eks/redis-off", "updateStatus": "pass", "rollbackStatus": "pass"})
@@ -742,7 +743,8 @@ def test_update_rollback_clean_schema_refusal_is_explicit(tmp_path):
     assert _decision(fixture)["status"] == "pass"
 
 
-def test_update_rollback_receipt_schema_requires_every_structural_proof_field(tmp_path):
+def test_update_rollback_receipt_schema_requires_every_structural_proof_field(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "GA_CELLS", ("aws-ecs/redis-off", "aws-ecs/redis-on"))
     fixture = _fixture(tmp_path)
     receipt = json.loads(_receipt(fixture, "update-rollback").read_text())
     schema = json.loads((Path(__file__).resolve().parents[1] / "certification/promotion-evidence.v1.schema.json").read_text())
@@ -877,8 +879,14 @@ def test_update_rollback_off_requires_actual_nonexecution_profile(tmp_path, muta
 
 
 @pytest.mark.parametrize("mutation", ["before-completed", "after-completed", "different-job", "duplicate-start", "duplicate-terminal", "retry", "missing-oracle", "wrong-output"])
-def test_update_rollback_on_requires_real_switch_and_unique_output_proof(tmp_path, mutation):
+def test_update_rollback_on_requires_real_switch_and_unique_output_proof(tmp_path, mutation, monkeypatch):
+    legacy = ("aws-ecs/redis-off", "aws-ecs/redis-on")
+    monkeypatch.setattr(sys.modules[__name__], "GA_CELLS", legacy)
+    monkeypatch.setattr(readiness, "GA_CELLS", frozenset(legacy))
+    monkeypatch.setitem(JOURNEYS, "deterministic-journey", ("deterministic", legacy))
+    monkeypatch.setitem(JOURNEYS, "genuine-model-journey", ("genuine-model", legacy))
     fixture = _fixture(tmp_path)
+    assert _decision(fixture)["status"] == "pass"
     def mutate(receipt):
         cell = next(c for c in receipt["cells"] if c["cell"].endswith("redis-on"))
         if mutation == "before-completed": cell["jobBeforeUpdate"]["state"] = "succeeded"
@@ -894,8 +902,9 @@ def test_update_rollback_on_requires_real_switch_and_unique_output_proof(tmp_pat
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "retry", "different-job", "bad-output"])
-def test_rollback_transition_needs_its_own_complete_execution_proof(mutation):
+def test_rollback_transition_needs_its_own_complete_execution_proof(mutation, monkeypatch):
     import check_promotion_readiness as checks
+    monkeypatch.setattr(checks, "GA_CELLS", frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"}))
     cells = [_update_cell(cell) for cell in checks.GA_CELLS]
     cell = next(c for c in cells if c["cell"] == "aws-ecs/redis-on")
     if mutation == "missing": del cell["rollbackInFlightJob"]
@@ -946,10 +955,9 @@ def test_serving_refusal_is_excluded_from_gp_and_operate_credit(tmp_path):
     decision = _decision(_fixture(tmp_path))
     assert decision["status"] == "pass"
     credit = decision["gpOperateCredit"]
-    assert credit["gp"] == ["aws-ecs/redis-on"]
+    assert credit["gp"] == []
     assert credit["operate"] == []
     assert "aws-ecs/redis-off" in credit["excluded"]
-    assert "aws-ecs/redis-on" not in credit["excluded"]
 
 
 def test_a_false_gp_claim_on_a_refusal_cell_is_refused(tmp_path):
@@ -969,7 +977,7 @@ def test_serving_plus_a_refusal_does_not_become_operate_credit(tmp_path):
     fixture = _fixture(tmp_path)
     def claim(receipt):
         for cell in receipt["cells"]:
-            if cell["cell"].endswith("/redis-on"):
+            if cell["cell"].endswith("/redis-off"):
                 cell["coversOperate"] = True
     _edit(_receipt(fixture, "genuine-model-journey"), claim)
     decision = _decision(fixture)

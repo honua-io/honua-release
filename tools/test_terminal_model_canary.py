@@ -886,7 +886,7 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     assert call["inputs"]["lock_digest"]["required"] is True
     assert "TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED" in call["secrets"]
     assert set(triggers["workflow_dispatch"]["inputs"]["target"]["options"]) == {
-        "local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on", "endpoint"}
+        "local-docker", "aws-ecs/redis-off", "endpoint"}
 
     local = workflow["jobs"]["local-docker"]
     assert local["permissions"]["id-token"] == "write"
@@ -922,7 +922,7 @@ def test_workflow_runs_nightly_and_on_call_bound_to_a_lock_for_both_cells():
     cloud = workflow["jobs"]["aws-ecs"]
     assert cloud["uses"] == "./.github/workflows/e2e-cloud-aws.yml"
     assert cloud["with"]["target"] == "aws-ecs"
-    assert "aws-ecs/redis-on" in cloud["with"]["redis_mode"]
+    assert cloud["with"]["redis_mode"] == "off"
     assert "inputs.model" in cloud["with"]["bedrock_model"]
     assert cloud["with"]["genuine_model_bedrock"] is True
     assert cloud["with"]["lock_digest"] == "${{ inputs.lock_digest }}"

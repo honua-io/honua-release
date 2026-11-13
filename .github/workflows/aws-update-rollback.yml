@@ -110,7 +110,7 @@ jobs:
       prepared_ref: ${{ inputs.mode == 'rehearsal' && inputs.baseline_ref || '' }}
       require_real: true
       target: all
-      redis_mode: both
+      redis_mode: "off"
       run_iac_live: false
       cost_ceiling_usd: ${{ inputs.cost_ceiling_usd }}
       update_rollback_run_id: ${{ inputs.candidate_run_id }}

@@ -150,15 +150,14 @@ def test_hand_built_fixtures_validate_against_owned_schema():
         validator.validate(failed_receipt(cell))
 
 
-def test_both_ecs_exact_candidate_cells_pass_and_record_driver(intake):
-    intake.write(checker.GA_CELLS[1], drivers=["genuine-model"])
+def test_ecs_exact_candidate_cell_pass_and_record_driver(intake):
+    intake.write(checker.GA_CELLS[0], drivers=["deterministic"])
     result = intake.evaluate()
     assert result["status"] == "pass"
     ga = [r for r in result["cells"] if r["counted"]]
-    assert [r["cell"] for r in ga] == ["aws-ecs/redis-off", "aws-ecs/redis-on"]
+    assert [r["cell"] for r in ga] == ["aws-ecs/redis-off"]
     assert ga[0]["drivers"] == ["deterministic"]
     assert ga[0]["attempts"][0]["completedAt"] == STAMP
-    assert ga[1]["drivers"] == ["genuine-model"]
     assert result["gates"][0]["decided"] == "pass"
 
 
@@ -369,15 +368,14 @@ def test_preview_never_blocks_or_counts(preview_intake, status):
     result = intake.evaluate()
     assert result["status"] == "pass"
     preview = [r for r in result["cells"] if r["evidenceTier"] == "Preview"]
-    assert len(preview) == 4 and not any(r["counted"] for r in preview)
+    assert len(preview) == 2 and not any(r["counted"] for r in preview)
     assert {r["cell"].split("/")[0] for r in preview} == {"aws-serverless", "aws-eks"}
 
 
 def test_lambda_and_eks_preview_are_explicit_and_cannot_change_ga_denominator():
     # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target; Lambda joins EKS as Preview.
-    assert checker.PREVIEW_CELLS == ("aws-serverless/redis-off", "aws-serverless/redis-on",
-                                     "aws-eks/redis-off", "aws-eks/redis-on")
-    assert checker.GA_CELLS == ("aws-ecs/redis-off", "aws-ecs/redis-on")
+    assert checker.PREVIEW_CELLS == ("aws-serverless/redis-off", "aws-eks/redis-off")
+    assert checker.GA_CELLS == ("aws-ecs/redis-off",)
     assert not any("aws-mixed" in cell for cell in (*checker.GA_CELLS, *checker.PREVIEW_CELLS))
 
 
@@ -476,27 +474,27 @@ def test_each_cell_passes_on_its_own_targets_evidence_and_not_on_ecs_evidence(in
 
 
 def test_the_verdict_names_the_number_of_cells_it_certified(intake):
-    assert intake.evaluate()["why"] == "all 2 GA journeys passed for the exact candidate"
+    assert intake.evaluate()["why"] == "all 1 GA journeys passed for the exact candidate"
 
 
-def test_promotion_requires_only_the_two_ecs_cells():
+def test_promotion_requires_only_the_redis_off_ecs_cell():
     # Both gates consume the same ECS-only GA scope; Lambda and EKS stay visible as Preview.
     import check_promotion_readiness as promotion
-    assert promotion.GA_CELLS == frozenset(checker.GA_CELLS) == frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
+    assert promotion.GA_CELLS == frozenset(checker.GA_CELLS) == frozenset({"aws-ecs/redis-off"})
     assert not promotion.GA_CELLS & set(checker.PREVIEW_CELLS)
 
 
 def test_failing_lambda_preview_cells_do_not_block_the_ecs_gate(preview_intake):
     intake = preview_intake
-    for cell in ("aws-serverless/redis-off", "aws-serverless/redis-on"):
+    for cell in ("aws-serverless/redis-off",):
         report = intake.write(cell)
         report["status"] = "fail"
         intake.save(cell, report)
     result = intake.evaluate()
     assert result["status"] == "pass"
     rows = {r["cell"]: r for r in result["cells"]}
-    assert rows["aws-serverless/redis-on"]["evidenceTier"] == "Preview"
-    assert rows["aws-serverless/redis-on"]["counted"] is False
+    assert rows["aws-serverless/redis-off"]["evidenceTier"] == "Preview"
+    assert rows["aws-serverless/redis-off"]["counted"] is False
 
 
 @pytest.mark.parametrize("first_status", ["blocked", "pass"])
@@ -619,7 +617,9 @@ def test_single_tenant_fixture_validates_against_owned_schema():
     validator.validate(single_tenant_receipt("aws-ecs/redis-on"))
 
 
-def test_green_ruled_ga_cell_admits_the_single_declared_not_applicable_check(intake):
+def test_green_ruled_ga_cell_admits_the_single_declared_not_applicable_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(checker, "GA_CELLS", ("aws-ecs/redis-on",))
+    intake = Intake(tmp_path)
     intake.write("aws-ecs/redis-on", [single_tenant_receipt("aws-ecs/redis-on")])
     result = intake.evaluate()
     assert result["status"] == "pass", result["why"]
@@ -632,7 +632,9 @@ def test_green_ruled_ga_cell_admits_the_single_declared_not_applicable_check(int
 
 
 @pytest.mark.parametrize("defect", ["another-check", "another-blocker"])
-def test_red_anything_beyond_the_declared_check_still_fails(intake, defect):
+def test_red_anything_beyond_the_declared_check_still_fails(tmp_path, defect, monkeypatch):
+    monkeypatch.setattr(checker, "GA_CELLS", ("aws-ecs/redis-on",))
+    intake = Intake(tmp_path)
     value = single_tenant_receipt("aws-ecs/redis-on")
     if defect == "another-check":
         value["stages"][6]["status"] = "blocked"
@@ -650,5 +652,5 @@ def test_red_without_the_ruling_the_declared_check_fails(intake, monkeypatch, tm
     empty = tmp_path / "overrides.json"
     empty.write_text(json.dumps({"rulings": {}}))
     monkeypatch.setattr(ga_single_tenant, "DECISION_OVERRIDES", empty)
-    intake.write("aws-ecs/redis-on", [single_tenant_receipt("aws-ecs/redis-on")])
+    intake.write("aws-ecs/redis-off", [single_tenant_receipt("aws-ecs/redis-off")])
     assert intake.evaluate()["status"] == "fail"

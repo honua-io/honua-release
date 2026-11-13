@@ -83,7 +83,7 @@ EVIDENCE_CLASSES = {
 # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target. Lambda (aws-serverless) joins
 # EKS/Helm (owner amendment 2026-10-16) as informational Preview. Preview evidence cannot replace
 # any required cell or establish GP execution on Redis-off.
-GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
+GA_CELLS = frozenset({"aws-ecs/redis-off"})
 # Policy maximum between a receipt's completion and its freshUntil. A producer may set a
 # shorter bound but never a longer one, so the promotion window always closes. A declared
 # class without a maximum here refuses.

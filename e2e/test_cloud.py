@@ -1613,7 +1613,7 @@ def test_cloud_workflow_requires_two_ecs_ga_cells_and_keeps_lambda_and_eks_previ
     cj = run_cloud.cloud_journey
     workflow, cell = _cloud_workflows()
     job = workflow["jobs"]["parity"]
-    assert set(cj.GA_CELLS) == {f"aws-ecs/redis-{mode}" for mode in ("off", "on")}
+    assert set(cj.GA_CELLS) == {"aws-ecs/redis-off"}
     assert cj.PREVIEW_TARGETS == ("aws-serverless", "aws-eks")
     # Operator ruling 2026-10-22: target=all is the GA targets only; a Preview target runs only on
     # an explicit dispatch, and the report names it "not certified (preview)".
@@ -2121,8 +2121,8 @@ def test_cloud_invalid_schema_wrong_cell_and_tampered_receipt_fail():
         receipt["stages"].pop()
         assert _aggregate_fixture([_cell_report(root, receipt)], root)["status"] == "fail"
         report = _cell_report(root, _ecs_receipt())
-        report["cell"] = "aws-ecs/redis-on"
-        assert "wrong candidate" in _aggregate_fixture([report], root)["why"]
+        report["cell"] = "aws-serverless/redis-off"
+        assert "aws-serverless/redis-off: provisioning cleanup obligation unknown" in _aggregate_fixture([report], root)["why"]
         report = _cell_report(root, _ecs_receipt())
         (root / "receipt-1.json").write_text("{}")
         assert "digest mismatch" in _aggregate_fixture([report], root)["why"]
