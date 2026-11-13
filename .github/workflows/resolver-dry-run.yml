@@ -18,10 +18,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 jobs:
-  resolve:
+  capture:
     if: github.ref == 'refs/heads/trunk'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      resolves: ${{ steps.summary.outputs.resolves }}
+      no_candidate_yet: ${{ steps.summary.outputs.no_candidate_yet }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -42,7 +45,6 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
       - name: Summarize resolver verdict
         id: summary
-        continue-on-error: true
         run: python3 tools/resolver_dry_run_summary.py resolver-dry-run.log "${{ steps.resolver.outputs.status }}" --json-out resolver-dry-run.json
       - name: Upload resolver verdict
         if: always()
@@ -53,13 +55,12 @@ jobs:
             resolver-dry-run.json
             resolver-dry-run.log
           if-no-files-found: warn
+  resolve:
+    needs: capture
+    if: needs.capture.outputs.no_candidate_yet != 'true'
+    runs-on: ubuntu-latest
+    steps:
       - name: Enforce resolver verdict
-        if: always()
         env:
-          SUMMARY_OUTCOME: ${{ steps.summary.outcome }}
-        run: |
-          if [ "$SUMMARY_OUTCOME" != success ]; then
-            echo "Resolver summary could not parse the captured run"
-            exit 1
-          fi
-          python3 -c 'import json, sys; sys.exit(0 if json.load(open("resolver-dry-run.json"))["resolves"] else 1)'
+          RESOLVES: ${{ needs.capture.outputs.resolves }}
+        run: test "$RESOLVES" = true

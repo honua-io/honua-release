@@ -17,6 +17,24 @@ STALE = re.compile(r"^STALE-CANDIDATE: (?P<component>\S+) selected (?P<sha>[0-9a
 REFUSED = re.compile(r"^REFUSED: (?P<reason>.+)$")
 
 
+def missing_server_images(rows: list[dict], resolver_status: int) -> bool:
+    refused = [row for row in rows if row['verdict'] != 'resolved']
+    if resolver_status != 1 or len(refused) != 1 or refused[0]['component'] != 'honua-server':
+        return False
+    lines = refused[0]['reason'].splitlines()
+    match = re.fullmatch(
+        r'honua-server: no qualifying trunk commit in newest (\d+) commits'
+        r'((?:; [0-9a-f]{40}: no published SHA-bound image)+)', lines[0])
+    if not match or int(match[1]) != match[2].count('; '):
+        return False
+    diagnostics = (
+        r'SKIPS honua-server: no qualifying trunk commit; \d+ commit\(s\) skipped',
+        r'  skipped [0-9a-f]{7}: no published SHA-bound image',
+        r'  \.\.\. \d+ older skipped commit\(s\) not listed',
+    )
+    return all(any(re.fullmatch(pattern, line) for pattern in diagnostics) for line in lines[1:])
+
+
 def parse(text: str, resolver_status: int) -> dict | None:
     rows: dict[str, dict] = {}
     matched = False
@@ -68,7 +86,7 @@ def parse(text: str, resolver_status: int) -> dict | None:
             'newer_commits_skipped': row.get('newer_commits_skipped'), 'reason': row.get('reason'),
         })
     return {'resolves': resolver_status == 0 and all(row['verdict'] == 'resolved' for row in normalized),
-            'rows': normalized}
+            'no_candidate_yet': missing_server_images(normalized, resolver_status), 'rows': normalized}
 
 
 def markdown(report: dict) -> str:
@@ -82,6 +100,8 @@ def markdown(report: dict) -> str:
         lines.append(f"| {row['component']} | {row['verdict']} | {stale} | {value('selected_sha')} | "
                      f"{value('age_days')} | {value('newer_commits_skipped')} | {reason} |")
     lines += ['', f"**Resolves:** `{'true' if report['resolves'] else 'false'}`", '']
+    if report['no_candidate_yet']:
+        lines += ['**Status:** no candidate yet — waiting for a published SHA-bound server image.', '']
     return '\n'.join(lines)
 
 
@@ -100,6 +120,10 @@ def main(argv=None) -> int:
     if summary := os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(summary, 'a', encoding='utf-8') as handle:
             handle.write(rendered)
+    if output := os.environ.get('GITHUB_OUTPUT'):
+        with open(output, 'a', encoding='utf-8') as handle:
+            for key in ('resolves', 'no_candidate_yet'):
+                handle.write(f"{key}={str(report[key]).lower()}\n")
     args.json_out.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
     return 0
 
