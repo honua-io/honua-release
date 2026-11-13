@@ -30,13 +30,14 @@ def test_missing_server_images_end_the_night_as_no_candidate_yet(github, tmp_pat
     assert 'no candidate yet' in (tmp_path / 'summary.md').read_text()
 
 
-@pytest.mark.parametrize('text,status', [
+@pytest.mark.parametrize('case', [
     (MISSING_IMAGES + 'REFUSED: honua-helm: image digest missing\n', 1),
     ('REFUSED: honua-server: capability keys missing from the advertised set\n', 1),
     (MISSING_IMAGES, 2),
     ('garbage\n', 1),
 ])
-def test_other_refusals_still_fail_the_night(github, tmp_path, text, status):
+def test_other_refusals_still_fail_the_night(github, tmp_path, case):
+    text, status = case
     result, outputs = github.run_step('resolve', 'Resolve the newest qualifying trunk candidate',
                                       {'GH_TOKEN': 'x', 'GITHUB_STEP_SUMMARY': str(tmp_path / 'summary.md')}, fake_resolver(text, status))
     assert result.returncode == status, result.stdout + result.stderr
