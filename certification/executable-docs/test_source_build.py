@@ -371,3 +371,47 @@ def test_later_shell_and_deferred_compile_keep_exact_source_inventory_without_re
             observed = rows[index]['installedPackages']
             assert any(row['path'] == str(link) and row['version'] == '0.1.15' for row in observed)
             assert any(row['path'] == str(external.parent) and row['version'] == '0.1.16' for row in observed)
+
+
+def split_inputs(target="../dist/packages/honua-app-platform", name="@honua/app-platform"):
+    source = inputs()
+    lock = json.loads(source["mcp/package-lock.json"])
+    lock["packages"]["node_modules/" + name] = {"link": True, "resolved": target}
+    source["mcp/package-lock.json"] = json.dumps(lock).encode()
+    return source
+
+
+def test_generated_app_platform_link_binds_sdk_version_and_exact_output_target(tmp_path):
+    source = split_inputs()
+    bound = sb.derive({"repo": sb.SDK_REPO, "path": "README.md", "sourceBuild": True}, SHA, TEXT, source.__getitem__)
+    row = next(row for row in bound["locks"][1]["packages"] if row["name"] == "@honua/app-platform")
+    assert row["version"] == "0.1.15"
+    assert row["link"] == "dist/packages/honua-app-platform"
+    assert row["sourcePackageSha256"] == sb.digest(source["package.json"])
+    output = tmp_path / row["link"]
+    output.mkdir(parents=True)
+    link = tmp_path / row["path"]
+    link.parent.mkdir(parents=True)
+    link.symlink_to(output, target_is_directory=True)
+    installed = [{"path": str(link), "name": row["name"], "version": row["version"]}]
+    assert sb.audit_source(bound, tmp_path, installed) == []
+    assert sb.audit_source(bound, tmp_path, [{**installed[0], "version": "9.0.0"}])
+    link.unlink()
+    link.symlink_to(tmp_path, target_is_directory=True)
+    assert "link target" in sb.audit_source(bound, tmp_path, installed)[0]
+    link.unlink()
+    link.symlink_to(output, target_is_directory=True)
+    output.rmdir()
+    output.symlink_to(tmp_path.parent, target_is_directory=True)
+    assert "link target" in sb.audit_source(bound, tmp_path, installed)[0]
+
+
+@pytest.mark.parametrize("target,name", [
+    ("../other", "@honua/app-platform"),
+    ("../dist/packages/honua-app-platform", "@honua/other"),
+    ("../../dist/packages/honua-app-platform", "@honua/app-platform"),
+])
+def test_generated_source_link_refuses_unreviewed_name_or_target(target, name):
+    source = split_inputs(target, name)
+    with pytest.raises(ValueError, match="unreviewed"):
+        sb.lock_record("mcp/package-lock.json", source["mcp/package-lock.json"], source.__getitem__)
