@@ -4,7 +4,7 @@
   "substitute": {
     "your-feature-service": {
       "value": "{fixture.featureService}",
-      "documentedAt": "samples/hello-featureserver-rest/README.md:13 — \"`HONUA_SAMPLE_SERVICE` ... An anonymous FeatureServer service on that server with at least three features\""
+      "documentedAt": "samples/hello-featureserver-rest/README.md:18 — \"`HONUA_SAMPLE_SERVICE` ... An anonymous FeatureServer service on that server with at least three features\""
     }
   }
 }
