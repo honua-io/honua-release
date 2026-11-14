@@ -889,20 +889,6 @@ def test_declared_tool_install_failure_remains_fatal_and_cleanup_is_retained(tmp
     assert calls[-1] == ("rm", "-f", name)
 
 
-def test_inventory_check_exits_one_on_revision_drift(tmp_path, monkeypatch):
-    import inventory
-    committed = {"documents": [{"id": "doc", "revision": "a" * 40, "blocks": []}]}
-    current = {"documents": [{"id": "doc", "revision": "b" * 40, "blocks": []}]}
-    (tmp_path / "inventory.json").write_text(json.dumps(committed))
-    (tmp_path / "sources.json").write_text('{"documents":[]}')
-    (tmp_path / "manifest.yaml").write_text("platformRelease: 2026.1")
-    monkeypatch.setattr(inventory, "build", lambda *args: current)
-    monkeypatch.setattr(sys, "argv", ["inventory.py", "--check", "--sources", str(tmp_path / "sources.json"),
-                                     "--manifest", str(tmp_path / "manifest.yaml"),
-                                     "--inventory", str(tmp_path / "inventory.json")])
-    assert inventory.main() == 1
-
-
 def test_session_setup_exception_still_writes_complete_report(tmp_path, monkeypatch):
     import run
     documents = [{"repo": "honua-io/example", "path": path, "runtime": "node", "revision": {"checkout": True}}

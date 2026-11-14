@@ -92,7 +92,8 @@ class Block:
         if self.expect_failure:
             row["expectFailure"] = True
         for key, value in (("reason", self.reason), ("file", self.file), ("outputOf", self.output_of),
-                           ("markerError", self.marker_error), ("blockedBy", self.blocked_by)):
+                           ("markerError", self.marker_error), ("blockedBy", self.blocked_by),
+                           ("expectedOutput", self.expected_output), ("marker", self.marker)):
             if value not in (None, ""):
                 row[key] = value
         return row

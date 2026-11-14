@@ -235,7 +235,11 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "a77c357946a5add92e37cd196a336536089c4a4ae99abf8d7bcad94b7870c935"
+          "sha256": "a77c357946a5add92e37cd196a336536089c4a4ae99abf8d7bcad94b7870c935",
+          "marker": {
+            "run": "",
+            "ready-url": "http://localhost:5173/"
+          }
         },
         {
           "index": 4,
@@ -372,7 +376,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "a898b6168ab35cd3be7000f4b43ac9276ac27ab2ed1b0572be8598d803618b00"
+          "sha256": "a898b6168ab35cd3be7000f4b43ac9276ac27ab2ed1b0572be8598d803618b00",
+          "marker": {
+            "checkout": ""
+          }
         },
         {
           "index": 11,
@@ -381,7 +388,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "d1356c9109aa826d2d5467fa589447b17b1813f750f621a916caba265e49276b"
+          "sha256": "d1356c9109aa826d2d5467fa589447b17b1813f750f621a916caba265e49276b",
+          "marker": {
+            "checkout": "mcp"
+          }
         },
         {
           "index": 12,
@@ -390,7 +400,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "5f701b9ce1d9ba4127f0b5290f7207e842d5be74a356b4344868293a70b8a880"
+          "sha256": "5f701b9ce1d9ba4127f0b5290f7207e842d5be74a356b4344868293a70b8a880",
+          "marker": {
+            "checkout": "mcp"
+          }
         },
         {
           "index": 13,
@@ -399,7 +412,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "161e89366ecf55f99d7b2ce12170f820db7f8603df6186c92a6f97a84668a7af"
+          "sha256": "161e89366ecf55f99d7b2ce12170f820db7f8603df6186c92a6f97a84668a7af",
+          "marker": {
+            "checkout": "mcp"
+          }
         },
         {
           "index": 14,
@@ -417,7 +433,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "1c87950d4466475ef7c0fe8aaa8b7827d10acad67fe500f708b9f92036882a5a"
+          "sha256": "1c87950d4466475ef7c0fe8aaa8b7827d10acad67fe500f708b9f92036882a5a",
+          "marker": {
+            "checkout": "mcp"
+          }
         },
         {
           "index": 16,
@@ -426,7 +445,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "ef7f389e67178ceb62cd8e4d909b6127dcef159f68a480fffd37c06835bcd18b"
+          "sha256": "ef7f389e67178ceb62cd8e4d909b6127dcef159f68a480fffd37c06835bcd18b",
+          "marker": {
+            "checkout": "mcp"
+          }
         },
         {
           "index": 17,
@@ -435,7 +457,10 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "e4c153193cd7787f8c44584a1e7d18029c305ff6d3fbce983240861d1b77197e"
+          "sha256": "e4c153193cd7787f8c44584a1e7d18029c305ff6d3fbce983240861d1b77197e",
+          "marker": {
+            "checkout": "mcp"
+          }
         },
         {
           "index": 18,
@@ -454,7 +479,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "ff5b531360d83ee1f57234e3b6852bcf1e3a88318433cf0dff356ae9dc17e303",
-          "reason": "billable live-model lane: needs the reader's own operator token and Anthropic, OpenAI or AWS model credentials; the offline control above (npm run eval:offline) is the runnable lane"
+          "reason": "billable live-model lane: needs the reader's own operator token and Anthropic, OpenAI or AWS model credentials; the offline control above (npm run eval:offline) is the runnable lane",
+          "marker": {
+            "skip": "",
+            "reason": "billable live-model lane: needs the reader's own operator token and Anthropic, OpenAI or AWS model credentials; the offline control above (npm run eval:offline) is the runnable lane"
+          }
         }
       ]
     },
@@ -479,7 +508,11 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "579062b6000aba6709fea49aa731f8437dab0359034383d6f3e1b46312e0b8d4"
+          "sha256": "579062b6000aba6709fea49aa731f8437dab0359034383d6f3e1b46312e0b8d4",
+          "marker": {
+            "run": "",
+            "ready-url": "http://localhost:5173/"
+          }
         },
         {
           "index": 1,
@@ -542,7 +575,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "52ae3befaa5abb60f863381805ee1230de6081a89f466722946b5edf1e859755",
-          "reason": "Development source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches."
+          "reason": "Development source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches.",
+          "marker": {
+            "skip": "",
+            "reason": "Development source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches."
+          }
         },
         {
           "index": 2,
@@ -614,7 +651,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "8e5ca8fcca606626e5908577b8d2293977b9f1e81f71b2a7b7a923ff689b2ea3",
-          "reason": "Editable source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches."
+          "reason": "Editable source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches.",
+          "marker": {
+            "skip": "",
+            "reason": "Editable source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches."
+          }
         }
       ]
     },
@@ -649,7 +690,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "bb1abba46229bf51f71ff0c281708c4b2f37f3dce88b26eeb4b8473cbedeeb58",
-          "reason": "Development source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches."
+          "reason": "Development source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches.",
+          "marker": {
+            "skip": "",
+            "reason": "Development source install replaces the admitted published package. Release qualification refuses direct-origin installs even when the version matches."
+          }
         },
         {
           "index": 2,
@@ -678,6 +723,16 @@
           "intentSource": "marker",
           "sha256": "3130c59925455282d4f60922c4af020f95d5bb6c1ca72b10c23f82e4c7a1a11e",
           "blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/259",
+          "marker": {
+            "blocked": "https://github.com/honua-io/honua-sdk-python/issues/259",
+            "https": "",
+            "github": "",
+            "com": "",
+            "honua-io": "",
+            "honua-sdk-python": "",
+            "issues": "",
+            "259": ""
+          },
           "needs": {
             "placeholders": [
               "your-honua-server.com:8081"
@@ -693,6 +748,16 @@
           "intentSource": "marker",
           "sha256": "a3ed0b9520e76e0cde7a58980366b4ff27dc56e616027ba12cfd418cfd5bbb8f",
           "blockedBy": "https://github.com/honua-io/honua-release/issues/423",
+          "marker": {
+            "blocked": "https://github.com/honua-io/honua-release/issues/423",
+            "https": "",
+            "github": "",
+            "com": "",
+            "honua-io": "",
+            "honua-release": "",
+            "issues": "",
+            "423": ""
+          },
           "needs": {
             "placeholders": [
               "your-honua-server.com:443"
@@ -822,6 +887,16 @@
           "intentSource": "marker",
           "sha256": "50517f2c90316c1290ccdeff5860472cd7b7a2c608d3b6463f7f85d792d132ad",
           "blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/259",
+          "marker": {
+            "blocked": "https://github.com/honua-io/honua-sdk-python/issues/259",
+            "https": "",
+            "github": "",
+            "com": "",
+            "honua-io": "",
+            "honua-sdk-python": "",
+            "issues": "",
+            "259": ""
+          },
           "needs": {
             "placeholders": [
               "your-honua-server.com:8081"
@@ -837,6 +912,16 @@
           "intentSource": "marker",
           "sha256": "163a5bd27c1c601495ec9a574ecb56cd2a0594bbfa8ea8f1ab4d78a8095e1bd0",
           "blockedBy": "https://github.com/honua-io/honua-sdk-python/issues/259",
+          "marker": {
+            "blocked": "https://github.com/honua-io/honua-sdk-python/issues/259",
+            "https": "",
+            "github": "",
+            "com": "",
+            "honua-io": "",
+            "honua-sdk-python": "",
+            "issues": "",
+            "259": ""
+          },
           "needs": {
             "placeholders": [
               "your-honua-server.com:8081"
@@ -879,6 +964,16 @@
           "intentSource": "marker",
           "sha256": "cde50f6190e614f106d55a9b7f8d9c4e9b0c8622dd9911854560be684ff16e34",
           "blockedBy": "https://github.com/honua-io/honua-release/issues/423",
+          "marker": {
+            "blocked": "https://github.com/honua-io/honua-release/issues/423",
+            "https": "",
+            "github": "",
+            "com": "",
+            "honua-io": "",
+            "honua-release": "",
+            "issues": "",
+            "423": ""
+          },
           "needs": {
             "env": [
               "HONUA_API_KEY",
@@ -1070,7 +1165,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "dcd0f0214e15f59e7750c17ddc88d7c003d380b3f719687770c5da0d8cde8e99",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 6,
@@ -1089,7 +1187,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "371c1632e2abd8713e2db94b69f9dfb0e0d1acd0bc3b4c69f56ad4003588a75d",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 8,
@@ -1152,7 +1253,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "4225fb4971a499470e9d9ab694f5051679a503dd69303718aa519f6cabb54c89",
-          "reason": "prerelease-only channel: needs the reader's own GitHub classic PAT, and installs a prerelease that no release pins; a release reader installs the stable packages from nuget.org with the Install block above"
+          "reason": "prerelease-only channel: needs the reader's own GitHub classic PAT, and installs a prerelease that no release pins; a release reader installs the stable packages from nuget.org with the Install block above",
+          "marker": {
+            "skip": "",
+            "reason": "prerelease-only channel: needs the reader's own GitHub classic PAT, and installs a prerelease that no release pins; a release reader installs the stable packages from nuget.org with the Install block above"
+          }
         },
         {
           "index": 3,
@@ -1187,7 +1292,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "f3c4dd160c80744997a9272085450acf157dd864af7b1654d3b1369b4f741da3",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 6,
@@ -1206,7 +1314,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "3996b5dff41dd6a998e590239667d1d4f32d2569d1fae3a73b8c5353a229318d",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 8,
@@ -1215,7 +1326,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "04d5647aa95c3031e2ec27e2472b015490e6fdc1c8b8a529e079dbe63348853f"
+          "sha256": "04d5647aa95c3031e2ec27e2472b015490e6fdc1c8b8a529e079dbe63348853f",
+          "expectedOutput": "The connected Honua Server is supported by this SDK."
         },
         {
           "index": 9,
@@ -1225,7 +1337,10 @@
           "intent": "output",
           "intentSource": "marker",
           "sha256": "326c0d94e5f2f09ed1b85126add80e42701ca5ae2b05331d65eb967ad0cf3670",
-          "outputOf": 8
+          "outputOf": 8,
+          "marker": {
+            "output": ""
+          }
         },
         {
           "index": 10,
@@ -1235,7 +1350,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "f777cecd7be5bf2232f83623792b461bd214f8874d7d09bf23943d4521580a8c",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 11,
@@ -1295,7 +1413,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "4fdc2a274bd6fb1fa212ebad02c0cb9aa557a3088968dd0b3eea8e95c3173952",
-          "file": "HonuaHello/Program.cs"
+          "file": "HonuaHello/Program.cs",
+          "marker": {
+            "file": "HonuaHello/Program.cs"
+          }
         },
         {
           "index": 3,
@@ -1323,7 +1444,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "2ebfbcc2ddcd71ff6e1c7537bb4e2c854797c7373efcadfbbb2b7af5f141c1fd",
-          "file": "HonuaHost.cs"
+          "file": "HonuaHost.cs",
+          "marker": {
+            "file": "HonuaHost.cs"
+          }
         },
         {
           "index": 6,
@@ -1333,7 +1457,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "90cd03e808d73e2780462ed722a1fcfc6bea0b6138c433c648ecab1937ea7457",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 7,
@@ -1342,7 +1469,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "04d5647aa95c3031e2ec27e2472b015490e6fdc1c8b8a529e079dbe63348853f"
+          "sha256": "04d5647aa95c3031e2ec27e2472b015490e6fdc1c8b8a529e079dbe63348853f",
+          "expectedOutput": "Server supported by this SDK: True"
         },
         {
           "index": 8,
@@ -1352,7 +1480,10 @@
           "intent": "output",
           "intentSource": "marker",
           "sha256": "7a9aa01d731a9728b338089787c71a721decaa5c8a0d81733e00089dc00f17f7",
-          "outputOf": 7
+          "outputOf": 7,
+          "marker": {
+            "output": ""
+          }
         },
         {
           "index": 9,
@@ -1362,7 +1493,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "5048765107e3dce0556a9e85819e3cbdb79008b055fe769633ba101b38adf4eb",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 10,
@@ -1381,7 +1515,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "0ddb312271322270194e65b17bbed185462f20da936cc806d8b6aeea2e0afac9",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 12,
@@ -1400,7 +1537,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "a2bac2522f2d7ada2166c2c5f0e3bb6ce72ce1da0432154f296bd149ecbcc291",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 14,
@@ -1419,7 +1559,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "4b327484b8f9624f8029a7b62f4628a93122f65f5a672d22e8b15fdad7595cd6",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 16,
@@ -1438,7 +1581,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "ed1bf5a9f701fcaf8d3b9500c7adba5ab9292edb894d016e5309e8036cdb4030",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 18,
@@ -1457,7 +1603,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "31b76458dbdbb9abf24bf50b55daa6899b76e843c1ed1e4c7db04b174db48c65",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 20,
@@ -1476,7 +1625,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "e34c4c8982ab58fb7b68e9f861be944cbf0f8aa70049da4faadcb74cee83732d",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 22,
@@ -1495,7 +1647,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "649e55c6befec58f21a378f59935c9a5555dd25835779b337835344cb4adc414",
-          "file": "Program.cs"
+          "file": "Program.cs",
+          "marker": {
+            "file": "Program.cs"
+          }
         },
         {
           "index": 24,
@@ -1514,7 +1669,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "d6a5ee6a0b9d05b5b3133ee90e94ab188a341d359bf28cf6ccfb6579c93b16d9",
-          "file": "HonuaHost.cs"
+          "file": "HonuaHost.cs",
+          "marker": {
+            "file": "HonuaHost.cs"
+          }
         },
         {
           "index": 26,
@@ -1549,7 +1707,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "240f781a329e7494ffdc047844405269c963977061c4876db5e5ddd0d8c13e5a",
-          "file": "compose.yaml"
+          "file": "compose.yaml",
+          "marker": {
+            "file": "compose.yaml"
+          }
         },
         {
           "index": 1,
@@ -1603,7 +1764,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "0287e62dc170d550c2d374b8cd24023910fa62f4d5f7dc52812a5ffd72ac7b5e",
-          "file": "compose.yaml"
+          "file": "compose.yaml",
+          "marker": {
+            "file": "compose.yaml"
+          }
         },
         {
           "index": 1,
@@ -1815,7 +1979,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "01029eb48d20f362f88ebeb28b336e61a62bee6a72f8da2ea74846b5e1ea79f9"
+          "sha256": "01029eb48d20f362f88ebeb28b336e61a62bee6a72f8da2ea74846b5e1ea79f9",
+          "expectedOutput": "{\"success\": true, \"datasetName\": \"hawaii_cities\", \"rowCount\": 2, \"schema\": \"honua_data\", \"table\": \"imported_hawaii_cities\"}"
         },
         {
           "index": 4,
@@ -1933,7 +2098,11 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "16c31c4bcb8450985467432c362115546116b7903c09c3d1b7b628d4abb14f22"
+          "sha256": "16c31c4bcb8450985467432c362115546116b7903c09c3d1b7b628d4abb14f22",
+          "marker": {
+            "run": "",
+            "ready-log": "Serving HTTP on 0.0.0.0 port 3000 (http://0.0.0.0:3000/) ..."
+          }
         }
       ]
     },
@@ -2420,7 +2589,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "b298a6217246e68e9798a2e70c8ff01fb8d555a3a958189675b867c2620a63f1"
+          "sha256": "b298a6217246e68e9798a2e70c8ff01fb8d555a3a958189675b867c2620a63f1",
+          "expectedOutput": "PASS: \"380 New York St, Redlands, CA\" -> \"...\" (..., ...), score ..."
         },
         {
           "index": 1,
@@ -2466,7 +2636,8 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "b298a6217246e68e9798a2e70c8ff01fb8d555a3a958189675b867c2620a63f1"
+          "sha256": "b298a6217246e68e9798a2e70c8ff01fb8d555a3a958189675b867c2620a63f1",
+          "expectedOutput": "PASS: .../FeatureServer/... returned 3 feature(s) with geometry"
         },
         {
           "index": 2,
@@ -2669,7 +2840,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "bc8e14f232e2579471c488df936f560602b703ad2a6198c0f36e0f32343b5f9a",
-          "file": "compose.with-redis.yml"
+          "file": "compose.with-redis.yml",
+          "marker": {
+            "file": "compose.with-redis.yml"
+          }
         },
         {
           "index": 2,
@@ -2688,7 +2862,10 @@
           "intent": "file",
           "intentSource": "marker",
           "sha256": "0a1c977225a35887653f4c24d8b80884b8dab5f957e725bea1cee169b1f83ec3",
-          "file": "compose.no-redis.yml"
+          "file": "compose.no-redis.yml",
+          "marker": {
+            "file": "compose.no-redis.yml"
+          }
         },
         {
           "index": 4,
@@ -2698,7 +2875,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "d2371e53dcf02adc77795cf0e73f3dfe3961e7a4024fc5209922a3f89ec09f0f",
-          "reason": "the no-Redis stack binds host port 8080, which the Redis stack this walk already starts"
+          "reason": "the no-Redis stack binds host port 8080, which the Redis stack this walk already starts",
+          "marker": {
+            "skip": "",
+            "reason": "the no-Redis stack binds host port 8080, which the Redis stack this walk already starts"
+          }
         },
         {
           "index": 5,
@@ -2717,6 +2898,7 @@
           "intent": "run",
           "intentSource": "heuristic",
           "sha256": "93f3c3a14eba31aecf79a6dff706a547f4a2b191818c90053019501e0dd9abc6",
+          "expectedOutput": "{'raw': 'Ready'}",
           "needs": {
             "optionalEnv": [
               "HONUA_HTTP_PORT"
@@ -2751,6 +2933,9 @@
           "intentSource": "marker",
           "sha256": "aa7a205a9a747691297d70c831ab42e79461a73b83b168904ecd25c73016bb71",
           "file": "manifest.mjs",
+          "marker": {
+            "file": "manifest.mjs"
+          },
           "needs": {
             "optionalEnv": [
               "HONUA_HTTP_PORT"
@@ -2774,7 +2959,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "dbc4fa6a81d0464bc796e17fe0782967495318fe69a39e495f3d1d78df307ccd",
-          "reason": "one manifest entry as a no-Redis install reports it; what manifest.mjs prints depends on which stack shape the reader started"
+          "reason": "one manifest entry as a no-Redis install reports it; what manifest.mjs prints depends on which stack shape the reader started",
+          "marker": {
+            "skip": "",
+            "reason": "one manifest entry as a no-Redis install reports it; what manifest.mjs prints depends on which stack shape the reader started"
+          }
         },
         {
           "index": 12,
@@ -2784,7 +2973,11 @@
           "intent": "excluded",
           "intentSource": "marker",
           "sha256": "79bb28ef9ac403ca09efdb45aa27275250bfcdcd3ebc53618386d126547d55b8",
-          "reason": "the no-Redis project is not running in this walk; stopping it and starting Redis would only repeat the stack already up"
+          "reason": "the no-Redis project is not running in this walk; stopping it and starting Redis would only repeat the stack already up",
+          "marker": {
+            "skip": "",
+            "reason": "the no-Redis project is not running in this walk; stopping it and starting Redis would only repeat the stack already up"
+          }
         },
         {
           "index": 13,
