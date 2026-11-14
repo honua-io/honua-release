@@ -111,9 +111,11 @@ def test_train_gates_reads_local_and_pinned_calls_and_refuses_a_foreign_one(tmp_
 
 
 def test_protocol_certification_is_reported_for_rc_but_not_required():
-    gate = "gate-protocol-certification.yml"
-    assert gate in w.GA_DEFERRED and gate not in w.RC_GATES
-    assert "train job" in w.UNBOUND_GATE_LIMITATIONS[gate]
+    gate = w.PROTOCOL_GATE
+    assert gate in w.GA_ONLY_GATES and gate not in w.RC_GATES
+    assert gate in w.CANDIDATE_BOUND_GATES
+    assert gate not in w.UNBOUND_GATE_LIMITATIONS
+    assert "gate-protocol-certification.yml" not in w.ADMISSION_GATES
 
 
 def _listing(runs: list[dict], pages: int = 1):

@@ -44,7 +44,11 @@ def verifier(metadata, *, certificate_change=None, branch_protected=True):
                 'runnerEnvironment': 'github-hosted', 'buildSignerURI': identity}
         if certificate_change: certificate_change(cert)
         from pathlib import Path
-        return [{'verificationResult': {'statement': {'subject': [{'digest': {'sha256': digest_bytes(Path(argv[3]).read_bytes())[7:]}}]},
+        path = Path(argv[3])
+        subjects = [path] if path.name == 'platform-lock.json' else [path.parent/name for name in
+            ('platform-manifest.yaml', 'compatibility-matrix.yaml')]
+        return [{'verificationResult': {'statement': {'subject': [{'name': item.name,
+                'digest': {'sha256': digest_bytes(item.read_bytes())[7:]}} for item in subjects]},
                 'signature': {'certificate': cert}}}]
     return call, calls
 
@@ -75,6 +79,23 @@ def test_exact_freeze_is_accepted_even_when_later_campaign_gate_is_red(inputs, s
 def test_wrong_attested_attempt_source_runner_or_workflow_is_refused(inputs, change):
     root, source, _, metadata = inputs
     call, _ = verifier(metadata, certificate_change=change)
+    with pytest.raises(PackError, match='exact trusted freeze'):
+        candidate.authenticate(root, 42, 2, call=call, source=lambda sha, name: source[name], binder=lambda *args, **kwargs: b'')
+
+
+@pytest.mark.parametrize('mode', ['missing', 'wrong'])
+def test_multi_subject_provenance_must_include_each_requested_digest(inputs, mode):
+    root, source, _, metadata = inputs
+    verify, _ = verifier(metadata)
+    def call(argv):
+        result = verify(argv)
+        if argv[1:3] == ['attestation', 'verify']:
+            subjects = result[0]['verificationResult']['statement']['subject']
+            if mode == 'missing':
+                subjects.pop(0)
+            else:
+                subjects[0]['digest']['sha256'] = '0'*64
+        return result
     with pytest.raises(PackError, match='exact trusted freeze'):
         candidate.authenticate(root, 42, 2, call=call, source=lambda sha, name: source[name], binder=lambda *args, **kwargs: b'')
 

@@ -46,7 +46,7 @@ def authenticate_subject(path, source_sha, run_id, run_attempt, *, call=invoke):
     for row in rows:
         verified = row['verificationResult']
         statement, certificate = verified['statement'], verified['signature']['certificate']
-        if ([subject['digest'].get('sha256') for subject in statement['subject']] == [expected_digest]
+        if (expected_digest in [subject['digest'].get('sha256') for subject in statement['subject']]
                 and certificate.get('runInvocationURI') == expected_run
                 and certificate.get('sourceRepositoryDigest') == source_sha
                 and certificate.get('sourceRepositoryURI') == 'https://github.com/'+REPOSITORY
