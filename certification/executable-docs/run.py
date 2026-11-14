@@ -44,7 +44,7 @@ from execution_contexts import RUNTIMES, compile_plan  # noqa: E402
 from inputs import assigned_names, doc_id, load_vars, needs, render  # noqa: E402
 from jssession import JavaScriptSession  # noqa: E402
 from compiler_bootstrap import bootstrap as bootstrap_compiler  # noqa: E402
-from inventory import InventoryError, Resolver, document_record, drift  # noqa: E402
+from inventory import InventoryError, Resolver, document_record, drift, content_drift  # noqa: E402
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
 import source_build  # noqa: E402
 import publish_inputs  # noqa: E402
@@ -1436,7 +1436,7 @@ def main() -> int:
             report_docs.append(row)
     committed = json.loads(args.inventory.read_text(encoding="utf-8")) if args.inventory.exists() else {}
     drift_lines: list[str] = []
-    content_drift: list[str] = []
+    blocking_drift: list[str] = []
     if not args.only and committed and len(live_docs) == len(selected):
         current_docs = []
         session_env: dict[str, set[str]] = {}
@@ -1446,11 +1446,11 @@ def main() -> int:
                 session_env[document["session"]] = env
             current_docs.append(record)
         drift_lines = drift(committed, {"documents": current_docs})
-        content_drift = drift(committed, {"documents": current_docs}, include_revisions=False)
+        blocking_drift = content_drift(committed, {"documents": current_docs})
     order = {doc_id(d["repo"], d["path"]): i for i, d in enumerate(sources["documents"])}
     report_docs.sort(key=lambda d: order.get(d["id"], len(order)))
     statuses = [d["status"] for d in report_docs]
-    status = ("fail" if content_drift or "fail" in statuses or not report_docs else
+    status = ("fail" if blocking_drift or "fail" in statuses or not report_docs else
               "blocked" if {"needs-input", "blocked"} & set(statuses) else "pass")
     report = {
         "schemaVersion": 1,

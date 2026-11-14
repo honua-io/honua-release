@@ -238,8 +238,8 @@ def build(sources: dict[str, Any], resolver: Resolver) -> dict[str, Any]:
     }
 
 
-def drift(committed: dict[str, Any], current: dict[str, Any], *, include_revisions: bool = True) -> list[str]:
-    """Report live differences; omit revision moves when deciding whether to block execution."""
+def content_drift(committed: dict[str, Any], current: dict[str, Any]) -> list[str]:
+    """Report document-set, code and execution-metadata changes that block admission."""
     out = []
     old = {d["id"]: d for d in committed.get("documents", [])}
     for doc in current["documents"]:
@@ -247,14 +247,21 @@ def drift(committed: dict[str, Any], current: dict[str, Any], *, include_revisio
         if prior is None:
             out.append(f"{doc['id']}: not in the committed inventory")
             continue
-        if include_revisions and prior["revision"] != doc["revision"]:
-            out.append(f"{doc['id']}: revision {prior['revision'][:12]} -> {doc['revision'][:12]}")
-        before = [(b["sha256"], b["intent"]) for b in prior["blocks"]]
-        after = [(b["sha256"], b["intent"]) for b in doc["blocks"]]
+        before = [{k: v for k, v in b.items() if k != "line"} for b in prior["blocks"]]
+        after = [{k: v for k, v in b.items() if k != "line"} for b in doc["blocks"]]
         if before != after:
             out.append(f"{doc['id']}: blocks changed ({len(before)} -> {len(after)})")
     out.extend(f"{name}: no longer a declared document" for name in old)
     return out
+
+
+def drift(committed: dict[str, Any], current: dict[str, Any]) -> list[str]:
+    """Report revision provenance together with blocking inventory changes."""
+    old = {doc["id"]: doc for doc in committed.get("documents", [])}
+    revisions = [f"{doc['id']}: revision {old[doc['id']]['revision'][:12]} -> {doc['revision'][:12]}"
+                 for doc in current["documents"]
+                 if doc["id"] in old and old[doc["id"]]["revision"] != doc["revision"]]
+    return revisions + content_drift(committed, current)
 
 
 def main() -> int:
@@ -287,7 +294,7 @@ def main() -> int:
     changes = drift(committed, current)
     for line in changes:
         print(line)
-    return 1 if drift(committed, current, include_revisions=False) else 0
+    return 1 if content_drift(committed, current) else 0
 
 
 if __name__ == "__main__":
