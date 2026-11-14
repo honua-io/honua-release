@@ -23,8 +23,12 @@ def manifest_entries(root):
     manifest = root / 'agent-files.sha256'
     if manifest.is_symlink() or not manifest.is_file():
         raise ValueError('missing regular agent file manifest')
+    return parse_manifest(manifest.read_bytes())
+
+
+def parse_manifest(raw):
     entries = {}
-    for line in manifest.read_text(encoding='utf-8').splitlines():
+    for line in raw.decode('utf-8').splitlines():
         match = re.fullmatch(r'([a-f0-9]{64})  (.+)', line)
         if not match:
             raise ValueError('invalid agent file manifest')
@@ -117,11 +121,12 @@ def validate_receipt(receipt, package):
 
 def instruction_provenance(provenance):
     """Keep the launched instruction digest and flags in retained stage evidence."""
-    return [{key: item.get(key) for key in ('agentGuide', 'cliFlags')}
+    return [{**{key: item.get(key) for key in ('agentGuide', 'cliFlags')},
+             **({'model': item['model']} if 'model' in item else {})}
             for item in provenance if isinstance(item, dict)]
 
 
-def verify_sessions(row, folder, quickstart, *, require_provenance=False):
+def verify_sessions(row, folder, quickstart, *, require_provenance=False, expected_model=None):
     """A receipt cannot relabel sessions that launched with another instruction bundle."""
     context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
     sessions = [session for session in context.get('sessions') or []
@@ -143,6 +148,8 @@ def verify_sessions(row, folder, quickstart, *, require_provenance=False):
         raise ValueError('receipt instruction provenance contradicts retained sessions')
     expected = {'sha256': shipped, 'loaded': True} if shipped else None
     for claim in retained:
+        if expected_model is not None and claim.get('model') != expected_model:
+            raise ValueError('retained session launched a different model')
         if (claim.get('agentGuide') != expected
                 or (shipped and '--restricted' in (claim.get('cliFlags') or []))):
             raise ValueError('retained session launched different instructions')

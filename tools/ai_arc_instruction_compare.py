@@ -61,7 +61,7 @@ def main(argv=None):
     parser.add_argument('--lock-path', required=True)
     parser.add_argument('--lock-digest', required=True)
     args = parser.parse_args(argv)
-    arc = R.load_arc()
+    arc = R.load_development_arc()
     candidate = R.candidate_from_lock(args.lock_path, args.lock_digest)
     bound = {'imageDigest': candidate['imageDigest'], 'sourceSha': candidate['sourceRevision'],
              'platformLockDigest': candidate['platformLockDigest'],

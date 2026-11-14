@@ -9,13 +9,24 @@ existing AGENTS.md mechanism, with skill, file and shell tools still disabled.
 Use the same immutable candidate lock, model arm, goal variant (`A` or `B`), arc
 specification, harness revision and independently provisioned fixture for each
 run. Give each run a fresh run ID, output directory, evidence directory and slot.
-Run the baseline with `--instruction-variant guide-only`, then run the comparison
-with `--instruction-variant guide-plus-skills`; retain every first attempt.
+Pass `--skills-package` to both trials. Run the baseline with
+`--instruction-variant guide-only`, then the comparison with
+`--instruction-variant guide-plus-skills`; retain every first attempt.
 Held-out goals and non-local targets reject the new variant. No fixture is
 provisioned by this feature.
 
-Both runs require the pinned quickstart package source. Its source manifest must
-pin every file under the five canonical skill directories (`honua-install`,
+Both runs use `certification/ai-arc/development-skills-package.v1.json`, a separate
+immutable package pin that includes the operating skills. Fetch its source files:
+
+```bash
+python3 tools/ai_arc_runner.py pinned-inputs --skills-package --out /path/to/pinned
+```
+
+Use the returned quickstart package source directory for both trials and the
+comparison. This pin changes the development arc digest. It cannot enter the
+normal aggregate, which retains the sealed arc and historical package pin.
+The development package rejects held-out goals and non-local targets.
+Its source manifest pins every file under the five canonical skill directories (`honua-install`,
 `honua-services`, `honua-studio-maps`, `honua-ops`, `honua-tuning`), including their
 references, as well as the normal packager inputs. The product packager must
 produce `agent-files.sha256`. The loader checks the complete file set and hashes,
@@ -39,7 +50,8 @@ python3 tools/ai_arc_instruction_compare.py \
 
 The command independently rebuilds the pinned package and verifies both receipts
 against their retained evidence and current harness. It rejects mismatched model,
-candidate, goals or harness, missing skill provenance, and blocked/unavailable
+candidate, goals or harness, model claims that differ from the pinned arm or
+retained sessions, missing skill provenance, and blocked/unavailable
 stages. The JSON report includes each stage's baseline and skill result, their
 binary difference, safety verification, and the receipt hashes. A single pair is
 descriptive evidence; it provides no statistical significance or certification.

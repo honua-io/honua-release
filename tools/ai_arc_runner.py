@@ -44,6 +44,7 @@ import ai_arc_safety as safety  # noqa: E402
 import ai_arc_instructions as instructions  # noqa: E402
 
 ARC_PATH = ROOT / 'certification/ai-arc/arc.v1.json'
+SKILLS_PACKAGE_PATH = ROOT / 'certification/ai-arc/development-skills-package.v1.json'
 PREREG_PATH = ROOT / 'certification/ai-arc/PREREG-arc-v1.md'
 SCOPE_PATH = ROOT / 'certification/ai-arc/gating-scope.json'
 OPS_MODES = ('full', 'executed-subset', 'not-gating')
@@ -66,7 +67,7 @@ RUNNER_FILES = ('docs/2026.1-add-console-to-compose-quickstart.md',
                 'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
                 'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
                 'tools/agent_browser_studio.py',
-                'tools/ai_arc_instructions.py', 'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
+                'tools/ai_arc_instructions.py', 'certification/ai-arc/development-skills-package.v1.json', 'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
                 'certification/ai-arc/services-fixture-scenarios.json',
                 'tools/agent_cli_arc.py', 'tools/agent_cli_backends.py', 'tools/agent_cli_sessions.py',
                 'tools/agent_e2e_cli_sessions.py', 'tools/agent_e2e_local_runner.py',
@@ -122,6 +123,16 @@ def load_arc(path: Path = ARC_PATH) -> dict:
     arc = json.loads(raw)
     validate_arc(arc)
     arc['_sha256'] = sha256(raw)
+    return arc
+
+
+def load_development_arc() -> dict:
+    arc = load_arc()
+    del arc['_sha256']
+    arc['quickstartPackage'] = json.loads(SKILLS_PACKAGE_PATH.read_bytes())
+    arc['developmentInstructionPackage'] = True
+    validate_arc(arc)
+    arc['_sha256'] = sha256(canonical(arc))
     return arc
 
 
@@ -2376,7 +2387,7 @@ def pinned_inputs(arc: dict, out: Path, fetch=None) -> dict:
     if not SHA.fullmatch(package['revision']) or package['repo'] != 'honua-io/honua-server':
         raise ValueError('invalid pin for the quickstart package')
     for rel, want in sorted(package['files'].items()):
-        if not re.fullmatch(r'(?:docs|scripts)/[A-Za-z0-9_./-]+', rel) or '..' in rel:
+        if not re.fullmatch(r'(?:docs|scripts|skills)/[A-Za-z0-9_./-]+', rel) or '..' in rel:
             raise ValueError('invalid quickstart package path')
         raw = fetch(f"https://raw.githubusercontent.com/{package['repo']}/{package['revision']}/{rel}")
         if sha256(raw) != want:
@@ -2552,6 +2563,8 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     if instruction_variant == 'guide-plus-skills' and (not (options or {}).get('quickstart_package_source')
                                                      or not arc.get('quickstartPackage')):
         raise ValueError('skill instructions require pinned quickstart package sources')
+    if arc.get('developmentInstructionPackage') and (target != 'local-docker' or variant not in ('A', 'B')):
+        raise ValueError('skills package requires a local-docker development run')
     case = None
     if goal_set is not None:
         case = goal_set['cases'].get(case_id)
@@ -3089,7 +3102,11 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         # a package claim is checked against the package rebuilt for this candidate,
         # never against another receipt field.
         raise ValueError('the installed quickstart package is not the product package for this candidate')
-    pinned = arm_by_id(arc, arm_id)['cliVersion']
+    arm = arm_by_id(arc, arm_id)
+    if require_instruction_provenance and (receipt.get('modelId') != arm['model']
+                                           or receipt.get('family') != arm['family']):
+        raise ValueError('comparison model differs from the pinned arm')
+    pinned = arm['cliVersion']
     if receipt.get('cliVersion') != pinned:
         raise ValueError(f'run receipt does not record the pinned CLI {pinned}')
     for item in listed:
@@ -3132,7 +3149,8 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         verify_cli_sessions(stage_row, Path(evidence), pinned)
         from ai_arc_instructions import verify_sessions
         verify_sessions(stage_row, Path(evidence), (receipt.get('slotFacts') or {}).get('quickstart') or {},
-                        require_provenance=require_instruction_provenance)
+                        require_provenance=require_instruction_provenance,
+                        expected_model=arm['model'] if require_instruction_provenance else None)
         if outcome == 'pass':
             if stage_row['stage'] == 'ops' and stage_row.get('opsScope') != {k: ops_scope(arc, target)[k]
                                                                            for k in ('mode', 'scored', 'unscored')}:
@@ -3644,6 +3662,8 @@ def main(argv=None) -> int:
     trial.add_argument('--variant', choices=('A', 'B', 'H'), required=True)
     trial.add_argument('--instruction-variant', choices=('guide-only', 'guide-plus-skills'), default='guide-only',
                        help='development-only instruction content; preserves MCP-only tool isolation')
+    trial.add_argument('--skills-package', action='store_true',
+                       help='use the development operating-skills package pin for either instruction arm')
     trial.add_argument('--case-id')
     trial.add_argument('--goal-set', choices=('primary', 'reserve'), help='sealed manifest for a held-out case')
     trial.add_argument('--output', type=Path, required=True)
@@ -3689,9 +3709,15 @@ def main(argv=None) -> int:
     sub.add_parser('check', help='validate the arc definition and its model-visible strings')
     pins = sub.add_parser('pinned-inputs', help='fetch the pinned quickstart and Console compose, digest-checked')
     pins.add_argument('--out', type=Path, required=True)
+    pins.add_argument('--skills-package', action='store_true', help='fetch development operating-skills package inputs')
     sub.add_parser('freeze-services', help='list the corpus scenarios supported for A and B on this checkout')
     args = parser.parse_args(argv)
-    arc = load_arc()
+    arc = load_development_arc() if getattr(args, 'skills_package', False) else load_arc()
+    if args.command == 'trial':
+        if args.skills_package and (args.target != 'local-docker' or args.variant not in ('A', 'B')):
+            parser.error('--skills-package requires local-docker and variant A or B')
+        if args.instruction_variant == 'guide-plus-skills' and not args.skills_package:
+            parser.error('guide-plus-skills requires --skills-package')
     if args.command == 'check':
         hits = {name: forbidden_hits(text) for name, text in model_visible_texts(arc)}
         hits = {k: v for k, v in hits.items() if v}
