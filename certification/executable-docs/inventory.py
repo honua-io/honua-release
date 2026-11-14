@@ -238,8 +238,8 @@ def build(sources: dict[str, Any], resolver: Resolver) -> dict[str, Any]:
     }
 
 
-def drift(committed: dict[str, Any], current: dict[str, Any]) -> list[str]:
-    """Human-readable differences between the committed inventory and the live documents."""
+def drift(committed: dict[str, Any], current: dict[str, Any], *, include_revisions: bool = True) -> list[str]:
+    """Report live differences; omit revision moves when deciding whether to block execution."""
     out = []
     old = {d["id"]: d for d in committed.get("documents", [])}
     for doc in current["documents"]:
@@ -247,7 +247,7 @@ def drift(committed: dict[str, Any], current: dict[str, Any]) -> list[str]:
         if prior is None:
             out.append(f"{doc['id']}: not in the committed inventory")
             continue
-        if prior["revision"] != doc["revision"]:
+        if include_revisions and prior["revision"] != doc["revision"]:
             out.append(f"{doc['id']}: revision {prior['revision'][:12]} -> {doc['revision'][:12]}")
         before = [(b["sha256"], b["intent"]) for b in prior["blocks"]]
         after = [(b["sha256"], b["intent"]) for b in doc["blocks"]]
@@ -264,7 +264,7 @@ def main() -> int:
     parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true", help="regenerate the committed inventory")
-    mode.add_argument("--check", action="store_true", help="print drift; exit 1 when the inventory is stale")
+    mode.add_argument("--check", action="store_true", help="print all drift; exit 1 on block or document-set changes")
     mode.add_argument("--print", dest="print_", action="store_true", help="print the live inventory")
     args = parser.parse_args()
     sources = json.loads(args.sources.read_text(encoding="utf-8"))
@@ -287,7 +287,7 @@ def main() -> int:
     changes = drift(committed, current)
     for line in changes:
         print(line)
-    return 1 if changes else 0
+    return 1 if drift(committed, current, include_revisions=False) else 0
 
 
 if __name__ == "__main__":

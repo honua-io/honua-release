@@ -1160,7 +1160,7 @@ def markdown_summary(report: dict[str, Any]) -> str:
         lines += ["", "### Package installs refused (not a manifest pin)", ""]
         lines += [f"- {r['ecosystem']}: `{r['package']}`" for r in report["guardRefusals"]]
     if report.get("inventoryDrift"):
-        lines += ["", "### Inventory drift (regenerate with `inventory.py --write`)", ""]
+        lines += ["", "### Inventory drift (revision-only changes are informational)", ""]
         lines += [f"- {line}" for line in report["inventoryDrift"]]
     return "\n".join(lines) + "\n"
 
@@ -1436,6 +1436,7 @@ def main() -> int:
             report_docs.append(row)
     committed = json.loads(args.inventory.read_text(encoding="utf-8")) if args.inventory.exists() else {}
     drift_lines: list[str] = []
+    content_drift: list[str] = []
     if not args.only and committed and len(live_docs) == len(selected):
         current_docs = []
         session_env: dict[str, set[str]] = {}
@@ -1445,10 +1446,11 @@ def main() -> int:
                 session_env[document["session"]] = env
             current_docs.append(record)
         drift_lines = drift(committed, {"documents": current_docs})
+        content_drift = drift(committed, {"documents": current_docs}, include_revisions=False)
     order = {doc_id(d["repo"], d["path"]): i for i, d in enumerate(sources["documents"])}
     report_docs.sort(key=lambda d: order.get(d["id"], len(order)))
     statuses = [d["status"] for d in report_docs]
-    status = ("fail" if drift_lines or "fail" in statuses or not report_docs else
+    status = ("fail" if content_drift or "fail" in statuses or not report_docs else
               "blocked" if {"needs-input", "blocked"} & set(statuses) else "pass")
     report = {
         "schemaVersion": 1,

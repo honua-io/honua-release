@@ -172,7 +172,9 @@ linked issue is fixed.
 Containers run as the host UID with a writable home. Unexpected exceptions become failures with
 the traceback tail, and later blocks and documents still run. The installed-package audit covers
 every executable language and typecheck, including URL installs, and detects NuGet assets as well
-as Python and npm packages. Inventory drift fails both the inventory check and the live verdict.
+as Python and npm packages. Changes to block content, execution intent or the document set fail both the inventory check and
+the live verdict. Revision-only moves are printed and retained in `inventoryDrift` as provenance;
+they allow execution to proceed at the live reader revision without regenerating unchanged blocks.
 
 ## Variables files
 
