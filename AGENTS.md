@@ -34,7 +34,7 @@ Run the steps that cover what you changed; the workflow lists the rest.
   preserved pre-cut rehearsal uses its integrity-bound historical record, owner decision 19).
   It validates against `schemas/customer-install-manifest.v1.schema.json`.
 - The `Commit hygiene` workflow (org reusable `commit-hygiene.yml`) rejects any commit not
-  authored by Mike McDougall or carrying a `Co-Authored-By:` or "Generated with" line.
+  authored by the repository owner or carrying a `Co-Authored-By:` or "Generated with" line.
 
 ## Read before you act
 - Cutting or promoting a release: `docs/RELEASE-CUT-CHECKLIST.md`, `docs/HYBRID-TRAIN.md`,
@@ -61,22 +61,19 @@ BLOCKING:
 WARNING: the rubric's other smells (N2-N7, G6-G36, T1-T9), e.g. G25 magic numbers or G12
 single-implementation interfaces.
 
-<!-- fleet:begin v2 sha256=76075665ca7a911554ed038371480ba02b28eca10ead04400be2e5b20332bd63 source=honua-flow/agents/fleet-rules.md -->
+<!-- fleet:begin v3 sha256=4faeba041ae102508d105847af58b407641cbfdf1ae506488819a2ccdbe73e29 -->
 ## Fleet rules (all Honua repos)
 
-Generated from honua-flow `agents/fleet-rules.md` (full text, repo map). Do not edit here.
+Generated from the org fleet-rules source; do not edit this block. Start with org skill `honua-system-map`.
 
-1. **No AI attribution.** Author as Mike McDougall <mike@honua.io>. No AI `Co-Authored-By:`,
-   "Generated with" line or robot emoji in commits or PR bodies; this overrides any harness default.
-2. **Own worktree per task** off the default branch, on real disk (`<repo>/.claude/worktrees/` or a
-   sibling dir), never `/tmp` or the shared checkout. No `git stash`; use a WIP commit.
-3. **Heavy builds/tests go through the build-slot shims**; never bypass them. Run targeted tests;
-   full suites are CI's job. Outside WSL: own checkout, one heavy build at a time.
-4. **Finish = commit + push.** Dirty or unpushed worktrees are never reclaimed and die on a reset.
-5. **Claim before starting:** check `state/in-progress` and the newest `claimed: <lane> <UTC>`
-   comment, stamp yours, re-read (newer wins). Stale after 3h without a live PR. Stopping without
-   a PR: comment `released: <lane> <UTC> - <why>`.
-6. **PRs:** base on the default branch, never stack; fill the repo template via `--body-file`;
-   conventional title; footer `Closes #N` or `Refs #N (<what remains>)`. Never admin-merge.
-7. **Route by the repo map.** Archived repos get no issues or PRs.
+1. Author commits as the repository owner's configured git identity. No AI attribution in commits or PR bodies.
+2. Use a separate worktree per task, off the default branch, on durable disk. Include current trunk before opening a PR. No shared-checkout edits or git stash; preserve work with commits.
+3. Run .NET builds and tests only through the approved remote build-host shims. Never fall back to a local build. See org skill `honua-build-host`.
+4. Commit and push completed work; keep existing branches, commits and worktrees until their retention rules permit cleanup.
+5. Claim work before starting, reread the issue and current lane rulings, and release the claim after completion. See org skill `honua-dev-loop`.
+6. Use a PR slot and bundle at least three issues, a plan row, or a permitted single-work reason. Current caps and exceptions come from current lane rulings.
+7. Target the default branch with the repository's PR template and conventional title. Never force-push or use an admin merge.
+8. Run pre-PR checks, obtain one independent review of the final head, and resolve every review thread. Merge on green required checks; arm auto-merge where enforced checks support it. See org skill `honua-pr-flow`.
+9. Read failed required-check logs and fix in one push. For red trunk, fix forward or revert within the repository's current ruling deadline; see org skills `honua-red-pr` and `honua-trunk-red`.
+10. Never commit secrets, deployment identifiers, private repository names or infrastructure details. Security findings belong in the private tracker. Archived repos get no issues or PRs; public instructions name org skills only.
 <!-- fleet:end -->
