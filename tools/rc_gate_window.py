@@ -708,6 +708,12 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
     return True
 
 
+def _title_bound_without_receipt(run, candidate, gate):
+    prefixes = {STUDIO_CUSTOMER_GATE: "Studio customer gate ", PROTOCOL_GATE: "Protocol certification "}
+    return (gate in prefixes and run.get("display_title") == prefixes[gate] + candidate.platform_lock
+            and not any(matches_candidate(doc, candidate) for doc in _documents(run)))
+
+
 def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") -> str:
     """'qualifying', 'superseding', or 'unrelated' for one completed run."""
     if run.get("status") not in (None, "completed"):
@@ -731,11 +737,8 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         if diagnostic:
             return "superseding"
         return "qualifying" if run.get("conclusion") == "success" and _arc_valid(docs, candidate, arm) else "superseding"
-    if gate in (STUDIO_CUSTOMER_GATE, PROTOCOL_GATE) and not any(matches_candidate(doc, candidate) for doc in docs):
-        # The lock in the run title can invalidate older evidence, never certify it.
-        prefix = "Protocol certification " if gate == PROTOCOL_GATE else "Studio customer gate "
-        if run.get("display_title") == prefix + candidate.platform_lock:
-            return "superseding"
+    if _title_bound_without_receipt(run, candidate, gate):
+        return "superseding"
     bound = [doc for doc in docs if matches_candidate(doc, candidate)]
     if not bound:
         return "unrelated"

@@ -22,7 +22,7 @@ def frozen(tmp_path):
 
 def test_inputs_equal_train_frozen_fields(frozen):
     root, manifest, verified, verify, calls = frozen
-    result = p.prepare(root, 42, 2, verified['qualificationLockDigest'], verifier=verify)
+    result = p.prepare(root, (42, 2, verified['qualificationLockDigest']), verifier=verify)
     assert calls == [(root, 42, 2)]
     assert result['serverSha'] == manifest['components']['honua-server']['sha']
     assert result['imageDigest'] == manifest['components']['honua-server']['digest']
@@ -35,22 +35,23 @@ def test_inputs_equal_train_frozen_fields(frozen):
 def test_wrong_lock_digest_refused(frozen):
     root, _, _, verify, _ = frozen
     with pytest.raises(PackError, match='requested digest'):
-        p.prepare(root, 42, 2, 'sha256:'+'d'*64, verifier=verify)
+        p.prepare(root, (42, 2, 'sha256:'+'d'*64), verifier=verify)
 
 
 def test_untrusted_candidate_never_reads_manifest(tmp_path):
     def refuse(*args):
         raise PackError('untrusted producer')
     with pytest.raises(PackError, match='untrusted producer'):
-        p.prepare(tmp_path, 42, 2, 'sha256:'+'c'*64, verifier=refuse)
+        p.prepare(tmp_path, (42, 2, 'sha256:'+'c'*64), verifier=refuse)
 
 
-@pytest.mark.parametrize('conclusion,status,expected', [('success', 'pass', 'pass'),
+@pytest.mark.parametrize('verdict', [('success', 'pass', 'pass'),
     ('success', '', 'fail'), ('success', 'blocked', 'fail'), ('failure', 'pass', 'fail'),
     ('cancelled', 'pass', 'fail'), ('skipped', 'pass', 'fail')])
-def test_receipt_requires_both_evaluator_and_job_pass(frozen, conclusion, status, expected):
+def test_receipt_requires_both_evaluator_and_job_pass(frozen, verdict):
+    conclusion, status, expected = verdict
     root, _, verified, verify, _ = frozen
-    identity = p.prepare(root, 42, 2, verified['qualificationLockDigest'], verifier=verify)
+    identity = p.prepare(root, (42, 2, verified['qualificationLockDigest']), verifier=verify)
     result = p.receipt(identity, conclusion, status)
     assert result['status'] == expected
     assert result['serverSha'] == identity['serverSha']
@@ -64,7 +65,7 @@ def test_frozen_input_cannot_inject_workflow_outputs(frozen):
     manifest['protocolCertification']['ledger']['path'] = 'ledger.json\ninjected=value'
     (root/'platform-manifest.yaml').write_text(yaml.safe_dump(manifest))
     with pytest.raises(PackError, match='single-line'):
-        p.prepare(root, 42, 2, verified['qualificationLockDigest'], verifier=verify)
+        p.prepare(root, (42, 2, verified['qualificationLockDigest']), verifier=verify)
 
 
 def test_wrapper_uses_train_evaluator_and_all_frozen_inputs(frozen):
@@ -76,7 +77,7 @@ def test_wrapper_uses_train_evaluator_and_all_frozen_inputs(frozen):
     assert certify['uses'] == train['jobs']['gate_protocol_certification']['uses']
     assert certify['with']['tier'] == 'release'
     assert certify['with']['enforcement'] == 'strict'
-    inputs = p.prepare(root, 42, 2, verified['qualificationLockDigest'], verifier=verify)['inputs']
+    inputs = p.prepare(root, (42, 2, verified['qualificationLockDigest']), verifier=verify)['inputs']
     assert set(certify['with']) == set(inputs) | {'tier', 'enforcement'}
     assert set(workflow['jobs']['prepare']['outputs']) == set(inputs)
     for key in inputs:

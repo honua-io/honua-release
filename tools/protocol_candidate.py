@@ -9,7 +9,8 @@ import yaml
 from agent_e2e_candidate import authenticate, require
 
 
-def prepare(root, run_id, attempt, digest, *, verifier=authenticate):
+def prepare(root, selection, *, verifier=authenticate):
+    run_id, attempt, digest = selection
     root = Path(root)
     verified = verifier(root, run_id, attempt)
     require(verified['qualificationLockDigest'] == digest, 'candidate lock differs from requested digest')
@@ -58,7 +59,7 @@ def main():
         result = receipt(json.loads(args.identity.read_text()), args.conclusion, args.status)
         args.receipt.write_text(json.dumps(result, sort_keys=True)+'\n')
     else:
-        result = prepare(args.root, args.run_id, args.attempt, args.digest)
+        result = prepare(args.root, (args.run_id, args.attempt, args.digest))
         args.identity.write_text(json.dumps(result, sort_keys=True)+'\n')
         with args.github_output.open('a') as output:
             for key, value in result['inputs'].items():
