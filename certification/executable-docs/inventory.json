@@ -2289,11 +2289,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "e2af733adca9f674f573b9704928d9bd8c3bf41c",
+      "revision": "0c8390681ba0c749e267be49d6d27fecff9bafac",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/e2af733adca9f674f573b9704928d9bd8c3bf41c/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/0c8390681ba0c749e267be49d6d27fecff9bafac/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2388,7 +2388,7 @@
         },
         {
           "index": 9,
-          "line": 476,
+          "line": 477,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
