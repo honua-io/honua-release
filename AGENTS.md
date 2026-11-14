@@ -61,7 +61,7 @@ BLOCKING:
 WARNING: the rubric's other smells (N2-N7, G6-G36, T1-T9), e.g. G25 magic numbers or G12
 single-implementation interfaces.
 
-<!-- fleet:begin v3 sha256=4faeba041ae102508d105847af58b407641cbfdf1ae506488819a2ccdbe73e29 -->
+<!-- fleet:begin v3 sha256=2c5c9896ef56430ddcee7221072ff5685b96d73f4c51561e4862a1a965218242 -->
 ## Fleet rules (all Honua repos)
 
 Generated from the org fleet-rules source; do not edit this block. Start with org skill `honua-system-map`.
@@ -71,7 +71,7 @@ Generated from the org fleet-rules source; do not edit this block. Start with or
 3. Run .NET builds and tests only through the approved remote build-host shims. Never fall back to a local build. See org skill `honua-build-host`.
 4. Commit and push completed work; keep existing branches, commits and worktrees until their retention rules permit cleanup.
 5. Claim work before starting, reread the issue and current lane rulings, and release the claim after completion. See org skill `honua-dev-loop`.
-6. Use a PR slot and bundle at least three issues, a plan row, or a permitted single-work reason. Current caps and exceptions come from current lane rulings.
+6. Reserve PR capacity and bundle at least three issues, a plan row, or a permitted single-work reason. Current caps and exceptions come from current lane rulings.
 7. Target the default branch with the repository's PR template and conventional title. Never force-push or use an admin merge.
 8. Run pre-PR checks, obtain one independent review of the final head, and resolve every review thread. Merge on green required checks; arm auto-merge where enforced checks support it. See org skill `honua-pr-flow`.
 9. Read failed required-check logs and fix in one push. For red trunk, fix forward or revert within the repository's current ruling deadline; see org skills `honua-red-pr` and `honua-trunk-red`.
