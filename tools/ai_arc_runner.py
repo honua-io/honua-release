@@ -65,7 +65,7 @@ RUNNER_FILES = ('docs/2026.1-add-console-to-compose-quickstart.md',
                 'tools/agent_e2e_aws_install.py', 'tools/agent_e2e_aws_controller.py',
                 'certification/agent-ops/product_ops.py', 'certification/agent-ops/ecs_stage.py',
                 'tools/agent_browser_studio.py',
-                'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
+                'tools/ai_arc_instructions.py', 'tools/ai_arc_safety.py', 'tools/ai_arc_services.py', 'tools/ai_arc_campaign.py',
                 'certification/ai-arc/services-fixture-scenarios.json',
                 'tools/agent_cli_arc.py', 'tools/agent_cli_backends.py', 'tools/agent_cli_sessions.py',
                 'tools/agent_e2e_cli_sessions.py', 'tools/agent_e2e_local_runner.py',
@@ -583,6 +583,9 @@ class LocalSetup(StageModule):
                 raise ValueError('the package compose is not the pinned guide\'s compose definition')
             ctx.slot.facts['vm'] = ctx.slot.vm.stage_package(ctx.install, self.package, package_pin['priorMaxSchema'])
             ctx.slot.facts['quickstart']['packageSha256'] = ctx.slot.facts['vm']['packageSha256']
+            if ctx.options.get('instruction_variant', 'guide-only') == 'guide-plus-skills':
+                from ai_arc_instructions import apply_bundle
+                apply_bundle(ctx, self.package)
             return
         ctx.slot.facts['vm'] = ctx.slot.vm.stage(ctx.install, self.compose)
         ctx.slot.harness_secrets.extend(ctx.slot.vm.secrets.values())
@@ -671,8 +674,12 @@ def expected_package(arc: dict, candidate: dict, source: Path) -> dict:
     lock = package_lock_for(arc, candidate)
     with tempfile.TemporaryDirectory(prefix='arc-package-') as tmp:
         files = ai_arc_local.build_quickstart_package(Path(source), arc['quickstartPackage'], Path(tmp), **lock)
-    return {'revision': arc['quickstartPackage']['revision'], 'declaredRelease': lock['server'],
-            'sha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(files.items())}}
+        result = {'revision': arc['quickstartPackage']['revision'], 'declaredRelease': lock['server'],
+                  'sha256': {n: 'sha256:' + hashlib.sha256(r).hexdigest() for n, r in sorted(files.items())}}
+        if any(name.startswith('skills/') for name in arc['quickstartPackage']['files']):
+            from ai_arc_instructions import load_bundle
+            _, result['instructionVariant'] = load_bundle(Path(tmp) / 'package', arc['quickstartPackage'])
+    return result
 
 
 def package_lock_for(arc: dict, cand: dict) -> dict:
@@ -2536,6 +2543,12 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
     import tempfile
     if target not in TARGETS:
         raise ValueError('invalid target')
+    from ai_arc_instructions import validate_variant
+    instruction_variant = (options or {}).get('instruction_variant', 'guide-only')
+    validate_variant(instruction_variant, variant, target)
+    if instruction_variant == 'guide-plus-skills' and (not (options or {}).get('quickstart_package_source')
+                                                     or not arc.get('quickstartPackage')):
+        raise ValueError('skill instructions require pinned quickstart package sources')
     case = None
     if goal_set is not None:
         case = goal_set['cases'].get(case_id)
@@ -2567,6 +2580,7 @@ def run_trial(*, arc: dict, target: str, arm: dict, variant: str, run_id: str, o
                            'manifestSha256': (goal_set or {}).get('sha256'),
                            'sealedSha256': (goal_set or {}).get('sealedSha256'), 'caseId': case_id,
                            'fixtures': (case or {}).get('fixtures'), 'fault': (case or {}).get('fault')},
+               'instructionVariant': instruction_variant,
                'temperature': None, 'temperaturePolicy': 'CLI default (not settable on subscription CLIs)',
                'hostKind': slot.kind, 'host': slot.vm.host if slot.vm else None,
                'phases': {'install': {'release': install['release'], 'sourceSha': install['sourceRevision'],
@@ -2953,7 +2967,13 @@ def agent_guide_gaps(receipt: dict) -> list[str]:
     the installed package carries one, every CLI session's provenance must show {"sha256": its digest, "loaded": true}
     and no --restricted flag. Empty when the package ships none."""
     quickstart = (receipt.get('slotFacts') or {}).get('quickstart') if isinstance(receipt, dict) else None
-    shipped = ((quickstart or {}).get('packageSha256') or {}).get('AGENTS.md') if isinstance(quickstart, dict) else None
+    from ai_arc_instructions import expected_guide
+    variant = receipt.get('instructionVariant', 'guide-only')
+    if variant == 'guide-only' and isinstance(quickstart, dict) and quickstart.get('instructionVariant') is not None:
+        raise ValueError('guide-only receipt carries unexpected skill provenance')
+    if variant == 'guide-plus-skills' and (not isinstance(quickstart, dict) or not quickstart.get('instructionVariant')):
+        raise ValueError('missing skill instruction provenance')
+    shipped = expected_guide(quickstart) if isinstance(quickstart, dict) else None
     if not shipped:
         return []
     gaps = []
@@ -3015,6 +3035,8 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
                 or goal.get('manifestSha256') != manifest['sha256'] or goal.get('sealedSha256') != manifest['sealedSha256'] \
                 or goal.get('fixtures') != case['fixtures'] or goal.get('fault') != case['fault']:
             raise ValueError('held-out run is not bound to its sealed manifest case')
+    from ai_arc_instructions import validate_receipt
+    validate_receipt(receipt, package)
     quickstart = (receipt.get('slotFacts') or {}).get('quickstart')
     setup = next((r for r in receipt.get('stages') or [] if isinstance(r, dict) and r.get('stage') == 'setup'), {})
     # Whenever local setup ran (passed or not), the receipt must bind the pinned guide; only a setup that never
@@ -3329,6 +3351,8 @@ def aggregate(*, arc: dict, target: str, arm_id: str, schedule_rows: list[dict],
     by_id, raw_digest = {}, {}
     for raw in receipts:
         receipt = json.loads(raw)
+        if receipt.get('instructionVariant', 'guide-only') != 'guide-only':
+            raise ValueError('instruction variants require a separate paired development comparison')
         if receipt.get('runId') in by_id:
             raise ValueError('duplicate run receipt')
         if receipt.get('runId') not in rows_by_id:
@@ -3611,6 +3635,8 @@ def main(argv=None) -> int:
     trial.add_argument('--arm', required=True)
     trial.add_argument('--run-id', required=True)
     trial.add_argument('--variant', choices=('A', 'B', 'H'), required=True)
+    trial.add_argument('--instruction-variant', choices=('guide-only', 'guide-plus-skills'), default='guide-only',
+                       help='development-only instruction content; preserves MCP-only tool isolation')
     trial.add_argument('--case-id')
     trial.add_argument('--goal-set', choices=('primary', 'reserve'), help='sealed manifest for a held-out case')
     trial.add_argument('--output', type=Path, required=True)
@@ -3682,7 +3708,7 @@ def main(argv=None) -> int:
             raise SystemExit('a held-out run (variant H) names its sealed manifest with --goal-set primary|reserve')
         goal_set = load_goal_set(args.goal_set) if args.goal_set else None
         slot = build_slot(args.target, args)
-        options = {'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
+        options = {'instruction_variant': args.instruction_variant, 'quickstart': args.quickstart, 'quickstart_revision': args.quickstart_revision,
                    'quickstart_package_source': args.quickstart_package_source,
                    'slot_receipt': args.slot_receipt, 'slot_credentials': args.slot_credentials,
                    'deploy_identity_contract': args.deploy_identity_contract,
