@@ -2927,10 +2927,14 @@ def test_development_skills_package_preserves_sealed_arc_and_pins_all_skills():
     development = R.load_development_arc()
     assert development['_sha256'] != sealed['_sha256']
     assert development['quickstartPackage']['revision'] != sealed['quickstartPackage']['revision']
+    package = development['quickstartPackage']
+    page = development['quickstart']
+    assert (page['repo'], page['revision'], page['sha256']) == (
+        package['repo'], package['revision'], package['files'][page['path']])
     assert not any(path.startswith('skills/') for path in sealed['quickstartPackage']['files'])
     assert all('skills/' + skill + '/SKILL.md' in development['quickstartPackage']['files']
                for skill in R.instructions.SKILLS)
-    for key in ('_sha256', 'quickstartPackage', 'developmentInstructionPackage'):
+    for key in ('_sha256', 'quickstartPackage', 'quickstart', 'developmentInstructionPackage'):
         development.pop(key, None)
         sealed.pop(key, None)
     assert development == sealed

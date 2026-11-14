@@ -130,6 +130,9 @@ def load_development_arc() -> dict:
     arc = load_arc()
     del arc['_sha256']
     arc['quickstartPackage'] = json.loads(SKILLS_PACKAGE_PATH.read_bytes())
+    package = arc['quickstartPackage']
+    arc['quickstart'].update(repo=package['repo'], revision=package['revision'],
+                             sha256=package['files'][arc['quickstart']['path']])
     arc['developmentInstructionPackage'] = True
     validate_arc(arc)
     arc['_sha256'] = sha256(canonical(arc))

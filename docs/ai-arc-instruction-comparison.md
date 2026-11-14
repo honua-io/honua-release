@@ -22,8 +22,11 @@ immutable package pin that includes the operating skills. Fetch its source files
 python3 tools/ai_arc_runner.py pinned-inputs --skills-package --out /path/to/pinned
 ```
 
-Use the returned quickstart package source directory for both trials and the
-comparison. This pin changes the development arc digest. It cannot enter the
+Use the returned `quickstart.md` as `--quickstart` and the `quickstart-package`
+directory as `--quickstart-package-source` for both trials and the comparison.
+The page and package share the development revision and page digest, so setup
+checks the same Compose definition that the product packager renders.
+This pin changes the development arc digest. It cannot enter the
 normal aggregate, which retains the sealed arc and historical package pin.
 The development package rejects held-out goals and non-local targets.
 Its source manifest pins every file under the five canonical skill directories (`honua-install`,
