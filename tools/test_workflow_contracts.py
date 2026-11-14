@@ -1674,6 +1674,7 @@ def _proto_baseline_command() -> str:
     return line + '\nprintf %s "$PREV"'
 
 
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
 @pytest.mark.parametrize("pin,expected", [
     ("v1.1.0", "v1.0.0"),   # a newer release exists after the pin; a prerelease is never the baseline
     ("v1.2.0", "v1.1.0"),   # pin at the newest tag; it must not be compared with itself
