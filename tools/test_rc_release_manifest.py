@@ -113,3 +113,21 @@ def test_workflow_publishes_the_snapshot_and_renders_its_notes():
     assert "finalized-manifest.yaml" in upload.splitlines()
     publish = workflow["jobs"]["publish"]["steps"][-1]["run"]
     assert "out/finalized-manifest.yaml" in publish
+
+
+def test_snapshot_refuses_component_stamps_for_another_rc():
+    source = manifest()
+    source["components"]["honua-server"].update({
+        "artifactVersion": "2026.1.0-rc.2", "releaseVersion": "2026.1.0-rc.2",
+        "artifactSourceRevision": SHA, "platformDigests": {"linux/amd64": DIGEST}})
+    with pytest.raises(ValueError, match="platform version"):
+        release.snapshot(source, report(), inputs())
+
+
+def test_snapshot_notes_remain_readable_by_the_compose_prior_resolver():
+    import rc_release_notes
+    from compose_upgrade_prior import rc_server_reference
+    result = release.snapshot(manifest(), report(), inputs())
+    body = rc_release_notes.render(result, "", inputs().label, None, None, [])
+    assert rc_server_reference({"tag_name": inputs().label, "body": body}) == (
+        "ghcr.io/honua-io/honua-server@" + DIGEST)

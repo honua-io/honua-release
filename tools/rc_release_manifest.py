@@ -16,6 +16,8 @@ from pathlib import Path
 
 import yaml
 
+from platform_version import stamp_errors
+
 
 @dataclass(frozen=True)
 class ReleaseInputs:
@@ -55,6 +57,9 @@ def snapshot(manifest: dict, report: dict, inputs: ReleaseInputs) -> dict:
     result = copy.deepcopy(manifest)
     result["platformRelease"] = inputs.label
     result["status"] = "rc"
+    errors = stamp_errors(result)
+    if errors:
+        raise ValueError("; ".join(errors))
     result["components"]["honua-server"]["image"] = inputs.image
     result["releaseAdmission"] = copy.deepcopy(candidate)
     return result
