@@ -71,6 +71,7 @@ def test_verifier_binds_each_receipt_to_its_evidence_and_rebuilt_package(monkeyp
     for arc, receipt, options in calls:
         assert arc == {'arc': 'pinned'}
         assert options['candidate'] == {'candidate': 'bound'}
+        assert options['require_instruction_provenance'] is True
         assert options['package'] is package
         assert options['digests'] == {'runner': 'current'}
         assert options['evidence'] == evidence[receipt['runId']]

@@ -3016,7 +3016,8 @@ def mcp_channel_gap_stages(receipt: dict) -> list[str]:
 
 
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
-               row: dict, goal_sets: dict, evidence: Path | None, package: dict | None = None) -> dict:
+               row: dict, goal_sets: dict, evidence: Path | None, package: dict | None = None,
+               require_instruction_provenance: bool = False) -> dict:
     """Re-derive a run's outcome from its retained evidence; reject anything contradictory or misbound."""
     if not isinstance(receipt, dict) or receipt.get('schema') != TRIAL_SCHEMA or receipt.get('attempt') != 1:
         raise ValueError('not a first-attempt arc run receipt')
@@ -3130,7 +3131,8 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
         verify_cli_sessions(stage_row, Path(evidence), pinned)
         from ai_arc_instructions import verify_sessions
-        verify_sessions(stage_row, Path(evidence), (receipt.get('slotFacts') or {}).get('quickstart') or {})
+        verify_sessions(stage_row, Path(evidence), (receipt.get('slotFacts') or {}).get('quickstart') or {},
+                        require_provenance=require_instruction_provenance)
         if outcome == 'pass':
             if stage_row['stage'] == 'ops' and stage_row.get('opsScope') != {k: ops_scope(arc, target)[k]
                                                                            for k in ('mode', 'scored', 'unscored')}:

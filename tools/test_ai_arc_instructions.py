@@ -150,3 +150,18 @@ def test_baseline_without_guide_accepts_claude_restricted_sessions(tmp_path):
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({
         'sessions': [{'instructionProvenance': provenance}]}))
     I.verify_sessions(row, tmp_path, {})
+
+
+@pytest.mark.parametrize('historical', [False, True])
+def test_comparison_baseline_requires_retained_instruction_provenance(tmp_path, historical):
+    provenance = [{'agentGuide': {'sha256': 'baseline', 'loaded': True}, 'cliFlags': []}]
+    row = {'stage': 'setup', 'modelVisible': {'provenance': provenance}}
+    session = {'cliVersion': 'pinned'} if historical else {'instructionProvenance': provenance}
+    (tmp_path / 'setup').mkdir()
+    (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': [session]}))
+    quickstart = {'packageSha256': {'AGENTS.md': 'baseline'}}
+    if historical:
+        with pytest.raises(ValueError, match='lacks instruction provenance'):
+            I.verify_sessions(row, tmp_path, quickstart, require_provenance=True)
+    else:
+        I.verify_sessions(row, tmp_path, quickstart, require_provenance=True)

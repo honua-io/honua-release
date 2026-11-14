@@ -121,14 +121,16 @@ def instruction_provenance(provenance):
             for item in provenance if isinstance(item, dict)]
 
 
-def verify_sessions(row, folder, quickstart):
+def verify_sessions(row, folder, quickstart, *, require_provenance=False):
     """A receipt cannot relabel sessions that launched with another instruction bundle."""
     context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
     sessions = [session for session in context.get('sessions') or []
                 if not (session.get('actions') == 0 and session.get('provenanceEntries') == 0)]
     if (quickstart.get('instructionVariant') is None and sessions
             and all('instructionProvenance' not in session for session in sessions)):
-        return  # Historical baseline contexts predate retained instruction provenance.
+        if require_provenance:
+            raise ValueError('retained session lacks instruction provenance')
+        return  # Legacy receipts are permitted outside paired instruction comparisons.
     shipped = expected_guide(quickstart)
     retained = []
     for session in sessions:
