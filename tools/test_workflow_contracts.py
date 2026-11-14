@@ -741,7 +741,7 @@ def test_contract_gate_holds_expected_mcp_tools_to_the_pinned_server_roster():
     assert "tools/test_check_mcp_roster.py" in commands
     assert "tools/check_mcp_roster.py" in commands
     assert "--roster" not in commands and "--server-sha" not in commands  # the pin, not an override
-    assert "for TOPOLOGY in redis-on redis-off" in commands
+    assert "for TOPOLOGY in redis-off" in commands
     assert "3) STATUS=blocked" in commands and "::warning" in commands
     assert "1) STATUS=fail; FAILED=1" in commands and "*) STATUS=fail; FAILED=1" in commands
     assert 'exit "$FAILED"' in commands
@@ -1479,7 +1479,7 @@ def test_cloud_matrix_is_the_ecs_ga_set_and_threads_the_batch_image():
     assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-ecs\"]'" in text
     assert "inputs.update_rollback_run_id != '' && '[\"aws-ecs\"]'" in text
     assert '"aws-serverless","aws-ecs"' not in text
-    for preview_cell in ("aws-serverless/redis-off", "aws-serverless/redis-on", "aws-eks/redis-off", "aws-eks/redis-on"):
+    for preview_cell in ("aws-serverless/redis-off", "aws-eks/redis-off"):
         assert f'{{cell:"{preview_cell}", status:"not certified (preview)"}}' in text
     assert 'TARGETS="aws-ecs";' in text
     assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
@@ -1496,7 +1496,7 @@ def test_cloud_matrix_is_the_ecs_ga_set_and_threads_the_batch_image():
     # Read as text: this suite also runs where the checkers' own dependencies are not installed.
     receipts = (REPO_ROOT / "tools" / "check_journey_receipts.py").read_text(encoding="utf-8")
     journey = (REPO_ROOT / "e2e" / "cloud_journey.py").read_text(encoding="utf-8")
-    ga = 'GA_CELLS = tuple(f"aws-ecs/redis-{redis}" for redis in ("off", "on"))'
+    ga = 'GA_CELLS = ("aws-ecs/redis-off",)'
     assert ga in receipts and ga in journey
     assert ('PREVIEW_CELLS: tuple[str, ...] = tuple(f"{target}/redis-{redis}" for target in ("aws-serverless", "aws-eks")'
             in receipts)
@@ -1536,7 +1536,7 @@ def test_update_rollback_authentication_admits_both_builds_before_cloud_identity
     assert 'candidate=load_release(root/"rollback-candidate",mode)' in guard["run"]
     assert "for cell in sorted(GA_CELLS):" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
     cloud = workflow["jobs"]["cloud"]
-    assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "both"
+    assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "off"
 
 
 def test_release_cell_reaper_runs_nightly_under_its_dedicated_role_and_never_skips_green():

@@ -38,7 +38,6 @@ on:
         options:
           - local-docker
           - aws-ecs/redis-off
-          - aws-ecs/redis-on
           - endpoint
       candidate_ref:
         description: Immutable candidate snapshot ref
@@ -466,7 +465,7 @@ jobs:
       candidate_ref: ${{ inputs.candidate_ref || '' }}
       require_real: true
       target: aws-ecs
-      redis_mode: ${{ inputs.target == 'aws-ecs/redis-on' && 'on' || 'off' }}
+      redis_mode: "off"
       run_iac_live: false
       genuine_model_bedrock: true
       bedrock_model: ${{ inputs.model || vars.TERMINAL_MODEL_NAME || 'us.anthropic.claude-sonnet-4-6' }}

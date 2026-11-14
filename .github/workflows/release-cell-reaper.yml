@@ -39,6 +39,11 @@ on:
         required: false
         type: string
         default: "48"
+      validation_run_id:
+        description: "Optional exact ValidationRunId to recover one completed cell within the deletion cap"
+        required: false
+        type: string
+        default: ""
       max_delete:
         description: "Abandon the sweep if the plan exceeds this many resources"
         required: false
@@ -134,6 +139,7 @@ jobs:
         env:
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           GRACE_HOURS: ${{ inputs.grace_hours || '48' }}
+          VALIDATION_RUN_ID: ${{ inputs.validation_run_id }}
           MAX_DELETE: ${{ inputs.max_delete || '400' }}
         run: |
           set -euo pipefail
@@ -146,5 +152,9 @@ jobs:
                 --grace-hours "$GRACE_HOURS"
                 --max-delete "$MAX_DELETE"
                 --summary-file "$GITHUB_STEP_SUMMARY")
+          if [ -n "$VALIDATION_RUN_ID" ]; then
+            [[ "$VALIDATION_RUN_ID" =~ ^gha-[0-9]+-aws-(ecs|serverless|eks)-redis-(on|off)$ ]] || { echo "::error::invalid validation_run_id"; exit 1; }
+            args+=(--run-id "$VALIDATION_RUN_ID")
+          fi
           [ "$DRY_RUN" = "true" ] && args+=(--dry-run)
           ./_honua-iac/infrastructure/terraform/validation/scripts/aws/sweep-orphaned-validation-infra.sh "${args[@]}"

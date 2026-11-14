@@ -445,16 +445,16 @@ components:
   geospatial-mcp:
     source:
       repository: https://github.com/honua-io/geospatial-mcp
-      revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+      revision: 1f657ccda04cc344701c92283d4a078bbcc5b9a4
     contractVersions:
       geospatial-mcp: '1.0'
     schemaVersions:
       geospatial-mcp-schemas: '1.0'
     artifacts:
     - kind: spec
-      coordinate: https://github.com/honua-io/geospatial-mcp/blob/3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd/spec/schemas/index.json
-      version: 1.0.0+3c5388a8
-      sourceRevision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+      coordinate: https://github.com/honua-io/geospatial-mcp/blob/1f657ccda04cc344701c92283d4a078bbcc5b9a4/spec/schemas/index.json
+      version: 1.0.0+1f657ccd
+      sourceRevision: 1f657ccda04cc344701c92283d4a078bbcc5b9a4
       sha256: sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c
     artifactIdentityModel: published
     serverCompatibility:
@@ -462,7 +462,7 @@ components:
       manifests:
       - source:
           repository: https://github.com/honua-io/geospatial-mcp
-          revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+          revision: 1f657ccda04cc344701c92283d4a078bbcc5b9a4
           path: release/sdk-capability-baseline.json
         sha256: sha256:6b28e7e6997f8eb69ec1e4e2f0e5c874697a0ea7ba9ea2ef3c29f5bb2888c825
         content:
@@ -489,7 +489,7 @@ components:
         - ai.mcp-discovery
         - discovery.capability-manifest
       declarations:
-      - revision: 3c5388a8a542c0bcbcd0e5c9b4f44167ffeba6bd
+      - revision: 1f657ccda04cc344701c92283d4a078bbcc5b9a4
         path: release/sdk-capability-baseline.json
         sha256: sha256:bd286450cb67d429eaf122eaf81aef5b5f015207bebeb4666194b5112b0311b9
         minimumServerVersion: first-release

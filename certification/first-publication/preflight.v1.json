@@ -9,6 +9,14 @@
       "publication": "QGIS plugin honua_gis_assistant"
     },
     {
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.3.4 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.3.4 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.3.4': 200}; the platform manifest pins @honua/sdk-js 0.2.10. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "channels": [
+        "npm:create-honua-app"
+      ],
+      "kind": "blocked-on-republish",
+      "publication": "npm create-honua-app@0.2.5 template pins"
+    },
+    {
       "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
       "channels": [
         "helm:oci://ghcr.io/honua-io/charts/honua"
@@ -23,8 +31,9 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
+          "content_sha256": "d23089ed561017ef6b1d26d0f389ca81edab03a33c7f4b1fb0f206c80d03f8a1",
+          "file_count": 23,
           "filename": "geospatial-grpc-bsr-f52df33b3b5d4723881ad0bacaf8a754.zip",
-          "sha256": "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef",
           "url": "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
         }
       ],
@@ -116,14 +125,14 @@
       "version": "0.2.10"
     },
     {
-      "disposition": "published",
+      "disposition": "blocked-on-republish",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "create-honua-app-0.2.4.tgz",
-          "registry_shasum": "10f655153b6a13ddbb59f41da72349825afca7e5",
-          "sha256": "914fadadc4f1d648f9a5955d34b46fe9fd7b8ed5a37acc9da499c8fdbc3be41a",
-          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.4.tgz"
+          "filename": "create-honua-app-0.2.5.tgz",
+          "registry_shasum": "e301b82d7a01ef1d5914a1e521dbf9d58c9c94f7",
+          "sha256": "0928e95205ea12ce677d89e2f7eb0213449d1fcfd24683c51fb71058fe17f173",
+          "url": "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.5.tgz"
         }
       ],
       "http_status": 200,
@@ -132,21 +141,21 @@
       "maplibre_pins": [
         "6.4.1"
       ],
-      "publication": "npm create-honua-app@0.2.4",
+      "publication": "npm create-honua-app@0.2.5",
       "sdk_pin_statuses": {
-        "0.2.10": 200
+        "0.3.4": 200
       },
       "templates": [
         {
           "dependencies": {
-            "@honua/sdk-js": "0.2.10",
+            "@honua/sdk-js": "0.3.4",
             "maplibre-gl": "6.4.1"
           },
           "path": "package/templates/react-ts/package.json"
         },
         {
           "dependencies": {
-            "@honua/sdk-js": "0.2.10",
+            "@honua/sdk-js": "0.3.4",
             "maplibre-gl": "6.4.1"
           },
           "path": "package/templates/vanilla-ts/package.json"
@@ -154,9 +163,9 @@
       ],
       "urls": [
         "https://registry.npmjs.org/create-honua-app",
-        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.4.tgz"
+        "https://registry.npmjs.org/create-honua-app/-/create-honua-app-0.2.5.tgz"
       ],
-      "version": "0.2.4"
+      "version": "0.2.5"
     },
     {
       "disposition": "published",
@@ -945,7 +954,7 @@
     "honua-mobile": "platform-manifest.yaml lists honua-mobile under experimental: with status experimental (ADR-0059 experimental+disabled). It is excluded from the certified set, so its public publication is deferred and is not a first-publication blocker."
   },
   "issue": "honua-io/honua-release#57",
-  "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-09T23:27:32Z",
+  "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
+  "observed_at": "2026-11-14T12:13:08Z",
   "schema": "honua.first-publication-preflight/v1"
 }
