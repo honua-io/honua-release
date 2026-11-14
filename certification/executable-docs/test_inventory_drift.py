@@ -109,3 +109,19 @@ def test_prose_line_shift_does_not_block_admission():
     after, _ = document_record(document, "b" * 40, "New prose.\n\n```sh\ntrue\n```")
     assert before["blocks"][0]["line"] != after["blocks"][0]["line"]
     assert not content_drift({"documents": [before]}, {"documents": [after]})
+
+
+@pytest.mark.parametrize("case", [
+    ("```console\n$ echo actual\nexpected\n```", "```console\n$ echo actual\n```"),
+    ('<!-- doc-run: run ready-log="ready" -->\n```sh\nnpm start\n```',
+     '<!-- doc-run: run ready-log="changed" -->\n```sh\nnpm start\n```'),
+    ('<!-- doc-run: run ready-url="http://localhost:3000/" -->\n```sh\nnpm start\n```',
+     '<!-- doc-run: run -->\n```sh\nnpm start\n```'),
+])
+def test_console_assertions_and_readiness_changes_block_revision_drift(case):
+    document = {"repo": "honua-io/example", "path": "README.md", "runtime": "python",
+                "revision": {"defaultBranch": True}}
+    before, _ = document_record(document, "a" * 40, case[0])
+    after, _ = document_record(document, "b" * 40, case[1])
+    assert before["blocks"][0]["sha256"] == after["blocks"][0]["sha256"]
+    assert content_drift({"documents": [before]}, {"documents": [after]})
