@@ -18,8 +18,28 @@ WHEEL = b"pinned-wheel"
 ARCHIVE = b"iac-archive"
 NUPKG = b"nupkg-bytes"
 SYMBOL = b"symbol-bytes"
-GRPC = b"grpc-bytes"
-BSR = b"bsr-bytes"
+PROTOS = {
+    "geospatial/v1/common.proto": b'syntax = "proto3";\npackage geospatial.v1;\n',
+    "geospatial/v1/tile_service.proto": b'syntax = "proto3";\nservice TileService {}\n',
+}
+
+
+def _zip(entries: dict, *, compression=zipfile.ZIP_DEFLATED, date_time=(1980, 1, 1, 0, 0, 0)) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=compression) as archive:
+        for name, data in entries.items():
+            info = zipfile.ZipInfo(name, date_time=date_time)
+            info.compress_type = compression
+            archive.writestr(info, data)
+    return output.getvalue()
+
+
+def _bsr_entries(protos: dict | None = None) -> dict:
+    return {"LICENSE": b"license", "README.md": b"readme", **(PROTOS if protos is None else protos)}
+
+
+GRPC = _zip({"Geospatial.Grpc.nuspec": b"<package/>", **{"proto/" + name: data for name, data in PROTOS.items()}})
+BSR = _zip(_bsr_entries())
 TARBALL_DEPS = {"@honua/sdk-js": "0.1.10-beta.0", "maplibre-gl": "6.1.0"}
 SDK_SOURCE = "a" * 40
 MCP_SOURCE = "b" * 40
@@ -253,7 +273,7 @@ def _receipt(**world_kwargs) -> dict:
         world,
         _manifest(),
         observed_at="2026-09-26T00:00:00Z",
-        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(world.bsr_body)},
     )
 
 
@@ -370,7 +390,7 @@ def test_pypi_byte_mismatch_fails_closed():
             world,
             _manifest(),
             observed_at="2026-09-26T00:00:00Z",
-            retained={"grpc_sha256": _sha(GRPC), "bsr_sha256": _sha(BSR)},
+            retained={"grpc_sha256": _sha(GRPC), "bsr_content_sha256": preflight.archive_content_sha256(BSR)},
         )
 
 
@@ -433,7 +453,7 @@ def test_manifest_pin_appearing_on_nuget_is_not_silently_adopted():
             world,
             _manifest(),
             observed_at="2026-09-26T00:00:00Z",
-            retained={"grpc_sha256": _sha(GRPC), "bsr_sha256": _sha(BSR)},
+            retained={"grpc_sha256": _sha(GRPC), "bsr_content_sha256": preflight.archive_content_sha256(BSR)},
         )
 
 
@@ -480,7 +500,7 @@ def test_pinned_npm_companion_is_downloaded_too():
     world = World()
     receipt = preflight.build_receipt(
         world, manifest, observed_at="2026-10-04T00:00:00Z",
-        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(world.bsr_body)},
     )
     mcp = _channel(receipt, "npm:@honua/mcp-server")
     assert mcp["disposition"] == "published"
@@ -560,7 +580,7 @@ def _experimental_receipt(world=None) -> dict:
         world,
         _experimental_manifest(),
         observed_at="2026-09-29T00:00:00Z",
-        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(world.bsr_body)},
     )
 
 
@@ -602,7 +622,7 @@ def test_manifest_reason_is_carried_into_the_deferred_row():
         world,
         manifest,
         observed_at="2026-09-29T00:00:00Z",
-        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(world.bsr_body)},
     )
     assert _channel(receipt, "npm:@honua-io/embed")["deferral_reason"] == "Deferred out of 2026.1 by operator ruling."
 
@@ -616,7 +636,7 @@ def test_component_moved_to_ga_makes_mobile_channels_required_and_blocked_again(
         world,
         manifest,
         observed_at="2026-09-29T00:00:00Z",
-        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(world.bsr_body)},
     )
     preflight.audit(receipt, manifest)
     assert receipt["deferred_experimental_components"].keys() == {"honua-collect"}
@@ -734,7 +754,7 @@ def _public_pin_manifest(version: str = "1.10.0") -> dict:
 
 def _public_pin_receipt(world, manifest) -> dict:
     return preflight.build_receipt(world, manifest, observed_at="2026-10-02T00:00:00Z",
-                                   retained={"grpc_sha256": _sha(GRPC), "bsr_sha256": _sha(BSR)})
+                                   retained={"grpc_sha256": _sha(GRPC), "bsr_content_sha256": preflight.archive_content_sha256(BSR)})
 
 
 def test_explicit_public_nuget_pin_requires_downloaded_matching_bytes():
@@ -804,7 +824,7 @@ def _qgis_receipt(transport: _QgisTransport) -> dict:
         transport,
         _manifest(),
         observed_at="2026-09-26T00:00:00Z",
-        retained={"grpc_sha256": _sha(transport.inner.grpc_body), "bsr_sha256": _sha(transport.inner.bsr_body)},
+        retained={"grpc_sha256": _sha(transport.inner.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(transport.inner.bsr_body)},
     )
 
 
@@ -963,7 +983,7 @@ def _image_receipt(world=None, manifest=None) -> dict:
         world,
         manifest or _image_manifest(),
         observed_at="2026-10-30T00:00:00Z",
-        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_sha256": _sha(world.bsr_body)},
+        retained={"grpc_sha256": _sha(world.grpc_body), "bsr_content_sha256": preflight.archive_content_sha256(world.bsr_body)},
     )
 
 
