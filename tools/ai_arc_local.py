@@ -190,8 +190,17 @@ class VmSlot:
         """The customer downloads the product's quickstart package into an empty private directory and writes
         their choices into .env. Everything else (secrets, the key ring, starting the stack) is the agent's
         work through ``python3 quickstart.py``."""
-        if set(package) not in (PACKAGE_FILES, PACKAGE_FILES | {AGENT_GUIDE}) \
-                or any(not isinstance(v, bytes) for v in package.values()):
+        if any(not isinstance(v, bytes) for v in package.values()):
+            raise ValueError('the quickstart package is incomplete')
+        allowed = (PACKAGE_FILES, PACKAGE_FILES | {AGENT_GUIDE})
+        if 'agent-files.sha256' in package:
+            from ai_arc_instructions import parse_manifest, digest
+            entries = parse_manifest(package['agent-files.sha256'])
+            expected = PACKAGE_FILES | {'agent-files.sha256', 'compose.console.yaml'} | set(entries)
+            if set(package) != expected or any(digest(package[name]) != want for name, want in entries.items()):
+                raise ValueError('the quickstart skill package differs from its manifest')
+            allowed = (expected,)
+        if set(package) not in allowed:
             raise ValueError('the quickstart package is incomplete')
         fence = 'HONUA_PKG_' + pysecrets.token_hex(8)
         files = dict(package, **{'.env': self.package_env(install, prior_max_schema).encode()})
@@ -200,7 +209,8 @@ class VmSlot:
         script = ('set -eu\numask 077\n'
                   f'mkdir -p -m 700 -- {shlex.quote(str(Path(self.remote_dir).parent))}\n'
                   f'mkdir -m 700 -- {shlex.quote(self.remote_dir)}\ncd -- {shlex.quote(self.remote_dir)}\n'
-                  + ''.join(f"base64 -d > {shlex.quote(name)} <<'{fence}'\n"
+                  + ''.join(f'mkdir -p -m 700 -- {shlex.quote(str(Path(name).parent))}\n'
+                            + f"base64 -d > {shlex.quote(name)} <<'{fence}'\n"
                             + base64.b64encode(raw).decode() + f'\n{fence}\n' for name, raw in sorted(files.items()))
                   + "docker info --format '{{.ServerVersion}}'\n")
         done = self.ssh(script)
@@ -649,6 +659,11 @@ def build_quickstart_package(source: Path, pin: dict, out: Path, *, server: str,
     files = {name: (package / name).read_bytes() for name in sorted(PACKAGE_FILES)}
     if (package / AGENT_GUIDE).is_file():
         files[AGENT_GUIDE] = (package / AGENT_GUIDE).read_bytes()      # byte-identical to what the packager shipped
+    if any(name.startswith('skills/') for name in pin['files']):
+        from ai_arc_instructions import load_bundle
+        _, facts = load_bundle(package, pin)
+        for name in {*facts['files'], 'agent-files.sha256', 'compose.console.yaml'}:
+            files[name] = (package / name).read_bytes()
     lock = json.loads(files['images.json'])
     if (lock.get('server'), lock.get('executor'), lock.get('worker'), lock.get('version'), lock.get('maxSchema')) != \
             (server, executor, worker, version, schema):

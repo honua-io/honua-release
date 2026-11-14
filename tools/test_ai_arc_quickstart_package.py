@@ -361,3 +361,29 @@ def test_the_shell_lets_the_agent_read_the_staged_agent_guide_and_readme_only(tm
                     'cat /etc/passwd'):
         with pytest.raises(ValueError):
             parse_quickstart(command)
+
+
+def test_staging_preserves_all_manifest_bound_skill_files_and_creates_directories(tmp_path):
+    from ai_arc_instructions import SKILLS, digest
+    seen = {}
+    def run(command, input=None, **kw):
+        seen['script'] = input.decode()
+        return subprocess.CompletedProcess(command, 0, b'27.3.1\n', b'')
+    files = build(tmp_path)
+    files['compose.console.yaml'] = b'services: {}\n'
+    entries = {'AGENTS.md': files['AGENTS.md']}
+    for skill in SKILLS:
+        entries[f'skills/{skill}/SKILL.md'] = f'# {skill}\n'.encode()
+        entries[f'skills/{skill}/references/readiness.md'] = b'Readiness guidance\n'
+    files.update(entries)
+    files['agent-files.sha256'] = ''.join(
+        f'{digest(raw)[7:]}  {name}\n' for name, raw in sorted(entries.items())).encode()
+    facts = vm(tmp_path, run).stage_package(INSTALL, files, PIN['priorMaxSchema'])
+    assert facts['packageSha256'] == {name: digest(raw) for name, raw in files.items()}
+    staged = {name.strip("'"): base64.b64decode(body) for name, body in re.findall(
+        r"base64 -d > (\S+) <<'HONUA_PKG_[0-9a-f]+'\n([A-Za-z0-9+/=]*)\n", seen['script'])}
+    assert all(staged[name] == raw for name, raw in files.items())
+    assert 'mkdir -p -m 700 -- skills/honua-install/references' in seen['script']
+    files['skills/honua-install/SKILL.md'] += b'changed'
+    with pytest.raises(ValueError, match='manifest'):
+        vm(tmp_path, run).stage_package(INSTALL, files, PIN['priorMaxSchema'])
