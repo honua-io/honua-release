@@ -1665,3 +1665,37 @@ def test_cell_provision_guard_runs_against_gh(tmp_path, runs, retiring, expect_o
            "RUN_ID": "41005085470", "GH_TOKEN": "x"}
     result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
     assert (result.returncode == 0) is expect_ok, result.stdout + result.stderr
+
+
+def _proto_baseline_command() -> str:
+    step = next(step for step in _workflow("gate-contract.yml")["jobs"]["proto-breaking"]["steps"]
+                if step.get("id") == "consume")
+    line = next(line.strip() for line in step["run"].splitlines() if line.strip().startswith("PREV="))
+    return line + '\nprintf %s "$PREV"'
+
+
+@pytest.mark.parametrize("pin,expected", [
+    ("v1.1.0", "v1.0.0"),   # a newer release exists after the pin; a prerelease is never the baseline
+    ("v1.2.0", "v1.1.0"),   # pin at the newest tag; it must not be compared with itself
+    ("v1.0.0", ""),         # no earlier release: the gate reports blocked, not pass
+])
+def test_proto_breaking_baseline_is_the_release_before_the_pin(tmp_path, pin, expected):
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
+           "-c", "tag.gpgSign=false"]
+    subprocess.run(git + ["init", "-q", str(tmp_path)], check=True)
+    for tag in ("v1.0.0", "v1.1.0-rc.1", "vnext", "v1.1.0", "v1.2.0"):
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", tag], cwd=tmp_path, check=True)
+        subprocess.run(git + ["tag", tag], cwd=tmp_path, check=True)
+    subprocess.run(git + ["checkout", "-q", pin], cwd=tmp_path, check=True)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    # GitHub runs the step as bash -e; the job adds pipefail.
+    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", _proto_baseline_command()], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, check=True)
+    assert result.stdout == expected
+
+
+def test_proto_breaking_refuses_to_judge_an_unpinned_checkout():
+    step = next(step for step in _workflow("gate-contract.yml")["jobs"]["proto-breaking"]["steps"]
+                if step.get("id") == "consume")
+    assert "using default branch" not in step["run"]
+    assert 'WHY="manifest-pinned geospatial-grpc sha' in step["run"]

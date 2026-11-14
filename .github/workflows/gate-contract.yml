@@ -2,7 +2,7 @@
 # backward-compat since the last release (AGENTS.md: a gate that can't fail is worse than no gate).
 #
 #   proto-breaking  REAL: clone the manifest-pinned geospatial-grpc and run `buf breaking` against the
-#                   last release tag — RPC/service deletion+rename and field/enum wire breaks fail it
+#                   newest release tag before the pin — RPC/service deletion+rename and field/enum wire breaks fail it
 #                   (the gate that retired geospatial-grpc#44; verified to catch RPC deletion).
 #   rest-sdk-api    REAL: clone the manifest-pinned honua-server + the three SDKs, extract their
 #                   REST/OpenAPI + SDK public-API surfaces (build-free, from committed source at the
@@ -91,9 +91,13 @@ jobs:
           echo "::group::Clone geospatial-grpc + checkout pinned sha"
           if git clone "https://x-access-token:${GH_TOKEN}@github.com/honua-io/geospatial-grpc.git" "$WORK/grpc" >/tmp/c.log 2>&1; then
             cd "$WORK/grpc"; git fetch --tags --quiet origin || true
-            [ -n "$SHA" ] && git checkout -q "$SHA" 2>/dev/null || echo "note: pinned sha not checked out; using default branch"
-            PREV="$(git tag -l 'v*' --sort=-v:refname | head -n1)"
-            echo "baseline release tag: ${PREV:-<none>}"
+            if [ -n "$SHA" ] && git checkout -q "$SHA" 2>/dev/null; then
+              # Newest release strictly before the pin, so the diff covers only the pin's own changes.
+              PREV="$(git tag -l 'v[0-9]*' --merged HEAD --no-contains HEAD --sort=-v:refname | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | head -n1)"
+              echo "baseline release tag: ${PREV:-<none>}"
+            else
+              PIN_MISSING=1; echo "::error::manifest-pinned geospatial-grpc sha ${SHA:-<none>} is not checkout-able"
+            fi
           else
             STATUS=blocked; WHY="geospatial-grpc not cloneable"; tail -n 3 /tmp/c.log || true
           fi
@@ -101,7 +105,9 @@ jobs:
 
           if [ "$STATUS" != "blocked" ] || [ -d "$WORK/grpc" ]; then
             cd "$WORK/grpc" 2>/dev/null || true
-            if [ -z "${PREV:-}" ]; then
+            if [ -n "${PIN_MISSING:-}" ]; then
+              STATUS=blocked; WHY="manifest-pinned geospatial-grpc sha ${SHA:-<none>} is not checkout-able"
+            elif [ -z "${PREV:-}" ]; then
               STATUS=blocked; WHY="no prior release tag to break against (baseline missing)"
             else
               echo "::group::buf breaking --against .git#tag=$PREV"
