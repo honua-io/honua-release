@@ -170,7 +170,8 @@ def test_rehearsal_does_not_get_promotion_evidence_credit():
 
 
 @pytest.mark.parametrize("missing", ["cleanup", "cost", "cell", "binding"])
-def test_no_partial_aggregate_or_unbound_cleanup(missing):
+def test_no_partial_aggregate_or_unbound_cleanup(missing, monkeypatch):
+    monkeypatch.setattr(proof, "GA_CELLS", {"aws-ecs/redis-off", "aws-ecs/redis-on"})
     cells = []
     for cell in sorted(proof.GA_CELLS):
         row = run(cell=cell)
@@ -182,9 +183,9 @@ def test_no_partial_aggregate_or_unbound_cleanup(missing):
     with pytest.raises(proof.ProofError): proof.aggregate(cells)
 
 
-def test_ga_aggregate_is_the_two_ecs_cells_and_refuses_lambda_preview_rows():
+def test_ga_aggregate_is_redis_off_ecs_and_refuses_lambda_preview_rows():
     # Founder re-tier 2026-10-25: AWS ECS is the only GA target; a Lambda cell still runs as Preview.
-    assert proof.GA_CELLS == {"aws-ecs/redis-off", "aws-ecs/redis-on"}
+    assert proof.GA_CELLS == {"aws-ecs/redis-off"}
     assert {"aws-serverless/redis-off", "aws-serverless/redis-on"} <= proof.CELLS
     cells = []
     for cell in sorted(proof.GA_CELLS):

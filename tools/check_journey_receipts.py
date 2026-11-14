@@ -26,10 +26,10 @@ from jsonschema import Draft202012Validator, FormatChecker
 ROOT = Path(__file__).resolve().parents[1]
 # Founder re-tier 2026-10-25: AWS ECS is the only GA cloud target and keeps its full required
 # bill. Lambda (aws-serverless) joins EKS/Helm (owner amendment 2026-10-16) as informational Preview.
-GA_CELLS = tuple(f"aws-ecs/redis-{redis}" for redis in ("off", "on"))
+GA_CELLS = ("aws-ecs/redis-off",)
 # aws-mixed is out for 2026.1 rc.3 (no examples/aws-mixed root); restore it when honua-iac#209 lands.
 PREVIEW_CELLS: tuple[str, ...] = tuple(f"{target}/redis-{redis}" for target in ("aws-serverless", "aws-eks")
-                                       for redis in ("off", "on"))
+                                       for redis in ("off",))
 DRIVERS = ("deterministic", "genuine-model")
 MAX_AGE_SECONDS = 86400
 

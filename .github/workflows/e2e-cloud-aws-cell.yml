@@ -333,6 +333,12 @@ jobs:
     permissions:
       actions: read
     steps:
+      - name: Require Redis disabled
+        env:
+          REDIS_MODE: ${{ inputs.redis }}
+        run: |
+          set -euo pipefail
+          [ "$REDIS_MODE" = "off" ] || { echo '::error::Redis must be disabled'; exit 1; }
       - name: Retrieve the candidate lock on an isolated runner
         if: ${{ inputs.enable_bedrock && inputs.lock_digest != '' }}
         env:

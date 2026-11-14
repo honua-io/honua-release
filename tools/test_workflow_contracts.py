@@ -741,7 +741,7 @@ def test_contract_gate_holds_expected_mcp_tools_to_the_pinned_server_roster():
     assert "tools/test_check_mcp_roster.py" in commands
     assert "tools/check_mcp_roster.py" in commands
     assert "--roster" not in commands and "--server-sha" not in commands  # the pin, not an override
-    assert "for TOPOLOGY in redis-on redis-off" in commands
+    assert "for TOPOLOGY in redis-off" in commands
     assert "3) STATUS=blocked" in commands and "::warning" in commands
     assert "1) STATUS=fail; FAILED=1" in commands and "*) STATUS=fail; FAILED=1" in commands
     assert 'exit "$FAILED"' in commands
@@ -1479,7 +1479,7 @@ def test_cloud_matrix_is_the_ecs_ga_set_and_threads_the_batch_image():
     assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-ecs\"]'" in text
     assert "inputs.update_rollback_run_id != '' && '[\"aws-ecs\"]'" in text
     assert '"aws-serverless","aws-ecs"' not in text
-    for preview_cell in ("aws-serverless/redis-off", "aws-serverless/redis-on", "aws-eks/redis-off", "aws-eks/redis-on"):
+    for preview_cell in ("aws-serverless/redis-off", "aws-eks/redis-off"):
         assert f'{{cell:"{preview_cell}", status:"not certified (preview)"}}' in text
     assert 'TARGETS="aws-ecs";' in text
     assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
@@ -1496,7 +1496,7 @@ def test_cloud_matrix_is_the_ecs_ga_set_and_threads_the_batch_image():
     # Read as text: this suite also runs where the checkers' own dependencies are not installed.
     receipts = (REPO_ROOT / "tools" / "check_journey_receipts.py").read_text(encoding="utf-8")
     journey = (REPO_ROOT / "e2e" / "cloud_journey.py").read_text(encoding="utf-8")
-    ga = 'GA_CELLS = tuple(f"aws-ecs/redis-{redis}" for redis in ("off", "on"))'
+    ga = 'GA_CELLS = ("aws-ecs/redis-off",)'
     assert ga in receipts and ga in journey
     assert ('PREVIEW_CELLS: tuple[str, ...] = tuple(f"{target}/redis-{redis}" for target in ("aws-serverless", "aws-eks")'
             in receipts)
@@ -1536,7 +1536,7 @@ def test_update_rollback_authentication_admits_both_builds_before_cloud_identity
     assert 'candidate=load_release(root/"rollback-candidate",mode)' in guard["run"]
     assert "for cell in sorted(GA_CELLS):" in guard["run"] and "preflight(prior,candidate,cell,mode)" in guard["run"]
     cloud = workflow["jobs"]["cloud"]
-    assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "both"
+    assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "off"
 
 
 def test_release_cell_reaper_runs_nightly_under_its_dedicated_role_and_never_skips_green():
@@ -1665,3 +1665,38 @@ def test_cell_provision_guard_runs_against_gh(tmp_path, runs, retiring, expect_o
            "RUN_ID": "41005085470", "GH_TOKEN": "x"}
     result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
     assert (result.returncode == 0) is expect_ok, result.stdout + result.stderr
+
+
+def _proto_baseline_command() -> str:
+    step = next(step for step in _workflow("gate-contract.yml")["jobs"]["proto-breaking"]["steps"]
+                if step.get("id") == "consume")
+    line = next(line.strip() for line in step["run"].splitlines() if line.strip().startswith("PREV="))
+    return line + '\nprintf %s "$PREV"'
+
+
+@pytest.mark.skipif(os.name == "nt", reason="workflow shells need a POSIX bash; covered on ubuntu")
+@pytest.mark.parametrize("pin,expected", [
+    ("v1.1.0", "v1.0.0"),   # a newer release exists after the pin; a prerelease is never the baseline
+    ("v1.2.0", "v1.1.0"),   # pin at the newest tag; it must not be compared with itself
+    ("v1.0.0", ""),         # no earlier release: the gate reports blocked, not pass
+])
+def test_proto_breaking_baseline_is_the_release_before_the_pin(tmp_path, pin, expected):
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false",
+           "-c", "tag.gpgSign=false"]
+    subprocess.run(git + ["init", "-q", str(tmp_path)], check=True)
+    for tag in ("v1.0.0", "v1.1.0-rc.1", "vnext", "v1.1.0", "v1.2.0"):
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", tag], cwd=tmp_path, check=True)
+        subprocess.run(git + ["tag", tag], cwd=tmp_path, check=True)
+    subprocess.run(git + ["checkout", "-q", pin], cwd=tmp_path, check=True)
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    # GitHub runs the step as bash -e; the job adds pipefail.
+    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", _proto_baseline_command()], cwd=tmp_path, env=env,
+                            capture_output=True, text=True, check=True)
+    assert result.stdout == expected
+
+
+def test_proto_breaking_refuses_to_judge_an_unpinned_checkout():
+    step = next(step for step in _workflow("gate-contract.yml")["jobs"]["proto-breaking"]["steps"]
+                if step.get("id") == "consume")
+    assert "using default branch" not in step["run"]
+    assert 'WHY="manifest-pinned geospatial-grpc sha' in step["run"]
