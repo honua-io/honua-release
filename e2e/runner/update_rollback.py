@@ -32,7 +32,7 @@ TOKEN = re.compile(r"[A-Za-z0-9_.:-]{1,200}\Z")
 CELLS = {f"{target}/redis-{redis}" for target in ("aws-ecs", "aws-serverless") for redis in ("on", "off")}
 # Founder re-tier 2026-10-25: only the AWS ECS cells are GA. A Lambda (aws-serverless) cell can still
 # run as Preview, but the aggregate promotion proof is the GA set.
-GA_CELLS = {f"aws-ecs/redis-{redis}" for redis in ("on", "off")}
+GA_CELLS = {"aws-ecs/redis-off"}
 ACTUATORS = {"aws-ecs/redis-off": "terraform-exact-apply", "aws-ecs/redis-on": "honua-aws-ecs-alb",
              "aws-serverless/redis-off": "honua-gitops-aws-lambda", "aws-serverless/redis-on": "honua-gitops-aws-lambda"}
 

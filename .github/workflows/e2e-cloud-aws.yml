@@ -1,6 +1,6 @@
-# rc.2 certification: ECS Fargate + RDS PostGIS + ElastiCache + Console S3/CloudFront.
+# rc.2 certification: ECS Fargate + RDS PostGIS + Console S3/CloudFront.
 # Lambda and Kubernetes/Helm are not certified for rc.2; explicit Preview runs remain available.
-# AWS promise journeys: two required GA cells, aws-ecs x Redis off/on, plus Lambda and EKS Preview, where
+# AWS promise journeys: one required GA cell, aws-ecs with Redis off, plus Lambda and EKS Preview, where
 # aws-serverless is Lambda + AWS Batch geoprocessing and aws-eks is the Helm chart on EKS (bring-your-own
 # Kubernetes, honua-release#203; the 2026-10-16 owner amendment supersedes decisions 12/18; the founder
 # re-tier of 2026-10-25 moves Lambda to Preview and keeps ECS as the only GA cloud target). The mixed
@@ -42,10 +42,10 @@ on:
         options: [all, aws-serverless, aws-ecs, aws-eks]
         default: all
       redis_mode:
-        description: "Redis mode(s) to validate"
+        description: "Redis must remain disabled"
         type: choice
-        options: [both, "off", "on"]
-        default: both
+        options: ["off"]
+        default: "off"
       cost_ceiling_usd:
         description: "Per-run USD ceiling: the live estimate gates this run; Cost Explorer actuals gate the next"
         type: string
@@ -81,7 +81,7 @@ on:
         default: all
       redis_mode:
         type: string
-        default: both
+        default: "off"
       cost_ceiling_usd:
         description: "Per-run USD ceiling: the live estimate gates this run; Cost Explorer actuals gate the next"
         type: string
@@ -139,6 +139,14 @@ jobs:
       lambda_architecture: ${{ steps.pins.outputs.lambda_architecture }}
       gp_batch_image: ${{ steps.pins.outputs.gp_batch_image }}
     steps:
+      - name: Require Redis disabled
+        env:
+          REDIS_MODE: ${{ inputs.redis_mode }}
+        run: |
+          case "$REDIS_MODE" in
+            ""|off) ;;
+            *) echo "::error::Redis is disabled for release cells"; exit 1 ;;
+          esac
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
@@ -422,7 +430,7 @@ jobs:
         # `all` is the GA cells only and the report names the Preview cells "not certified (preview)".
         # An explicit target=aws-serverless or target=aws-eks dispatch still runs it, as Preview.
         target: ${{ fromJSON(inputs.update_rollback_run_id != '' && '["aws-ecs"]' || (inputs.target == '' || inputs.target == 'all') && '["aws-ecs"]' || format('["{0}"]', inputs.target)) }}
-        redis: ${{ fromJSON((inputs.redis_mode == '' || inputs.redis_mode == 'both') && '["off","on"]' || format('["{0}"]', inputs.redis_mode)) }}
+        redis: ["off"]
     name: "${{ matrix.target }} / redis-${{ matrix.redis }}"
     permissions:
       contents: read
@@ -614,13 +622,13 @@ jobs:
         env:
           HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
-          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'off' }}
         run: |
           set -euo pipefail
           # Every cell the parity matrix dispatched (an explicitly requested Preview included) must
           # account for its cost. `all` dispatches the GA targets only (operator ruling 2026-10-22).
           TARGETS="aws-ecs"; [ "$REQUESTED_TARGET" = all ] || TARGETS="$REQUESTED_TARGET"
-          MODES="off on"; [ "$REQUESTED_REDIS" = both ] || MODES="$REQUESTED_REDIS"
+          MODES="off"
           CELLS=""
           for t in $TARGETS; do for r in $MODES; do CELLS="${CELLS:+$CELLS,}$t/redis-$r"; done; done
           python e2e/cost_meter.py run --reports reports --output e2e/cloud-evidence/run-cost.json \
@@ -632,9 +640,9 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           REQUIRE_REAL: ${{ inputs.require_real || false }}
           CANDIDATE_RESULT: ${{ needs.candidate.result }}
-          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'both') )) && 'true' || 'false' }}
+          FULL_SCOPE: ${{ (github.event_name == 'schedule' || ((inputs.target == '' || inputs.target == 'all') && (inputs.redis_mode == '' || inputs.redis_mode == 'off') )) && 'true' || 'false' }}
           REQUESTED_TARGET: ${{ inputs.target || 'all' }}
-          REQUESTED_REDIS: ${{ inputs.redis_mode || 'both' }}
+          REQUESTED_REDIS: ${{ inputs.redis_mode || 'off' }}
           REQUESTED_IAC_LIVE: ${{ (github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live }}
           HONUA_CLOUD_COST_CEILING_USD: ${{ inputs.cost_ceiling_usd || '20' }}
           AGGREGATION_STARTED_AT: ${{ steps.started.outputs.at }}
@@ -660,9 +668,7 @@ jobs:
              '. + {enforcement:$enf, evidence_url:$run, generatedAt:(now|todateiso8601),
                     notCertified:(if $target == "all" then
                       [{cell:"aws-serverless/redis-off", status:"not certified (preview)"},
-                       {cell:"aws-serverless/redis-on", status:"not certified (preview)"},
-                       {cell:"aws-eks/redis-off", status:"not certified (preview)"},
-                       {cell:"aws-eks/redis-on", status:"not certified (preview)"}] else [] end),
+                       {cell:"aws-eks/redis-off", status:"not certified (preview)"}] else [] end),
                     certifying:false,
                     certifyingScope:($full == "true"),
                     requestedScope:{target:$target,redis:$redis,runIacLive:($iac == "true")}}

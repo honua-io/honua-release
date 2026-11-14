@@ -7,7 +7,7 @@ import pytest
 
 import check_promotion_readiness as readiness
 import fetch_promotion_evidence as fetcher
-from test_check_promotion_readiness import NOW, _fixture, _decision, _edit, _stamp, _write, _receipt
+from test_check_promotion_readiness import GA_CELLS, NOW, _fixture, _decision, _edit, _stamp, _write, _receipt
 
 
 def _metadata(run, completed, workflow='.github/workflows/nightly-certification.yml'):
@@ -214,7 +214,7 @@ def test_patch_needs_actual_same_series_published_baseline(tmp_path, mutation):
         with pytest.raises((readiness.ReadinessError, OSError)): _decision(f)
 
 
-@pytest.mark.parametrize('cell', ['aws-ecs/redis-off', 'aws-ecs/redis-on'])
+@pytest.mark.parametrize('cell', GA_CELLS)
 def test_patch_rollback_must_use_each_baseline_image_pin(tmp_path, cell):
     f = patch_fixture(tmp_path)
     def forge(d):

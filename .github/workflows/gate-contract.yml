@@ -324,7 +324,7 @@ jobs:
         run: |
           set -uo pipefail
           FAILED=0
-          for TOPOLOGY in redis-on redis-off; do
+          for TOPOLOGY in redis-off; do
             if python tools/check_mcp_roster.py --topology "$TOPOLOGY" > "roster-$TOPOLOGY.json" 2> "roster-$TOPOLOGY.log"; then
               RC=0
             else
