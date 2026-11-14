@@ -44,7 +44,7 @@ def verifier(context, evidence):
         result = R.verify_run(arc, receipt, target='local-docker', arm_id=receipt.get('arm'),
                             candidate=bound, digests=R.harness_digests(), row=row, goal_sets={},
                             evidence=evidence[receipt['runId']], package=package,
-                            require_instruction_provenance=True)
+                            instruction_policy=R.instructions.InstructionPolicy.COMPARISON)
         if not R.on_shipped_package(receipt, package):
             raise ValueError('both runs must use the pinned quickstart package and ops composition')
         return result

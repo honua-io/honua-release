@@ -2,6 +2,8 @@
 import hashlib
 import json
 import re
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path, PurePosixPath
 
 SKILLS = ('honua-install', 'honua-services', 'honua-studio-maps', 'honua-ops', 'honua-tuning')
@@ -126,14 +128,31 @@ def instruction_provenance(provenance):
             for item in provenance if isinstance(item, dict)]
 
 
-def verify_sessions(row, folder, quickstart, *, require_provenance=False, expected_model=None):
+class InstructionPolicy(Enum):
+    LEGACY_COMPATIBLE = 'legacy-compatible'
+    COMPARISON = 'comparison'
+
+
+@dataclass(frozen=True)
+class SessionVerificationContext:
+    row: dict
+    folder: Path
+    quickstart: dict
+
+
+def verify_sessions(context, policy=InstructionPolicy.LEGACY_COMPATIBLE, expected_model=None):
     """A receipt cannot relabel sessions that launched with another instruction bundle."""
-    context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
-    sessions = [session for session in context.get('sessions') or []
+    if not isinstance(policy, InstructionPolicy):
+        raise ValueError('unknown instruction verification policy')
+    if policy == InstructionPolicy.COMPARISON and not expected_model:
+        raise ValueError('comparison instruction verification requires a model')
+    row, folder, quickstart = context.row, context.folder, context.quickstart
+    retained_context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
+    sessions = [session for session in retained_context.get('sessions') or []
                 if not (session.get('actions') == 0 and session.get('provenanceEntries') == 0)]
     if (quickstart.get('instructionVariant') is None and sessions
             and all('instructionProvenance' not in session for session in sessions)):
-        if require_provenance:
+        if policy == InstructionPolicy.COMPARISON:
             raise ValueError('retained session lacks instruction provenance')
         return  # Legacy receipts are permitted outside paired instruction comparisons.
     shipped = expected_guide(quickstart)

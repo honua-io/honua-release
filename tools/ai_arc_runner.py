@@ -3033,7 +3033,7 @@ def mcp_channel_gap_stages(receipt: dict) -> list[str]:
 
 def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate: dict, digests: dict,
                row: dict, goal_sets: dict, evidence: Path | None, package: dict | None = None,
-               require_instruction_provenance: bool = False) -> dict:
+               instruction_policy=instructions.InstructionPolicy.LEGACY_COMPATIBLE) -> dict:
     """Re-derive a run's outcome from its retained evidence; reject anything contradictory or misbound."""
     if not isinstance(receipt, dict) or receipt.get('schema') != TRIAL_SCHEMA or receipt.get('attempt') != 1:
         raise ValueError('not a first-attempt arc run receipt')
@@ -3106,7 +3106,7 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
         # never against another receipt field.
         raise ValueError('the installed quickstart package is not the product package for this candidate')
     arm = arm_by_id(arc, arm_id)
-    if require_instruction_provenance and (receipt.get('modelId') != arm['model']
+    if instruction_policy == instructions.InstructionPolicy.COMPARISON and (receipt.get('modelId') != arm['model']
                                            or receipt.get('family') != arm['family']):
         raise ValueError('comparison model differs from the pinned arm')
     pinned = arm['cliVersion']
@@ -3150,10 +3150,10 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
         verify_cli_sessions(stage_row, Path(evidence), pinned)
-        from ai_arc_instructions import verify_sessions
-        verify_sessions(stage_row, Path(evidence), (receipt.get('slotFacts') or {}).get('quickstart') or {},
-                        require_provenance=require_instruction_provenance,
-                        expected_model=arm['model'] if require_instruction_provenance else None)
+        session_context = instructions.SessionVerificationContext(
+            stage_row, Path(evidence), (receipt.get('slotFacts') or {}).get('quickstart') or {})
+        instructions.verify_sessions(session_context, instruction_policy,
+                                     arm['model'] if instruction_policy == instructions.InstructionPolicy.COMPARISON else None)
         if outcome == 'pass':
             if stage_row['stage'] == 'ops' and stage_row.get('opsScope') != {k: ops_scope(arc, target)[k]
                                                                            for k in ('mode', 'scored', 'unscored')}:

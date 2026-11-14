@@ -2914,7 +2914,7 @@ def test_comparison_binds_model_to_arm_and_retained_session(tmp_path, damage):
     def verify():
         return R.verify_run(ARC, receipt, target='local-docker', arm_id='A1', candidate=CAND,
                             digests=R.harness_digests(), row=dev_rows(['001'])[0], goal_sets={},
-                            evidence=tmp_path / '001.evidence', require_instruction_provenance=True)
+                            evidence=tmp_path / '001.evidence', instruction_policy=R.instructions.InstructionPolicy.COMPARISON)
     if damage:
         with pytest.raises(ValueError, match='model|provenance'):
             verify()

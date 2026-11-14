@@ -114,7 +114,7 @@ def test_skill_sessions_require_retained_instruction_evidence(tmp_path, damage):
     (tmp_path / 'setup').mkdir()
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': sessions}))
     with pytest.raises(ValueError, match='instruction'):
-        I.verify_sessions(row, tmp_path, {'packageSha256': {'AGENTS.md': 'skills'}})
+        I.verify_sessions(I.SessionVerificationContext(row, tmp_path, {'packageSha256': {'AGENTS.md': 'skills'}}))
 
 
 def test_skill_sessions_bind_loaded_digest_and_flags_to_retained_evidence(tmp_path):
@@ -124,7 +124,7 @@ def test_skill_sessions_bind_loaded_digest_and_flags_to_retained_evidence(tmp_pa
     (tmp_path / 'setup').mkdir()
     session = R.session_record({'provenance': provenance, 'actions': [{}]})
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': [session]}))
-    I.verify_sessions(row, tmp_path, {'packageSha256': {'AGENTS.md': 'skills'}})
+    I.verify_sessions(I.SessionVerificationContext(row, tmp_path, {'packageSha256': {'AGENTS.md': 'skills'}}))
 
 
 @pytest.mark.parametrize('historical', [False, True])
@@ -137,10 +137,10 @@ def test_baseline_sessions_check_retained_digest_when_available(tmp_path, histor
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': sessions}))
     quickstart = {'packageSha256': {'AGENTS.md': 'baseline'}}
     if historical:
-        I.verify_sessions(row, tmp_path, quickstart)
+        I.verify_sessions(I.SessionVerificationContext(row, tmp_path, quickstart))
     else:
         with pytest.raises(ValueError, match='instruction'):
-            I.verify_sessions(row, tmp_path, quickstart)
+            I.verify_sessions(I.SessionVerificationContext(row, tmp_path, quickstart))
 
 
 def test_baseline_without_guide_accepts_claude_restricted_sessions(tmp_path):
@@ -149,12 +149,12 @@ def test_baseline_without_guide_accepts_claude_restricted_sessions(tmp_path):
     (tmp_path / 'setup').mkdir()
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({
         'sessions': [{'instructionProvenance': provenance}]}))
-    I.verify_sessions(row, tmp_path, {})
+    I.verify_sessions(I.SessionVerificationContext(row, tmp_path, {}))
 
 
 @pytest.mark.parametrize('historical', [False, True])
 def test_comparison_baseline_requires_retained_instruction_provenance(tmp_path, historical):
-    provenance = [{'agentGuide': {'sha256': 'baseline', 'loaded': True}, 'cliFlags': []}]
+    provenance = [{'agentGuide': {'sha256': 'baseline', 'loaded': True}, 'cliFlags': [], 'model': 'pinned-model'}]
     row = {'stage': 'setup', 'modelVisible': {'provenance': provenance}}
     session = {'cliVersion': 'pinned'} if historical else {'instructionProvenance': provenance}
     (tmp_path / 'setup').mkdir()
@@ -162,6 +162,15 @@ def test_comparison_baseline_requires_retained_instruction_provenance(tmp_path, 
     quickstart = {'packageSha256': {'AGENTS.md': 'baseline'}}
     if historical:
         with pytest.raises(ValueError, match='lacks instruction provenance'):
-            I.verify_sessions(row, tmp_path, quickstart, require_provenance=True)
+            I.verify_sessions(I.SessionVerificationContext(row, tmp_path, quickstart),
+                              I.InstructionPolicy.COMPARISON, 'pinned-model')
     else:
-        I.verify_sessions(row, tmp_path, quickstart, require_provenance=True)
+        I.verify_sessions(I.SessionVerificationContext(row, tmp_path, quickstart),
+                              I.InstructionPolicy.COMPARISON, 'pinned-model')
+
+
+@pytest.mark.parametrize('policy, model', [(True, 'pinned-model'), (I.InstructionPolicy.COMPARISON, None)])
+def test_instruction_policy_rejects_unknown_mode_and_unbound_comparison(tmp_path, policy, model):
+    context = I.SessionVerificationContext({'stage': 'setup'}, tmp_path, {})
+    with pytest.raises(ValueError, match='policy|requires a model'):
+        I.verify_sessions(context, policy, model)
