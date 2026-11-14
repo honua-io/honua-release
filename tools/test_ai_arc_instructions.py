@@ -141,3 +141,12 @@ def test_baseline_sessions_check_retained_digest_when_available(tmp_path, histor
     else:
         with pytest.raises(ValueError, match='instruction'):
             I.verify_sessions(row, tmp_path, quickstart)
+
+
+def test_baseline_without_guide_accepts_claude_restricted_sessions(tmp_path):
+    provenance = [{'agentGuide': None, 'cliFlags': ['--restricted']}]
+    row = {'stage': 'setup', 'modelVisible': {'provenance': provenance}}
+    (tmp_path / 'setup').mkdir()
+    (tmp_path / 'setup' / 'context.json').write_text(json.dumps({
+        'sessions': [{'instructionProvenance': provenance}]}))
+    I.verify_sessions(row, tmp_path, {})

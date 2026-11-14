@@ -142,5 +142,5 @@ def verify_sessions(row, folder, quickstart):
     expected = {'sha256': shipped, 'loaded': True} if shipped else None
     for claim in retained:
         if (claim.get('agentGuide') != expected
-                or '--restricted' in (claim.get('cliFlags') or [])):
+                or (shipped and '--restricted' in (claim.get('cliFlags') or []))):
             raise ValueError('retained session launched different instructions')
