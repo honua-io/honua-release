@@ -135,7 +135,9 @@ opt in to a separate source-build boundary: the README, quickstart and MCP READM
 source clone/fixture blocks and explicit `doc-run: checkout` blocks receive that admission.
 The runner derives an exact closure from the same immutable source revision as the document:
 block hashes, both npm lock hashes, and every Honua package path, name, version and tarball SRI.
-The MCP `file:..` link is bound to that checkout's package metadata and actual symlink target.
+The MCP `file:..` SDK link and `file:../dist/packages/honua-app-platform` generated split-package
+link are bound to that checkout's root package version and exact symlink targets inside the
+checkout. Other source links remain refused.
 
 A documented moving clone is followed by an explicit fetch and checkout of the document revision
 before its unchanged `npm ci` command. The report records this source-binding operation and labels

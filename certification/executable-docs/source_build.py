@@ -32,6 +32,22 @@ def package_name(path: str) -> str:
     return path.rsplit("node_modules/", 1)[-1]
 
 
+def linked_source(path: str, identity: tuple[str, str], read_source) -> dict:
+    # MCP links to the SDK and its generated app-platform split package.
+    # Both derive their version from this immutable checkout's manifest.
+    links = {("@honua/sdk-js", ".."): ".",
+             ("@honua/app-platform", "../dist/packages/honua-app-platform"):
+                 "dist/packages/honua-app-platform"}
+    link = links.get(identity)
+    if path != "mcp/package-lock.json" or link is None:
+        raise ValueError("unreviewed source package link")
+    package = read_source("package.json")
+    meta = json.loads(package)
+    if meta.get("name") != "@honua/sdk-js":
+        raise ValueError("linked source package name mismatch")
+    return {"version": meta["version"], "link": link, "sourcePackageSha256": digest(package)}
+
+
 def lock_record(path: str, raw: bytes, read_source) -> dict:
     lock = json.loads(raw)
     if lock.get("lockfileVersion") not in {2, 3} or not isinstance(lock.get("packages"), dict):
@@ -48,15 +64,7 @@ def lock_record(path: str, raw: bytes, read_source) -> dict:
             raise ValueError("source dependency path escapes the checkout")
         row = {"path": str(base / relative), "name": name}
         if entry.get("link"):
-            # npm's peer file:.. entry links MCP to this very SDK checkout.
-            target = entry.get("resolved")
-            if path != "mcp/package-lock.json" or target != ".." or name != "@honua/sdk-js":
-                raise ValueError("unreviewed source package link")
-            package = read_source("package.json")
-            meta = json.loads(package)
-            if meta.get("name") != name:
-                raise ValueError("linked source package name mismatch")
-            row.update(version=meta["version"], link=".", sourcePackageSha256=digest(package))
+            row.update(linked_source(path, (name, entry.get("resolved")), read_source))
         else:
             version, integrity, resolved = entry.get("version", ""), entry.get("integrity", ""), entry.get("resolved", "")
             if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
@@ -147,6 +155,8 @@ def audit_source(binding: dict, root: Path, installed: list[dict]) -> list[str]:
             errors.append(f"{relative}: installed package differs from immutable source lock")
         elif not wanted.get("link") and row.get("integrity") != wanted["integrity"]:
             errors.append(f"{relative}: installed integrity differs from immutable source lock")
-        elif wanted.get("link") and (not path.is_symlink() or path.resolve() != root.resolve()):
+        elif wanted.get("link") and (not path.is_symlink()
+                                    or not path.resolve().is_relative_to(root.resolve())
+                                    or path.resolve() != (root / wanted["link"]).resolve()):
             errors.append(f"{relative}: source link target differs from reviewed checkout")
     return errors
