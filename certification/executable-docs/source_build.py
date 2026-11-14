@@ -32,6 +32,22 @@ def package_name(path: str) -> str:
     return path.rsplit("node_modules/", 1)[-1]
 
 
+def linked_source(path: str, name: str, target: str, read_source) -> dict:
+    # MCP links to the SDK and its generated app-platform split package.
+    # Both derive their version from this immutable checkout's manifest.
+    links = {("@honua/sdk-js", ".."): ".",
+             ("@honua/app-platform", "../dist/packages/honua-app-platform"):
+                 "dist/packages/honua-app-platform"}
+    link = links.get((name, target))
+    if path != "mcp/package-lock.json" or link is None:
+        raise ValueError("unreviewed source package link")
+    package = read_source("package.json")
+    meta = json.loads(package)
+    if meta.get("name") != "@honua/sdk-js":
+        raise ValueError("linked source package name mismatch")
+    return {"version": meta["version"], "link": link, "sourcePackageSha256": digest(package)}
+
+
 def lock_record(path: str, raw: bytes, read_source) -> dict:
     lock = json.loads(raw)
     if lock.get("lockfileVersion") not in {2, 3} or not isinstance(lock.get("packages"), dict):
@@ -48,20 +64,7 @@ def lock_record(path: str, raw: bytes, read_source) -> dict:
             raise ValueError("source dependency path escapes the checkout")
         row = {"path": str(base / relative), "name": name}
         if entry.get("link"):
-            # MCP links to the SDK and its generated app-platform split package.
-            # Both derive their version from this immutable checkout's manifest.
-            target = entry.get("resolved")
-            links = {("@honua/sdk-js", ".."): ".",
-                     ("@honua/app-platform", "../dist/packages/honua-app-platform"):
-                         "dist/packages/honua-app-platform"}
-            link = links.get((name, target))
-            if path != "mcp/package-lock.json" or link is None:
-                raise ValueError("unreviewed source package link")
-            package = read_source("package.json")
-            meta = json.loads(package)
-            if meta.get("name") != "@honua/sdk-js":
-                raise ValueError("linked source package name mismatch")
-            row.update(version=meta["version"], link=link, sourcePackageSha256=digest(package))
+            row.update(linked_source(path, name, entry.get("resolved"), read_source))
         else:
             version, integrity, resolved = entry.get("version", ""), entry.get("integrity", ""), entry.get("resolved", "")
             if not re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version):
