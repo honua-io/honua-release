@@ -2865,3 +2865,31 @@ def test_admission_recomputes_the_channel_check_from_the_retained_evidence(tmp_p
     with pytest.raises(ValueError, match='unrecorded'):
         R.verify_channel_check(receipt, evidence)                                   # a completed stage needs coverage
     R.verify_channel_check({'stages': [{'stage': 'ops', 'outcome': 'undetermined', 'mcpChannelGaps': 0}]}, evidence)
+
+
+@pytest.mark.parametrize('consumer', ['aggregate', 'comparison'])
+def test_skills_session_cannot_be_relabelled_as_baseline(tmp_path, consumer):
+    import ai_arc_instruction_compare as comparison
+
+    class SkillsSession(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            row['provenance'][0]['agentGuide'] = {'sha256': 'skills', 'loaded': True}
+            row['provenance'][0]['cliFlags'] = []
+            return row
+
+    receipt, _ = run(tmp_path, session=SkillsSession())
+    # Rewrite receipt summaries only: retained contexts and their hashes stay intact.
+    for stage in receipt['stages']:
+        for claim in stage['modelVisible']['provenance']:
+            claim['agentGuide'] = None
+    path = tmp_path / '001' / 'trial-receipt.json'
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match='instruction provenance'):
+        if consumer == 'aggregate':
+            _admit(tmp_path, '001')
+        else:
+            skills = copy.deepcopy(receipt)
+            skills.update(runId='skills', instructionVariant='guide-plus-skills')
+            evidence = {receipt['runId']: tmp_path / '001.evidence'}
+            comparison.compare([receipt, skills], comparison.verifier((ARC, CAND_IN, CAND, None), evidence))

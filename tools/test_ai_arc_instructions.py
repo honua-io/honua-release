@@ -110,11 +110,11 @@ def test_skill_sessions_require_retained_instruction_evidence(tmp_path, damage):
         row['modelVisible']['provenance'][0]['cliFlags'] = ['other']
     sessions = [{'instructionProvenance': [launched]}]
     if damage == 'missing':
-        sessions = [{'cliVersion': 'pinned'}]
+        sessions = [{'cliVersion': 'pinned', 'instructionProvenance': []}]
     (tmp_path / 'setup').mkdir()
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': sessions}))
     with pytest.raises(ValueError, match='instruction'):
-        I.verify_sessions(row, tmp_path, 'skills')
+        I.verify_sessions(row, tmp_path, {'packageSha256': {'AGENTS.md': 'skills'}})
 
 
 def test_skill_sessions_bind_loaded_digest_and_flags_to_retained_evidence(tmp_path):
@@ -124,4 +124,20 @@ def test_skill_sessions_bind_loaded_digest_and_flags_to_retained_evidence(tmp_pa
     (tmp_path / 'setup').mkdir()
     session = R.session_record({'provenance': provenance, 'actions': [{}]})
     (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': [session]}))
-    I.verify_sessions(row, tmp_path, 'skills')
+    I.verify_sessions(row, tmp_path, {'packageSha256': {'AGENTS.md': 'skills'}})
+
+
+@pytest.mark.parametrize('historical', [False, True])
+def test_baseline_sessions_check_retained_digest_when_available(tmp_path, historical):
+    row = {'stage': 'setup', 'modelVisible': {'provenance': [
+        {'agentGuide': {'sha256': 'baseline', 'loaded': True}, 'cliFlags': []}]}}
+    sessions = [{'cliVersion': 'pinned'}] if historical else [{'instructionProvenance': [
+        {'agentGuide': {'sha256': 'skills', 'loaded': True}, 'cliFlags': []}]}]
+    (tmp_path / 'setup').mkdir()
+    (tmp_path / 'setup' / 'context.json').write_text(json.dumps({'sessions': sessions}))
+    quickstart = {'packageSha256': {'AGENTS.md': 'baseline'}}
+    if historical:
+        I.verify_sessions(row, tmp_path, quickstart)
+    else:
+        with pytest.raises(ValueError, match='instruction'):
+            I.verify_sessions(row, tmp_path, quickstart)

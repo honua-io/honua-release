@@ -3129,9 +3129,8 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
         verify_cli_sessions(stage_row, Path(evidence), pinned)
-        if receipt.get('instructionVariant') == 'guide-plus-skills':
-            from ai_arc_instructions import expected_guide, verify_sessions
-            verify_sessions(stage_row, Path(evidence), expected_guide(receipt['slotFacts']['quickstart']))
+        from ai_arc_instructions import verify_sessions
+        verify_sessions(stage_row, Path(evidence), (receipt.get('slotFacts') or {}).get('quickstart') or {})
         if outcome == 'pass':
             if stage_row['stage'] == 'ops' and stage_row.get('opsScope') != {k: ops_scope(arc, target)[k]
                                                                            for k in ('mode', 'scored', 'unscored')}:
