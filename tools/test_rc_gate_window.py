@@ -318,7 +318,7 @@ def test_a_red_advisory_gate_does_not_block_when_the_required_gate_qualifies():
 
 def test_gate_partition_covers_every_train_and_ai_gate_once():
     covered = set(w.CANDIDATE_BOUND_GATES) | set(w.UNBOUND_GATE_LIMITATIONS)
-    assert covered == set(w.TRAIN_GATES + w.AI_GATES + (w.ARC_GATE, w.STUDIO_CUSTOMER_GATE))
+    assert covered == set(w.ADMISSION_GATES + w.AI_GATES + (w.ARC_GATE, w.STUDIO_CUSTOMER_GATE))
     assert not (set(w.CANDIDATE_BOUND_GATES) & set(w.UNBOUND_GATE_LIMITATIONS))
     assert all(text.strip() for text in w.UNBOUND_GATE_LIMITATIONS.values())
 
@@ -344,7 +344,7 @@ def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
     assert not set(w.AI_GATES) & set(w.RC_GATES)
     assert w.RC_ADVISORY == w.AI_GATES
     assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml",
-                                  "gate-upgrade.yml", "gate-protocol-certification.yml"}
+                                  "gate-upgrade.yml"}
 
 
 def test_gate_upgrade_is_ga_deferred_but_still_a_train_gate_and_candidate_bound():
@@ -846,3 +846,15 @@ def test_gate_status_derivation_treats_unclean_teardown_as_undetermined():
     import inspect
     source = inspect.getsource(w)
     assert 'if status == "completed" and t.get("teardownClean") is False:' in source
+
+
+def test_protocol_wrapper_is_ga_required_without_changing_rc_policy():
+    assert w.PROTOCOL_GATE in w.ADMISSION_GATES
+    assert w.PROTOCOL_GATE in w.CANDIDATE_BOUND_GATES
+    assert w.PROTOCOL_GATE not in w.GA_DEFERRED
+    assert w.PROTOCOL_GATE not in w.RC_GATES
+    assert 'gate-protocol-certification.yml' not in w.ADMISSION_GATES
+    assert _eval({w.PROTOCOL_GATE: {'runs': [_run(1, report=_report())]}})['admissible']
+    newer = _run(0, conclusion='failure', run_id=2)
+    newer['display_title'] = 'Protocol certification ' + CANDIDATE.platform_lock
+    assert not _eval({w.PROTOCOL_GATE: {'runs': [_run(1, report=_report(), run_id=1), newer]}})['admissible']

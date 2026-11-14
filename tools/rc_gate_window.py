@@ -82,16 +82,16 @@ AI_GATES: tuple[str, ...] = (
 # `upgrade-gate-ga-deferred-2026-11-02`): gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
 # announced, so no customer upgrades from it. gate-upgrade (and with it the rc upgrade/rollback leg) stays a
 # GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
-# gate-protocol-certification is workflow_call-only: it runs inside the train and never has a standalone
-# trunk run this window could admit. It is reported, never required, for rc until a dispatchable wrapper
-# publishes a candidate-bound receipt.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
     "gate-journey.yml",
     "gate-upgrade.yml",
-    "gate-protocol-certification.yml",
 )
+PROTOCOL_GATE = "protocol-certification-candidate.yml"
+# The train calls the reusable evaluator; standalone admission reads its authenticated wrapper.
+ADMISSION_GATES = tuple(PROTOCOL_GATE if g == "gate-protocol-certification.yml" else g for g in TRAIN_GATES)
+GA_ONLY_GATES = (PROTOCOL_GATE,)
 # Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
 # `wedge-critical-retier-2026-10-25`, honua-release#376 comment 6407009748): "The AI gates (full agent
 # gate, genuine-model canary) are out of RC admission." It supersedes the 2026-10-22 owner ruling that
@@ -99,7 +99,7 @@ GA_DEFERRED: tuple[str, ...] = (
 RC_ADVISORY: tuple[str, ...] = AI_GATES
 ARC_GATE = "ai-arc.yml"
 STUDIO_CUSTOMER_GATE = "gate-studio-customer-journey.yml"
-RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED) + (ARC_GATE, STUDIO_CUSTOMER_GATE)
+RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFERRED + GA_ONLY_GATES) + (ARC_GATE, STUDIO_CUSTOMER_GATE)
 
 # Workflows whose uploaded report or receipt can carry the honua-server image digest, the honua-server
 # source SHA, and the platform-lock digest. e2e-cloud-aws.yml's gate report also carries certifying /
@@ -109,6 +109,7 @@ RC_GATES: tuple[str, ...] = tuple(g for g in TRAIN_GATES if g not in GA_DEFERRED
 CANDIDATE_BOUND_GATES: frozenset[str] = frozenset({
     "e2e-cloud-aws.yml",
     STUDIO_CUSTOMER_GATE,
+    PROTOCOL_GATE,
     "ai-arc.yml",
     "gate-upgrade.yml",
     "terminal-model-canary.yml",
@@ -144,8 +145,6 @@ UNBOUND_GATE_LIMITATIONS: dict[str, str] = {
         "GA-deferred; its receipt is not read as an rc candidate binding of digest, source SHA, and platform lock",
     "gate-evidence.yml":
         "evidence gate report does not name the honua-server digest, source SHA, and platform lock",
-    "gate-protocol-certification.yml":
-        "GA-deferred; it runs only as a train job, so no standalone run publishes a candidate-bound receipt",
     "gate-dr.yml":
         "DR drill report does not bind the honua-server digest, source SHA, and platform lock",
     "capacity-soak.yml":
@@ -732,9 +731,10 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
         if diagnostic:
             return "superseding"
         return "qualifying" if run.get("conclusion") == "success" and _arc_valid(docs, candidate, arm) else "superseding"
-    if gate == STUDIO_CUSTOMER_GATE and not any(matches_candidate(doc, candidate) for doc in docs):
+    if gate in (STUDIO_CUSTOMER_GATE, PROTOCOL_GATE) and not any(matches_candidate(doc, candidate) for doc in docs):
         # The lock in the run title can invalidate older evidence, never certify it.
-        if run.get("display_title") == "Studio customer gate " + candidate.platform_lock:
+        prefix = "Protocol certification " if gate == PROTOCOL_GATE else "Studio customer gate "
+        if run.get("display_title") == prefix + candidate.platform_lock:
             return "superseding"
     bound = [doc for doc in docs if matches_candidate(doc, candidate)]
     if not bound:
@@ -1240,9 +1240,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.gate:
         gates = tuple(args.gate)
     else:
-        gates = TRAIN_GATES + (ARC_GATE, STUDIO_CUSTOMER_GATE) + (() if args.without_ai_gates else AI_GATES)
+        gates = ADMISSION_GATES + (ARC_GATE, STUDIO_CUSTOMER_GATE) + (() if args.without_ai_gates else AI_GATES)
         if args.set == "rc":
-            gates = tuple(g for g in gates if g not in GA_DEFERRED)
+            gates = tuple(g for g in gates if g not in GA_DEFERRED + GA_ONLY_GATES)
             advisory = tuple(g for g in RC_ADVISORY if g in gates)
     now = dt.datetime.now(dt.timezone.utc)
     since = now - dt.timedelta(days=args.window_days)
@@ -1257,7 +1257,7 @@ def main(argv: list[str] | None = None) -> int:
     result = evaluate(records, now, args.window_days, candidate=candidate, advisory=advisory,
                       pin_at=pin_at)
     result["repo"], result["branch"], result["set"] = args.repo, args.branch, args.set
-    result["deferred_to_ga"] = list(GA_DEFERRED) if args.set == "rc" and not args.gate else []
+    result["deferred_to_ga"] = list(GA_DEFERRED + GA_ONLY_GATES) if args.set == "rc" and not args.gate else []
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(result, fh, indent=2, sort_keys=True)
     md = render_markdown(result)

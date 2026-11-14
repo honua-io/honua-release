@@ -1,0 +1,120 @@
+name: protocol-certification-candidate
+run-name: Protocol certification ${{ inputs.platform_lock_digest }}
+on:
+  workflow_dispatch:
+    inputs:
+      lock_run_id:
+        description: Exact completed candidate producer run
+        required: true
+        type: string
+      lock_run_attempt:
+        description: Exact candidate producer attempt
+        required: true
+        type: string
+      platform_lock_digest:
+        description: sha256 of frozen-lock/platform-lock.json
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+  attestations: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix_repository: ${{ steps.prepare.outputs.matrix_repository }}
+      matrix_commit: ${{ steps.prepare.outputs.matrix_commit }}
+      matrix_path: ${{ steps.prepare.outputs.matrix_path }}
+      matrix_sha256: ${{ steps.prepare.outputs.matrix_sha256 }}
+      expected_requirements_source_revision: ${{ steps.prepare.outputs.expected_requirements_source_revision }}
+      expected_source_sha: ${{ steps.prepare.outputs.expected_source_sha }}
+      expected_image_digest: ${{ steps.prepare.outputs.expected_image_digest }}
+      expected_cut_at: ${{ steps.prepare.outputs.expected_cut_at }}
+      expected_server_certification_sha: ${{ steps.prepare.outputs.expected_server_certification_sha }}
+      expected_sdk_js_sha: ${{ steps.prepare.outputs.expected_sdk_js_sha }}
+      expected_sdk_python_sha: ${{ steps.prepare.outputs.expected_sdk_python_sha }}
+      expected_sdk_dotnet_sha: ${{ steps.prepare.outputs.expected_sdk_dotnet_sha }}
+      expected_sdk_js_version: ${{ steps.prepare.outputs.expected_sdk_js_version }}
+      expected_sdk_python_version: ${{ steps.prepare.outputs.expected_sdk_python_version }}
+      expected_sdk_dotnet_version: ${{ steps.prepare.outputs.expected_sdk_dotnet_version }}
+      expected_geospatial_grpc_sha: ${{ steps.prepare.outputs.expected_geospatial_grpc_sha }}
+      expected_geospatial_mcp_sha: ${{ steps.prepare.outputs.expected_geospatial_mcp_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: candidate-manifest
+          path: candidate
+          run-id: ${{ inputs.lock_run_id }}
+          github-token: ${{ github.token }}
+      - run: python -m pip install 'pyyaml>=6.0' 'jsonschema>=4.23'
+      - id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOCK_RUN: ${{ inputs.lock_run_id }}
+          LOCK_ATTEMPT: ${{ inputs.lock_run_attempt }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+        run: >-
+          python tools/protocol_candidate.py --root candidate --run-id "$LOCK_RUN"
+          --attempt "$LOCK_ATTEMPT" --digest "$LOCK_DIGEST"
+          --identity protocol-identity.json --github-output "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: protocol-candidate-identity
+          path: protocol-identity.json
+          if-no-files-found: error
+  certify:
+    needs: prepare
+    uses: honua-io/honua-release/.github/workflows/gate-protocol-certification.yml@8a1e54dd27eb3f48cbc470e01d673481056c1f38 # v1.0.3 - same trusted evaluator as release-train
+    with:
+      tier: release
+      enforcement: strict
+      matrix_repository: ${{ needs.prepare.outputs.matrix_repository }}
+      matrix_commit: ${{ needs.prepare.outputs.matrix_commit }}
+      matrix_path: ${{ needs.prepare.outputs.matrix_path }}
+      matrix_sha256: ${{ needs.prepare.outputs.matrix_sha256 }}
+      expected_requirements_source_revision: ${{ needs.prepare.outputs.expected_requirements_source_revision }}
+      expected_source_sha: ${{ needs.prepare.outputs.expected_source_sha }}
+      expected_image_digest: ${{ needs.prepare.outputs.expected_image_digest }}
+      expected_cut_at: ${{ needs.prepare.outputs.expected_cut_at }}
+      expected_server_certification_sha: ${{ needs.prepare.outputs.expected_server_certification_sha }}
+      expected_sdk_js_sha: ${{ needs.prepare.outputs.expected_sdk_js_sha }}
+      expected_sdk_python_sha: ${{ needs.prepare.outputs.expected_sdk_python_sha }}
+      expected_sdk_dotnet_sha: ${{ needs.prepare.outputs.expected_sdk_dotnet_sha }}
+      expected_sdk_js_version: ${{ needs.prepare.outputs.expected_sdk_js_version }}
+      expected_sdk_python_version: ${{ needs.prepare.outputs.expected_sdk_python_version }}
+      expected_sdk_dotnet_version: ${{ needs.prepare.outputs.expected_sdk_dotnet_version }}
+      expected_geospatial_grpc_sha: ${{ needs.prepare.outputs.expected_geospatial_grpc_sha }}
+      expected_geospatial_mcp_sha: ${{ needs.prepare.outputs.expected_geospatial_mcp_sha }}
+  receipt:
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    needs: [prepare, certify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: protocol-candidate-identity
+      - run: python -m pip install 'pyyaml>=6.0'
+      - env:
+          CONCLUSION: ${{ needs.certify.result }}
+          STATUS: ${{ needs.certify.outputs.overall_status }}
+        run: >-
+          python tools/protocol_candidate.py --identity protocol-identity.json
+          --conclusion "$CONCLUSION" --status "$STATUS" --receipt protocol-certification-receipt.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: protocol-certification-receipt
+          path: protocol-certification-receipt.json
+          if-no-files-found: error
+      - name: Enforce receipt
+        run: python -c 'import json; assert json.load(open("protocol-certification-receipt.json"))["status"] == "pass"'
