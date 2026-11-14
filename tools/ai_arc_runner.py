@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ai_arc_safety as safety  # noqa: E402
+import ai_arc_instructions as instructions  # noqa: E402
 
 ARC_PATH = ROOT / 'certification/ai-arc/arc.v1.json'
 PREREG_PATH = ROOT / 'certification/ai-arc/PREREG-arc-v1.md'
@@ -1284,7 +1285,8 @@ def session_record(session) -> dict:
     if not actions and not provenance:
         return {'actions': 0, 'provenanceEntries': 0}    # refused before dispatch: no CLI ran
     return {'cliVersion': versions[0] if len(versions) == 1 else None,
-            'actions': actions, 'provenanceEntries': len(provenance)}
+            'actions': actions, 'provenanceEntries': len(provenance),
+            'instructionProvenance': instructions.instruction_provenance(provenance)}
 
 
 def pinned_cli_factory(arm: dict):
@@ -2144,7 +2146,8 @@ def _run_stage(ctx: StageContext, module: StageModule, session, goal: str, previ
                'shutdown': row.get('shutdown'), 'harnessUnsafe': harness_unsafe,
                'sessions': (row['sessionRecords'] if isinstance(row.get('sessionRecords'), list) else
                             [{'cliVersion': p.get('cliVersion') if isinstance(p, dict) else None,
-                              'agent': p.get('agent') if isinstance(p, dict) else None}
+                              'agent': p.get('agent') if isinstance(p, dict) else None,
+                              'instructionProvenance': instructions.instruction_provenance([p])}
                              for p in row.get('provenance') or []]), **extra_context}
     # Held-out goals are redacted with the secrets before anything is scored, hashed or stored, so the scored
     # bytes, the evidence and the receipt agree (Sol be3c1598 item 1).
@@ -3126,6 +3129,9 @@ def verify_run(arc: dict, receipt: dict, *, target: str, arm_id: str, candidate:
             continue
         verify_stage_evidence(arc, target, stage_row, Path(evidence))
         verify_cli_sessions(stage_row, Path(evidence), pinned)
+        if receipt.get('instructionVariant') == 'guide-plus-skills':
+            from ai_arc_instructions import expected_guide, verify_sessions
+            verify_sessions(stage_row, Path(evidence), expected_guide(receipt['slotFacts']['quickstart']))
         if outcome == 'pass':
             if stage_row['stage'] == 'ops' and stage_row.get('opsScope') != {k: ops_scope(arc, target)[k]
                                                                            for k in ('mode', 'scored', 'unscored')}:

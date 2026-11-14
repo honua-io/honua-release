@@ -1,5 +1,6 @@
 """Pinned instruction-content variants for development AI-arc runs."""
 import hashlib
+import json
 import re
 from pathlib import Path, PurePosixPath
 
@@ -112,3 +113,29 @@ def validate_receipt(receipt, package):
     if facts is None or not package or facts != package.get('instructionVariant'):
         raise ValueError('skill provenance differs from independently rebuilt package')
     expected_guide(quickstart)
+
+
+def instruction_provenance(provenance):
+    """Keep the launched instruction digest and flags in retained stage evidence."""
+    return [{key: item.get(key) for key in ('agentGuide', 'cliFlags')}
+            for item in provenance if isinstance(item, dict)]
+
+
+def verify_sessions(row, folder, shipped):
+    """A receipt cannot relabel sessions that launched with another instruction bundle."""
+    context = json.loads((folder / row['stage'] / 'context.json').read_bytes())
+    retained = []
+    for session in context.get('sessions') or []:
+        if session.get('actions') == 0 and session.get('provenanceEntries') == 0:
+            continue
+        claims = session.get('instructionProvenance')
+        if not isinstance(claims, list) or not claims:
+            raise ValueError('retained session lacks instruction provenance')
+        retained.extend(claims)
+    summary = instruction_provenance((row.get('modelVisible') or {}).get('provenance') or [])
+    if retained != summary:
+        raise ValueError('receipt instruction provenance contradicts retained sessions')
+    for claim in retained:
+        if (claim.get('agentGuide') != {'sha256': shipped, 'loaded': True}
+                or '--restricted' in (claim.get('cliFlags') or [])):
+            raise ValueError('retained session launched different instructions')
