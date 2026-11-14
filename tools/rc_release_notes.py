@@ -38,6 +38,8 @@ def component_rows(manifest: dict, server_image: str | None, server_digest: str 
         if name == "honua-server" and server_image:
             artifact = server_image + (f" @ `{server_digest}`" if server_digest else "")
             sha = "see image tag"
+        elif name == "honua-server" and c.get("image") and c.get("digest"):
+            artifact += f" @ `{c['digest']}`"
         rows.append(f"| {name} | {version} | `{sha}` | {artifact} |")
     return rows
 
