@@ -42,7 +42,14 @@ ISSUE = "honua-io/honua-release#57"
 # the preflight; the hashes are not rewritten from the response.
 GRPC_NUPKG_SHA256 = "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f"
 GRPC_NUPKG_URL = "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
-BSR_ZIP_SHA256 = "7f68c40e1308dc47aff5cf87eb30ba220b513830e0c7677287687744adc970ef"
+# buf.build builds the module archive on request, so its zip bytes are not stable: the archive
+# retained at publication (sha256 7f68c40e..., 68007 bytes) is now served re-encoded (6b4103fb...,
+# 67986 bytes, 14 Nov 2026) with the same 23 files. The retained pin is therefore the module
+# content (archive_content_sha256), and every .proto must equal the byte-pinned Geospatial.Grpc
+# 1.0.0 nupkg's copy, so a re-recorded digest cannot carry a changed module.
+BSR_CONTENT_SHA256 = "d23089ed561017ef6b1d26d0f389ca81edab03a33c7f4b1fb0f206c80d03f8a1"
+BSR_FILE_COUNT = 23
+BSR_CHANNEL_ID = "bsr:buf.build/honua-io/geospatial-grpc"
 BSR_ZIP_URL = "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
 # Upstream GHSA-jrc7-96c5-q579 lists <=6.4.0 as affected and 6.4.1 as patched.
 MAPLIBRE_PATCHED_VERSION = (6, 4, 1)
@@ -510,6 +517,52 @@ def _download_matches(transport, url: str, expected_sha256: str | None, filename
     return record
 
 
+def _zip_files(body: bytes, label: str) -> dict[str, bytes]:
+    """Regular-file entries of a zip by name; fails closed on anything but a plain, safe zip."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            infos = [info for info in archive.infolist() if not info.is_dir()]
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                raise PreflightError(f"{label} has duplicate entries")
+            for name in names:
+                parts = name.split("/")
+                if name.startswith("/") or "\\" in name or ".." in parts or "" in parts:
+                    raise PreflightError(f"{label} has an unsafe entry name {name!r}")
+            return {info.filename: archive.read(info) for info in infos}
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, EOFError, RuntimeError, ValueError) as exc:
+        raise PreflightError(f"{label} is not a readable zip: {exc}") from exc
+
+
+def archive_content_sha256(body: bytes) -> str:
+    """sha256 of the `sha256sum`-style listing ("<hex>  <name>\\n") of the entries sorted by name."""
+    files = _zip_files(body, "BSR archive")
+    listing = "".join(f"{sha256_hex(files[name])}  {name}\n" for name in sorted(files))
+    return sha256_hex(listing.encode("utf-8"))
+
+
+def _bsr_archive_matches(transport, url: str, expected_content_sha256: str, filename: str, grpc_nupkg: bytes) -> dict:
+    response = transport.get(url)
+    if response.status != 200:
+        raise PreflightError(f"required public bytes at {url} returned HTTP {response.status}")
+    files = _zip_files(response.body, "BSR archive")
+    content = archive_content_sha256(response.body)
+    if content != expected_content_sha256:
+        raise PreflightError(
+            f"downloaded {filename} content sha256 {content} does not match retained {expected_content_sha256}"
+        )
+    nupkg = _zip_files(grpc_nupkg, "Geospatial.Grpc 1.0.0 nupkg")
+    nupkg_protos = {
+        name.removeprefix("proto/"): data
+        for name, data in nupkg.items()
+        if name.startswith("proto/") and name.endswith(".proto")
+    }
+    bsr_protos = {name: data for name, data in files.items() if name.endswith(".proto")}
+    if not bsr_protos or bsr_protos != nupkg_protos:
+        raise PreflightError(f"{filename} protos do not equal the pinned Geospatial.Grpc 1.0.0 nupkg protos")
+    return {"content_sha256": content, "file_count": len(files), "filename": filename, "url": response.url}
+
+
 def _nuget_published_file(transport, package_id: str, version: str, expected_sha256: str | None) -> dict:
     """Download a public nupkg bound to its NuGet catalog SHA-512 and its nuspec identity."""
     url = nuget_nupkg_url(package_id, version)
@@ -850,7 +903,7 @@ def build_receipt(
 ) -> dict:
     retained = retained or {}
     grpc_sha256 = str(retained.get("grpc_sha256") or GRPC_NUPKG_SHA256)
-    bsr_sha256 = str(retained.get("bsr_sha256") or BSR_ZIP_SHA256)
+    bsr_content_sha256 = str(retained.get("bsr_content_sha256") or BSR_CONTENT_SHA256)
     view = _manifest_view(manifest)
     deferred = experimental_components(manifest)
     channels: list[dict] = []
@@ -1002,9 +1055,14 @@ def build_receipt(
     grpc_index, grpc_versions = _nuget_versions(transport, "Geospatial.Grpc")
     if grpc_index != 200 or "1.0.0" not in grpc_versions:
         raise PreflightError("Geospatial.Grpc 1.0.0 is no longer listed on nuget.org")
-    grpc_file = _download_matches(
-        transport, GRPC_NUPKG_URL, grpc_sha256, "geospatial.grpc.1.0.0.nupkg"
-    )
+    grpc_response = transport.get(GRPC_NUPKG_URL)
+    if grpc_response.status != 200:
+        raise PreflightError(f"required public bytes at {GRPC_NUPKG_URL} returned HTTP {grpc_response.status}")
+    grpc_file = _file_record("geospatial.grpc.1.0.0.nupkg", grpc_response.url, grpc_response.body)
+    if grpc_file["sha256"] != grpc_sha256:
+        raise PreflightError(
+            f"downloaded geospatial.grpc.1.0.0.nupkg sha256 {grpc_file['sha256']} does not match retained {grpc_sha256}"
+        )
     channels.append(_channel(
         "nuget:Geospatial.Grpc",
         "nuget.org Geospatial.Grpc 1.0.0",
@@ -1015,11 +1073,12 @@ def build_receipt(
         urls=[nuget_index_url("Geospatial.Grpc"), GRPC_NUPKG_URL],
         versions=grpc_versions,
     ))
-    bsr_file = _download_matches(
+    bsr_file = _bsr_archive_matches(
         transport,
         BSR_ZIP_URL,
-        bsr_sha256,
+        bsr_content_sha256,
         "geospatial-grpc-bsr-f52df33b3b5d4723881ad0bacaf8a754.zip",
+        grpc_response.body,
     )
     channels.append(_channel(
         "bsr:buf.build/honua-io/geospatial-grpc",
@@ -1249,7 +1308,9 @@ def build_receipt(
         "method": (
             "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR "
             "pull token issued to an unauthenticated request. published rows are sha256 of bytes this "
-            "probe downloaded. listed rows are registry indexes only. Blocked rows name the publication "
+            "probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its "
+            "row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must "
+            "equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication "
             "and the operator boundary and do not carry package bytes. deferred-experimental rows are "
             "channels of a component the platform manifest lists under experimental:; they are not "
             "GA evidence and not release blockers. anonymous-oci-manifest rows are container images "
@@ -1506,9 +1567,13 @@ def audit(receipt: dict, manifest: dict | None = None) -> None:
         else:
             raise PreflightError(f"{channel['id']} has unknown disposition {disposition}")
         for record in files:
-            digest = str(record.get("sha256") or "")
+            # Archives served re-encoded on request (BSR) carry a module content digest instead.
+            content_pinned = channel["id"] == BSR_CHANNEL_ID and "sha256" not in record
+            digest = str(record.get("content_sha256" if content_pinned else "sha256") or "")
             if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
                 raise PreflightError(f"{channel['id']} has a digest that is not 64 hex")
+            if content_pinned and (type(record.get("file_count")) is not int or record["file_count"] < 1):
+                raise PreflightError(f"{channel['id']} content digest has no file_count")
             if not str(record.get("url") or "").startswith("https://"):
                 raise PreflightError(f"{channel['id']} file has no https URL")
         if str(disposition).startswith("blocked-"):
