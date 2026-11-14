@@ -31,6 +31,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 import yaml
+import bsr_archive
 from digests import sha256_digest, sha256_hex
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -42,15 +43,12 @@ ISSUE = "honua-io/honua-release#57"
 # the preflight; the hashes are not rewritten from the response.
 GRPC_NUPKG_SHA256 = "69ab1ae0212a81bba6018bbd01789698f8e2f0c1d5134fec1eab3cefe841979f"
 GRPC_NUPKG_URL = "https://api.nuget.org/v3-flatcontainer/geospatial.grpc/1.0.0/geospatial.grpc.1.0.0.nupkg"
-# buf.build builds the module archive on request, so its zip bytes are not stable: the archive
-# retained at publication (sha256 7f68c40e..., 68007 bytes) is now served re-encoded (6b4103fb...,
-# 67986 bytes, 14 Nov 2026) with the same 23 files. The retained pin is therefore the module
-# content (archive_content_sha256), and every .proto must equal the byte-pinned Geospatial.Grpc
-# 1.0.0 nupkg's copy, so a re-recorded digest cannot carry a changed module.
+# BSR archives are re-encoded on request; the pin is their file content (see bsr_archive).
 BSR_CONTENT_SHA256 = "d23089ed561017ef6b1d26d0f389ca81edab03a33c7f4b1fb0f206c80d03f8a1"
 BSR_FILE_COUNT = 23
 BSR_CHANNEL_ID = "bsr:buf.build/honua-io/geospatial-grpc"
 BSR_ZIP_URL = "https://buf.build/honua-io/geospatial-grpc/archive/f52df33b3b5d4723881ad0bacaf8a754.zip"
+BSR_ZIP_FILENAME = "geospatial-grpc-bsr-f52df33b3b5d4723881ad0bacaf8a754.zip"
 # Upstream GHSA-jrc7-96c5-q579 lists <=6.4.0 as affected and 6.4.1 as patched.
 MAPLIBRE_PATCHED_VERSION = (6, 4, 1)
 
@@ -505,62 +503,37 @@ def _nuget_versions(transport, package_id: str) -> tuple[int, list[str]]:
     return status, list(versions)
 
 
-def _download_matches(transport, url: str, expected_sha256: str | None, filename: str) -> dict:
+def _download(transport, url: str, filename: str) -> tuple[dict, bytes]:
     response = transport.get(url)
     if response.status != 200:
         raise PreflightError(f"required public bytes at {url} returned HTTP {response.status}")
-    record = _file_record(filename, response.url, response.body)
+    return _file_record(filename, response.url, response.body), response.body
+
+
+def _require_retained(record: dict, expected_sha256: str | None) -> dict:
     if expected_sha256 is not None and record["sha256"] != expected_sha256:
         raise PreflightError(
-            f"downloaded {filename} sha256 {record['sha256']} does not match retained {expected_sha256}"
+            f"downloaded {record['filename']} sha256 {record['sha256']} does not match retained {expected_sha256}"
         )
     return record
 
 
-def _zip_files(body: bytes, label: str) -> dict[str, bytes]:
-    """Regular-file entries of a zip by name; fails closed on anything but a plain, safe zip."""
-    try:
-        with zipfile.ZipFile(io.BytesIO(body)) as archive:
-            infos = [info for info in archive.infolist() if not info.is_dir()]
-            names = [info.filename for info in infos]
-            if len(names) != len(set(names)):
-                raise PreflightError(f"{label} has duplicate entries")
-            for name in names:
-                parts = name.split("/")
-                if name.startswith("/") or "\\" in name or ".." in parts or "" in parts:
-                    raise PreflightError(f"{label} has an unsafe entry name {name!r}")
-            return {info.filename: archive.read(info) for info in infos}
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, EOFError, RuntimeError, ValueError) as exc:
-        raise PreflightError(f"{label} is not a readable zip: {exc}") from exc
-
-
 def archive_content_sha256(body: bytes) -> str:
-    """sha256 of the `sha256sum`-style listing ("<hex>  <name>\\n") of the entries sorted by name."""
-    files = _zip_files(body, "BSR archive")
-    listing = "".join(f"{sha256_hex(files[name])}  {name}\n" for name in sorted(files))
-    return sha256_hex(listing.encode("utf-8"))
+    try:
+        return bsr_archive.archive_content_sha256(body)
+    except bsr_archive.ArchiveError as exc:
+        raise PreflightError(str(exc)) from exc
 
 
-def _bsr_archive_matches(transport, url: str, expected_content_sha256: str, filename: str, grpc_nupkg: bytes) -> dict:
-    response = transport.get(url)
+def _bsr_archive_matches(transport, expected_content_sha256: str, grpc_nupkg: bytes) -> dict:
+    response = transport.get(BSR_ZIP_URL)
     if response.status != 200:
-        raise PreflightError(f"required public bytes at {url} returned HTTP {response.status}")
-    files = _zip_files(response.body, "BSR archive")
-    content = archive_content_sha256(response.body)
-    if content != expected_content_sha256:
-        raise PreflightError(
-            f"downloaded {filename} content sha256 {content} does not match retained {expected_content_sha256}"
-        )
-    nupkg = _zip_files(grpc_nupkg, "Geospatial.Grpc 1.0.0 nupkg")
-    nupkg_protos = {
-        name.removeprefix("proto/"): data
-        for name, data in nupkg.items()
-        if name.startswith("proto/") and name.endswith(".proto")
-    }
-    bsr_protos = {name: data for name, data in files.items() if name.endswith(".proto")}
-    if not bsr_protos or bsr_protos != nupkg_protos:
-        raise PreflightError(f"{filename} protos do not equal the pinned Geospatial.Grpc 1.0.0 nupkg protos")
-    return {"content_sha256": content, "file_count": len(files), "filename": filename, "url": response.url}
+        raise PreflightError(f"required public bytes at {BSR_ZIP_URL} returned HTTP {response.status}")
+    try:
+        pinned = bsr_archive.verify(response.body, expected_content_sha256, bsr_archive.nupkg_protos(grpc_nupkg))
+    except bsr_archive.ArchiveError as exc:
+        raise PreflightError(f"downloaded {BSR_ZIP_FILENAME}: {exc}") from exc
+    return {**pinned, "filename": BSR_ZIP_FILENAME, "url": response.url}
 
 
 def _nuget_published_file(transport, package_id: str, version: str, expected_sha256: str | None) -> dict:
@@ -583,19 +556,13 @@ def _nuget_published_file(transport, package_id: str, version: str, expected_sha
     if metadata.get("listed") is not True or catalog.get("listed") is not True:
         raise PreflightError(f"{package_id} {version}: NuGet package is not listed")
     filename = f"{package_id.lower()}.{version}.nupkg"
-    response = transport.get(url)
-    if response.status != 200:
-        raise PreflightError(f"required public bytes at {url} returned HTTP {response.status}")
-    record = _file_record(filename, response.url, response.body)
-    if expected_sha256 is not None and record["sha256"] != expected_sha256:
-        raise PreflightError(
-            f"downloaded {filename} sha256 {record['sha256']} does not match retained {expected_sha256}"
-        )
-    package_hash = base64.b64encode(hashlib.sha512(response.body).digest()).decode("ascii")
+    record, body = _download(transport, url, filename)
+    _require_retained(record, expected_sha256)
+    package_hash = base64.b64encode(hashlib.sha512(body).digest()).decode("ascii")
     if catalog.get("packageHashAlgorithm") != "SHA512" or catalog.get("packageHash") != package_hash:
         raise PreflightError(f"downloaded {filename} does not match the NuGet catalog SHA-512")
     try:
-        with zipfile.ZipFile(io.BytesIO(response.body)) as archive:
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
             nuspecs = [name for name in archive.namelist() if name.lower().endswith(".nuspec")]
             if len(nuspecs) != 1:
                 raise PreflightError(f"{filename} must contain exactly one .nuspec")
@@ -997,12 +964,7 @@ def build_receipt(
 
     if representative:
         newest = _newest(representative)
-        nupkg = _download_matches(
-            transport,
-            nuget_nupkg_url("Honua.Sdk", newest),
-            None,
-            f"honua.sdk.{newest}.nupkg",
-        )
+        nupkg, _ = _download(transport, nuget_nupkg_url("Honua.Sdk", newest), f"honua.sdk.{newest}.nupkg")
         flat_symbol = transport.get(nuget_flat_symbol_url("Honua.Sdk", newest))
         flat_status = _status_only(
             flat_symbol.status, nuget_flat_symbol_url("Honua.Sdk", newest), allowed={200, 404}
@@ -1055,14 +1017,8 @@ def build_receipt(
     grpc_index, grpc_versions = _nuget_versions(transport, "Geospatial.Grpc")
     if grpc_index != 200 or "1.0.0" not in grpc_versions:
         raise PreflightError("Geospatial.Grpc 1.0.0 is no longer listed on nuget.org")
-    grpc_response = transport.get(GRPC_NUPKG_URL)
-    if grpc_response.status != 200:
-        raise PreflightError(f"required public bytes at {GRPC_NUPKG_URL} returned HTTP {grpc_response.status}")
-    grpc_file = _file_record("geospatial.grpc.1.0.0.nupkg", grpc_response.url, grpc_response.body)
-    if grpc_file["sha256"] != grpc_sha256:
-        raise PreflightError(
-            f"downloaded geospatial.grpc.1.0.0.nupkg sha256 {grpc_file['sha256']} does not match retained {grpc_sha256}"
-        )
+    grpc_file, grpc_body = _download(transport, GRPC_NUPKG_URL, "geospatial.grpc.1.0.0.nupkg")
+    _require_retained(grpc_file, grpc_sha256)
     channels.append(_channel(
         "nuget:Geospatial.Grpc",
         "nuget.org Geospatial.Grpc 1.0.0",
@@ -1073,15 +1029,9 @@ def build_receipt(
         urls=[nuget_index_url("Geospatial.Grpc"), GRPC_NUPKG_URL],
         versions=grpc_versions,
     ))
-    bsr_file = _bsr_archive_matches(
-        transport,
-        BSR_ZIP_URL,
-        bsr_content_sha256,
-        "geospatial-grpc-bsr-f52df33b3b5d4723881ad0bacaf8a754.zip",
-        grpc_response.body,
-    )
+    bsr_file = _bsr_archive_matches(transport, bsr_content_sha256, grpc_body)
     channels.append(_channel(
-        "bsr:buf.build/honua-io/geospatial-grpc",
+        BSR_CHANNEL_ID,
         "buf.build/honua-io/geospatial-grpc:f52df33b3b5d4723881ad0bacaf8a754",
         "published",
         evidence_class="downloaded-bytes",
@@ -1288,7 +1238,7 @@ def build_receipt(
     if terraform_status == 200:
         raise PreflightError("registry.terraform.io listed honua-io modules; the git-archive disposition no longer holds")
     archive_name = urllib.parse.urlparse(view["iac_url"]).path.rstrip("/").split("/")[-1]
-    archive = _download_matches(transport, view["iac_url"], view["iac_sha256"], archive_name)
+    archive = _require_retained(_download(transport, view["iac_url"], archive_name)[0], view["iac_sha256"])
     channels.append(_channel(
         "iac:git-archive",
         f"honua-iac Git archive {archive_name.removesuffix('.tar.gz')}",
