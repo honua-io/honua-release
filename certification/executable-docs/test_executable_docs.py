@@ -1301,12 +1301,12 @@ def test_public_feature_sample_binds_its_exact_documented_service_token():
     code = "export HONUA_BASE_URL=http://localhost:8080\nexport HONUA_SAMPLE_SERVICE=your-feature-service\n"
     block = extract("```bash\n" + code + "```\n", "markdown")[0]
     # Last commit that changed this README. The samples branch tip moves without it.
-    assert document["revision"] == "e177f0128fd8143c5f656948d41d8e7332b6f878"
+    assert document["revision"] == "e2af733adca9f674f573b9704928d9bd8c3bf41c"
     assert block.sha256 == document["blocks"][0]["sha256"]
     variables = load_vars(HERE / "vars", ident)
     assert set(variables["substitute"]) == {"your-feature-service"}
     entry = variables["substitute"]["your-feature-service"]
-    assert entry["documentedAt"].startswith("samples/hello-featureserver-rest/README.md:13")
+    assert entry["documentedAt"].startswith("samples/hello-featureserver-rest/README.md:18")
     table = {key: render(value["value"], {"fixture.featureService": "maui-zoning"})
              for key, value in variables["substitute"].items()}
     assert substitute(code, table) == code.replace("your-feature-service", "maui-zoning")
