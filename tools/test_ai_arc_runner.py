@@ -2940,11 +2940,12 @@ def test_development_skills_package_preserves_sealed_arc_and_pins_all_skills():
     assert development == sealed
 
 
-@pytest.mark.parametrize('target,variant,extra', [
+@pytest.mark.parametrize('scope', [
     ('aws-ecs', 'A', ['--skills-package']),
     ('local-docker', 'H', ['--skills-package']),
     ('local-docker', 'A', ['--instruction-variant', 'guide-plus-skills'])])
-def test_development_package_cli_rejects_invalid_scope_before_provisioning(tmp_path, monkeypatch, target, variant, extra):
+def test_development_package_cli_rejects_invalid_scope_before_provisioning(tmp_path, monkeypatch, scope):
+    target, variant, extra = scope
     def unexpected(*args, **kwargs):
         pytest.fail('invalid development instruction run reached fixture provisioning')
     monkeypatch.setattr(R, 'build_slot', unexpected)
