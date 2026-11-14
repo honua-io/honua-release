@@ -54,14 +54,19 @@ def test_report_propagates_evidence_verification_failure():
 
 def test_verifier_binds_each_receipt_to_its_evidence_and_rebuilt_package(monkeypatch, tmp_path):
     calls = []
-    package = {'sha256': {'AGENTS.md': 'rebuilt'}}
+    package = {'sha256': {'AGENTS.md': 'same'}, 'revision': 'pinned', 'declaredRelease': 'rc.2'}
     evidence = {'baseline': tmp_path / 'baseline', 'skills': tmp_path / 'skills'}
     monkeypatch.setattr(C.R, 'harness_digests', lambda: {'runner': 'current'})
     def verify_run(arc, receipt, **options):
         calls.append((arc, receipt, options))
         return {'stagePass': {s: True for s in C.R.STAGES}}
     monkeypatch.setattr(C.R, 'verify_run', verify_run)
-    C.compare(inputs(), C.verifier(({'arc': 'pinned'}, {}, {'candidate': 'bound'}, package), evidence))
+    rows = inputs()
+    for row in rows:
+        row['slotFacts']['opsComposition'] = {'kind': 'quickstart-package',
+                                             'packageSha256': package['sha256'],
+                                             'revision': 'pinned', 'declaredRelease': 'rc.2'}
+    C.compare(rows, C.verifier(({'arc': 'pinned'}, {}, {'candidate': 'bound'}, package), evidence))
     assert len(calls) == 2
     for arc, receipt, options in calls:
         assert arc == {'arc': 'pinned'}
@@ -71,3 +76,27 @@ def test_verifier_binds_each_receipt_to_its_evidence_and_rebuilt_package(monkeyp
         assert options['evidence'] == evidence[receipt['runId']]
         assert options['row']['runId'] == receipt['runId']
         assert options['goal_sets'] == {}
+
+
+@pytest.mark.parametrize('arm', [0, 1])
+@pytest.mark.parametrize('damage', ['missing-package', 'different-package', 'missing-composition', 'different-composition'])
+def test_verifier_rejects_unpinned_package_in_either_arm(monkeypatch, arm, damage):
+    rows = inputs()
+    package = {'sha256': {'AGENTS.md': 'same'}, 'revision': 'pinned', 'declaredRelease': 'rc.2'}
+    for row in rows:
+        row['slotFacts']['opsComposition'] = {'kind': 'quickstart-package',
+                                             'packageSha256': package['sha256'],
+                                             'revision': 'pinned', 'declaredRelease': 'rc.2'}
+    facts = rows[arm]['slotFacts']
+    if damage == 'missing-package':
+        facts.pop('quickstart')
+    elif damage == 'different-package':
+        facts['quickstart']['packageSha256'] = {'AGENTS.md': 'other'}
+    elif damage == 'missing-composition':
+        facts.pop('opsComposition')
+    else:
+        facts['opsComposition']['revision'] = 'other'
+    monkeypatch.setattr(C.R, 'harness_digests', lambda: {})
+    monkeypatch.setattr(C.R, 'verify_run', lambda *args, **kwargs: {'stagePass': {s: True for s in C.R.STAGES}})
+    with pytest.raises(ValueError, match='pinned quickstart package'):
+        C.compare(rows, C.verifier(({}, {}, {}, package), {'baseline': None, 'skills': None}))
