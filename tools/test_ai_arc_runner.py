@@ -1721,13 +1721,15 @@ def test_unreadable_audit_evidence_fails_the_stage(pages):
 
 
 
-def test_pinned_inputs_are_fetched_at_the_pins_and_digest_checked(tmp_path):
+@pytest.mark.parametrize('development', [False, True])
+def test_pinned_inputs_are_fetched_at_the_pins_and_digest_checked(tmp_path, development):
     """ARC v2 (Fable S5, B3): the quickstart and Console compose come from the arc spec's pins only."""
+    source_arc = R.load_development_arc() if development else ARC
     pages = {}
-    for pin in (ARC['quickstart'], ARC['console']['compose']):
+    for pin in (source_arc['quickstart'], source_arc['console']['compose']):
         url = f"https://raw.githubusercontent.com/{pin['repo']}/{pin['revision']}/{pin['path']}"
         pages[url] = b'bytes-for-' + pin['path'].encode()
-    arc = json.loads(json.dumps(ARC))
+    arc = json.loads(json.dumps(source_arc))
     arc['quickstart']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('quickstart.md'))])
     arc['console']['compose']['sha256'] = R.sha256(pages[next(u for u in pages if u.endswith('docker-compose.yml'))])
     package = arc['quickstartPackage']
@@ -2865,3 +2867,88 @@ def test_admission_recomputes_the_channel_check_from_the_retained_evidence(tmp_p
     with pytest.raises(ValueError, match='unrecorded'):
         R.verify_channel_check(receipt, evidence)                                   # a completed stage needs coverage
     R.verify_channel_check({'stages': [{'stage': 'ops', 'outcome': 'undetermined', 'mcpChannelGaps': 0}]}, evidence)
+
+
+@pytest.mark.parametrize('consumer', ['aggregate', 'comparison'])
+def test_skills_session_cannot_be_relabelled_as_baseline(tmp_path, consumer):
+    import ai_arc_instruction_compare as comparison
+
+    class SkillsSession(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            row['provenance'][0]['agentGuide'] = {'sha256': 'skills', 'loaded': True}
+            row['provenance'][0]['cliFlags'] = []
+            return row
+
+    receipt, _ = run(tmp_path, session=SkillsSession())
+    # Rewrite receipt summaries only: retained contexts and their hashes stay intact.
+    for stage in receipt['stages']:
+        for claim in stage['modelVisible']['provenance']:
+            claim['agentGuide'] = None
+    path = tmp_path / '001' / 'trial-receipt.json'
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match='instruction provenance'):
+        if consumer == 'aggregate':
+            _admit(tmp_path, '001')
+        else:
+            skills = copy.deepcopy(receipt)
+            skills.update(runId='skills', instructionVariant='guide-plus-skills')
+            evidence = {receipt['runId']: tmp_path / '001.evidence'}
+            comparison.compare([receipt, skills], comparison.verifier((ARC, CAND_IN, CAND, None), evidence))
+
+
+@pytest.mark.parametrize('damage', ['receipt-model', 'receipt-family', 'session-model', 'missing-session-model', None])
+def test_comparison_binds_model_to_arm_and_retained_session(tmp_path, damage):
+    class ModelSession(FakeSession):
+        def next(self, prompt, ctx, stage):
+            row = super().next(prompt, ctx, stage)
+            if damage == 'session-model':
+                row['provenance'][0]['model'] = 'other-model'
+            elif damage == 'missing-session-model':
+                del row['provenance'][0]['model']
+            return row
+
+    receipt, _ = run(tmp_path, session=ModelSession())
+    if damage in ('receipt-model', 'receipt-family'):
+        receipt['modelId' if damage == 'receipt-model' else 'family'] = 'other'
+    def verify():
+        return R.verify_run(ARC, receipt, target='local-docker', arm_id='A1', candidate=CAND,
+                            digests=R.harness_digests(), row=dev_rows(['001'])[0], goal_sets={},
+                            evidence=tmp_path / '001.evidence', require_instruction_provenance=True)
+    if damage:
+        with pytest.raises(ValueError, match='model|provenance'):
+            verify()
+    else:
+        assert all(verify()['stagePass'].values())
+
+
+def test_development_skills_package_preserves_sealed_arc_and_pins_all_skills():
+    sealed = R.load_arc()
+    development = R.load_development_arc()
+    assert development['_sha256'] != sealed['_sha256']
+    assert development['quickstartPackage']['revision'] != sealed['quickstartPackage']['revision']
+    package = development['quickstartPackage']
+    page = development['quickstart']
+    assert (page['repo'], page['revision'], page['sha256']) == (
+        package['repo'], package['revision'], package['files'][page['path']])
+    assert not any(path.startswith('skills/') for path in sealed['quickstartPackage']['files'])
+    assert all('skills/' + skill + '/SKILL.md' in development['quickstartPackage']['files']
+               for skill in R.instructions.SKILLS)
+    for key in ('_sha256', 'quickstartPackage', 'quickstart', 'developmentInstructionPackage'):
+        development.pop(key, None)
+        sealed.pop(key, None)
+    assert development == sealed
+
+
+@pytest.mark.parametrize('target,variant,extra', [
+    ('aws-ecs', 'A', ['--skills-package']),
+    ('local-docker', 'H', ['--skills-package']),
+    ('local-docker', 'A', ['--instruction-variant', 'guide-plus-skills'])])
+def test_development_package_cli_rejects_invalid_scope_before_provisioning(tmp_path, monkeypatch, target, variant, extra):
+    def unexpected(*args, **kwargs):
+        pytest.fail('invalid development instruction run reached fixture provisioning')
+    monkeypatch.setattr(R, 'build_slot', unexpected)
+    monkeypatch.setattr(R, 'candidate_from_lock', unexpected)
+    with pytest.raises(SystemExit):
+        R.main(['trial', '--target', target, '--arm', 'A1', '--run-id', 'invalid', '--variant', variant,
+                '--output', str(tmp_path / 'out'), '--lock-path', 'unused', '--lock-digest', 'unused', *extra])

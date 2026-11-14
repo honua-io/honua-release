@@ -1,0 +1,25 @@
+{
+  "repo": "honua-io/honua-server",
+  "revision": "5a790723de248fdb23255cc04dc5410fdee94732",
+  "priorMaxSchema": 140,
+  "candidateMaxSchema": 161,
+  "note": "Development instruction comparison only; both instruction arms use this package. The sealed certification package pin remains unchanged.",
+  "files": {
+    "docs/get-started/compose.console.yaml": "sha256:091623f52ac1e6fce646675aa625d0418f615d8f23cefb2a29863b80c40c5997",
+    "docs/get-started/compose.executor.yaml": "sha256:d00b26c91b1ff574be7dbb8e7c25f12ca4cbb62cbcddeab2e5f33b6aa5e71f09",
+    "docs/get-started/quickstart.md": "sha256:d086db65ab0da8bb9a16a19b04a434de873d1477f07d6637cfc6efbc573bb13f",
+    "docs/guides/connect/working-with-ai-agents.md": "sha256:377fb54b3e1ccbc6913a483ddad053af26da8d34c2dbef93f2b674f866d44ae2",
+    "scripts/docker/compose_quickstart.py": "sha256:a54b11726264d6a56feecbe0c13dc13c284410d0e997f5caad6a5d4b12c078e3",
+    "scripts/docker/package_quickstart.py": "sha256:c69c7077fe1ea36572d0d146e029e25f5ccba5afba8dfc0419e81e0fa0facfd5",
+    "skills/honua-install/SKILL.md": "sha256:6bc69ba2b12ac6223c443a6a4c8135251e4201a04334f01e00aae541c62e1b7a",
+    "skills/honua-install/references/readiness.md": "sha256:b218621d69c97f6d446738ff70f139881fef6039cf6b3d4ee0b3a43103bcb217",
+    "skills/honua-ops/SKILL.md": "sha256:4de51d338817cd23b7c9b91b7f2e94009cfc9ed497828582c87f0f9eb6e235dd",
+    "skills/honua-ops/references/releases.md": "sha256:b01aa1823d30f3313ae5491f56bd828952cb34dc0d41fc23d11ea299757efa36",
+    "skills/honua-services/SKILL.md": "sha256:c7b92d13132e76a82ba1f0d4aed441ea44441aa5357a2a9dad3290a837f23b18",
+    "skills/honua-services/references/query.md": "sha256:cc7ffae6c8cb45708a5c9b375f357e57b138a5ad71c29962a514c8d3d0382739",
+    "skills/honua-studio-maps/SKILL.md": "sha256:9372392737cdba0d5486ed805a8371e022d2b4bcc495710f82751989b4d164dc",
+    "skills/honua-studio-maps/references/save-share.md": "sha256:1641667a11ea604ec101ff7901c90eb4d4226fbb72cdecc0a97fd21538538064",
+    "skills/honua-tuning/SKILL.md": "sha256:3883060b3008566246ec5fae8c2e969cbac3c4ac7d7f5b3e24eb07609c4e55d5",
+    "skills/honua-tuning/references/materialization.md": "sha256:8078f824d6579d4a9c8bc21513a407bbede21bd8d16e5a311f6b76b32e035932"
+  }
+}
