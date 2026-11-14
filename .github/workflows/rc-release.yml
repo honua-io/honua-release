@@ -61,7 +61,7 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install "pyyaml>=6.0" pytest
       - name: Self-test the window logic (it must be able to fail)
-        run: python -m pytest tools/test_rc_gate_window.py tools/test_rc_gate_window_ordering.py -q
+        run: python -m pytest tools/test_rc_gate_window.py tools/test_rc_gate_window_ordering.py tools/test_rc_release_manifest.py -q
       - name: Resolve the server image digest
         env:
           IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
@@ -92,6 +92,16 @@ jobs:
           echo "admissible=$([ "$rc" = 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           cat gate-window.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+      - name: Snapshot the admitted RC manifest
+        env:
+          LABEL: ${{ inputs.rc_label }}
+          IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
+          PLATFORM_LOCK: ${{ inputs.platform_lock }}
+        run: |
+          set -euo pipefail
+          python tools/rc_release_manifest.py --manifest platform-manifest.yaml \
+            --gate-window gate-window.json --label "$LABEL" --image "$IMAGE" \
+            --platform-lock "$PLATFORM_LOCK" --out finalized-manifest.yaml
       - name: Collect known gaps (open must-fix issues across the org)
         if: always()
         env:
@@ -108,7 +118,6 @@ jobs:
         if: always()
         env:
           LABEL: ${{ inputs.rc_label }}
-          IMAGE: ghcr.io/honua-io/honua-server:${{ inputs.server_image_tag }}
         run: |
           set -euo pipefail
           # The hand-written narrative for the base label (release-notes/2026.1.md for 2026.1-rc.N)
@@ -116,8 +125,8 @@ jobs:
           intro=()
           narrative="release-notes/${LABEL%%-rc*}.md"
           if [ -f "$narrative" ]; then intro=(--intro-file "$narrative"); fi
-          python tools/rc_release_notes.py --manifest platform-manifest.yaml --gate-markdown gate-window.md \
-            --label "$LABEL" --server-image "$IMAGE" --server-digest "$(cat server-digest.txt)" \
+          python tools/rc_release_notes.py --manifest finalized-manifest.yaml --gate-markdown gate-window.md \
+            --label "$LABEL" \
             --gaps-json known-gaps.json "${intro[@]}" --out rc-notes.md
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
@@ -130,6 +139,7 @@ jobs:
             rc-notes.md
             server-digest.txt
             platform-manifest.yaml
+            finalized-manifest.yaml
           if-no-files-found: error
 
   publish:
@@ -156,4 +166,4 @@ jobs:
           set -euo pipefail
           gh release create "$LABEL" --prerelease --target "$GITHUB_SHA" \
             --title "Honua ${LABEL/-/ }" --notes-file out/rc-notes.md \
-            out/gate-window.json out/gate-window.md out/known-gaps.json out/platform-manifest.yaml
+            out/gate-window.json out/gate-window.md out/known-gaps.json out/platform-manifest.yaml out/finalized-manifest.yaml
