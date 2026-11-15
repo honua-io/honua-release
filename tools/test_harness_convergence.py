@@ -71,6 +71,53 @@ def implemented_keys(candidate):
     return {row["key"] for row in matrix["capabilities"] if row.get("maturity", {}).get("implemented")}
 
 
+def test_declared_printing_preview_posture_matches_the_governed_catalog(candidate):
+    generate(candidate)
+    original = read(candidate / CATALOG)["requirements"]
+    harness = read(candidate / HARNESS)
+    printing = next(row for row in harness["assignments"] if row["capability_key"] == "printing.pdf-output")
+    printing.update(maturity="preview", required_tier="release")
+    write(candidate / HARNESS, harness)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+    assert read(candidate / CATALOG)["requirements"] == original
+
+
+@pytest.mark.parametrize("posture", [
+    {"maturity": "preview", "required_tier": "nightly"},
+    {"maturity": "supported", "required_tier": "release"},
+    {"maturity": "supported", "required_tier": "nightly"},
+    {"maturity": "preview"},
+    {"required_tier": "release"},
+    {"maturity": None, "required_tier": "release"},
+    {"maturity": "preview", "required_tier": None},
+    {"maturity": "unknown", "required_tier": "release"},
+])
+def test_declared_harness_posture_cannot_change_the_gp_ruling(candidate, posture):
+    harness = read(candidate / HARNESS)
+    printing = next(row for row in harness["assignments"] if row["capability_key"] == "printing.pdf-output")
+    printing.update(posture)
+    write(candidate / HARNESS, harness)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode != 0
+    assert "harness posture" in result.stderr
+
+
+@pytest.mark.parametrize("posture", [
+    {"maturity": "supported"}, {"required_tier": "nightly"},
+    {"maturity": "supported", "required_tier": "nightly"},
+])
+def test_explicit_supported_harness_posture_keeps_the_contract_tier(candidate, posture):
+    harness = read(candidate / HARNESS)
+    harness["assignments"][0].update(posture)
+    write(candidate / HARNESS, harness)
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+
+
 def test_all_42_actual_governed_operations_include_ten_added_writes(candidate):
     """Forty-two fixture operations remain the contract. Preview demotions are not harness rows."""
     generate(candidate)
