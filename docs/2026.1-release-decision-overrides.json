@@ -10,7 +10,8 @@
       "ruling": "RC requires live runs-itself rows 1-6, 9-11 and the notify half of 12; hardened default verified on a live Launch Stack; zero open high security findings; and a honua-gate Launch Stack install with ECS only, no Redis and the PostGIS-only default image. AI-native Operate, Publish, Build and Migrate are advisory for RC and required for GA. Proven journeys ship GA-track; unproven journeys ship marked Preview. Paid evaluations require founder spend approval.",
       "effect": "Adds gate-release-promise.yml to candidate-bound RC admission. Missing producer workflows or receipts block required rows. The five AI evidence rows, including injection, are reported for RC and required for GA; existing security, isolation and integrity floors remain. Supersedes the 13 November all-journeys-required-for-RC wording; preserves historical October canary and arc rulings except where explicitly amended.",
       "moved": [],
-      "outcomes": "Founder 2026-11-14 23:00 PT: RC requires candidate-bound numeric operator, recovery, developer and Studio timings reported in release notes; GA additionally requires approved targets, including zero unattended person-minutes."
+      "outcomes": "Founder 2026-11-14 23:00 PT: RC requires candidate-bound numeric operator, recovery, developer and Studio timings reported in release notes; GA additionally requires approved targets, including zero unattended person-minutes.",
+      "adversarial": "Founder 2026-11-14 23:45 PT: RC additionally requires independent claude-fable-5-2 and gpt-6-astra source plus live reviews on a candidate honua-gate-whitehat stack, both reports and stack identity, zero open new high or critical findings, and candidate chaos results with telemetry, logging and remediation PASS per fault. These floors also remain required for GA."
     },
     "R3": {
       "date": "2026-09-29",

@@ -78,3 +78,22 @@ and notes, without enforcing timing targets. GA additionally requires every
 `gaMaximum` to be set and met. The unattended target is zero person-minutes;
 other targets remain unset until approved, so they cannot silently pass GA.
 No timing measurement or target is fabricated by the gate.
+
+The 14 November 23:45 PT ruling additionally requires `security-whitehat` and
+`chaos` for RC (and retains them for GA). Their reserved producers are
+`gate-whitehat.yml` and `gate-chaos.yml`. They currently have no live receipt.
+White-hat receipts require `stackName: honua-gate-whitehat` (or that prefix with a
+suffix), a nonempty `stackId`, and integer-zero `openNewHighFindings` and
+`openNewCriticalFindings`. Their two `reviews` identify distinct reviewers and
+exact models `claude-fable-5-2` and `gpt-6-astra`, each with `source: true`,
+`live: true`, `status: PASS`, a distinct root-level Markdown `report` filename,
+and its hexadecimal `reportSha256`. Both sanitized reports must be archived in
+the same authenticated artifact. The common receipt binds both reports and the
+stack to the candidate SHA, image digest and platform lock. Detailed security
+findings stay in the private tracker; public artifacts contain sanitized evidence.
+
+Chaos receipts contain exactly nine `faults`, with ids `stop-tasks`, `wedge-task`,
+`stop-database`, `fill-database`, `crashing-release`, `error-release`, `block-probe`,
+`stop-watchdog`, and `flood-requests`. Every fault has `telemetry`, `logging`, and
+`remediation` objects, each with `status: PASS` and a nonempty sanitized `evidence`
+reference. A top-level PASS without these per-fault grades cannot certify chaos.

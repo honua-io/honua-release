@@ -272,6 +272,36 @@
         "defaultImage": "postgis-only"
       },
       "criterion": "Install through the CloudFormation Launch Stack on a honua-gate stack; ECS only, no Redis, PostGIS-only default image."
+    },
+    {
+      "id": "security-whitehat",
+      "criterion": "Two independent source and live reviews; zero new open high or critical findings",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-whitehat.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "security-whitehat.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true
+      }
+    },
+    {
+      "id": "chaos",
+      "criterion": "Candidate monkey faults: telemetry, logging and remediation PASS per fault",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-chaos.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "chaos.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true
+      }
     }
   ],
   "outcomes": [

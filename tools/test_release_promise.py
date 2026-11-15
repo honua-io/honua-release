@@ -34,13 +34,13 @@ def test_contract_covers_every_required_promise():
     assert {r['id'] for r in rows} == {
         *(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)), 'operates-12-notify',
         *(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection')),
-        'security-hardened', 'security-open-high', 'cloud-launch-stack'}
-    assert len(rows) == 18
+        'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos'}
+    assert len(rows) == 20
 
 
 def test_missing_rows_fail_closed():
     results = p.evaluate(p.load_contract(CONTRACT), {}, (CANDIDATE, NOW))
-    assert len(results) == 18
+    assert len(results) == 20
     assert all(r['status'] == 'missing' for r in results)
 
 
@@ -107,6 +107,9 @@ def test_promise_gate_is_required_and_candidate_bound():
 def aggregate():
     results = p.evaluate(p.load_contract(CONTRACT),
                          {r['id']: [run(r)] for r in p.load_contract(CONTRACT)}, (CANDIDATE, NOW))
+    for result in results:
+        if result['id'] in p.adversarial.IDS:
+            result.update(status='PASS', observedAt='2026-11-14T00:00:00Z')
     return {'schema': 'honua.release-promise-report/v1', 'status': 'pass',
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock, 'rows': results,
@@ -235,3 +238,68 @@ def test_receipt_cannot_claim_notes_absent_from_artifact(monkeypatch):
     artifacts = [{'id': 7, 'name': row['artifact'], 'size_in_bytes': 100, 'expired': False}]
     record['reports'] = p._reports(row, 'token', artifacts)
     assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] != 'PASS'
+
+
+def test_whitehat_and_chaos_are_required_and_need_detailed_evidence():
+    rows = {r['id']: r for r in p.load_contract(CONTRACT)}
+    assert rows['security-whitehat']['required'] == ['rc', 'ga']
+    assert rows['chaos']['required'] == ['rc', 'ga']
+    for key in ('security-whitehat', 'chaos'):
+        assert p.evaluate_row(rows[key], [run(rows[key])], (CANDIDATE, NOW))['status'] != 'PASS'
+
+
+def whitehat_doc():
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'security-whitehat')
+    doc = evidence(row)
+    doc.update(stackName='honua-gate-whitehat-test', stackId='test-stack-id',
+               openNewHighFindings=0, openNewCriticalFindings=0,
+               reviews=[{'model': model, 'reviewer': model, 'source': True, 'live': True,
+                         'status': 'PASS', 'report': f'review-{i}.md'}
+                        for i, model in enumerate(sorted(p.adversarial.MODELS))])
+    doc['_archivedReports'] = [r['report'] for r in doc['reviews']]
+    return doc
+
+
+def test_whitehat_requires_both_independent_source_and_live_reports():
+    doc = whitehat_doc()
+    assert p.adversarial.valid(doc)
+    for field in ('source', 'live', 'status', 'model', 'reviewer', 'report'):
+        changed = copy.deepcopy(doc)
+        changed['reviews'][1][field] = changed['reviews'][0][field] if field in (
+            'model', 'reviewer', 'report') else None
+        assert not p.adversarial.valid(changed)
+    for change in ({'stackName': 'unrelated'}, {'stackId': ''}, {'openNewHighFindings': 1},
+                   {'openNewCriticalFindings': True}, {'_archivedReports': []}):
+        assert not p.adversarial.valid({**doc, **change})
+
+
+def test_whitehat_reports_must_be_archived_with_matching_hash():
+    import hashlib
+    import io
+    import zipfile
+    doc = whitehat_doc()
+    blob = io.BytesIO()
+    with zipfile.ZipFile(blob, 'w') as archive:
+        for review in doc['reviews']:
+            archive.writestr(review['report'], 'Sanitized review evidence')
+            review['reportSha256'] = hashlib.sha256(b'Sanitized review evidence').hexdigest()
+    p.adversarial.attach_reports(doc, blob.getvalue())
+    assert p.adversarial.valid(doc)
+    doc['reviews'][0]['reportSha256'] = '0' * 64
+    p.adversarial.attach_reports(doc, blob.getvalue())
+    assert not p.adversarial.valid(doc)
+
+
+def test_chaos_needs_every_fault_and_all_three_evidence_grades():
+    doc = {'row': 'chaos', 'faults': [dict(id=key, **{
+        grade: {'status': 'PASS', 'evidence': 'sanitized incident reference'}
+        for grade in ('telemetry', 'logging', 'remediation')}) for key in p.adversarial.FAULTS]}
+    assert p.adversarial.valid(doc)
+    for grade in ('telemetry', 'logging', 'remediation'):
+        changed = copy.deepcopy(doc)
+        changed['faults'][0][grade]['status'] = 'FAIL'
+        assert not p.adversarial.valid(changed)
+        changed['faults'][0][grade] = {'status': 'PASS', 'evidence': ''}
+        assert not p.adversarial.valid(changed)
+    doc['faults'].pop()
+    assert not p.adversarial.valid(doc)

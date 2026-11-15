@@ -14,12 +14,13 @@ import zipfile
 
 import rc_gate_window as w
 import release_outcomes as outcomes
+import release_adversarial as adversarial
 from execution_order import AmbiguousOrder, contenders, instant
 
 CONTRACT = Path(__file__).resolve().parents[1] / 'certification/release-promise.v1.json'
 REQUIRED_IDS = frozenset({*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
                          'operates-12-notify', 'security-hardened', 'security-open-high',
-                         'cloud-launch-stack'})
+                         'cloud-launch-stack', 'security-whitehat', 'chaos'})
 AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection'))
 
 
@@ -32,8 +33,8 @@ def load_contract(path: Path = CONTRACT) -> list[dict]:
     rows = doc['rows']
     ids = [r['id'] for r in rows]
     if (doc.get('schema') != 'honua.release-promise-contract/v1' or doc.get('windowDays') != 7
-            or len(ids) != 18 or set(ids) != REQUIRED_IDS | AI_IDS):
-        raise ValueError('release promise contract must cover exactly the 18 founder rows')
+            or len(ids) != 20 or set(ids) != REQUIRED_IDS | AI_IDS):
+        raise ValueError('release promise contract must cover exactly the 20 founder rows')
     for row in rows:
         expected = ['ga'] if row['id'] in AI_IDS else ['rc', 'ga']
         if row.get('required') != expected:
@@ -67,6 +68,8 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
     if row['id'] == 'security-open-high':
         count = doc.get('openHighFindings')
         return type(count) is int and count == 0
+    if row['id'] in adversarial.IDS:
+        return adversarial.valid(doc)
     if row['id'] in outcomes.IDS:
         return outcomes.valid(doc)
     return True
@@ -133,6 +136,8 @@ def _reports(row: dict, token: str, artifacts: list[dict]) -> list[dict]:
         return []
     blob = w._get_bytes(f"{w.API}/repos/{row['repo']}/actions/artifacts/{found[0]['id']}/zip", token, 1_000_001)
     docs = _receipt_from_zip(blob, row['receipt'])
+    if row['id'] == 'security-whitehat' and docs:
+        adversarial.attach_reports(docs[0], blob)
     if row['id'] in outcomes.IDS and docs:
         docs[0]['releaseNotes'] = _release_notes(blob)
     return docs
@@ -194,7 +199,7 @@ def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
     if doc.get('schema') != 'honua.release-promise-report/v1' or doc.get('status') != 'pass':
         return False
     rows = doc.get('rows')
-    if not isinstance(rows, list) or len(rows) != 18 or any(not isinstance(r, dict) for r in rows):
+    if not isinstance(rows, list) or len(rows) != 20 or any(not isinstance(r, dict) for r in rows):
         return False
     if {r.get('id') for r in rows} != REQUIRED_IDS | AI_IDS:
         return False
