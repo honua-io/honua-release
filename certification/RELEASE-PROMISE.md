@@ -97,3 +97,10 @@ Chaos receipts contain exactly nine `faults`, with ids `stop-tasks`, `wedge-task
 `stop-watchdog`, and `flood-requests`. Every fault has `telemetry`, `logging`, and
 `remediation` objects, each with `status: PASS` and a nonempty sanitized `evidence`
 reference. A top-level PASS without these per-fault grades cannot certify chaos.
+
+The aggregate is admitted only from a completed, successful trusted trunk workflow
+execution in honua-release. RC gate Markdown carries the verified numeric outcomes
+into the published notes. GA promotion collects fresh evidence under the current
+trunk policy before checking out the certified candidate source, using that train's
+retained manifest and exact lock bytes. A refusal stops publication; successful
+promotion appends the verified outcomes to GA notes and retains its aggregate report.

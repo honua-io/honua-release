@@ -875,6 +875,9 @@ def _slim(run: dict) -> dict:
         "conclusion": run.get("conclusion"),
         "status": run.get("status"),
         "event": run.get("event"),
+        "head_branch": run.get("head_branch"),
+        "head_repository": run.get("head_repository"),
+        "path": run.get("path"),
         "display_title": run.get("display_title"),
         "head_sha": head if isinstance(head, str) else "",
         "report": None,
@@ -1015,7 +1018,8 @@ def _bound_verdict(name: str, rec: dict, admission: Admission) -> dict:
         return {**row, "reason": why}
     return {**row, "verdict": "green", "reason": f"candidate-bound pass on trunk {created.date()}",
             "last_green_at": run.get("created_at"), "last_green_run": run.get("html_url"),
-            "last_green_build": admission.candidate.server_sha[:12]}
+            "last_green_build": admission.candidate.server_sha[:12],
+            **({"outcomes": run["promise_outcomes"]} if "promise_outcomes" in run else {})}
 
 
 def _promise_record(rec: dict, admission: Admission) -> dict:
@@ -1025,9 +1029,15 @@ def _promise_record(rec: dict, admission: Admission) -> dict:
     now = admission.cutoff + dt.timedelta(days=admission.days)
     runs = []
     for run in rec.get("runs") or []:
-        valid = any(matches_candidate(doc, admission.candidate)
-                    and report_valid(doc, admission.profile, now) for doc in _documents(run))
-        runs.append(run if valid else {**run, "conclusion": "failure"})
+        trusted = (run.get("status") == "completed" and run.get("head_branch") == "trunk"
+                   and run.get("event") in {"workflow_dispatch", "schedule", "repository_dispatch"}
+                   and run.get("path") == f".github/workflows/{PROMISE_GATE}"
+                   and isinstance(run.get("head_repository"), dict)
+                   and run["head_repository"].get("full_name") == "honua-io/honua-release")
+        docs = [doc for doc in _documents(run) if matches_candidate(doc, admission.candidate)
+                and report_valid(doc, admission.profile, now)] if trusted else []
+        runs.append({**run, "promise_outcomes": docs[0]["outcomes"]} if len(docs) == 1
+                    else {**run, "conclusion": "failure"})
     return {**rec, "runs": runs}
 
 
@@ -1132,6 +1142,10 @@ def render_markdown(result: dict) -> str:
     if result.get("deferred_to_ga"):
         tail += ("\nDeferred to GA (reported, not required for rc): "
                 + ", ".join(f"`{g}`" for g in result["deferred_to_ga"]) + "\n")
+    outcomes = result["gates"].get(PROMISE_GATE, {}).get("outcomes")
+    if outcomes:
+        from release_outcomes import render_markdown as render_outcomes
+        tail += render_outcomes(outcomes)
     return identity + head + "\n".join(lines) + "\n" + tail
 
 

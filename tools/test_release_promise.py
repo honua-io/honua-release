@@ -24,6 +24,7 @@ def evidence(row):
 def run(row):
     return {'id': 1, 'status': 'completed', 'conclusion': 'success',
             'head_branch': 'trunk', 'event': 'workflow_dispatch',
+            'head_repository': {'full_name': row['repo']},
             'path': '.github/workflows/' + row['workflow'],
             'run_started_at': '2026-11-14T00:00:00Z', 'updated_at': '2026-11-14T00:01:00Z',
             'reports': [evidence(row)]}
@@ -142,7 +143,8 @@ def test_admission_applies_promise_schema_and_profile(profile, expected):
     doc['rows'][-1]['status'] = 'PASS'
     next(row for row in doc['rows'] if row['id'] == 'ai-migrate')['status'] = 'missing'
     record = run(p.load_contract(CONTRACT)[0])
-    record.update(report=doc, created_at=record['run_started_at'])
+    record.update(path='.github/workflows/' + w.PROMISE_GATE,
+                  report=doc, created_at=record['run_started_at'])
     result = w.evaluate({w.PROMISE_GATE: {'runs': [record]}}, NOW, 7,
                         candidate=CANDIDATE, profile=profile)
     assert result['admissible'] is expected
@@ -303,3 +305,81 @@ def test_chaos_needs_every_fault_and_all_three_evidence_grades():
         assert not p.adversarial.valid(changed)
     doc['faults'].pop()
     assert not p.adversarial.valid(doc)
+
+
+@pytest.mark.parametrize('change', [
+    {'event': 'pull_request'}, {'head_branch': 'topic'},
+    {'path': '.github/workflows/forged.yml'}, {'status': 'in_progress'},
+    {'head_repository': {'full_name': 'untrusted/fork'}},
+])
+def test_aggregate_admission_rejects_untrusted_execution(change):
+    record = run({'workflow': w.PROMISE_GATE, **p.load_contract(CONTRACT)[0]})
+    record.update(path='.github/workflows/' + w.PROMISE_GATE,
+                  report=aggregate(), reports=[], created_at=record['run_started_at'])
+    record.update(change)
+    result = w.evaluate({w.PROMISE_GATE: {'runs': [record]}}, NOW, 7, candidate=CANDIDATE)
+    assert not result['admissible']
+
+
+def test_admitted_outcomes_reach_published_rc_notes():
+    import rc_release_notes
+    record = run(p.load_contract(CONTRACT)[0])
+    record.update(path='.github/workflows/' + w.PROMISE_GATE,
+                  report=aggregate(), reports=[], created_at=record['run_started_at'])
+    result = w.evaluate({w.PROMISE_GATE: {'runs': [record]}}, NOW, 7, candidate=CANDIDATE)
+    notes = rc_release_notes.render({'components': {}}, w.render_markdown(result),
+                                    '2026.1-rc.2', None, None, [])
+    for row in record['report']['outcomes']:
+        assert p.outcomes.notes_line({'row': row['id'], 'value': row['value']}) in notes
+
+
+def test_ga_promotion_enforces_current_promise_policy_before_candidate_checkout():
+    import yaml
+    workflow = yaml.safe_load((CONTRACT.parents[1] / '.github/workflows/promote.yml').read_text())
+    steps = workflow['jobs']['promote']['steps']
+    gate = next(i for i, s in enumerate(steps) if s.get('name') == 'Enforce current GA release promises')
+    checkout = next(i for i, s in enumerate(steps)
+                    if s.get('with', {}).get('ref') == '${{ steps.train.outputs.source_sha }}')
+    assert gate < checkout
+    assert "'--profile', 'ga'" in steps[gate]['run']
+    assert 'promotion-evidence/trains/' in steps[gate]['run']
+    finalize = next(s for s in steps if s.get('id') == 'finalize')
+    assert 'ga-promise-outcomes.md' in finalize['run']
+
+
+@pytest.mark.parametrize('refused', [False, True])
+def test_ga_promotion_checks_selected_lock_and_retains_measurements(tmp_path, monkeypatch, refused):
+    import hashlib
+    import subprocess
+    import yaml
+    step = next(s for s in yaml.safe_load(Path('.github/workflows/promote.yml').read_text())
+                ['jobs']['promote']['steps'] if s.get('name') == 'Enforce current GA release promises')
+    script = step['run'].split("python - <<'PYTHON'\n", 1)[1].rsplit('\nPYTHON', 1)[0]
+    root = tmp_path / 'promotion-evidence/trains/123'
+    root.mkdir(parents=True)
+    (root / 'platform-lock.json').write_bytes(b'immutable selected lock bytes')
+    (root / 'platform-manifest.yaml').write_text(yaml.safe_dump({'components': {'honua-server': {
+        'sha': CANDIDATE.server_sha, 'digest': CANDIDATE.server_digest}}}))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv('RC_RUN_ID', '123')
+    monkeypatch.setenv('RUNNER_TEMP', str(tmp_path))
+
+    def collect(command, *, check):
+        assert check is True
+        assert command[command.index('--profile') + 1] == 'ga'
+        assert command[command.index('--server-sha') + 1] == CANDIDATE.server_sha
+        assert command[command.index('--server-digest') + 1] == CANDIDATE.server_digest
+        assert command[command.index('--platform-lock') + 1] == (
+            'sha256:' + hashlib.sha256(b'immutable selected lock bytes').hexdigest())
+        if refused:
+            raise subprocess.CalledProcessError(1, command)
+        Path(command[-1]).write_text(json.dumps(aggregate()))
+
+    monkeypatch.setattr(subprocess, 'run', collect)
+    if refused:
+        with pytest.raises(subprocess.CalledProcessError):
+            exec(script, {})
+        assert not (tmp_path / 'ga-promise-outcomes.md').exists()
+    else:
+        exec(script, {})
+        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 18

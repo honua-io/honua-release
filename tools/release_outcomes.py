@@ -63,3 +63,10 @@ def report_valid(rows, profile, now):
                and now - dt.timedelta(days=7) <= instant(row['observedAt']) <= now
                and (profile == 'rc' or (number(targets[row['id']])
                     and row['value'] <= targets[row['id']])) for row in rows)
+
+
+def render_markdown(rows):
+    lines = ["\n## Measured release outcomes\n"]
+    lines.extend(f"- {row['id']}: " + notes_line({'row': row['id'], 'value': row['value']})
+                 for row in sorted(rows, key=lambda row: row['id']))
+    return "\n".join(lines) + "\n"
