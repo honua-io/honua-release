@@ -1572,14 +1572,71 @@ def _audit_oci(channel: dict) -> None:
             raise PreflightError(f"{channel_id} {key} {observed} does not match its pin {pin}")
 
 
+def _qgis_absence_for_drift(channel: dict) -> bool:
+    """True when the QGIS plugin is still unpublished.
+
+    A rate-limit or abuse denial records extra API fields beside a public-page 404.
+    Those fields describe the probe, not a new publication, so drift comparison uses
+    the same absent row as a direct anonymous 404.
+    """
+    if channel.get("id") != "qgis:honua-qgis-plugin" or channel.get("disposition") != "blocked-on-operator":
+        return False
+    if channel.get("plugin_http_status") != 404 or channel.get("urls") != [QGIS_REPO_URL, QGIS_PLUGIN_URL]:
+        return False
+    if channel.get("publication") != "QGIS plugin honua_gis_assistant":
+        return False
+    if not channel.get("observed_url"):
+        return channel.get("http_status") == 404
+    return (
+        channel.get("canonical_url") == QGIS_REPO_URL
+        and channel.get("observed_url") == QGIS_PUBLIC_REPO_URL
+        and channel.get("observed_http_status") == 404
+        and channel.get("api_http_status") in {403, 429}
+        and channel.get("http_status") == channel.get("api_http_status")
+    )
+
+
+def _qgis_absent_channel() -> dict:
+    return {
+        "disposition": "blocked-on-operator",
+        "http_status": 404,
+        "id": "qgis:honua-qgis-plugin",
+        "plugin_http_status": 404,
+        "publication": "QGIS plugin honua_gis_assistant",
+        "urls": [QGIS_REPO_URL, QGIS_PLUGIN_URL],
+    }
+
+
 def project(receipt: dict) -> dict:
-    """The drift-compared view: no observed_at, and no observed digests of floating channel tags."""
+    """The drift-compared view: no observed_at, and no observed digests of floating channel tags.
+
+    An unpublished QGIS plugin observed through an API denial is compared as the
+    committed anonymous-404 row. Publication, a public repository, or a plugin
+    listing still shows up as drift.
+    """
     projected = {key: value for key, value in receipt.items() if key != "observed_at"}
-    projected["channels"] = [
-        {key: value for key, value in channel.items() if key not in OCI_FLOATING_FIELDS}
-        if channel.get("floating_channel_tag") is True else channel
-        for channel in receipt.get("channels") or []
-    ]
+    channels = []
+    qgis_absent = False
+    for channel in receipt.get("channels") or []:
+        if channel.get("floating_channel_tag") is True:
+            channel = {key: value for key, value in channel.items() if key not in OCI_FLOATING_FIELDS}
+        if _qgis_absence_for_drift(channel):
+            qgis_absent = True
+            channels.append(_qgis_absent_channel())
+        else:
+            channels.append(channel)
+    projected["channels"] = channels
+    if qgis_absent:
+        blockers = []
+        for blocker in projected.get("blockers") or []:
+            if (
+                blocker.get("kind") == "blocked-on-operator"
+                and blocker.get("channels") == ["qgis:honua-qgis-plugin"]
+                and blocker.get("publication") == "QGIS plugin honua_gis_assistant"
+            ):
+                blocker = {**blocker, "boundary": QGIS_BOUNDARY}
+            blockers.append(blocker)
+        projected["blockers"] = blockers
     return projected
 
 
