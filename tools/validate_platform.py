@@ -56,6 +56,7 @@ from component_versions import version_map  # noqa: E402
 import platform_version  # noqa: E402
 import deployment_qualification as dq  # noqa: E402
 from image_platforms import image_coordinate, image_platform_digests, verify_image_platform_digests  # noqa: E402
+from image_requirement import label_rule  # noqa: E402
 sys.path.append(str(Path(__file__).resolve().parents[1] / "e2e"))  # after tools/: never shadows a tool module
 import expected_ga_observation as ego  # noqa: E402
 
@@ -317,6 +318,14 @@ def check_structure(manifest: dict, matrix: dict, f: Findings) -> None:
 
     _check_client_artifacts(manifest.get("clientArtifacts"), f)
     _check_evidence_sources(manifest.get("evidenceSources"), f)
+
+
+def check_image_label_rules(manifest: dict, f: Findings) -> None:
+    for name, component in (manifest.get("components") or {}).items():
+        try:
+            label_rule((component or {}).get("imageLabels"))
+        except ValueError as error:
+            f.error(f"manifest: component {name!r}: {error}")
 
 
 def check_bound_catalog_pin_coherence(manifest: dict, requirements: dict, f: Findings) -> None:
@@ -862,6 +871,7 @@ def validate(
 ) -> Findings:
     f = Findings()
     check_structure(manifest, matrix, f)
+    check_image_label_rules(manifest, f)
     # Coherence/drift assume structure held well enough to read; they no-op on missing pieces.
     check_coherence(manifest, matrix, f)
     check_deploy_qualification(manifest, matrix, f, exact_candidate=exact_candidate,

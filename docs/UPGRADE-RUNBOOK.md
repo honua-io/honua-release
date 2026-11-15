@@ -189,7 +189,9 @@ GitHub release, else the amd64 image of the newest signed nightly lock
 `compose-upgrade-prior-nightly-2026-10-27` (founder decision 2026-10-27) uses the newest published,
 certified nightly honua-server image older than the candidate. That is the first `nightly-<sha7>` image,
 walking honua-server trunk back from the candidate's commit, whose commit has a green full-matrix
-`ci.yml` (for example `nightly-08ace24`). It is resolved by its linux/amd64 digest. Once rc.1 is
+`ci.yml` (for example `nightly-08ace24`). It is resolved by its linux/amd64 digest and must be the
+variant the candidate declares in `imageLabels`; `nightly-aot-<sha7>` is tried when `nightly-<sha7>`
+is another variant. Once rc.1 is
 published, the rc rule applies again. An rc, lock or nightly that ships the candidate's own image or
 commit is refused. When no source yields a different immutable digest, the cell is `blocked` (a strict
 train fails it); it never falls back to the candidate, a floating tag or a manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
