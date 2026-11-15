@@ -588,6 +588,16 @@ def dotnet_release_profile(contract: dict) -> dict[str, int]:
 GP_PREVIEW_FLOOR_RULING = "gp-preview-floor-2026-10-26"
 
 
+def catalog_capability_available(capability: dict | None) -> bool:
+    if capability is None:
+        return False
+    maturity = capability.get("maturity", {})
+    if maturity.get("implemented"):
+        return True
+    ruling = load(SOURCES / "gp-preview-floor.v1.json")
+    return bool(maturity.get("preview") and capability["key"] in ruling["capability_keys"])
+
+
 def gp_entry_selects(entry: dict, row: dict) -> bool:
     if row["capability_key"] != entry["capability_key"] or row["surface"] != entry["surface"]:
         return False
@@ -754,10 +764,9 @@ def main() -> None:
             release_bucket: str | None = None,
             client_driver: str | None = None,
             client_package_digest: str | None = None) -> None:
-        # Every row is stamped maturity "supported". A capability the pinned matrix has not
-        # implemented must not enter the release denominator, on any lane.
+        # Preview GP rows are classified by the explicit floor ruling after roster binding.
         recorded = server_by_key.get(capability)
-        if recorded is not None and not recorded.get("maturity", {}).get("implemented"):
+        if recorded is not None and not catalog_capability_available(recorded):
             return
         # The preview-surfaces ruling (release#351) covers every client driver (R40), not only
         # the bounded roster: an addressable driver row on a Preview capability would be a
@@ -1005,7 +1014,7 @@ def main() -> None:
     assignments = load(SOURCES / "canonical-client-assignments.v1.json")
     for assignment in assignments["assignments"]:
         capability = server_by_key.get(assignment["capability_key"])
-        if not capability or not capability.get("maturity", {}).get("implemented"):
+        if not catalog_capability_available(capability):
             continue
         for client_id in assignment["clients"]:
             client = assignments["clients"][client_id]
