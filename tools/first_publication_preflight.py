@@ -28,6 +28,8 @@ import urllib.request
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+import qgis_publication_drift as qgis_drift
 from xml.etree import ElementTree
 
 import yaml
@@ -153,23 +155,13 @@ OCI_PIN_FIELDS = {
     "awsLambdaImage": (None, ("awsLambdaDigest",)),
 }
 OCI_FLOATING_FIELDS = ("observed_digest", "observed_platform_digests", "observed_urls")
-QGIS_REPO_URL = "https://api.github.com/repos/honua-io/honua-qgis-plugin"
-QGIS_PUBLIC_REPO_URL = "https://github.com/honua-io/honua-qgis-plugin"
-# plugins.qgis.org keys a plugin by its ZIP's top-level package folder, not its display name.
-# honua-qgis-plugin scripts/package.py builds honua_gis_assistant-<version>.zip with the single
-# top-level folder honua_gis_assistant/, so that is the listing slug.
-QGIS_PLUGIN_URL = "https://plugins.qgis.org/plugins/honua_gis_assistant/"
+QGIS_REPO_URL = qgis_drift.QGIS_REPO_URL
+QGIS_PUBLIC_REPO_URL = qgis_drift.QGIS_PUBLIC_REPO_URL
+QGIS_PLUGIN_URL = qgis_drift.QGIS_PLUGIN_URL
+QGIS_BOUNDARY = qgis_drift.QGIS_BOUNDARY
 # Anonymous api.github.com denials on shared CI addresses are rate-limit or abuse blocks.
 # Retry them, then give up. A 403 is never itself evidence the repository is private.
 QGIS_DENIAL_RETRY_DELAYS = (10, 30, 60, 120, 80)
-QGIS_BOUNDARY = (
-    "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request "
-    "(a private repository is not distinguishable from a missing one) and "
-    "https://plugins.qgis.org/plugins/honua_gis_assistant/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; "
-    "it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, "
-    "history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). "
-    "No signing secret is recorded here."
-)
 
 
 class PreflightError(ValueError):
@@ -1335,20 +1327,12 @@ def _blockers(channels: list[dict]) -> list[dict]:
         )
     qgis = by_id["qgis:honua-qgis-plugin"]
     if qgis["disposition"] == "blocked-on-operator":
-        if qgis.get("observed_url"):
-            qgis_boundary = (
-                f"{qgis['canonical_url']} returned {qgis['api_http_status']} to an unauthenticated request "
-                f"(not evidence the repository is private). "
-                f"{qgis['observed_url']} returned {qgis['observed_http_status']}. "
-                f"{QGIS_PLUGIN_URL} returned {qgis['plugin_http_status']}. "
-                "honua-qgis-plugin CI builds a ZIP artifact only; "
-                "it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, "
-                "history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). "
-                "No signing secret is recorded here."
-            )
-        else:
-            qgis_boundary = QGIS_BOUNDARY
-        add("blocked-on-operator", "QGIS plugin honua_gis_assistant", qgis_boundary, ["qgis:honua-qgis-plugin"])
+        add(
+            "blocked-on-operator",
+            "QGIS plugin honua_gis_assistant",
+            qgis_drift.boundary(qgis),
+            ["qgis:honua-qgis-plugin"],
+        )
     missing_sdk = [
         f"nuget:{package_id}"
         for package_id in SDK_PACKAGE_IDS
@@ -1573,13 +1557,21 @@ def _audit_oci(channel: dict) -> None:
 
 
 def project(receipt: dict) -> dict:
-    """The drift-compared view: no observed_at, and no observed digests of floating channel tags."""
+    """The drift-compared view: no observed_at, and no observed digests of floating channel tags.
+
+    A rate-limited QGIS row with exactly the denial fields, and the blocker text
+    that row produces, is compared as the committed anonymous-404 receipt.
+    Any other QGIS key, status, or blocker text still drifts.
+    """
     projected = {key: value for key, value in receipt.items() if key != "observed_at"}
-    projected["channels"] = [
-        {key: value for key, value in channel.items() if key not in OCI_FLOATING_FIELDS}
-        if channel.get("floating_channel_tag") is True else channel
-        for channel in receipt.get("channels") or []
-    ]
+    channels = []
+    for channel in receipt.get("channels") or []:
+        if channel.get("floating_channel_tag") is True:
+            channel = {key: value for key, value in channel.items() if key not in OCI_FLOATING_FIELDS}
+        channels.append(channel)
+    projected["channels"], projected["blockers"] = qgis_drift.project_absence(
+        channels, list(projected.get("blockers") or [])
+    )
     return projected
 
 

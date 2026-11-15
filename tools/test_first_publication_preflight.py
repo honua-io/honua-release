@@ -867,6 +867,29 @@ def test_qgis_api_denial_and_public_404_keep_the_observed_source(monkeypatch):
         assert item == _channel(golden, item["id"])
 
 
+def test_rate_limited_qgis_absence_is_not_first_publication_drift(monkeypatch):
+    """CI often sees an anonymous rate limit. The plugin and public page are still
+    404, so that probe matches the committed receipt instead of failing the gate."""
+    monkeypatch.setattr(preflight, "_sleep", lambda delay: None)
+    live = _qgis_receipt(_QgisTransport([(403, RATE_LIMIT_BODY)]))
+    committed = _receipt()
+    assert _channel(live, "qgis:honua-qgis-plugin") != _channel(committed, "qgis:honua-qgis-plugin")
+    preflight.compare(live, committed)
+    preflight.compare(committed, live)
+    changed = json.loads(json.dumps(live))
+    _channel(changed, "qgis:honua-qgis-plugin")["plugin_http_status"] = 200
+    with pytest.raises(preflight.PreflightError, match="drifted at qgis:honua-qgis-plugin"):
+        preflight.compare(changed, committed)
+    stale_boundary = json.loads(json.dumps(live))
+    next(item for item in stale_boundary["blockers"] if item["channels"] == ["qgis:honua-qgis-plugin"])["boundary"] = "stale"
+    with pytest.raises(preflight.PreflightError, match="blocker text drifted"):
+        preflight.compare(stale_boundary, committed)
+    extra_key = json.loads(json.dumps(committed))
+    _channel(extra_key, "qgis:honua-qgis-plugin")["api_http_status"] = 403
+    with pytest.raises(preflight.PreflightError, match="drifted at qgis:honua-qgis-plugin"):
+        preflight.compare(extra_key, committed)
+
+
 def test_qgis_permission_denial_is_not_evidence_the_repo_is_private(monkeypatch):
     slept = []
     monkeypatch.setattr(preflight, "_sleep", slept.append)
