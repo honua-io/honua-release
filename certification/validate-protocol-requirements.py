@@ -248,6 +248,26 @@ def validate_gp_preview_floor(catalog: dict) -> dict:
     return {**catalog, "requirements": governed}
 
 
+def validate_harness_postures(catalog: dict, contract: dict) -> None:
+    rows = {
+        (row["capability_key"], row["surface"], row["operation"]): row
+        for row in catalog["requirements"]
+        if row["client_lane"] == contract["client_lane"]
+    }
+    for assignment in contract["assignments"]:
+        if not {"maturity", "required_tier"}.intersection(assignment):
+            continue
+        maturity = assignment.get("maturity", "supported")
+        tier = assignment.get("required_tier", contract["required_tier"])
+        expected_tier = "release" if maturity == "preview" else contract["required_tier"]
+        if maturity not in ("supported", "preview") or tier != expected_tier:
+            raise ValueError("Server protocol harness posture must keep the supported contract tier or declared Preview/release pair.")
+        key = (assignment["capability_key"], assignment["surface"], assignment["operation"])
+        row = rows.get(key)
+        if row is not None and (row["maturity"], row["required_tier"]) != (maturity, tier):
+            raise ValueError(f"Server protocol harness posture differs from the governed catalog: {key}.")
+
+
 def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
@@ -275,6 +295,7 @@ def main() -> None:
         for cell in bounded_roster["cells"]
     }
     jsonschema.validate(catalog, schema)
+    validate_harness_postures(catalog, protocol_harness)
     catalog = validate_gp_preview_floor(catalog)
     validate_mcp_authorization(catalog)
     validate_raw_geometry_lane(catalog)
@@ -374,9 +395,13 @@ def main() -> None:
         (cell["canonical_client"], cell["surface"], cell["operation"])
         for cell in bounded_roster["preview_cells"]
     }
+    generator = _generator_module()
+    canonical_keys = {
+        capability["key"] for capability in server["capabilities"]
+        if generator.catalog_capability_available(capability)
+    }
     for assignment in assignments["assignments"]:
-        # The generator only emits assignments for implemented capabilities.
-        if assignment["capability_key"] not in implemented_keys:
+        if assignment["capability_key"] not in canonical_keys:
             continue
         for client_id in assignment["clients"]:
             client = assignments["clients"][client_id]
@@ -411,9 +436,9 @@ def main() -> None:
         raise ValueError("Server protocol harness must govern at least the 32 public operations of revision 2026-08-21.1.")
     allowed_assignment_fields = {
         "capability_key", "catalog_capability_key", "surface", "operation", "test_ids",
-        "scenario_facets",
+        "scenario_facets", "maturity", "required_tier",
     }
-    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key", "maturity", "required_tier"}
     known_capabilities = {capability["key"] for capability in server["capabilities"]}
     for assignment in harness_assignments:
         if assignment.get("capability_key") not in known_capabilities:
@@ -843,7 +868,7 @@ LICENSED_POLICIES = {
 
 def _validate_pyqgis_grid(
     rows: list[dict], driver: dict, must_fix: str, preview: set[str],
-    implemented: set[str], matrix_keys: set[str],
+    catalog_keys: set[str], matrix_keys: set[str],
 ) -> None:
     """R40: the pyqgis lane is the full surface × function grid. A cell the client cannot perform
     stays in the grid as not-applicable, with that reason declared on the row."""
@@ -861,8 +886,8 @@ def _validate_pyqgis_grid(
             raise ValueError(f"pyqgis surface {surface['surface']} names unknown functions {sorted(unknown)}.")
         if surface["capability_key"] in preview and set(declared) != set(operations):
             raise ValueError(f"preview surface {surface['surface']} must declare every function not-applicable.")
-        # The generator emits no grid row for a capability the pinned matrix has not implemented.
-        if surface["capability_key"] in matrix_keys and surface["capability_key"] not in implemented:
+        # The generator retains Preview GP rows covered by the explicit floor ruling.
+        if surface["capability_key"] in matrix_keys and surface["capability_key"] not in catalog_keys:
             continue
         for operation in operations:
             reason = declared.get(operation)
@@ -876,7 +901,7 @@ def _validate_pyqgis_grid(
         key = (dropped["surface"], dropped["operation"])
         if key in expected:
             raise ValueError(f"dropped PyQGIS function {key} collides with a grid cell.")
-        if dropped["surface"] in matrix_keys and dropped["surface"] not in implemented:
+        if dropped["surface"] in matrix_keys and dropped["surface"] not in catalog_keys:
             continue
         expected[key] = reason
     present = {
@@ -932,8 +957,13 @@ def _load_desktop_source(roster: dict) -> SimpleNamespace:
         capability["key"] for capability in matrix["capabilities"]
         if capability.get("maturity", {}).get("implemented")
     }
+    generator = _generator_module()
+    catalog_keys = {
+        capability["key"] for capability in matrix["capabilities"]
+        if generator.catalog_capability_available(capability)
+    }
     return SimpleNamespace(
-        source=source, qgis=qgis, drivers=drivers, must_fix=must_fix, prove=prove,
+        catalog_keys=catalog_keys, source=source, qgis=qgis, drivers=drivers, must_fix=must_fix, prove=prove,
         preview=preview, matrix_keys=matrix_keys, implemented=implemented,
     )
 
@@ -966,7 +996,7 @@ def _rows_by_driver(rows, desktop) -> dict[str, list[dict]]:
 def _reject_unimplemented(rows, desktop) -> None:
     withheld = [
         row for row in rows
-        if row["capability_key"] in desktop.matrix_keys and row["capability_key"] not in desktop.implemented
+        if row["capability_key"] in desktop.matrix_keys and row["capability_key"] not in desktop.catalog_keys
     ]
     if not withheld:
         return
@@ -1028,7 +1058,7 @@ def _assert_pyqgis(desktop, by_driver, rows) -> None:
         raise ValueError(f"pyqgis is missing OGC surfaces {missing}.")
     _validate_pyqgis_grid(
         scripting, desktop.drivers["pyqgis"], desktop.must_fix,
-        desktop.preview, desktop.implemented, desktop.matrix_keys,
+        desktop.preview, desktop.catalog_keys, desktop.matrix_keys,
     )
 
 
