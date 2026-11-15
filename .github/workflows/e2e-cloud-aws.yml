@@ -493,7 +493,8 @@ jobs:
           ECS_IMAGE: ${{ needs.candidate.outputs.server_image }}
         run: |
           set -uo pipefail
-          STATUS=skipped; WHY="cloud-creds-unset"
+          STATUS=skipped; WHY="cloud-creds-unset"; IAC_ROLE=unknown
+          REPO=honua-io/honua-iac; WF=terraform-manual-validation.yml; REF=trunk
           if [ -z "$GH_TOKEN" ] || [ -z "$AWS_ROLE" ]; then
             if [ "$REQUIRE_REAL" = "true" ]; then
               STATUS=fail; WHY="required cloud certification evidence missing: cloud-creds-unset"
@@ -502,9 +503,47 @@ jobs:
               echo "::notice title=cloud-cert self-skipped::iac-live: cloud-creds-unset (optional dry-run path)"
             fi
           else
-            REPO=honua-io/honua-iac
-            WF=terraform-manual-validation.yml
-            REF=trunk
+            # honua-iac's AWS job assumes its own role (vars.HONUA_AWS_VALIDATION_ROLE_ARN, resolved from
+            # its terraform-ephemeral environment, then repo, then org), not ours. When every level is
+            # readable and none sets it, dispatching only produces a red honua-iac run, so skip (or fail
+            # on a real cut). Any unreadable level => unknown => dispatch as before.
+            role_at() {  # $1 = variables collection; prints set | absent | unknown
+              # A private repo answers 404 when the token cannot read it, so a 404 on the variable
+              # means absent only when the collection itself is readable.
+              gh api "$1?per_page=1" >/dev/null 2>&1 || { echo unknown; return; }
+              local out
+              if out="$(gh api "$1/HONUA_AWS_VALIDATION_ROLE_ARN" --jq '.value // ""' 2>&1)"; then
+                [ -n "$out" ] && echo set || echo absent
+              elif printf '%s' "$out" | grep -q 'HTTP 404'; then echo absent
+              else echo unknown; fi
+            }
+            ENV_LEVEL="$(role_at "repos/$REPO/environments/terraform-ephemeral/variables")"
+            REPO_LEVEL="$(role_at "repos/$REPO/actions/variables")"
+            # Org variables shared with honua-iac; readable with repo-level Variables access.
+            if ORG_NAMES="$(gh api --paginate "repos/$REPO/actions/organization-variables?per_page=100" \
+                              --jq '.variables[] | select(.value != "") | .name' 2>/dev/null)"; then
+              printf '%s\n' "$ORG_NAMES" | grep -qx HONUA_AWS_VALIDATION_ROLE_ARN && ORG_LEVEL=set || ORG_LEVEL=absent
+            else
+              ORG_LEVEL=unknown
+            fi
+            echo "role levels: environment=$ENV_LEVEL repo=$REPO_LEVEL org=$ORG_LEVEL"
+            case "$ENV_LEVEL/$REPO_LEVEL/$ORG_LEVEL" in
+              *set*) IAC_ROLE=set ;;
+              absent/absent/absent) IAC_ROLE=unset ;;
+              *) IAC_ROLE=unknown ;;
+            esac
+            echo "honua-iac HONUA_AWS_VALIDATION_ROLE_ARN (any level): $IAC_ROLE"
+            if [ "$IAC_ROLE" = "unset" ]; then
+              WHY="iac-validation-role-unset"
+              if [ "$REQUIRE_REAL" = "true" ]; then
+                STATUS=fail; WHY="required cloud certification evidence missing: $WHY"
+                echo "::error title=required cloud-cert missing::iac-live cannot skip on a real release cut (honua-iac HONUA_AWS_VALIDATION_ROLE_ARN unset at every level)"
+              else
+                echo "::notice title=cloud-cert self-skipped::iac-live: honua-iac HONUA_AWS_VALIDATION_ROLE_ARN unset at every level (optional dry-run path)"
+              fi
+            fi
+          fi
+          if [ -n "$GH_TOKEN" ] && [ -n "$AWS_ROLE" ] && [ "$IAC_ROLE" != "unset" ]; then
             echo "dispatching $WF from $REPO/$REF against IAC $IAC_REF and server $SERVER_REF with run_live=true cloud=aws"
             # Record the dispatch time so we can find the run we just triggered.
             SINCE="$(date -u +%FT%TZ)"
