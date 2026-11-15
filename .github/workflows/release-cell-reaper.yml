@@ -116,7 +116,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-iac
-          ref: 05248459b37a04ba3cf2cc1544f43e007f2a1380 # honua-iac trunk (#452); sweep-orphaned-validation-infra.sh
+          ref: bc67dc77ed157b7310b13bfa3e32698a011a970a # honua-iac trunk (#453); sweep-orphaned-validation-infra.sh
           path: _honua-iac
           fetch-depth: 0
           persist-credentials: false
