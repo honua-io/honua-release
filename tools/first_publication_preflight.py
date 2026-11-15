@@ -1335,20 +1335,12 @@ def _blockers(channels: list[dict]) -> list[dict]:
         )
     qgis = by_id["qgis:honua-qgis-plugin"]
     if qgis["disposition"] == "blocked-on-operator":
-        if qgis.get("observed_url"):
-            qgis_boundary = (
-                f"{qgis['canonical_url']} returned {qgis['api_http_status']} to an unauthenticated request "
-                f"(not evidence the repository is private). "
-                f"{qgis['observed_url']} returned {qgis['observed_http_status']}. "
-                f"{QGIS_PLUGIN_URL} returned {qgis['plugin_http_status']}. "
-                "honua-qgis-plugin CI builds a ZIP artifact only; "
-                "it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, "
-                "history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). "
-                "No signing secret is recorded here."
-            )
-        else:
-            qgis_boundary = QGIS_BOUNDARY
-        add("blocked-on-operator", "QGIS plugin honua_gis_assistant", qgis_boundary, ["qgis:honua-qgis-plugin"])
+        add(
+            "blocked-on-operator",
+            "QGIS plugin honua_gis_assistant",
+            _qgis_boundary(qgis),
+            ["qgis:honua-qgis-plugin"],
+        )
     missing_sdk = [
         f"nuget:{package_id}"
         for package_id in SDK_PACKAGE_IDS
@@ -1572,23 +1564,53 @@ def _audit_oci(channel: dict) -> None:
             raise PreflightError(f"{channel_id} {key} {observed} does not match its pin {pin}")
 
 
-def _qgis_absence_for_drift(channel: dict) -> bool:
-    """True when the QGIS plugin is still unpublished.
+_QGIS_ABSENT_KEYS = frozenset({
+    "disposition",
+    "http_status",
+    "id",
+    "plugin_http_status",
+    "publication",
+    "urls",
+})
+_QGIS_DENIAL_KEYS = _QGIS_ABSENT_KEYS | frozenset({
+    "api_http_status",
+    "canonical_url",
+    "observed_http_status",
+    "observed_url",
+})
 
-    A rate-limit or abuse denial records extra API fields beside a public-page 404.
-    Those fields describe the probe, not a new publication, so drift comparison uses
-    the same absent row as a direct anonymous 404.
+
+def _qgis_boundary(channel: dict) -> str:
+    """Blocker text for an unpublished QGIS plugin, including a rate-limit observation."""
+    if channel.get("observed_url"):
+        return (
+            f"{channel['canonical_url']} returned {channel['api_http_status']} to an unauthenticated request "
+            "(not evidence the repository is private). "
+            f"{channel['observed_url']} returned {channel['observed_http_status']}. "
+            f"{QGIS_PLUGIN_URL} returned {channel['plugin_http_status']}. "
+            "honua-qgis-plugin CI builds a ZIP artifact only; "
+            "it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, "
+            "history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). "
+            "No signing secret is recorded here."
+        )
+    return QGIS_BOUNDARY
+
+
+def _qgis_rate_limit_absence(channel: dict) -> bool:
+    """True only for the exact rate-limit row that still shows the plugin unpublished.
+
+    A direct anonymous 404 is not rewritten. Extra keys, a different status, or a
+    different URL stay visible to drift comparison.
     """
-    if channel.get("id") != "qgis:honua-qgis-plugin" or channel.get("disposition") != "blocked-on-operator":
+    if set(channel) != _QGIS_DENIAL_KEYS:
         return False
-    if channel.get("plugin_http_status") != 404 or channel.get("urls") != [QGIS_REPO_URL, QGIS_PLUGIN_URL]:
-        return False
-    if channel.get("publication") != "QGIS plugin honua_gis_assistant":
-        return False
-    if not channel.get("observed_url"):
-        return channel.get("http_status") == 404
     return (
-        channel.get("canonical_url") == QGIS_REPO_URL
+        channel.get("id") == "qgis:honua-qgis-plugin"
+        and channel.get("disposition") == "blocked-on-operator"
+        and channel.get("publication") == "QGIS plugin honua_gis_assistant"
+        and channel.get("plugin_http_status") == 404
+        and channel.get("urls") == [QGIS_REPO_URL, QGIS_PLUGIN_URL]
+        and channel.get("canonical_url") == QGIS_REPO_URL
         and channel.get("observed_url") == QGIS_PUBLIC_REPO_URL
         and channel.get("observed_http_status") == 404
         and channel.get("api_http_status") in {403, 429}
@@ -1610,29 +1632,31 @@ def _qgis_absent_channel() -> dict:
 def project(receipt: dict) -> dict:
     """The drift-compared view: no observed_at, and no observed digests of floating channel tags.
 
-    An unpublished QGIS plugin observed through an API denial is compared as the
-    committed anonymous-404 row. Publication, a public repository, or a plugin
-    listing still shows up as drift.
+    A rate-limited QGIS row with exactly the denial fields, and the blocker text
+    that row produces, is compared as the committed anonymous-404 receipt.
+    Any other QGIS key, status, or blocker text still drifts.
     """
     projected = {key: value for key, value in receipt.items() if key != "observed_at"}
     channels = []
-    qgis_absent = False
+    qgis_denial = None
     for channel in receipt.get("channels") or []:
         if channel.get("floating_channel_tag") is True:
             channel = {key: value for key, value in channel.items() if key not in OCI_FLOATING_FIELDS}
-        if _qgis_absence_for_drift(channel):
-            qgis_absent = True
+        if _qgis_rate_limit_absence(channel):
+            qgis_denial = channel
             channels.append(_qgis_absent_channel())
         else:
             channels.append(channel)
     projected["channels"] = channels
-    if qgis_absent:
+    if qgis_denial is not None:
+        expected = _qgis_boundary(qgis_denial)
         blockers = []
         for blocker in projected.get("blockers") or []:
             if (
                 blocker.get("kind") == "blocked-on-operator"
                 and blocker.get("channels") == ["qgis:honua-qgis-plugin"]
                 and blocker.get("publication") == "QGIS plugin honua_gis_assistant"
+                and blocker.get("boundary") == expected
             ):
                 blocker = {**blocker, "boundary": QGIS_BOUNDARY}
             blockers.append(blocker)

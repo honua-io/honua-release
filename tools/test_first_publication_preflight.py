@@ -880,6 +880,14 @@ def test_rate_limited_qgis_absence_is_not_first_publication_drift(monkeypatch):
     _channel(changed, "qgis:honua-qgis-plugin")["plugin_http_status"] = 200
     with pytest.raises(preflight.PreflightError, match="drifted at qgis:honua-qgis-plugin"):
         preflight.compare(changed, committed)
+    stale_boundary = json.loads(json.dumps(live))
+    next(item for item in stale_boundary["blockers"] if item["channels"] == ["qgis:honua-qgis-plugin"])["boundary"] = "stale"
+    with pytest.raises(preflight.PreflightError, match="blocker text drifted"):
+        preflight.compare(stale_boundary, committed)
+    extra_key = json.loads(json.dumps(committed))
+    _channel(extra_key, "qgis:honua-qgis-plugin")["api_http_status"] = 403
+    with pytest.raises(preflight.PreflightError, match="drifted at qgis:honua-qgis-plugin"):
+        preflight.compare(extra_key, committed)
 
 
 def test_qgis_permission_denial_is_not_evidence_the_repo_is_private(monkeypatch):
