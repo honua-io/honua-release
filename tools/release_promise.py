@@ -137,7 +137,7 @@ def _reports(row: dict, token: str, artifacts: list[dict]) -> list[dict]:
     blob = w._get_bytes(f"{w.API}/repos/{row['repo']}/actions/artifacts/{found[0]['id']}/zip", token, 1_000_001)
     docs = _receipt_from_zip(blob, row['receipt'])
     if row['id'] == 'security-whitehat' and docs:
-        adversarial.attach_reports(docs[0], blob)
+        docs[0]['_archivedReports'] = adversarial.archived_reports(docs[0], blob)
     if row['id'] in outcomes.IDS and docs:
         docs[0]['releaseNotes'] = _release_notes(blob)
     return docs

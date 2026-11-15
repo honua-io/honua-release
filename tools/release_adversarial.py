@@ -11,9 +11,8 @@ FAULTS = frozenset({'stop-tasks', 'wedge-task', 'stop-database', 'fill-database'
                     'flood-requests'})
 
 
-def attach_reports(doc, blob):
+def archived_reports(doc, blob):
     """Read only declared sanitized reports from the authenticated Actions artifact."""
-    doc.pop('_archivedReports', None)
     verified = []
     try:
         with zipfile.ZipFile(io.BytesIO(blob)) as archive:
@@ -28,7 +27,7 @@ def attach_reports(doc, blob):
                         verified.append(name)
     except (zipfile.BadZipFile, ValueError, OSError, AttributeError, TypeError):
         pass
-    doc['_archivedReports'] = verified
+    return verified
 
 
 def valid(doc):

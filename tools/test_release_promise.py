@@ -283,10 +283,10 @@ def test_whitehat_reports_must_be_archived_with_matching_hash():
         for review in doc['reviews']:
             archive.writestr(review['report'], 'Sanitized review evidence')
             review['reportSha256'] = hashlib.sha256(b'Sanitized review evidence').hexdigest()
-    p.adversarial.attach_reports(doc, blob.getvalue())
+    doc['_archivedReports'] = p.adversarial.archived_reports(doc, blob.getvalue())
     assert p.adversarial.valid(doc)
     doc['reviews'][0]['reportSha256'] = '0' * 64
-    p.adversarial.attach_reports(doc, blob.getvalue())
+    doc['_archivedReports'] = p.adversarial.archived_reports(doc, blob.getvalue())
     assert not p.adversarial.valid(doc)
 
 
