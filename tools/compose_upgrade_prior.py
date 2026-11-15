@@ -26,6 +26,9 @@ this order, and nowhere else:
                     the registry index, its linux/amd64 child digest and the config revision label
                     (Registry.identity). Example: nightly-08ace24. Once rc.1 is published, source 1 wins
                     again and this source is never consulted.
+                    The image must also satisfy the candidate's declared imageLabels, so the prior
+                    is the same published variant as the candidate; `nightly-aot-<sha7>` is tried
+                    when `nightly-<sha7>` is another variant.
 
 A candidate of either kind whose server image IS the candidate's (index digest or amd64 child) is
 skipped: it is the same image, not a prior. When neither source yields a different immutable image,
@@ -67,9 +70,10 @@ NIGHTLY_LOCK = "nightly-lock"
 CERTIFIED_NIGHTLY = "certified-nightly"
 PRIOR_SOURCES = (PUBLISHED_RC, NIGHTLY_LOCK, CERTIFIED_NIGHTLY)
 NIGHTLY_PRIOR_RULING = "compose-upgrade-prior-nightly-2026-10-27"
-NIGHTLY_TAG = re.compile(r"nightly-([0-9a-f]{7})\Z")
+NIGHTLY_TAG = re.compile(r"nightly-(?:aot-)?([0-9a-f]{7})\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 ARCHITECTURE = "amd64"
+SERVER_REPOSITORY = "honua-io/honua-server"
 PLATFORM = "linux/amd64"
 D9_RULING = "https://github.com/honua-io/honua-release/issues/950"
 RETIER_RULING = "https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748"
@@ -97,6 +101,7 @@ def candidate_identity(manifest: dict) -> dict:
     same = {identity["reference"].rsplit("@", 1)[1], str(server.get("digest") or "")}
     same |= {str(v) for v in (server.get("platformDigests") or {}).values()}
     identity["sameImageDigests"] = sorted(d for d in same if DIGEST.fullmatch(d))
+    identity["imageLabels"] = server.get("imageLabels")
     return identity
 
 
@@ -197,6 +202,16 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
                     f"nightly-<sha7> image older than the candidate; never the candidate itself){detail}")
 
 
+def _admitted_nightly(registry, tags, requirement) -> dict:
+    """Observation for one green commit: its first per-SHA nightly tag the requirement admits."""
+    try:
+        tag, identity = registry.first_admitted(SERVER_REPOSITORY, tags, requirement)
+    except ValueError as refusal:
+        return {"tag": tags[0], "sha": requirement.sha, "certified": False, "why": f"image not admitted: {refusal}"}
+    return {"tag": tag, "sha": requirement.sha, "certified": True, "why": "",
+            "reference": f"ghcr.io/{SERVER_REPOSITORY}@{identity['platformDigests'][ARCHITECTURE]}"}
+
+
 def certified_nightlies_from_github(limit: int = 200):
     """Observation source for resolve(): honua-server trunk, older than the candidate, newest first.
 
@@ -205,32 +220,27 @@ def certified_nightlies_from_github(limit: int = 200):
     "certified" here exactly when it would have qualified as a nightly candidate.
     """
     def observe(candidate: dict):
-        from resolve_trunk_candidate import GitHub, Registry, ResolutionError
+        from image_requirement import ImageRequirement, label_rule
+        from resolve_trunk_candidate import GitHub, Registry
         server_sha = candidate["sourceRevision"]
-        repository, image_repository = "honua-io/honua-server", "honua-io/honua-server"
+        rule = label_rule(candidate.get("imageLabels"))
         github = GitHub()
         registry = Registry(github)
         older = False
-        for sha in github.commits(repository, limit):
+        for sha in github.commits(SERVER_REPOSITORY, limit):
             if sha == server_sha:
                 older = True
                 continue
             if not older:
                 continue        # newer than the candidate: never a prior
-            tag = f"nightly-{sha[:7]}"
-            if tag not in registry.tags(image_repository):
+            tags = [tag for tag in registry.candidate_tags(SERVER_REPOSITORY, sha) if NIGHTLY_TAG.fullmatch(tag)]
+            if not tags:
                 continue        # no published nightly image for this commit
-            green, why = github.green("honua-server", repository, sha)
+            green, why = github.green("honua-server", SERVER_REPOSITORY, sha)
             if not green:
-                yield {"tag": tag, "sha": sha, "certified": False, "why": why}
+                yield {"tag": tags[0], "sha": sha, "certified": False, "why": why}
                 continue
-            try:
-                identity = registry.identity(image_repository, tag, sha, [ARCHITECTURE])
-            except (OSError, ValueError, subprocess.CalledProcessError, ResolutionError) as exc:
-                yield {"tag": tag, "sha": sha, "certified": False, "why": f"image not bound by digest: {exc}"}
-                continue
-            yield {"tag": tag, "sha": sha, "certified": True, "why": "",
-                   "reference": f"ghcr.io/{image_repository}@{identity['platformDigests'][ARCHITECTURE]}"}
+            yield _admitted_nightly(registry, tags, ImageRequirement(sha, (ARCHITECTURE,), *rule))
         if not older:
             raise PairError(f"candidate honua-server {server_sha} is not within the newest {limit} trunk commits; "
                             "which nightlies are older than it cannot be established")

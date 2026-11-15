@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT / 'certification'))
 from build_test_github import enrich_with_workflow_runs
 from build_test_policy import BuildTestPolicy
 import check_build_test as ci
+from image_requirement import ImageRequirement, label_rule
 from component_versions import version_map
 from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER, artifact_version, stamp_platform_version
 import sdk_baselines
@@ -312,7 +313,8 @@ class Registry:
             if 'lambda' not in tag and (tag in exact or tag.startswith(prefix))
         )
 
-    def identity(self, repository, tag, sha, architectures):
+    def identity(self, repository, tag, requirement):
+        sha, architectures = requirement.sha, requirement.architectures
         raw, headers = self.request(repository, 'manifests/' + tag, manifest=True)
         digest = 'sha256:' + hashlib.sha256(raw).hexdigest()
         if headers.get('Docker-Content-Digest') != digest:
@@ -333,9 +335,13 @@ class Registry:
                 # Run 37501454457 crashed here with KeyError('config') instead of refusing.
                 raise ResolutionError(f'linux/{arch} manifest {child_digest} has no config descriptor')
             config = self.document(repository, config_digest)
-            revision = config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision')
+            declared = (config.get('config') or {}).get('Labels') or {}
+            revision = declared.get('org.opencontainers.image.revision')
             if revision != sha or config.get('architecture') != arch or config.get('os') != 'linux':
                 raise ResolutionError(f'linux/{arch} config is not bound to {sha}')
+            broken = requirement.broken_label(declared)
+            if broken:
+                raise ResolutionError(f'linux/{arch} image {broken}')
             children[arch] = child_digest
         if set(children) != set(architectures):
             raise ResolutionError('published image missing architectures: ' + ', '.join(sorted(set(architectures)-children.keys())))
@@ -344,7 +350,7 @@ class Registry:
         return {'image': f'ghcr.io/{repository}@{digest}', 'digest': digest, 'platformDigests': children,
                 'artifactSourceRevision': sha}
 
-    def lambda_manifest_digest(self, repository, tag, sha):
+    def lambda_manifest_digest(self, repository, tag, requirement):
         """Digest of the single linux/amd64 Lambda manifest bound to `sha`.
 
         The nightly tag is that manifest, or an index whose only linux platform is amd64
@@ -376,29 +382,45 @@ class Registry:
             raise ResolutionError('Lambda image config is not an object')
         labels = (config.get('config') or {}).get('Labels') or {}
         revision = labels.get('org.opencontainers.image.revision') if isinstance(labels, dict) else None
-        if revision != sha or config.get('architecture') != 'amd64' or config.get('os') != 'linux':
+        if revision != requirement.sha or config.get('architecture') != 'amd64' or config.get('os') != 'linux':
             raise ResolutionError('Lambda image is not bound to candidate source')
+        broken = requirement.broken_label(labels)
+        if broken:
+            raise ResolutionError(f'Lambda image {broken}')
         return digest
+
+    def first_admitted(self, repository, tags, requirement):
+        """(tag, identity) of the first tag whose image the requirement admits."""
+        reasons = []
+        for tag in tags:
+            try:
+                return tag, self.identity(repository, tag, requirement)
+            except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+                reasons.append(f'{tag}: {exc}')
+        raise ResolutionError('no published SHA-bound image' + (
+            ': ' + '; '.join(reasons) if reasons else f' for {requirement.sha}'))
 
     def image(self, name, component, sha):
         repository = component['image'].removeprefix('ghcr.io/').split('@')[0].split(':')[0]
-        reasons = []
-        for tag in self.candidate_tags(repository, sha):
+        requirement = ImageRequirement.of(sha, component.get('architectures', ['amd64']), component.get('imageLabels'))
+        tag, result = self.first_admitted(repository, self.candidate_tags(repository, sha), requirement)
+        if component.get('awsLambdaImage'):
             try:
-                result = self.identity(repository, tag, sha, component.get('architectures', ['amd64']))
-                if component.get('awsLambdaImage'):
-                    lambda_tag = f'nightly-lambda-aot-{sha[:7]}-amd64'
-                    digest = self.lambda_manifest_digest(repository, lambda_tag, sha)
-                    existing = str(component.get('awsLambdaEcrDigest') or '')
-                    # A moved source pin cannot keep yesterday's mirror digest (honua-release#99).
-                    ecr = existing if component.get('sha') == sha and (
-                        existing == 'pending-ecr-mirror' or DIGEST.fullmatch(existing)) else 'pending-ecr-mirror'
-                    result.update(awsLambdaImage=f'ghcr.io/{repository}:{lambda_tag}', awsLambdaDigest=digest,
-                                  awsLambdaEcrDigest=ecr)
-                return result
+                result.update(self.lambda_pins(repository, component, requirement))
             except (OSError, ValueError, subprocess.CalledProcessError) as exc:
-                reasons.append(f'{tag}: {exc}')
-        raise ResolutionError('no published SHA-bound image' + (': ' + '; '.join(reasons) if reasons else f' for {sha}'))
+                raise ResolutionError(f'no published SHA-bound image: {tag}: {exc}') from exc
+        return result
+
+    def lambda_pins(self, repository, component, requirement):
+        sha = requirement.sha
+        lambda_tag = f'nightly-lambda-aot-{sha[:7]}-amd64'
+        digest = self.lambda_manifest_digest(repository, lambda_tag, requirement)
+        existing = str(component.get('awsLambdaEcrDigest') or '')
+        # A moved source pin cannot keep yesterday's mirror digest.
+        ecr = existing if component.get('sha') == sha and (
+            existing == 'pending-ecr-mirror' or DIGEST.fullmatch(existing)) else 'pending-ecr-mirror'
+        return {'awsLambdaImage': f'ghcr.io/{repository}:{lambda_tag}', 'awsLambdaDigest': digest,
+                'awsLambdaEcrDigest': ecr}
 
 
 class EcsCandidateRegistry:
@@ -427,6 +449,8 @@ def select_component(name, component, github, registry, limit, skips=None, decla
     The sha came from this token's own trunk listing, so the 404 cannot be an invisible
     repository or revision."""
     repository = component['repository'].removeprefix('https://github.com/')
+    # A malformed rule is a refusal, not a per-commit skip repeated down the whole walk.
+    label_rule(component.get('imageLabels'))
     reasons = []
     skipped = []
 

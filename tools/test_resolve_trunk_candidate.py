@@ -11,6 +11,7 @@ import yaml
 
 import verify_client_artifacts as verifier
 
+from image_requirement import ImageRequirement
 import resolve_trunk_candidate as resolver
 from platform_version import stamp_errors
 
@@ -332,7 +333,7 @@ def registry_fixture(sha=NEW):
 
 def test_registry_reads_index_and_children_from_actual_bytes():
     registry, index, child = registry_fixture()
-    result = registry.identity('honua-io/server', 'nightly-aaaaaaa', NEW, ['amd64'])
+    result = registry.identity('honua-io/server', 'nightly-aaaaaaa', ImageRequirement.of(NEW, ['amd64']))
     assert result['digest'] == index
     assert result['platformDigests'] == {'amd64': child}
     assert result['image'].endswith('@' + index)
@@ -343,7 +344,7 @@ def test_registry_reads_index_and_children_from_actual_bytes():
 def test_registry_rejects_wrong_sha_or_incomplete_architectures(sha, architectures, message):
     registry, _, _ = registry_fixture(sha)
     with pytest.raises(resolver.ResolutionError, match=message):
-        registry.identity('honua-io/server', 'nightly-aaaaaaa', NEW, architectures)
+        registry.identity('honua-io/server', 'nightly-aaaaaaa', ImageRequirement.of(NEW, architectures))
 
 
 def _add_document(documents, value):
@@ -354,8 +355,8 @@ def _add_document(documents, value):
 
 
 def _bound_image(documents, sha):
-    config = _add_document(documents, {'architecture': 'amd64', 'os': 'linux',
-                                       'config': {'Labels': {'org.opencontainers.image.revision': sha}}})
+    labels = {'org.opencontainers.image.revision': sha, 'honua.runtime.compilation': 'native-aot'}
+    config = _add_document(documents, {'architecture': 'amd64', 'os': 'linux', 'config': {'Labels': labels}})
     child = _add_document(documents, {'config': {'digest': config},
                                       'mediaType': 'application/vnd.oci.image.manifest.v1+json'})
     index = _add_document(documents, {'manifests': [
@@ -2094,7 +2095,7 @@ def test_image_child_without_config_descriptor_refuses_instead_of_crashing():
     registry.request = lambda repository, suffix, manifest=False: (index, {'Docker-Content-Digest': digest})
     registry.document = lambda repository, digest, manifest=False: {'manifests': []}
     with pytest.raises(resolver.ResolutionError, match='no config descriptor'):
-        registry.identity('honua-io/honua-server', 'nightly-aaaaaaa', NEW, ['amd64'])
+        registry.identity('honua-io/honua-server', 'nightly-aaaaaaa', ImageRequirement.of(NEW, ['amd64']))
 
 
 # A released honua-iac stays on its release (2026.1 freeze needs a released version)

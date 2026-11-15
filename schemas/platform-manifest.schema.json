@@ -71,6 +71,14 @@
       "properties": {
         "sourcePinnedOnly": {"type": "boolean"},
         "outOfLock": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "imageLabels": {
+          "description": "What each platform's image config labels must say before the resolver pins this component's image (tools/image_requirement.py). `required` labels must be declared with the stated value; `whenDeclared` labels may be absent, but a declared value must match.",
+          "type": "object", "additionalProperties": false, "minProperties": 1,
+          "properties": {
+            "required": {"$ref": "#/$defs/imageLabelValues"},
+            "whenDeclared": {"$ref": "#/$defs/imageLabelValues"}
+          }
+        },
         "composeExecutor": {
           "description": "ARC v2 B1: the product's Compose executor image, built FROM this component's serving image at the same commit and run by the shipped quickstart package; locked as an explicitly typed executor-image artifact (tools/generate_platform_lock.py).",
           "type": "object", "additionalProperties": false,
@@ -86,6 +94,11 @@
           }
         }
       }
+    },
+    "imageLabelValues": {
+      "type": "object", "minProperties": 1,
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "string", "minLength": 1}
     },
     "disasterRecovery": {
       "type": "object",

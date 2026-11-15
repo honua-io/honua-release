@@ -490,6 +490,15 @@ components:
     platformDigests:
       amd64: "sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1"
       arm64: "sha256:e40b5463edb3b58082eb70996c3c9df09a67e23a945e029a6ca3c3af36c9f334"
+    # PUBLISHED VARIANT: the candidate ships the native-AOT, PostGIS-only serving image. The resolver
+    # proves it from each platform's config labels and skips a commit whose bound tags all break
+    # them; a tag name does not identify the variant. `whenDeclared`: images built before the
+    # store split carry no honua.store.profile label.
+    imageLabels:
+      required:
+        honua.runtime.compilation: "native-aot"
+      whenDeclared:
+        honua.store.profile: "postgis"
     # ARC v2 B1: the product's Compose executor, built by the same nightly run (compose-executor job,
     # first run 2026-11-02) FROM the serving image at this sha and run beside it by the shipped
     # quickstart package. tools/generate_platform_lock.py locks it as its own `executor-image` row
