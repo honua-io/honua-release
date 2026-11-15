@@ -35,8 +35,11 @@ permissions:
   contents: read
   pull-requests: read
 
+# In a workflow_call the github context is the caller's: github.workflow keeps the call from
+# gate-security (or the train) out of the standalone schedule's group; otherwise
+# cancel-in-progress lets either run cancel the other.
 concurrency:
-  group: gate-security-findings-${{ github.ref }}
+  group: gate-security-findings-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
