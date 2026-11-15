@@ -217,6 +217,39 @@ jobs:
             --expected-run-id "$TRAIN_RUN_ID" \
             --github-output "$GITHUB_OUTPUT"
 
+      - name: Enforce current GA release promises
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RC_RUN_ID: ${{ steps.readiness.outputs.rc_train_run_id }}
+        run: |
+          set -euo pipefail
+          python - <<'PYTHON'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, 'tools')
+          import rc_gate_window as window
+          from release_outcomes import render_markdown
+          root = Path('promotion-evidence/trains/') / os.environ['RC_RUN_ID']
+          sha, digest = window.server_identity(str(root / 'platform-manifest.yaml'))
+          lock = 'sha256:' + hashlib.sha256((root / 'platform-lock.json').read_bytes()).hexdigest()
+          report = Path(os.environ['RUNNER_TEMP']) / 'ga-promise-report.json'
+          subprocess.run([sys.executable, 'tools/release_promise.py', '--server-sha', sha,
+                          '--server-digest', digest, '--platform-lock', lock,
+                          '--profile', 'ga', '--out', str(report)], check=True)
+          notes = Path(os.environ['RUNNER_TEMP']) / 'ga-promise-outcomes.md'
+          notes.write_text(render_markdown(json.loads(report.read_text())['outcomes']))
+          PYTHON
+
+      - name: Upload current GA promise evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ga-release-promise-report
+          path: |
+            ${{ runner.temp }}/ga-promise-report.json
+            ${{ runner.temp }}/ga-promise-outcomes.md
+          if-no-files-found: warn
+
       - name: Preserve current publication trust policy and verifier
         run: |
           set -euo pipefail
@@ -341,6 +374,7 @@ jobs:
             --out-manifest finalized-manifest.yaml \
             --out-notes release-notes.md \
             "${NOTES_INTRO_ARGS[@]}"
+          cat "$RUNNER_TEMP/ga-promise-outcomes.md" >> release-notes.md
           # Publish the BOM derived from the attested candidate lock at freeze.
           cp candidate/bom.cdx.json bom.cdx.json
 
