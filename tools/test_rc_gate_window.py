@@ -277,13 +277,13 @@ def test_unbound_diagnostic_or_stale_or_missing_run_does_not_pass():
 def test_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green():
     pin = NOW - dt.timedelta(days=3)
     records = {}
-    for index, gate in enumerate(g for g in w.RC_GATES if g != w.ARC_GATE):
+    for index, gate in enumerate(g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE)):
         records[gate] = {"runs": [_run(1, report=_report(), run_id=index + 1)]}
     result = _eval(records, advisory=w.RC_ADVISORY, pin_at=pin)
     assert result["admissible"] is True
     assert result["red"] == []
     md = w.render_markdown(result)
-    for gate in (g for g in w.RC_GATES if g != w.ARC_GATE):
+    for gate in (g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE)):
         row = result["gates"][gate]
         assert row["verdict"] == "green"
         if gate in w.CANDIDATE_BOUND_GATES:
@@ -318,7 +318,7 @@ def test_a_red_advisory_gate_does_not_block_when_the_required_gate_qualifies():
 
 def test_gate_partition_covers_every_train_and_ai_gate_once():
     covered = set(w.CANDIDATE_BOUND_GATES) | set(w.UNBOUND_GATE_LIMITATIONS)
-    assert covered == set(w.ADMISSION_GATES + w.AI_GATES + (w.ARC_GATE, w.STUDIO_CUSTOMER_GATE))
+    assert covered == set(w.ADMISSION_GATES + w.AI_GATES + (w.ARC_GATE, w.STUDIO_CUSTOMER_GATE, w.PROMISE_GATE))
     assert not (set(w.CANDIDATE_BOUND_GATES) & set(w.UNBOUND_GATE_LIMITATIONS))
     assert all(text.strip() for text in w.UNBOUND_GATE_LIMITATIONS.values())
 
@@ -338,7 +338,7 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
 
 def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
     """The founder requires the arc while retaining advisory status for the older AI gates."""
-    assert len(w.RC_GATES) == 19
+    assert len(w.RC_GATES) == 20
     assert w.ARC_GATE in w.RC_GATES
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)

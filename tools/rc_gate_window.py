@@ -99,7 +99,8 @@ GA_ONLY_GATES = (PROTOCOL_GATE,)
 RC_ADVISORY: tuple[str, ...] = AI_GATES
 ARC_GATE = "ai-arc.yml"
 STUDIO_CUSTOMER_GATE = "gate-studio-customer-journey.yml"
-RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFERRED + GA_ONLY_GATES) + (ARC_GATE, STUDIO_CUSTOMER_GATE)
+PROMISE_GATE = "gate-release-promise.yml"
+RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFERRED + GA_ONLY_GATES) + (ARC_GATE, STUDIO_CUSTOMER_GATE, PROMISE_GATE)
 
 # Workflows whose uploaded report or receipt can carry the honua-server image digest, the honua-server
 # source SHA, and the platform-lock digest. e2e-cloud-aws.yml's gate report also carries certifying /
@@ -109,6 +110,7 @@ RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFE
 CANDIDATE_BOUND_GATES: frozenset[str] = frozenset({
     "e2e-cloud-aws.yml",
     STUDIO_CUSTOMER_GATE,
+    PROMISE_GATE,
     PROTOCOL_GATE,
     "ai-arc.yml",
     "gate-upgrade.yml",
@@ -709,7 +711,8 @@ def _arc_valid(docs: list[dict], candidate: Candidate, arm: str) -> bool:
 
 
 def _title_bound_without_receipt(run, candidate, gate):
-    prefixes = {STUDIO_CUSTOMER_GATE: "Studio customer gate ", PROTOCOL_GATE: "Protocol certification "}
+    prefixes = {STUDIO_CUSTOMER_GATE: "Studio customer gate ", PROTOCOL_GATE: "Protocol certification ",
+                PROMISE_GATE: "Release promise "}
     return (gate in prefixes and run.get("display_title") == prefixes[gate] + candidate.platform_lock
             and not any(matches_candidate(doc, candidate) for doc in _documents(run)))
 
@@ -902,6 +905,7 @@ class Admission:
     days: float
     pin_at: dt.datetime | None
     unbound: dict[str, str]
+    profile: str = "rc"
 
 
 def _deciding(relevant: list[tuple[object, dict]]) -> tuple[object, dict]:
@@ -1014,6 +1018,19 @@ def _bound_verdict(name: str, rec: dict, admission: Admission) -> dict:
             "last_green_build": admission.candidate.server_sha[:12]}
 
 
+def _promise_record(rec: dict, admission: Admission) -> dict:
+    # Recheck row freshness at admission, not only when the aggregate was uploaded.
+    from release_promise import report_valid
+
+    now = admission.cutoff + dt.timedelta(days=admission.days)
+    runs = []
+    for run in rec.get("runs") or []:
+        valid = any(matches_candidate(doc, admission.candidate)
+                    and report_valid(doc, admission.profile, now) for doc in _documents(run))
+        runs.append(run if valid else {**run, "conclusion": "failure"})
+    return {**rec, "runs": runs}
+
+
 def _gate_verdict(name: str, rec: dict, admission: Admission) -> dict:
     receiptless = name in admission.unbound
     if rec.get("complete") is False:
@@ -1024,13 +1041,15 @@ def _gate_verdict(name: str, rec: dict, admission: Admission) -> dict:
         return _unbound_verdict(rec, admission.unbound[name], admission)
     if name == ARC_GATE:
         return _arc_verdict(rec, admission)
+    if name == PROMISE_GATE:
+        rec = _promise_record(rec, admission)
     return _bound_verdict(name, rec, admission)
 
 
 def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
              candidate: Candidate, advisory: tuple[str, ...] = (),
              unbound: dict[str, str] | None = None,
-             pin_at: dt.datetime | None = None) -> dict:
+             pin_at: dt.datetime | None = None, profile: str = "rc") -> dict:
     """Admit each gate from the run that executed last.
 
     A bound gate counts only the newest run whose report names `candidate`. A gate with no such
@@ -1040,7 +1059,7 @@ def evaluate(records: dict[str, dict], now: dt.datetime, window_days: float, *,
     in for a newer failure. The aggregate is admissible only when every non-advisory gate is green.
     """
     admission = Admission(candidate, now - dt.timedelta(days=window_days), window_days, pin_at,
-                       UNBOUND_GATE_LIMITATIONS if unbound is None else unbound)
+                       UNBOUND_GATE_LIMITATIONS if unbound is None else unbound, profile)
     gates = {name: {**_blank_gate(name, advisory), **_gate_verdict(name, rec, admission)}
              for name, rec in records.items()}
     red = sorted(n for n, g in gates.items() if g["verdict"] != "green" and not g["advisory"])
@@ -1243,7 +1262,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.gate:
         gates = tuple(args.gate)
     else:
-        gates = ADMISSION_GATES + (ARC_GATE, STUDIO_CUSTOMER_GATE) + (() if args.without_ai_gates else AI_GATES)
+        gates = ADMISSION_GATES + (ARC_GATE, STUDIO_CUSTOMER_GATE, PROMISE_GATE) + (() if args.without_ai_gates else AI_GATES)
         if args.set == "rc":
             gates = tuple(g for g in gates if g not in GA_DEFERRED + GA_ONLY_GATES)
             advisory = tuple(g for g in RC_ADVISORY if g in gates)
@@ -1258,7 +1277,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rc gate window: {gate}: GitHub API HTTP {exc.code}", file=sys.stderr)
             return 2
     result = evaluate(records, now, args.window_days, candidate=candidate, advisory=advisory,
-                      pin_at=pin_at)
+                      pin_at=pin_at, profile=args.set)
     result["repo"], result["branch"], result["set"] = args.repo, args.branch, args.set
     result["deferred_to_ga"] = list(GA_DEFERRED + GA_ONLY_GATES) if args.set == "rc" and not args.gate else []
     with open(args.out, "w", encoding="utf-8") as fh:

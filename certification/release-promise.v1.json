@@ -1,0 +1,604 @@
+{
+  "schema": "honua.release-promise-contract/v1",
+  "windowDays": 7,
+  "authority": "Founder 2026-11-14 22:50 PT, amending 2026-11-13 runs-itself and AI-native rulings",
+  "producerPolicy": "Workflow names are producer contracts, not assertions that producers exist. Missing workflows or receipts fail closed. Private security producer publishes only a count; no tracker details.",
+  "rows": [
+    {
+      "id": "operates-1",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-1.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Stop every ECS task; recover service and send actionable failure and recovery notices."
+    },
+    {
+      "id": "operates-2",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-2.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Detect and recover a wedged service with a bounded rolling restart."
+    },
+    {
+      "id": "operates-3",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-3.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Recover a stopped database and send failure and recovery notices."
+    },
+    {
+      "id": "operates-4",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-4.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Detect nearly full DB storage, explain safe operator action and avoid risky automation."
+    },
+    {
+      "id": "operates-5",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-5.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Roll back a crashing release, verify recovery and notify inbox and email."
+    },
+    {
+      "id": "operates-6",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-6.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Roll back a release that starts but errors; prove alarms and bake behavior."
+    },
+    {
+      "id": "operates-9",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-9.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Warn on blocked WAF traffic without restarting healthy services."
+    },
+    {
+      "id": "operates-10",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-10.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Stopped watchdog heartbeat sends an email within ten minutes."
+    },
+    {
+      "id": "operates-11",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-11.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Kill switch / NotifyOnly diagnoses and notifies without mutation by server or watchdog."
+    },
+    {
+      "id": "operates-12-notify",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-runs-itself.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-12-notify.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Human-needed event sends plain-language inbox and email, renotifies and expires safely without action."
+    },
+    {
+      "id": "ai-operate",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-ai-native.yml",
+      "required": [
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "ai-operate.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Live AI-native operate evidence; unproven journey ships Preview for RC."
+    },
+    {
+      "id": "ai-publish",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-ai-native.yml",
+      "required": [
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "ai-publish.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Live AI-native publish evidence; unproven journey ships Preview for RC."
+    },
+    {
+      "id": "ai-build",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-ai-native.yml",
+      "required": [
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "ai-build.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Live AI-native build evidence; unproven journey ships Preview for RC."
+    },
+    {
+      "id": "ai-migrate",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-ai-native.yml",
+      "required": [
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "ai-migrate.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Live AI-native migrate evidence; unproven journey ships Preview for RC."
+    },
+    {
+      "id": "ai-injection",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-ai-native.yml",
+      "required": [
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "ai-injection.json",
+      "assertions": {
+        "live": true
+      },
+      "criterion": "Live AI-native injection evidence; unproven journey ships Preview for RC."
+    },
+    {
+      "id": "security-hardened",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-launch-stack.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "security-hardened.json",
+      "assertions": {
+        "live": true,
+        "protectionProfile": "Hardened"
+      },
+      "criterion": "Verify the hardened default profile on a live Launch Stack."
+    },
+    {
+      "id": "security-open-high",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-security-private-summary.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "security-open-high.json",
+      "assertions": {
+        "privateScoped": true
+      },
+      "criterion": "Private-scoped producer reads private tracker; publishes integer openHighFindings only, never titles, bodies or IDs."
+    },
+    {
+      "id": "cloud-launch-stack",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-launch-stack.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "cloud-launch-stack.json",
+      "assertions": {
+        "live": true,
+        "orchestrator": "ecs",
+        "redis": false,
+        "defaultImage": "postgis-only"
+      },
+      "criterion": "Install through the CloudFormation Launch Stack on a honua-gate stack; ECS only, no Redis, PostGIS-only default image."
+    }
+  ],
+  "outcomes": [
+    {
+      "id": "install-console",
+      "criterion": "Install to signed-in Console",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "install-console.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "unattended-person",
+      "criterion": "Person-minutes across unattended rows",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "unattended-person.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": 0
+    },
+    {
+      "id": "recovery-operates-1",
+      "criterion": "Fault to recovered: operates-1",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-1.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-2",
+      "criterion": "Fault to recovered: operates-2",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-2.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-3",
+      "criterion": "Fault to recovered: operates-3",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-3.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-4",
+      "criterion": "Fault to recovered: operates-4",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-4.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-5",
+      "criterion": "Fault to recovered: operates-5",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-5.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-6",
+      "criterion": "Fault to recovered: operates-6",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-6.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-9",
+      "criterion": "Fault to recovered: operates-9",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-9.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-10",
+      "criterion": "Fault to recovered: operates-10",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-10.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-11",
+      "criterion": "Fault to recovered: operates-11",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-11.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-12-notify",
+      "criterion": "Fault to recovered: operates-12-notify",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-12-notify.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "developer-map-with-skills",
+      "criterion": "Developer first map with skills",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "developer-map-with-skills.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "developer-map-without-skills",
+      "criterion": "Developer first map without skills",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "developer-map-without-skills.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "developer-app-with-skills",
+      "criterion": "Developer first app with skills",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "developer-app-with-skills.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "developer-app-without-skills",
+      "criterion": "Developer first app without skills",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "developer-app-without-skills.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "studio-publish-layer",
+      "criterion": "Non-coder publishes a layer in Studio",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "studio-publish-layer.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "studio-build-app",
+      "criterion": "Non-coder builds an app in Studio",
+      "unit": "minutes",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "studio-build-app.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    }
+  ],
+  "outcomesPolicy": "RC requires numeric candidate-bound measurements reported in the archived release notes. GA additionally enforces approved gaMaximum values; null means no approved target and blocks GA. No comparison to other products."
+}
