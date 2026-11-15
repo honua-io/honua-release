@@ -42,17 +42,18 @@ OUTPUT_LANGUAGES = {"", "text", "txt", "output", "plaintext", "plain", "console-
 OUTPUT_CUE = re.compile(
     r"\b(output|outputs|prints?|printed|returns?|response|responds|you (?:should |will |'ll )?see|"
     r"expect(?:ed)?|looks? like|result(?:s)?|shows?|answers?)\b", re.I)
-FILE_NAME = re.compile(
-    r"`((?:[\w.-]+/)*(?:[\w.-]+\.(?:py|js|mjs|cjs|ts|mts|tsx|cs|csproj|json|jsonc|ya?ml|toml|env|html|sh|"
-    r"txt|sql|xml|config|ini|props)|\.env|Dockerfile|Program\.cs))`")
+_FILE_TOKEN = (
+    r"(?:[\w.-]+/)*(?:[\w.-]+\.(?:py|js|mjs|cjs|ts|mts|tsx|cs|csproj|json|jsonc|ya?ml|toml|env|html|sh|"
+    r"txt|sql|xml|config|ini|props)|\.env|Dockerfile|Program\.cs)"
+)
+FILE_NAME = re.compile(rf"`({_FILE_TOKEN})`")
 FILE_CUE = re.compile(
     r"\b(save|saved|saving|put|create|creating|write|writing|named|called|paste|replace|contents of|file)\b", re.I)
 # The filename a reader is told to save, not a later mention of a different file.
 # "Save this as `publish-quickstart.py`, keeping the package's `quickstart.py`" binds the first.
 SAVE_AS_FILE = re.compile(
     r"\b(?:save|saved|saving|put|create|creating|write|writing|named|called)\b"
-    r"(?:(?!`).){0,120}?\bas\s+`((?:[\w.-]+/)*(?:[\w.-]+\.(?:py|js|mjs|cjs|ts|mts|tsx|cs|csproj|"
-    r"json|jsonc|ya?ml|toml|env|html|sh|txt|sql|xml|config|ini|props)|\.env|Dockerfile|Program\.cs))`",
+    rf"(?:(?!`).){{0,120}}?\bas\s+`({_FILE_TOKEN})`",
     re.I)
 FIRST_LINE_FILE = re.compile(r"^\s*(?://|#)\s*((?:[\w.-]+/)*[\w.-]+\.(?:cs|py|js|mjs|ts|mts|sh))\s*$")
 COMMAND_START = re.compile(
