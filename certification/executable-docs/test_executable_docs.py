@@ -847,10 +847,11 @@ def test_document_declared_tools_reach_its_python_session(tmp_path, monkeypatch,
     assert calls[-1] == ("rm", "-f", name)
 
 
-@pytest.mark.parametrize("declared,install_succeeds", [(True, True), (False, True), (True, False)])
-def test_display_prerequisite_is_scoped_and_install_failure_is_fatal(tmp_path, monkeypatch, declared, install_succeeds):
+@pytest.mark.parametrize("scenario", [(True, True), (False, True), (True, False)])
+def test_display_prerequisite_is_scoped_and_install_failure_is_fatal(tmp_path, monkeypatch, scenario):
     import subprocess
     import run
+    declared, install_succeeds = scenario
     calls = []
     def docker(*args, **kwargs):
         calls.append(args)
