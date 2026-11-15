@@ -248,6 +248,26 @@ def validate_gp_preview_floor(catalog: dict) -> dict:
     return {**catalog, "requirements": governed}
 
 
+def validate_harness_postures(catalog: dict, contract: dict) -> None:
+    rows = {
+        (row["capability_key"], row["surface"], row["operation"]): row
+        for row in catalog["requirements"]
+        if row["client_lane"] == contract["client_lane"]
+    }
+    for assignment in contract["assignments"]:
+        if not {"maturity", "required_tier"}.intersection(assignment):
+            continue
+        maturity = assignment.get("maturity", "supported")
+        tier = assignment.get("required_tier", contract["required_tier"])
+        expected_tier = "release" if maturity == "preview" else contract["required_tier"]
+        if maturity not in ("supported", "preview") or tier != expected_tier:
+            raise ValueError("Server protocol harness posture must keep the supported contract tier or declared Preview/release pair.")
+        key = (assignment["capability_key"], assignment["surface"], assignment["operation"])
+        row = rows.get(key)
+        if row is not None and (row["maturity"], row["required_tier"]) != (maturity, tier):
+            raise ValueError(f"Server protocol harness posture differs from the governed catalog: {key}.")
+
+
 def main() -> None:
     catalog = json.loads((ROOT / "protocol-certification-requirements.v1.json").read_text(encoding="utf-8"))
     schema = json.loads((ROOT / "protocol-certification-requirements.v1.schema.json").read_text(encoding="utf-8"))
@@ -275,6 +295,7 @@ def main() -> None:
         for cell in bounded_roster["cells"]
     }
     jsonschema.validate(catalog, schema)
+    validate_harness_postures(catalog, protocol_harness)
     catalog = validate_gp_preview_floor(catalog)
     validate_mcp_authorization(catalog)
     validate_raw_geometry_lane(catalog)
@@ -415,9 +436,9 @@ def main() -> None:
         raise ValueError("Server protocol harness must govern at least the 32 public operations of revision 2026-08-21.1.")
     allowed_assignment_fields = {
         "capability_key", "catalog_capability_key", "surface", "operation", "test_ids",
-        "scenario_facets",
+        "scenario_facets", "maturity", "required_tier",
     }
-    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key"}
+    required_assignment_fields = allowed_assignment_fields - {"catalog_capability_key", "maturity", "required_tier"}
     known_capabilities = {capability["key"] for capability in server["capabilities"]}
     for assignment in harness_assignments:
         if assignment.get("capability_key") not in known_capabilities:
