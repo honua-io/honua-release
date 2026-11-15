@@ -313,6 +313,7 @@ SDK_JS_REPOSITORY_PUBLISHERS = [
     ('@honua/sdk-js', 'js-sdk-v', 'publish-js-sdk.yml', 'workflow_dispatch'),
     ('@honua/mcp-server', 'mcp-server-v', 'publish-mcp-server.yml', 'push'),
     ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'workflow_dispatch'),
+    ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'push'),
 ]
 
 
@@ -342,7 +343,7 @@ def test_missing_githead_refuses_another_packages_publisher_or_tag(monkeypatch, 
 @pytest.mark.parametrize('package,tag,workflow,event', [
     ('@honua/mcp-server', 'mcp-server-v', 'publish-mcp-server.yml', 'pull_request'),
     ('@honua/sdk-js', 'js-sdk-v', 'publish-js-sdk.yml', 'push'),
-    ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'push'),
+    ('create-honua-app', 'create-honua-app-v', 'publish-create-honua-app.yml', 'pull_request'),
 ])
 def test_missing_githead_refuses_an_event_its_publisher_does_not_release_on(monkeypatch, package, tag, workflow, event):
     pin, _, _, _, calls = _npm_split_publisher(monkeypatch, package, tag, workflow, event)
