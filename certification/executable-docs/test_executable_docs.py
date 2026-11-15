@@ -847,6 +847,32 @@ def test_document_declared_tools_reach_its_python_session(tmp_path, monkeypatch,
     assert calls[-1] == ("rm", "-f", name)
 
 
+@pytest.mark.parametrize("declared,install_succeeds", [(True, True), (False, True), (True, False)])
+def test_display_prerequisite_is_scoped_and_install_failure_is_fatal(tmp_path, monkeypatch, declared, install_succeeds):
+    import subprocess
+    import run
+    calls = []
+    def docker(*args, **kwargs):
+        calls.append(args)
+        failed = args[:3] == ("exec", "--user", "0") and not install_succeeds
+        return subprocess.CompletedProcess(args, int(failed), "", "package archive unavailable" if failed else "")
+    monkeypatch.setattr(run, "docker", docker)
+    session = run.Session("gallery", tmp_path, {"node": "node@sha256:test"}, "http://guard", tmp_path,
+                          False, "host", "test", "5.9.3", prerequisites={"xvfb"} if declared else set())
+    if declared and not install_succeeds:
+        with pytest.raises(run.RunError, match="could not install the documented prerequisites"):
+            session.container("node")
+        assert "node" not in session.baselines
+    else:
+        session.container("node")
+    installs = [args[-1] for args in calls if args[:3] == ("exec", "--user", "0")]
+    assert installs == (["apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xauth xvfb"]
+                        if declared else [])
+    name = session.containers["node"]
+    session.close()
+    assert calls[-1] == ("rm", "-f", name)
+
+
 def test_undeclared_tools_are_not_injected_into_other_python_documents(tmp_path, monkeypatch):
     import subprocess
     import run

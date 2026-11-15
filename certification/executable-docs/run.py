@@ -175,7 +175,9 @@ def docker(*args: str, timeout: int = 600, check: bool = False) -> subprocess.Co
 # A documented prerequisite tool -> the Debian packages a reader would install for it. `sudo` stands for
 # "the reader can administer their machine" (for example `npx playwright install --with-deps`, which
 # installs Chromium's system libraries through sudo): the host-UID reader gets a passwordless sudo.
-APT_PREREQUISITES = {"jq": ["jq"], "python": ["python-is-python3"], "sudo": ["sudo"]}
+APT_PREREQUISITES = {
+    "jq": ["jq"], "python": ["python-is-python3"], "sudo": ["sudo"], "xvfb": ["xvfb", "xauth"],
+}
 LANGUAGE_RUNTIME = {"python": "python", "javascript": "node", "typescript": "node", "csharp": "dotnet"}
 
 

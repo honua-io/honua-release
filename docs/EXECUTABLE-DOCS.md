@@ -53,7 +53,8 @@ runs from a clone of that repository at the document's revision. When a document
 prerequisite tool beyond its runtime ("Python with `honua-admin`, and Node.js with `npx`"),
 `prerequisites` in `sources.json` records it with the citation. The pinned node runtime's
 `node`/`npm`/`npx` are mounted into the session's other containers; `jq` and `python` (as
-`python-is-python3`) are installed from the image's Debian archive; and `sudo` (the reader can
+`python-is-python3`) are installed from the image's Debian archive. A documented `xvfb`
+prerequisite installs both `xvfb` and `xauth` for `xvfb-run`. The `sudo` prerequisite (the reader can
 administer their machine, for example for `npx playwright install --with-deps`) gives the reader a
 passwordless `sudo`. A tool that a document uses but does not list (for example `jq` in
 `INSTALL-2026.1.md`) is not provided: the clean machine does not have it, and that is a finding.

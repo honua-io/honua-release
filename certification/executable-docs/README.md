@@ -19,8 +19,9 @@ Readiness attributes combine with the issue marker:
 shutdown at the end of the serve window.
 
 Document precedence is `fail > needs-input > blocked > pass`. Any blocked document keeps the
-nightly gate `blocked` and red; there is no waiver. Documented `jq`, `python` and `sudo`
-prerequisites use the reader container’s tool installation mechanism.
+nightly gate `blocked` and red; there is no waiver. Documented `jq`, `python`, `sudo` and `xvfb`
+prerequisites use the reader container’s tool installation mechanism. The `xvfb` prerequisite
+installs both `xvfb` and `xauth` so documented `xvfb-run` commands can start a display.
 
 A getting-started page that names the release channel (`ghcr.io/honua-io/honua-server:2026.1-rc`, or
 `:2026.1` at GA; honua-io/honua-server#5738) is executed against the candidate behind that channel:
