@@ -42,11 +42,19 @@ OUTPUT_LANGUAGES = {"", "text", "txt", "output", "plaintext", "plain", "console-
 OUTPUT_CUE = re.compile(
     r"\b(output|outputs|prints?|printed|returns?|response|responds|you (?:should |will |'ll )?see|"
     r"expect(?:ed)?|looks? like|result(?:s)?|shows?|answers?)\b", re.I)
-FILE_NAME = re.compile(
-    r"`((?:[\w.-]+/)*(?:[\w.-]+\.(?:py|js|mjs|cjs|ts|mts|tsx|cs|csproj|json|jsonc|ya?ml|toml|env|html|sh|"
-    r"txt|sql|xml|config|ini|props)|\.env|Dockerfile|Program\.cs))`")
+_FILE_TOKEN = (
+    r"(?:[\w.-]+/)*(?:[\w.-]+\.(?:py|js|mjs|cjs|ts|mts|tsx|cs|csproj|json|jsonc|ya?ml|toml|env|html|sh|"
+    r"txt|sql|xml|config|ini|props)|\.env|Dockerfile|Program\.cs)"
+)
+FILE_NAME = re.compile(rf"`({_FILE_TOKEN})`")
 FILE_CUE = re.compile(
     r"\b(save|saved|saving|put|create|creating|write|writing|named|called|paste|replace|contents of|file)\b", re.I)
+# The filename a reader is told to save, not a later mention of a different file.
+# "Save this as `publish-quickstart.py`, keeping the package's `quickstart.py`" binds the first.
+SAVE_AS_FILE = re.compile(
+    r"\b(?:save|saved|saving|put|create|creating|write|writing|named|called)\b"
+    rf"(?:(?!`).){{0,120}}?\bas\s+`({_FILE_TOKEN})`",
+    re.I)
 FIRST_LINE_FILE = re.compile(r"^\s*(?://|#)\s*((?:[\w.-]+/)*[\w.-]+\.(?:cs|py|js|mjs|ts|mts|sh))\s*$")
 COMMAND_START = re.compile(
     r"^(\$ |npm |npx |pnpm |yarn |pip |pip3 |python3? |uv |dotnet |docker |curl |git |cd |export |honua |"
@@ -296,7 +304,8 @@ def classify(blocks: list[Block]) -> list[Block]:
             continue
         file_match = FILE_NAME.findall(paragraph)
         if file_match and FILE_CUE.search(paragraph) and not (lang == "shell" and block.code.lstrip().startswith("$ ")):
-            name = file_match[-1]
+            named_as = SAVE_AS_FILE.search(paragraph)
+            name = named_as.group(1) if named_as else file_match[-1]
             ext_lang = {"py": "python", "js": "javascript", "mjs": "javascript", "cjs": "javascript",
                         "ts": "typescript", "mts": "typescript", "cs": "csharp", "sh": "shell"}
             ext = name.rsplit(".", 1)[-1] if "." in name.lstrip(".") else ""

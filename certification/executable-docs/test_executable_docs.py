@@ -139,6 +139,20 @@ def test_file_cue_and_explicit_file_marker():
     assert (blocks[2].intent, blocks[2].file, blocks[2].intent_source) == ("file", "app/main.ts", "marker")
 
 
+def test_save_as_names_the_file_when_later_prose_mentions_another():
+    blocks = by_index(
+        "Save this as `publish-quickstart.py`, keeping the package's `quickstart.py` initializer.\n\n"
+        "```python\nprint('layer')\n```\n")
+    assert (blocks[0].intent, blocks[0].file) == ("file", "publish-quickstart.py")
+
+
+def test_a_list_of_config_names_without_save_as_keeps_the_last_name():
+    blocks = by_index(
+        "Copy-paste client config (`.mcp.json` / `mcp.json` / `claude_desktop_config.json`):\n\n"
+        "```json\n{}\n```\n")
+    assert (blocks[0].intent, blocks[0].file) == ("file", "claude_desktop_config.json")
+
+
 def test_expected_output_binds_to_the_preceding_run_block():
     blocks = by_index("```bash\ncurl x\n```\n\nIt prints:\n\n```text\nhello 42\n```\n")
     assert blocks[1].intent == "output" and blocks[1].output_of == 0
