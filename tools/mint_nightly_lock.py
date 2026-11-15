@@ -94,7 +94,7 @@ JS_PUBLISHERS = {
     '@honua/mcp-server': JsPublisher('publish-mcp-server.yml', 'mcp-server-v',
                                      frozenset({'workflow_dispatch', 'release', 'push'})),
     'create-honua-app': JsPublisher('publish-create-honua-app.yml', 'create-honua-app-v',
-                                    frozenset({'workflow_dispatch', 'release'})),
+                                    frozenset({'workflow_dispatch', 'release', 'push'})),
 }
 JS_WORKFLOWS = {package: publisher.workflow for package, publisher in JS_PUBLISHERS.items()}
 
