@@ -116,7 +116,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-iac
-          ref: 7ef38b3399d0f76dcc29bd68d82e578be02086c7 # honua-iac trunk (#301); sweep-orphaned-validation-infra.sh
+          ref: 05248459b37a04ba3cf2cc1544f43e007f2a1380 # honua-iac trunk (#452); sweep-orphaned-validation-infra.sh
           path: _honua-iac
           fetch-depth: 0
           persist-credentials: false
@@ -145,12 +145,17 @@ jobs:
           set -euo pipefail
           [[ "$GRACE_HOURS" =~ ^[0-9]+$ ]] && (( GRACE_HOURS >= 4 )) || { echo "::error::grace_hours must be an integer >= 4"; exit 1; }
           [[ "$MAX_DELETE" =~ ^[0-9]+$ ]] || { echo "::error::max_delete must be an integer"; exit 1; }
+          # Task definitions stay: the aws-ecs module keeps every revision on destroy (skip_destroy), and
+          # ECS gives DeregisterTaskDefinition no resource or tag scope, so the reaper role, whose
+          # mutations are all tag-scoped, is always denied. They hold nothing and cost nothing; an
+          # operator deregisters them. The sweep lists each one as skipped.
           args=(--owner-tag release-cell
                 --repo "$GITHUB_REPOSITORY"
                 --workflow e2e-cloud-aws.yml
                 --region us-east-1
                 --grace-hours "$GRACE_HOURS"
                 --max-delete "$MAX_DELETE"
+                --exclude-type ecs:task-definition
                 --summary-file "$GITHUB_STEP_SUMMARY")
           if [ -n "$VALIDATION_RUN_ID" ]; then
             [[ "$VALIDATION_RUN_ID" =~ ^gha-[0-9]+-aws-(ecs|serverless|eks)-redis-(on|off)$ ]] || { echo "::error::invalid validation_run_id"; exit 1; }

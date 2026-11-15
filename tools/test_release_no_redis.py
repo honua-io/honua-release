@@ -31,8 +31,7 @@ def test_redis_input_is_rejected_before_any_cloud_step(tmp_path, mode):
     assert (result.returncode == 0) == (mode in ('', 'off'))
 
 
-@pytest.mark.parametrize('scope', ['', 'gha-42665961293-aws-ecs-redis-on', 'invalid', 'gha-1-aws-ecs-redis-on extra'])
-def test_scoped_reaper_preserves_limits_and_forwards_exact_cell(tmp_path, scope):
+def run_reaper_sweep(tmp_path, scope):
     job = workflow('release-cell-reaper.yml')['jobs']['reap']
     sweep = next(step for step in job['steps'] if step.get('name') == 'Sweep orphaned release cells')
     helper = tmp_path / '_honua-iac/infrastructure/terraform/validation/scripts/aws/sweep-orphaned-validation-infra.sh'
@@ -44,17 +43,30 @@ def test_scoped_reaper_preserves_limits_and_forwards_exact_cell(tmp_path, scope)
            'GITHUB_STEP_SUMMARY': str(tmp_path / 'summary')}
     result = subprocess.run(['bash', '-c', sweep['run']], cwd=tmp_path, env=env,
                             capture_output=True, text=True)
-    valid = not scope or scope == 'gha-42665961293-aws-ecs-redis-on'
-    assert (result.returncode == 0) == valid
     called = tmp_path / 'called'
-    assert called.exists() == valid
+    return result.returncode, called.read_text().splitlines() if called.exists() else None
+
+
+@pytest.mark.parametrize('scope', ['', 'gha-42665961293-aws-ecs-redis-on', 'invalid', 'gha-1-aws-ecs-redis-on extra'])
+def test_scoped_reaper_preserves_limits_and_forwards_exact_cell(tmp_path, scope):
+    returncode, args = run_reaper_sweep(tmp_path, scope)
+    valid = not scope or scope == 'gha-42665961293-aws-ecs-redis-on'
+    assert (returncode == 0) == valid
+    assert (args is not None) == valid
     if valid:
-        args = called.read_text().splitlines()
         assert args[args.index('--max-delete') + 1] == '400'
         assert '--dry-run' in args and '--this-run' not in args
         assert ('--run-id' in args) == bool(scope)
         if scope:
             assert args[args.index('--run-id') + 1] == scope
+
+
+@pytest.mark.parametrize('scope', ['', 'gha-42665961293-aws-ecs-redis-on'])
+def test_reaper_leaves_retained_task_definitions_alone(tmp_path, scope):
+    # The aws-ecs module keeps task definition revisions on destroy and the reaper role cannot
+    # deregister one, so planning them fails every sweep on work the role may not do.
+    _, args = run_reaper_sweep(tmp_path, scope)
+    assert args[args.index('--exclude-type') + 1] == 'ecs:task-definition'
 
 
 def test_direct_cloud_cell_rejects_redis_before_credentials(tmp_path):
