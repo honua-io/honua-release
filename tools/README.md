@@ -3,6 +3,33 @@
 GitHub Actions supply-chain pins are enforced by `check_action_pins.py`; the review and update
 procedure is documented in [`docs/ACTION-PINNING.md`](../docs/ACTION-PINNING.md).
 
+## Launch Stack HTTPS observations
+
+`launch_stack_https.observe_https(request, origin)` checks the effective HTTPS
+responses at `/console/` and `/healthz/ready` on one frontend origin. Inject the
+producer's certificate- and hostname-verifying HTTP transport. Its signature is
+`request(url, follow_redirects=False)`; it must preserve repeated header pairs and
+return `url`, integer `status`, boolean `redirected` and a `headers` list.
+Certificate failures and unavailable responses must raise exceptions. Do not use
+a transport that disables TLS verification, follows redirects or collapses headers.
+
+Both responses must be direct HTTP 200 responses with exactly one HSTS policy.
+The hardened profile requires `max-age` of at least 31536000 seconds,
+`includeSubDomains` and `preload`. The checker deliberately rejects duplicate,
+malformed and additional directives rather than interpreting ambiguous policies.
+See [RFC 6797](https://www.rfc-editor.org/rfc/rfc6797) and the
+[preload header requirements](https://hstspreload.org/#submission-requirements).
+These observations check the requested header policy; they do not establish
+browser preload-list membership or prove certificate verification independently
+of the injected transport. No connection is opened by this module itself.
+
+The output contains observation times, fixed route paths, status and HSTS lifetime;
+it omits bodies, URLs, cookies and raw headers. The authenticated producer must bind
+the transport and output to the installed candidate. This is one component of the
+Hardened profile and never emits a security certification or gate receipt.
+
+Offline fault tests: `python -m pytest tools/test_launch_stack_https.py -q`.
+
 ## `validate_platform.py` — Phase 0 source-of-truth gate (issue #1)
 
 Validates `platform-manifest.yaml` + `compatibility-matrix.yaml` and enforces compatibility drift.
