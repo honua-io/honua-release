@@ -1,13 +1,13 @@
 {
   "synthetic": true,
-  "note": "Not a captured PyPI response and not registry evidence. urls repeats the filename, sha256, and download URL from the 2026-10-02 capture of honua-sdk 0.1.12, which is all the verifier reads. The captured project description is omitted (honua-release#427, R30 class c).",
+  "note": "Offline verifier fixture. Not registry or publication evidence.",
   "urls": [
     {
       "filename": "honua_sdk-0.1.12-py3-none-any.whl",
       "digests": {
-        "sha256": "4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2"
+        "sha256": "41ab947d50f514a01e8de2484914a2865c53977c9456af1176567607c64f4a9c"
       },
-      "url": "https://files.pythonhosted.org/packages/29/7d/ad04a696860960b5cce865c9a8b2ea53b165da200c6b8a2156ba5501f926/honua_sdk-0.1.12-py3-none-any.whl"
+      "url": "https://files.pythonhosted.org/packages/synthetic/honua_sdk-0.1.12-py3-none-any.whl"
     }
   ]
 }
