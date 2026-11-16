@@ -197,7 +197,7 @@ when every non-passing cell is a blocked cell that:
 
 - declares `owner`, `reason` and `target`, and
 - is listed, with that same target, by the founder ruling `dotnet-declared-blocked-2026-10-26` in
-  [`2026.1-release-decision-overrides.json`](2026.1-release-decision-overrides.json) (D6, 2026-10-26).
+  [`2026.1-qualification-policy.json`](../contracts/2026.1-qualification-policy.json) (D6, 2026-10-26).
 
 The receipt and `gate-report.json` then carry `declaredLimitations` (cell, blocker, owner, reason,
 target, ruling), and the nightly lock accepts the `installed-clients` row. Any other blocked cell

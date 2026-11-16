@@ -16,7 +16,7 @@ the import-fidelity blocker requires an absent complete passing receipt until li
 passing, it is reported as a failure until the matrix row is set back to `active`, so a fix is
 observed rather than assumed. The receipt is `pass` with `declaredLimitations` when every blocked
 cell is declared and listed by the founder ruling `dotnet-declared-blocked-2026-10-26` in
-`docs/2026.1-release-decision-overrides.json`; any other blocked cell makes it `blocked`. `run.py` exits 0 only when every active cell passes and no blocked
+`contracts/2026.1-qualification-policy.json`; any other blocked cell makes it `blocked`. `run.py` exits 0 only when every active cell passes and no blocked
 cell passes silently or fails for an unexpected reason. `run.py --verify-receipt <receipt>` checks a receipt against the matrix, and
 the workflow asserts nothing else.
 
