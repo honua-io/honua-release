@@ -156,8 +156,8 @@ masked (credential-shaped members and the run's own principal keys redacted) and
 `service.publish` that does not complete names its terminal `status`, policy outcome and masked
 message; a published-SDK refusal names the bridge's exception type only.
 
-See the [#120 acceptance audit](../../docs/2026.1-terminal-arc-acceptance.md) for
-pre-cut implementation gaps and separately released exact-candidate reruns.
+Candidate qualification requires the joined journey receipts described here.
+Implementation changes and historical runs do not qualify a different candidate.
 
 ## Running it
 

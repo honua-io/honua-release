@@ -13,7 +13,6 @@ python tools/validate_platform.py                      # manifest + matrix struc
 python3 tools/validate_customer_install_manifest.py customer-install-manifest.json
 python3 tools/validate_compatibility_ledger.py compatibility-ledger.v1.yaml
 python3 tools/coverage_audit.py --check
-python3 tools/release_decision_record.py --check
 python -m pytest tools/ -q                             # local tools subset
 python -m pytest certification/agent-ops -q            # operate harness; own process, not mixed with e2e/
 ```

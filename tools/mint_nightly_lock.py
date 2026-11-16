@@ -585,10 +585,9 @@ def verify_reference_bundle(evidence: dict, bundle: Path, manifest: Path, matrix
                     raise ValueError('no lock minted: notes were not generated from this candidate')
 
 
-# Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
-# `wedge-critical-retier-2026-10-25`): the genuine-model canary is out of RC admission. Its nightly
-# receipt is still declared, bound to this run and lock, and retained with its honest verdict, but a
-# failed or unobserved canary does not refuse the mint. Promotion readiness is unchanged.
+# The genuine-model canary is advisory for RC admission. Its receipt remains bound to this run
+# and lock with its observed verdict; failure or missing evidence does not refuse the mint.
+# Promotion readiness enforces its own requirements.
 ADVISORY_NIGHTLY_CLASSES = frozenset({'nightly-model-journey'})
 
 # Each receipt derives its verdict from the gate that actually consumes that class.

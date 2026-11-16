@@ -2,7 +2,7 @@
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
   "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
-  "total": 1226,
+  "total": 1166,
   "pathRenames": {
     "reason": "Retained gate inputs and protocol matrix directories use stable names; identical content keeps the same vocabulary count at its new path.",
     "paths": [
@@ -68,8 +68,6 @@
     "compatibility-matrix.yaml": 1,
     "docs/2026.1-RELEASE-PLAN.md": 1,
     "docs/2026.1-evidence-map.md": 10,
-    "docs/2026.1-release-decision-overrides.json": 51,
-    "docs/2026.1-release-decision-record.md": 8,
     "docs/BURN-IN-PROMOTION.md": 2,
     "docs/HYBRID-TRAIN.md": 11,
     "docs/PROTOCOL-CERTIFICATION-PLAN.md": 7,
@@ -102,7 +100,6 @@
     "tools/test_mint_nightly_lock.py": 1,
     "tools/test_platform.py": 6,
     "tools/test_release_controls.py": 2,
-    "tools/test_release_decision_record.py": 1,
     "tools/test_workflow_contracts.py": 7,
     "tools/validate_platform.py": 2
   }

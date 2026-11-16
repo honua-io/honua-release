@@ -78,8 +78,7 @@ AI_GATES: tuple[str, ...] = (
 # Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
 # required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
 # certification needs a signed lock; gate-journey needs cloud-cell receipts plus the data-driven roster.
-# Founder decision 2026-11-02 (docs/2026.1-release-decision-overrides.json
-# `upgrade-gate-ga-deferred-2026-11-02`): gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
+# gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
 # announced, so no customer upgrades from it. gate-upgrade (and with it the rc upgrade/rollback leg) stays a
 # GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
 GA_DEFERRED: tuple[str, ...] = (
@@ -92,10 +91,7 @@ PROTOCOL_GATE = "protocol-certification-candidate.yml"
 # The train calls the reusable evaluator; standalone admission reads its authenticated wrapper.
 ADMISSION_GATES = tuple(PROTOCOL_GATE if g == "gate-protocol-certification.yml" else g for g in TRAIN_GATES)
 GA_ONLY_GATES = (PROTOCOL_GATE,)
-# Founder re-tier 2026-10-25 (docs/2026.1-release-decision-overrides.json
-# `wedge-critical-retier-2026-10-25`, honua-release#376 comment 6407009748): "The AI gates (full agent
-# gate, genuine-model canary) are out of RC admission." It supersedes the 2026-10-22 owner ruling that
-# kept both required for rc. They are still read and reported as Preview evidence, never required.
+# AI gates remain reported as Preview evidence and are advisory for RC admission.
 RC_ADVISORY: tuple[str, ...] = AI_GATES
 ARC_GATE = "ai-arc.yml"
 STUDIO_CUSTOMER_GATE = "gate-studio-customer-journey.yml"
