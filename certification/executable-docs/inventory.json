@@ -1793,11 +1793,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "9b6bc929eed807ba48991cf42d0b92fc9431ddee",
+      "revision": "cb6baf1363739085cbb16b671d327825efa4e832",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/9b6bc929eed807ba48991cf42d0b92fc9431ddee/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/cb6baf1363739085cbb16b671d327825efa4e832/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1908,7 +1908,7 @@
         },
         {
           "index": 11,
-          "line": 566,
+          "line": 569,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -1918,7 +1918,7 @@
         },
         {
           "index": 12,
-          "line": 606,
+          "line": 609,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1927,7 +1927,7 @@
         },
         {
           "index": 13,
-          "line": 640,
+          "line": 643,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2847,11 +2847,11 @@
       "id": "honua-site-docs-playbooks-install-with-docker-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/install-with-docker/index.md",
-      "revision": "a57cdb4767a26a209ca0e2f6c990836718d2feec",
+      "revision": "06a1305e1588ca8127cad09be0f5d2484dd44ff4",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/a57cdb4767a26a209ca0e2f6c990836718d2feec/docs/playbooks/install-with-docker/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/06a1305e1588ca8127cad09be0f5d2484dd44ff4/docs/playbooks/install-with-docker/index.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2903,21 +2903,25 @@
         },
         {
           "index": 4,
-          "line": 162,
+          "line": 163,
           "language": "shell",
           "infoString": "bash",
-          "intent": "excluded",
-          "intentSource": "marker",
-          "sha256": "d2371e53dcf02adc77795cf0e73f3dfe3961e7a4024fc5209922a3f89ec09f0f",
-          "reason": "the no-Redis stack binds host port 8080, which the Redis stack this walk already starts",
-          "marker": {
-            "skip": "",
-            "reason": "the no-Redis stack binds host port 8080, which the Redis stack this walk already starts"
-          }
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "2f3866ab34fd95da67cd5bfffad48d52a959ce2eaa0cb3c9d2d356ce0c9a7058"
         },
         {
           "index": 5,
-          "line": 173,
+          "line": 171,
+          "language": "shell",
+          "infoString": "bash",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "79bb28ef9ac403ca09efdb45aa27275250bfcdcd3ebc53618386d126547d55b8"
+        },
+        {
+          "index": 6,
+          "line": 182,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2925,8 +2929,8 @@
           "sha256": "bbf369565b8c0fb229c0b348e3d03823cffc93860b3e38b2e2b8456e356794a6"
         },
         {
-          "index": 6,
-          "line": 178,
+          "index": 7,
+          "line": 187,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -2940,18 +2944,18 @@
           }
         },
         {
-          "index": 7,
-          "line": 197,
+          "index": 8,
+          "line": 206,
           "language": "text",
           "infoString": "text",
           "intent": "output",
           "intentSource": "heuristic",
           "sha256": "661d86b52801a1917a0f7fa3749171d7996181f1e2ccf45cdefd30d0a8820322",
-          "outputOf": 6
+          "outputOf": 7
         },
         {
-          "index": 8,
-          "line": 209,
+          "index": 9,
+          "line": 218,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2959,8 +2963,8 @@
           "sha256": "a0ade43209299130b5d5787b0e590d792345b242c91d53f114b4b1487bdc2be9"
         },
         {
-          "index": 9,
-          "line": 216,
+          "index": 10,
+          "line": 225,
           "language": "javascript",
           "infoString": "js",
           "intent": "file",
@@ -2977,8 +2981,8 @@
           }
         },
         {
-          "index": 10,
-          "line": 232,
+          "index": 11,
+          "line": 241,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2986,8 +2990,8 @@
           "sha256": "8b71a1e5de2e3e6223bf459ce870b90730c5ed4b10492ae3ceb7a1fbde4f2799"
         },
         {
-          "index": 11,
-          "line": 241,
+          "index": 12,
+          "line": 250,
           "language": "json",
           "infoString": "json",
           "intent": "excluded",
@@ -3000,8 +3004,8 @@
           }
         },
         {
-          "index": 12,
-          "line": 271,
+          "index": 13,
+          "line": 280,
           "language": "shell",
           "infoString": "bash",
           "intent": "excluded",
@@ -3014,8 +3018,8 @@
           }
         },
         {
-          "index": 13,
-          "line": 278,
+          "index": 14,
+          "line": 287,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -3023,8 +3027,8 @@
           "sha256": "c04ff139b9bf1656c36954056b074967939e86472741fec7ce32eca2d5e57924"
         },
         {
-          "index": 14,
-          "line": 291,
+          "index": 15,
+          "line": 300,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -3234,15 +3238,15 @@
   ],
   "summary": {
     "documents": 35,
-    "blocks": 245,
+    "blocks": 246,
     "byIntent": {
       "alternative": 1,
       "compile": 8,
-      "excluded": 10,
+      "excluded": 9,
       "file": 26,
       "illustrative": 19,
       "output": 6,
-      "run": 170,
+      "run": 172,
       "teardown": 5
     }
   }

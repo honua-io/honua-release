@@ -8,9 +8,14 @@ from execution_order import instant
 
 CONTRACT = Path(__file__).resolve().parents[1] / 'certification/release-promise.v1.json'
 
-IDS = frozenset({'install-console', 'unattended-person', 'studio-publish-layer', 'studio-build-app',
+WORKFLOWS = ('install', 'publish-layer', 'style', 'share', 'build-app',
+             'sign-in-roles', 'recover-incident', 'migrate-service')
+COUNT_UNITS = {f'{unit}-{workflow}': unit for unit in ('sentences', 'clicks')
+               for workflow in WORKFLOWS}
+
+IDS = frozenset({*COUNT_UNITS, 'install-console', 'unattended-person', 'studio-publish-layer', 'studio-build-app',
                  *(f'recovery-operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
-                 'recovery-operates-12-notify',
+                 'recovery-operates-12-notify', 'recovery-operates-restore',
                  *(f'developer-{item}-{mode}-skills' for item in ('map', 'app')
                    for mode in ('with', 'without'))})
 
@@ -20,8 +25,8 @@ def load(path):
     if len(rows) != len(IDS) or {r['id'] for r in rows} != IDS:
         raise ValueError('release outcome coverage incomplete')
     for row in rows:
-        if row['unit'] != 'minutes' or row['required'] != ['rc', 'ga']:
-            raise ValueError('outcomes must report minutes for RC and GA')
+        if row['unit'] != unit_for(row['id']) or row['required'] != ['rc', 'ga']:
+            raise ValueError('outcomes must report their declared unit for RC and GA')
         if row['id'] == 'unattended-person' and row.get('gaMaximum') != 0:
             raise ValueError('unattended GA target must be zero person-minutes')
     return rows
@@ -34,12 +39,17 @@ def number(value):
         return False
 
 
+def unit_for(row_id):
+    return COUNT_UNITS.get(row_id, 'minutes')
+
+
 def notes_line(doc):
-    return f"<!-- honua-outcome:{doc['row']} --> {doc['value']} minutes"
+    return f"<!-- honua-outcome:{doc['row']} --> {doc['value']} {unit_for(doc['row'])}"
 
 
 def valid(doc):
-    return (number(doc.get('value')) and doc.get('unit') == 'minutes'
+    return (number(doc.get('value')) and doc.get('row') in IDS
+            and doc.get('unit') == unit_for(doc['row'])
             and isinstance(doc.get('releaseNotes'), str)
             and notes_line(doc) in doc['releaseNotes'].splitlines())
 
@@ -47,8 +57,9 @@ def valid(doc):
 def summarize(row, docs):
     values = [doc['value'] for doc in docs]
     maximum = row.get('gaMaximum')
-    return {'value': max(values), 'unit': 'minutes', 'releaseNotesReported': True,
-            'targetMet': number(maximum) and all(value <= maximum for value in values)}
+    return {'value': max(values), 'unit': row['unit'], 'releaseNotesReported': True,
+            'targetMet': None if row['unit'] == 'clicks' else (
+                number(maximum) and all(value <= maximum for value in values))}
 
 
 def report_valid(rows, profile, now):
@@ -58,10 +69,10 @@ def report_valid(rows, profile, now):
         return False
     targets = {r['id']: r.get('gaMaximum') for r in load(CONTRACT)}
     return all(row.get('status') == 'PASS' and number(row.get('value'))
-               and row.get('unit') == 'minutes' and row.get('releaseNotesReported') is True
+               and row.get('unit') == unit_for(row['id']) and row.get('releaseNotesReported') is True
                and instant(row.get('observedAt')) is not None
                and now - dt.timedelta(days=7) <= instant(row['observedAt']) <= now
-               and (profile == 'rc' or (number(targets[row['id']])
+               and (profile == 'rc' or unit_for(row['id']) == 'clicks' or (number(targets[row['id']])
                     and row['value'] <= targets[row['id']])) for row in rows)
 
 
