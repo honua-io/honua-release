@@ -78,6 +78,18 @@ class OutcomeChecks(unittest.TestCase):
                 self.count(events=[normal[i] for i in order])
         self.assertEqual(self.count(events=[events[2], events[1], events[0]])["toolCalls"], 1)
 
+    def test_timing_validation_preserves_recorded_state(self):
+        counter = h.EventCounter()
+        for event in self.events:
+            counter.add(event)
+        recorded = copy.deepcopy(counter.__dict__)
+        self.assertEqual(h.finish_timing(counter, self.events, self.grade),
+                         {"elapsedMinutes": 1, "limitExceeded": False})
+        self.assertEqual(counter.__dict__, recorded)
+        with self.assertRaises(ValueError):
+            h.finish_timing(counter, self.events, dict(self.grade, status="failed"))
+        self.assertEqual(counter.__dict__, recorded)
+
     def test_balanced_deterministic_plan(self):
         p = h.plan()
         self.assertEqual(p, h.plan())

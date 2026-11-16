@@ -2,10 +2,12 @@
 import argparse
 import hashlib
 import json
+from itertools import product
 from pathlib import Path
 import re
 
 from outcome_events import EventCounter
+from strict_json import parse_json
 
 VERSION = "outcome-eval-v2"
 SEED = "honua-outcome-20261116-v2"
@@ -15,19 +17,6 @@ WORKFLOWS = {
 }
 MODELS = ("gpt-6.1-sol", "claude-opus-5-5")
 ARMS = {"A": [], "B": ["okf"], "C": ["skills"], "D": ["okf", "skills"]}
-
-
-def unique_object(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
-
-def parse_json(raw):
-    return json.loads(raw, object_pairs_hook=unique_object)
 
 
 def digest(path):
@@ -47,20 +36,18 @@ def plan():
         blocks = [(r, w) for r in range(1, 4) for w in WORKFLOWS]
         blocks.sort(key=lambda b: hashlib.sha256(f"{SEED}/{model}/{b}".encode()).hexdigest())
         rotations.update({(model, *block): i % 4 for i, block in enumerate(blocks)})
-    for repetition in range(1, 4):
-        for model in MODELS:
-            for workflow, minutes in WORKFLOWS.items():
-                rotation = rotations[model, repetition, workflow]
-                arms = list(ARMS)
-                order = arms[rotation:] + arms[:rotation]
-                for arm in order:
-                    trials.append({
-                        "id": f"r{repetition}-{model}-{workflow}-{arm}",
-                        "pass": repetition, "model": model, "workflow": workflow,
-                        "arm": arm, "knowledge": ARMS[arm], "minutesLimit": minutes,
-                        "toolCallLimit": 100, "personSentenceLimit": 10,
-                        "baselineId": f"r{repetition}-browser-{workflow}",
-                    })
+    for repetition, model, (workflow, minutes) in product(range(1, 4), MODELS, WORKFLOWS.items()):
+        rotation = rotations[model, repetition, workflow]
+        arms = list(ARMS)
+        order = arms[rotation:] + arms[:rotation]
+        for arm in order:
+            trials.append({
+                "id": f"r{repetition}-{model}-{workflow}-{arm}",
+                "pass": repetition, "model": model, "workflow": workflow,
+                "arm": arm, "knowledge": ARMS[arm], "minutesLimit": minutes,
+                "toolCallLimit": 100, "personSentenceLimit": 10,
+                "baselineId": f"r{repetition}-browser-{workflow}",
+            })
     baselines = [{"id": f"r{r}-browser-{w}", "pass": r, "workflow": w}
                  for r in range(1, 4) for w in WORKFLOWS]
     return {"counterVersion": VERSION, "seed": SEED, "status": "NOT RUN",
@@ -114,35 +101,33 @@ def validate_grade(grade, root):
     return trial
 
 
-def finish_timing(result, events, grade):
-    boundaries = result.pop("boundaries")
+def finish_timing(counter, events, grade):
+    boundaries = counter.boundaries
     if grade["status"] == "not-run" or (grade["status"] == "excluded" and not events):
         if events:
             raise ValueError("NOT RUN cannot contain evaluated events")
-        result["elapsedMinutes"] = None
-    else:
-        if "stop" in boundaries and "terminal-readback" in boundaries:
-            raise ValueError("stop and terminal readback are mutually exclusive")
-        if "dispatch" not in boundaries:
-            raise ValueError("dispatch event required")
-        end = boundaries.get("terminal-readback") if grade["status"] == "success" else boundaries.get("stop")
-        if end is None or end < boundaries["dispatch"]:
-            raise ValueError("terminal readback/stop boundary required")
-        start_index = next(i for i, e in enumerate(events) if e["type"] == "dispatch")
-        end_kind = "terminal-readback" if grade["status"] == "success" else "stop"
-        end_index = next(i for i, e in enumerate(events) if e["type"] == end_kind)
-        if start_index >= end_index:
-            raise ValueError("dispatch must precede terminal readback/stop")
-        if any(e["type"] != "observer" and
-               (i < start_index or i > end_index) for i, e in enumerate(events)):
-            raise ValueError("evaluated events outside task timing boundary")
-        result["elapsedMinutes"] = (end - boundaries["dispatch"]) / 60
-        result["limitExceeded"] = (
-            result["personSentences"] > 10 or result["toolCalls"] > 100
-            or result["elapsedMinutes"] > WORKFLOWS[grade["workflow"]]
-        )
-        if result["limitExceeded"] and grade["status"] not in {"censored", "excluded"}:
-            raise ValueError("exceeded run limits require censored or excluded status")
+        return {"elapsedMinutes": None, "limitExceeded": False}
+    if "stop" in boundaries and "terminal-readback" in boundaries:
+        raise ValueError("stop and terminal readback are mutually exclusive")
+    if "dispatch" not in boundaries:
+        raise ValueError("dispatch event required")
+    end_kind = "terminal-readback" if grade["status"] == "success" else "stop"
+    end = boundaries.get(end_kind)
+    if end is None or end < boundaries["dispatch"]:
+        raise ValueError("terminal readback/stop boundary required")
+    start_index = next(i for i, e in enumerate(events) if e["type"] == "dispatch")
+    end_index = next(i for i, e in enumerate(events) if e["type"] == end_kind)
+    if start_index >= end_index:
+        raise ValueError("dispatch must precede terminal readback/stop")
+    if any(e["type"] != "observer" and
+           (i < start_index or i > end_index) for i, e in enumerate(events)):
+        raise ValueError("evaluated events outside task timing boundary")
+    elapsed = (end - boundaries["dispatch"]) / 60
+    exceeded = (counter.counts["personSentences"] > 10 or counter.counts["toolCalls"] > 100
+                or elapsed > WORKFLOWS[grade["workflow"]])
+    if exceeded and grade["status"] not in {"censored", "excluded"}:
+        raise ValueError("exceeded run limits require censored or excluded status")
+    return {"elapsedMinutes": elapsed, "limitExceeded": exceeded}
 
 
 def _summarize(events, grade, root):
@@ -154,13 +139,12 @@ def _summarize(events, grade, root):
                    "modality": modality, "pass": trial["pass"],
                    "model": trial.get("model"), "arm": trial.get("arm"),
                    "baselineId": trial.get("baselineId", trial["id"]),
-                   "reason": grade.get("reason"), "limitExceeded": False})
+                   "reason": grade.get("reason")})
     counter = EventCounter()
     for event in events:
         counter.add(event)
     result.update(counter.result())
-    result["boundaries"] = counter.boundaries
-    finish_timing(result, events, grade)
+    result.update(finish_timing(counter, events, grade))
     result["grader"] = grade["grader"]
     result["evidence"] = grade["evidence"]
     result["sentenceBoundariesReviewed"] = grade.get("sentenceBoundariesReviewed") is True
