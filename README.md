@@ -1,33 +1,51 @@
 # honua-release
 
-The platform release-engineering home for Honua. Honua is sold as a *platform* — many independently-built
-components (server, SDKs, console, mobile, collect, gRPC, MCP, IaC, Helm) that customers deploy and upgrade
-themselves. This repo is where "the platform fits together" is **enforced**, not assumed.
+Honua's release contracts, candidate certification and publication workflows live
+here. A release adopts one candidate, proves its required journeys against frozen
+inputs, then publishes only after admission.
 
-It owns:
-- **`platform-manifest.yaml`** — the pinned, certified set of component versions for each platform release (`Honua YYYY.N`).
-- **`compatibility-matrix.yaml`** — the interop rules (which component versions work together: iac↔server↔sdk↔db). Source of truth.
-- **`.github/workflows/`** — the automated **release train** (`release-train.yml`) and the environment-gated **promote** (`promote.yml`).
-- **`certification/`** — cross-repo conformance + artifact-consumption gates.
-- **`e2e/`** — the cross-component & cross-cloud integration/parity harness (the executable compatibility matrix).
-- **`release-notes/`**, **`bom/`** — aggregated release notes, SBOM, provenance.
-- **`clientArtifacts` / `evidenceSources`** in `platform-manifest.yaml` — immutable package bytes
-  and trusted non-shipping producer pins. `tools/generate_evidence_index.py` exports these pins for
-  certification consumers without changing deployable `components` BOM/upgrade semantics.
-- **`mcp/`** — MCP release tools (eventual AI-coordinated / autonomous release cutting).
+## Adopt a candidate
 
-Shared reusable CI workflows live in the org `.github` repo; each component repo owns its SemVer + gates and
-reports its contract version up to the manifest here.
+[`platform-manifest.yaml`](platform-manifest.yaml) declares component and client
+artifact pins; [`compatibility-matrix.yaml`](compatibility-matrix.yaml) declares
+which versions may work together. Retain the exact manifest, matrix and
+`platform-lock.json` bytes used by certification. Track the full server source
+SHA, server image digest and platform-lock digest separately.
 
-## How a release works (summary)
-`workflow_dispatch` → snapshot main → build candidate manifest → fan out to component gates → cross-repo
-conformance + artifact-consumption + upgrade gate → emit a digest- and run-bound certified-candidate bundle
-→ SBOM + notes → tag RC → (environment-gated) promote to `Honua YYYY.N`. Promotion consumes only the exact
-manifest and matrix in that bundle and verifies them against the certifying Actions run before release work
-begins. **AI proposes, the pipeline disposes** — gates live in GHA and can't be overridden.
+The [release train](.github/workflows/release-train.yml) validates and certifies
+candidate inputs. Resolver output and locally generated locks prepare a candidate;
+they do not establish installed readiness. The manifest's `clientArtifacts` and
+`evidenceSources` pin immutable package bytes and trusted producer revisions for
+certification without adding non-shipping tools to the deployable component set.
 
-See `docs/RELEASE-ENGINEERING-PLAN.md` and `docs/TEST-STRATEGY.md` for the full design. Work is tracked in the
-**Phase 0/1 epic** (issues in this repo).
+## Prove the candidate
 
-> **Hard rule:** do not give AI release autonomy until the gates can't lie. Phase 1 (real gates + real
-> telemetry) is the prerequisite — see the plan.
+The [release promise](certification/release-promise.v1.json) declares required live
+journeys and measured outcomes. Its [gate](.github/workflows/gate-release-promise.yml)
+checks authenticated producer evidence against the candidate's server SHA, image
+digest and platform-lock digest, including required freshness and result checks.
+Missing evidence fails closed. A merged change, local rehearsal or aggregate CI
+badge does not prove an installed journey, and evidence for another candidate
+does not satisfy this candidate's requirements.
+
+[`certification/`](certification/) and [`e2e/`](e2e/) contain certification contracts
+and cross-component tests. Each component repository owns its version and producer
+gates; this repository checks their evidence and compatibility together. Failed,
+blocked and unavailable outcomes remain visible.
+
+## Publish after admission
+
+The [RC workflow](.github/workflows/rc-release.yml) evaluates candidate gate history
+and defaults to a dry run. It does not execute missing gates. Publication requires
+an admissible result for the same candidate identities.
+
+[Promotion](.github/workflows/promote.yml) verifies the certified candidate bundle,
+readiness evidence and protected approval environment before publication. Retain
+the certified bytes, producer run identities, signatures and publication references.
+Release notes report measured outcomes; BOM and provenance describe the published
+artifacts. AI may propose a release action; the committed gates enforce admission.
+
+See the [candidate evidence guide](docs/rc2-cut-runbook.md),
+[release requirements](docs/RELEASE-ENGINEERING.md),
+[protocol certification contract](docs/PROTOCOL-CERTIFICATION.md) and
+[test strategy](docs/TEST-STRATEGY.md).
