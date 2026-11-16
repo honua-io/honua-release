@@ -46,9 +46,9 @@ def candidate(tmp_path):
     # selected versions must match them; no real publication or pin update.
     historical = {row["source"]: row["version"] for row in read(target / "sources/official-sdk-protocol-assignments.v1.json")["clients"]}
     align_manifest_versions(target, historical)
-    # Byte-identical actual server 00a23a8c62f2e0ba5dd03244cdcf9f205790cbff contract.
-    data = (ROOT / "tools/fixtures/protocol-harness-2026-08-26.1.json").read_bytes()
-    assert len(read(ROOT / "tools/fixtures/protocol-harness-2026-08-26.1.json")["assignments"]) == 42
+    # Static assignments exercise contract convergence; they do not attest a server run.
+    data = (ROOT / "tools/fixtures/server-harness-contract-input.json").read_bytes()
+    assert len(read(ROOT / "tools/fixtures/server-harness-contract-input.json")["assignments"]) == 42
     (target / HARNESS).write_bytes(data)
     return target
 
