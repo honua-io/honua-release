@@ -11,8 +11,8 @@ def test_publish_result_semantic_controls():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_actual_server_replay_controls():
-    result = subprocess.run(["python3", "-B", "certification/installed-clients/mcp_6901_replay_controls.py"],
+def test_mcp_contract_controls():
+    result = subprocess.run(["python3", "-B", "certification/installed-clients/mcp_contract_controls.py"],
                             cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stdout + result.stderr
 
