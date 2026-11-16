@@ -15,7 +15,7 @@ IMAGE = 'registry.example/honua@sha256:' + 'b' * 64
 def responses():
     return {
         'describe-stacks': {'Stacks': [{'StackName': STACK, 'StackStatus': 'CREATE_COMPLETE',
-                                       'Tags': [{'Key': 'honua:qualification', 'Value': 'true'}],
+                                       'Tags': [{'Key': 'HonuaGate', 'Value': 'true'}],
                                        'Parameters': [{'ParameterKey': 'Private', 'ParameterValue': 'secret'}]}]},
         'list-stack-resources': {'StackResourceSummaries': [
             {'LogicalResourceId': logical, 'ResourceType': kind, 'PhysicalResourceId': physical}
@@ -88,7 +88,9 @@ def test_refuses_non_gate_names_before_any_aws_call(name):
 
 @pytest.mark.parametrize('field,value', [('StackStatus', 'UPDATE_IN_PROGRESS'),
                                         ('StackStatus', 'UPDATE_ROLLBACK_COMPLETE'),
-                                        ('StackName', 'another-stack'), ('Tags', [])])
+                                        ('StackName', 'another-stack'), ('Tags', []),
+                                        ('Tags', [{'Key': 'honua:qualification', 'Value': 'true'}]),
+                                        ('Tags', [{'Key': 'HonuaGate', 'Value': 'false'}])])
 def test_refuses_wrong_unqualified_or_rolled_back_stack(field, value):
     aws = FakeAws()
     aws.data['describe-stacks']['Stacks'][0][field] = value
