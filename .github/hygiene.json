@@ -52,6 +52,9 @@
     "tools/fixtures/client-artifacts/nuget-1.10.0-registration.json",
     "tools/fixtures/client-artifacts/nuget-1.10.0-catalog.json",
     "tools/fixtures/client-artifacts/nuget-1.10.0.nupkg",
-    "tools/fixtures/client-artifacts/pypi-provenance.json"
+    "tools/fixtures/client-artifacts/pypi-provenance.json",
+    ".github/workflows/publish-dashboard.yml",
+    "tools/release_dashboard.py",
+    "tools/test_release_dashboard.py"
   ]
 }
