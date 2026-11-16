@@ -2,6 +2,7 @@
 import json
 from unittest.mock import patch
 
+import github_api
 import pytest
 import release_decision_record as decision
 
@@ -169,13 +170,13 @@ def test_snapshot_and_generated_record_are_complete_and_current():
 
 @pytest.fixture
 def github_command():
-    with patch.object(decision, 'subprocess') as process:
+    with patch.object(github_api, 'subprocess') as process:
         yield process.run
 
 
 @pytest.fixture
 def retry_sleep():
-    with patch.object(decision, 'time') as clock:
+    with patch.object(github_api, 'time') as clock:
         yield clock.sleep
 
 
