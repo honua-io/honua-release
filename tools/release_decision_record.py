@@ -17,10 +17,11 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import subprocess
 import sys
-import time
 from urllib.parse import quote
+
+from github_api import gh
+from security_findings import validate_findings, verify_fixed_findings
 
 from check_vendor_terms import CONFIDENTIAL
 from dashboard_content_gate import POLICY as DASHBOARD_POLICY
@@ -62,8 +63,6 @@ RULING = 'https://github.com/honua-io/honua-release/issues/268#issuecomment-5545
 # A working-candidate train is described by what produced it, never by a fixed label.
 TRAIN_KINDS = {'dry-run', 'scheduled strict', 'dispatched strict'}
 SECURITY_REVIEW = 'security-review-2026-10-03'
-TRANSIENT = ('error connecting', 'could not resolve host', 'connection reset by peer',
-             'tls', 'timeout', 'timed out', 'temporary failure in name resolution')
 # R30 detail is whatever the vendor-terms classifier calls confidential; never restate the terms here.
 DESKTOP_DETAIL = tuple(pattern for _, pattern in CONFIDENTIAL)
 # Same title facts classify() uses. Persisted after redaction so the placeholder title
@@ -136,36 +135,6 @@ def public_issue(issue):
 def link(key):
     repo, number = key.split('#')
     return f'[{repo}#{number}](https://github.com/honua-io/{repo}/issues/{number})'
-
-
-def gh(*args, payload=None):
-    """Retry the SAME request; never auth, log request bodies, or print raw responses."""
-    cmd = ['gh', *args]
-    if payload is not None:
-        cmd += ['--input', '-']
-    waited = 0
-    delays = iter([10, 30, 60, 120, 80])
-    while True:
-        p = subprocess.run(cmd, input=None if payload is None else json.dumps(payload),
-                           text=True, capture_output=True)
-        if p.returncode == 0:
-            return json.loads(p.stdout) if p.stdout.strip() else None
-        error = p.stderr.lower()
-        forbidden = '403' in error
-        if not forbidden and not any(s in error for s in TRANSIENT):
-            status = re.search(r'HTTP (\d+)', p.stderr)
-            raise ValueError(f'GitHub request failed ({status[0] if status else "non-transient response"}): {args[1] if len(args)>1 else args[0]}')
-        if waited >= 300:
-            break
-        # 403 waits share the network retry budget; never device-auth or re-auth.
-        delay = min(60 if forbidden else next(delays), 300 - waited)
-        if forbidden:
-            print(f'GitHub 403: sleeping {delay} seconds before retrying the same request.', file=sys.stderr)
-        else:
-            print(f'Transient GitHub failure; retry budget used {waited}/300 seconds.', file=sys.stderr)
-        time.sleep(delay)
-        waited += delay
-    raise ValueError('GitHub request failed after the full 300-second network retry budget')
 
 
 def pages(endpoint):
@@ -331,34 +300,8 @@ def decisions(data, rules, strict=True):
 
 
 def security_findings(rules):
-    """Public GA-blocking security rows: `SEC-N` ids and status only; detail stays private.
-
-    Fail closed: the rows must match the ruling's GA-blocker count, and a `fixed` row must
-    name the PR that fixed it while an `open` row must not claim one.
-    """
-    rows = rules.get('security_findings')
-    if not isinstance(rows, list) or not rows:
-        raise ValueError('security_findings: missing; every GA-blocking finding needs a public row')
-    seen = set()
-    for row in rows:
-        sid = row.get('id', '')
-        if not re.fullmatch(r'SEC-[1-9][0-9]*', sid) or sid in seen:
-            raise ValueError(f'security_findings: invalid or duplicate id {sid!r}')
-        seen.add(sid)
-        if not re.fullmatch(r'honua-io/[a-z0-9-]+', row.get('repo', '')):
-            raise ValueError(f'{sid}: invalid repo')
-        if row.get('status') == 'fixed':
-            if not re.fullmatch(r'[1-9][0-9]*', str(row.get('fixedBy', ''))):
-                raise ValueError(f'{sid}: a fixed row needs fixedBy: the number of the merged PR')
-        elif row.get('status') == 'open':
-            if row.get('fixedBy'):
-                raise ValueError(f'{sid}: an open row cannot name fixedBy')
-        else:
-            raise ValueError(f'{sid}: status must be open or fixed')
     expected = rules.get('rulings', {}).get(SECURITY_REVIEW, {}).get('counts', {}).get('ga_blocker')
-    if expected != len(rows):
-        raise ValueError(f'security_findings: {len(rows)} rows, ruling counts {expected} GA blockers')
-    return rows
+    return validate_findings(rules.get('security_findings'), expected)
 
 
 def signed_lock(data):
@@ -391,18 +334,7 @@ def decision(data, rows, rules):
 def verify_security(data, rows, rules, record_text):
     """Live gate: each fixed row's PR is merged to its default branch and cites the id;
     any open row keeps the committed record at HOLD."""
-    errors = []
-    for row in security_findings(rules):
-        if row['status'] != 'fixed':
-            continue
-        pr = gh('api', f"repos/{row['repo']}/pulls/{row['fixedBy']}")
-        text = (pr.get('title') or '') + '\n' + (pr.get('body') or '')
-        if not pr.get('merged_at'):
-            errors.append(f"{row['id']}: {row['repo']}#{row['fixedBy']} is not merged")
-        elif pr['base']['ref'] != pr['base']['repo']['default_branch']:
-            errors.append(f"{row['id']}: {row['repo']}#{row['fixedBy']} merged to {pr['base']['ref']}, not the default branch")
-        if not re.search(r'\b' + re.escape(row['id']) + r'\b', text):
-            errors.append(f"{row['id']}: {row['repo']}#{row['fixedBy']} does not cite {row['id']}")
+    errors = verify_fixed_findings(security_findings(rules), gh)
     verdict, line = decision(data, rows, rules)
     if line not in record_text:
         errors.append(f'record does not carry the computed decision: {line}')
