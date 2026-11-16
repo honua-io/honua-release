@@ -616,16 +616,26 @@ def test_browser_exception_is_recorded_and_the_server_keeps_serving(tmp_path):
         server.stop()
 
 
-def test_browser_timeout_fails_closed_and_stop_is_bounded(tmp_path):
+def test_browser_timeout_fails_closed_and_stop_is_bounded(tmp_path, monkeypatch):
+    entered = threading.Event()
     release = threading.Event()
     class SlowPage(FakePage):
         def click(self, selector):
+            entered.set()
             release.wait(5)
     log = ActionLog(tmp_path / 'log', 1, set(), 4)
     server = StudioBrowserServer('http://127.0.0.1:8137', log, tmp_path, page_factory=lambda lock: SlowPage())
-    server.owner_timeout = 0.1
     server.start()
     try:
+        submit = server._owner.submit
+
+        def submit_started(*args):
+            future = submit(*args)
+            assert entered.wait(5), 'browser action did not start'
+            return future
+
+        monkeypatch.setattr(server._owner, 'submit', submit_started)
+        server.owner_timeout = 0.1
         first = json.loads(_rpc_call(server, 'studio_click', {'selector': '#save'}))
         assert first['error']['message'] == 'browser unavailable'
         assert len(log.rows) == 1 and log.rows[0]['status'] == 'unknown'
@@ -633,6 +643,7 @@ def test_browser_timeout_fails_closed_and_stop_is_bounded(tmp_path):
         assert second['error']['message'] == 'browser unavailable'
         assert len(log.rows) == 1
     finally:
+        monkeypatch.undo()
         release.set()
         server.stop()
 
