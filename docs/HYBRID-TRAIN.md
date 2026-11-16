@@ -1,6 +1,6 @@
 # The Hybrid Train
 
-Companion to [`RELEASE-ENGINEERING-PLAN.md`](RELEASE-ENGINEERING-PLAN.md) and
+Companion to [`RELEASE-ENGINEERING.md`](RELEASE-ENGINEERING.md) and
 [`TEST-STRATEGY.md`](TEST-STRATEGY.md). Written for the release-safety program
 (epic honua-io/honua-release#58), specifically its P4 child (#61: cloud tier unblock + live
 capability-manifest check + scheduled demo canary), after two decisions from the release owner
