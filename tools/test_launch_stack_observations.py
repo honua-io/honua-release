@@ -115,7 +115,8 @@ def test_refuses_partial_aws_failures(operation):
         observe_stack(aws, STACK)
 
 
-@pytest.mark.parametrize('operation,key', [('list-stack-resources', 'NextToken'), ('list-tasks', 'nextToken')])
+@pytest.mark.parametrize('operation,key', [('list-stack-resources', 'NextToken'),
+                                         ('list-tasks', 'nextToken'), ('list-tasks', 'NextToken')])
 def test_refuses_unconsumed_pagination(operation, key):
     aws = FakeAws()
     aws.data[operation][key] = 'more'
@@ -241,3 +242,17 @@ def test_describes_more_than_one_hundred_tasks_in_bounded_batches():
 
     assert observe_stack(batched, STACK)['healthyTaskCount'] == 101
     assert sum(call[1] == 'describe-tasks' for call in aws.calls) == 2
+
+
+@pytest.mark.parametrize('field,value', [('HealthCheckPath', '/'), ('Matcher', {'HttpCode': '200-499'})])
+def test_refuses_readiness_configuration_changed_during_health_observation(field, value):
+    aws = FakeAws()
+
+    def changing(service, action, *args):
+        response = aws(service, action, *args)
+        if action == 'describe-target-health':
+            aws.data['describe-target-groups']['TargetGroups'][0][field] = value
+        return response
+
+    with pytest.raises(ObservationError, match='Readiness health check differs'):
+        observe_stack(changing, STACK)
