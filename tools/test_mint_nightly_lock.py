@@ -2,6 +2,7 @@ import copy
 import base64
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
@@ -1139,7 +1140,10 @@ def test_collection_refuses_empty_publisher_predicates(inputs, candidate, tmp_pa
     assert verified == []
 
 
-@pytest.mark.parametrize('presented', ['publish-python-sdk.yml', 'unrelated.yml'])
+@pytest.mark.parametrize('presented', [
+    'publish-python-sdk.yml', 'unrelated.yml', 'publish-python-sdk.yml2.yml',
+    'publish-python-sdkXyml',
+])
 def test_publisher_verification_enforces_producing_workflow(monkeypatch, presented):
     repository = 'honua-io/honua-sdk-python'
     artifact = {'sourceRevision': 'c' * 40, 'coordinate': 'honua-sdk'}
@@ -1147,18 +1151,21 @@ def test_publisher_verification_enforces_producing_workflow(monkeypatch, present
     calls = []
     def verify(command, **kwargs):
         calls.append(command)
-        expected = command[command.index('--signer-workflow') + 1]
-        if expected != f'{repository}/.github/workflows/{presented}':
+        expected = command[command.index('--cert-identity-regex') + 1]
+        identity = f'https://github.com/{repository}/.github/workflows/{presented}@refs/heads/trunk'
+        if not re.search(expected, identity):
             raise subprocess.CalledProcessError(1, command, stderr='certificate signer workflow mismatch')
         return subprocess.CompletedProcess(command, 0, stdout='[]')
     monkeypatch.setattr(nightly.subprocess, 'run', verify)
-    if presented == 'unrelated.yml':
+    if presented != 'publish-python-sdk.yml':
         with pytest.raises(subprocess.CalledProcessError, match='exit status 1'):
             nightly.verify_publisher_bundle(b'package', {}, artifact, repository, 'https://spdx.dev/Document')
     else:
         nightly.verify_publisher_bundle(b'package', {}, artifact, repository, 'https://spdx.dev/Document')
     assert calls[0][calls[0].index('--source-digest') + 1] == 'c' * 40
-    assert calls[0][calls[0].index('--signer-workflow') + 1] == artifact['signerWorkflow']
+    assert calls[0][calls[0].index('--cert-identity-regex') + 1] == (
+        r'^https://github\.com/honua\-io/honua\-sdk\-python/\.github/workflows/publish\-python\-sdk\.yml@.+$')
+    assert '--signer-workflow' not in calls[0]
 
 
 def test_unlisted_publisher_requires_explicit_workflow():
