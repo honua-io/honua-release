@@ -322,7 +322,7 @@ def _disabled_preview_capability(fetch: Fetcher, base: str, capability_id: str) 
 def check_edr_collections(fetch: Fetcher, base: str) -> CheckResult:
     """GET /edr/collections -> 200 + JSON (reachability; EDR collections may legitimately be empty).
 
-    OGC API EDR is a Preview surface in 2026.1 (docs/2026.1-release-decision-record.md), opt-in and
+    OGC API EDR is a Preview surface in 2026.1 (release-notes/2026.1.md), opt-in and
     off by default. A 404 is therefore reported BLOCKED — not asserted either way — only when the
     deployment's own capability manifest says `serve.ogc-api-edr` is a preview, opt-in capability that
     is unavailable there. Any other non-200 still FAILs, and an enabled EDR must still answer 200.

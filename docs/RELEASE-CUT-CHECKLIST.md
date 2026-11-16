@@ -130,8 +130,9 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
   certify their own locks and are not prerequisites. Promotion remains open after hour 72 while all
   evidence stays within its freshness bound.
 - [ ] Pass the GA documentation gates ([release#379](https://github.com/honua-io/honua-release/issues/379))
-  and regenerate the release decision record with Decision: GO. Record the operator's disposition of
-  every server security-review finding and the measured AWS spending ceilings.
+  and retain the passing promotion-readiness result with the selected lock and immutable evidence.
+  Require the authenticated candidate-matched [private security summary](SECURITY-SUMMARY-GATE.md)
+  receipt; retain finding dispositions and measured AWS spending ceilings in private operator evidence.
 - [ ] Rehearse fix-forward patching before GA ([release#380](https://github.com/honua-io/honua-release/issues/380)):
   fix on trunk → next certified lock → 12-hour patch burn and two canaries → `2026.1.1` promotion →
   rollback to the previous promoted lock. Maintenance commits reach `release/2026.1` only as labelled

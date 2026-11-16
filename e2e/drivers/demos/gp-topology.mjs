@@ -2,8 +2,8 @@
  * S9-demos-geoprocessing — the topology decision and the Redis-off verdict, kept pure so they are
  * unit-tested without a browser (gp-topology.test.mjs, run by e2e/test_cloud.py).
  *
- * A Redis-off cell is a different topology, not a broken one (2026.1 release fix plan, decision 3;
- * docs/2026.1-release-decision-overrides.json): it serves, configures and renders, but geoprocessing
+ * The Redis-off topology in docs/2026.1-operating-envelope.md serves, configures and renders,
+ * but geoprocessing
  * jobs need the Redis-backed durable job store, so the server refuses an async execution up front
  * with the typed capability-unavailable receipt (honua-release#202). S5 (drivers/gp/run.sh) asserts
  * exactly that refusal on the wire; this asserts that the honua-site demo page surfaces the SAME

@@ -51,7 +51,7 @@ fields enforced during evidence intake.
 
 ## Declared-Preview producers
 
-Founder ruling `cng-preview-producer-2026-10-27` (in `docs/2026.1-release-decision-overrides.json`)
+Founder ruling `cng-preview-producer-2026-10-27` (in `contracts/release-exceptions.json`)
 declares the cloud-native geospatial conformance producer, `honua-server-cng`, Preview evidence for
 the 2026.1 RC until it emits v2 receipts ([honua-server#3753](https://github.com/honua-io/honua-server/issues/3753)).
 The nightly still dispatches it and the bind still requires its run to succeed. While none of its cells
