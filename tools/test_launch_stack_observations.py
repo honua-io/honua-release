@@ -243,7 +243,7 @@ def test_describes_more_than_one_hundred_tasks_in_bounded_batches():
         return result
 
     assert observe_stack(batched, STACK)['healthyTaskCount'] == 101
-    assert sum(call[1] == 'describe-tasks' for call in aws.calls) == 2
+    assert sum(call[1] == 'describe-tasks' for call in aws.calls) == 4
 
 
 @pytest.mark.parametrize('field,value', [('HealthCheckPath', '/'), ('Matcher', {'HttpCode': '200-499'})])
@@ -257,4 +257,30 @@ def test_refuses_readiness_configuration_changed_during_health_observation(field
         return response
 
     with pytest.raises(ObservationError, match='Readiness health check differs'):
+        observe_stack(changing, STACK)
+
+
+@pytest.mark.parametrize('change', ['health', 'container-health', 'digest', 'address', 'replacement'])
+def test_refuses_task_changes_during_readiness_observation(change):
+    aws = FakeAws()
+
+    def changing(service, operation, *args):
+        response = aws(service, operation, *args)
+        if operation == 'describe-target-health':
+            task = aws.data['describe-tasks']['tasks'][0]
+            container = task['containers'][0]
+            if change == 'health':
+                task['healthStatus'] = 'UNHEALTHY'
+            elif change == 'container-health':
+                container['healthStatus'] = 'UNHEALTHY'
+            elif change == 'digest':
+                container['imageDigest'] = 'sha256:' + 'c' * 64
+            elif change == 'address':
+                container['networkInterfaces'][0]['privateIpv4Address'] = '10.0.0.8'
+            else:
+                task['taskArn'] = 'task-2'
+                aws.data['list-tasks']['taskArns'] = ['task-2']
+        return response
+
+    with pytest.raises(ObservationError):
         observe_stack(changing, STACK)
