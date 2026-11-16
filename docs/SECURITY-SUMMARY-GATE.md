@@ -4,11 +4,19 @@
 Dispatch it on `trunk` with `server_sha`, `server_digest`, and `platform_lock_digest` for
 one candidate. Use the dedicated dispatch so the receipt belongs to this producer run.
 
-Configure two Actions secrets in honua-release:
+Create the `security-tracker` environment in honua-release. Configure its deployment
+branch rule to allow only the `trunk` branch, with no tags. Store these two Actions
+secrets in that environment:
 
 - `SECURITY_TRACKER_REPOSITORY`: the private tracker in `owner/repository` form.
 - `SECURITY_TRACKER_TOKEN`: a fine-grained token restricted to that tracker, with
   read-only Issues and repository metadata access. The workflow token is not a fallback.
+
+Do not store either secret at repository scope. If repository-scoped copies exist,
+move them to the environment and remove the repository copies. The workflow job names
+this environment and independently requires the trunk ref; environment branch rules
+also prevent modified workflows on other branches from requesting the credential.
+Verify the branch rule and secret scopes before the first dispatch.
 
 The query verifies private visibility, enabled issues, and the `severity/high` label,
 then reads only the total count of open issues with that label. Maintain that label on

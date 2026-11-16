@@ -11,6 +11,7 @@ permissions:
 jobs:
   summary:
     if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    environment: security-tracker
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

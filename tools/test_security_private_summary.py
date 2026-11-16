@@ -145,6 +145,7 @@ def test_workflow_trust_boundary_and_artifact_allowlist():
     job = workflow['jobs']['summary']
     assert job['if'] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
     assert workflow['permissions'] == {'contents': 'read'}
+    assert job['environment'] == 'security-tracker'
     steps = job['steps']
     producer = next(step for step in steps if step.get('name') == 'Produce private aggregate')
     assert producer['env']['SECURITY_TRACKER_TOKEN'] == '${{ secrets.SECURITY_TRACKER_TOKEN }}'
