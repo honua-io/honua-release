@@ -404,3 +404,30 @@ def test_capacity_fresh_original_observation_passes():
     record = run(row)
     record['reports'][0]['sourceObservedAt'] = '2026-11-13T00:00:00Z'
     assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] == 'PASS'
+
+
+def test_cached_capacity_preserves_original_expiry(monkeypatch):
+    targets = [{**row, 'gaMaximum': 0} for row in p.load_outcomes()]
+    monkeypatch.setattr(p.outcomes, 'load', lambda path: targets)
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'operates-capacity')
+    record = run(row)
+    record['reports'][0]['sourceObservedAt'] = '2026-11-08T12:00:00Z'
+    result = p.evaluate_row(row, [record], (CANDIDATE, NOW))
+    doc = aggregate()
+    doc['rows'] = [result if r['id'] == row['id'] else r for r in doc['rows']]
+    assert p.report_valid(doc, 'ga', NOW)
+    tomorrow = NOW + dt.timedelta(days=1)
+    assert not p.report_valid(doc, 'ga', tomorrow)
+    assert p.report_valid(doc, 'rc', tomorrow)
+    assert result['sourceObservedAt'] == '2026-11-08T12:00:00Z'
+
+
+@pytest.mark.parametrize('source', [None, '2026-11-01T00:00:00Z', '2026-11-14T12:00:00Z'])
+def test_cached_capacity_rejects_missing_stale_or_post_adapter_source(monkeypatch, source):
+    targets = [{**row, 'gaMaximum': 0} for row in p.load_outcomes()]
+    monkeypatch.setattr(p.outcomes, 'load', lambda path: targets)
+    doc = aggregate()
+    capacity = next(r for r in doc['rows'] if r['id'] == 'operates-capacity')
+    capacity['sourceObservedAt'] = source
+    assert not p.report_valid(doc, 'ga', NOW)
+    assert p.report_valid(doc, 'rc', NOW)

@@ -124,6 +124,9 @@ def evaluate_row(row: dict, runs: list[dict], context: tuple) -> dict:
     passed = all(_run_passes(run, row, context) for run in deciding)
     measured = outcomes.summarize(row, [run['reports'][0] for run in deciding]) if (
         passed and row['id'] in outcomes.IDS) else {}
+    if passed and row['id'] == 'operates-capacity':
+        measured['sourceObservedAt'] = min(
+            (run['reports'][0]['sourceObservedAt'] for run in deciding), key=instant)
     return {**result, 'status': 'PASS' if passed else 'invalid',
             **measured,
             'runs': [run['id'] for run in deciding],
@@ -233,9 +236,20 @@ def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
     if not outcomes.report_valid(doc.get('outcomes'), profile, now):
         return False
     required = ALL_IDS if profile == 'ga' else REQUIRED_IDS
-    return all(r.get('status') == 'PASS' and instant(r.get('observedAt')) is not None
-               and now - dt.timedelta(days=7) <= instant(r['observedAt']) <= now
-               for r in rows if r['id'] in required)
+    return all(_report_row_fresh(r, now) for r in rows if r['id'] in required)
+
+
+def _report_row_fresh(row: dict, now: dt.datetime) -> bool:
+    observed = instant(row.get('observedAt'))
+    if row.get('status') != 'PASS' or observed is None:
+        return False
+    oldest = now - dt.timedelta(days=7)
+    if not oldest <= observed <= now:
+        return False
+    if row['id'] == 'operates-capacity':
+        source = instant(row.get('sourceObservedAt'))
+        return source is not None and oldest <= source <= observed
+    return True
 
 
 def arguments():
