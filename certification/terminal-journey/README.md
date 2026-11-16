@@ -22,7 +22,7 @@ this roster.
 | `oracles.py` | Independent geometry, feature, PNG pixel and map-content assertions. |
 | `run.py` | The driver. `--mode build` (contract only) or `--mode live --target …`. |
 | `live_driver.py` | The `terminal-journey-driver-v1` adapter #161 calls, at the path its protocol contract fixes. |
-| `fixtures/smoke-receipt.synthetic.json` | Synthetic schema and refusal fixture; no installed execution evidence. |
+| `fixtures/smoke-input.synthetic.json` | Synthetic schema and refusal fixture; no installed execution evidence. |
 
 ## Honesty rules
 

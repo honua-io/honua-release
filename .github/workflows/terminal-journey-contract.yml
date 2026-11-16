@@ -162,7 +162,7 @@ jobs:
           import json
           import jsonschema
           schema = json.load(open('certification/terminal-journey/receipt.schema.json'))
-          receipt = json.load(open('certification/terminal-journey/fixtures/smoke-receipt.synthetic.json'))
+          receipt = json.load(open('certification/terminal-journey/fixtures/smoke-input.synthetic.json'))
           jsonschema.validate(receipt, schema)
           assert receipt['notices'][0] == 'Synthetic contract fixture; no execution evidence.'
           assert receipt['mode'] == 'live'
