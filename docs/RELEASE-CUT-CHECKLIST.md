@@ -60,7 +60,7 @@ Optional Lambda proof (not an rc.2 gate) must include exact-digest deploy/invoke
 asserted fixture row count, staging write round-trip, authorization denial and cold-start duration.
 Use the isolated staging target. Health-only evidence cannot discharge
 [release#282](https://github.com/honua-io/honua-release/issues/282); see the
-[Lambda GA bill ledger](2026.1-lambda-ga-bill.md) and
+[Lambda GA bill ledger](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/2026.1-lambda-ga-bill.md) and
 [serverless operating limits](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits).
 
 **Upgrade baseline (R26, #376, 2026-10-03):** no prior `honua-*` platform release exists for rc.3. The
