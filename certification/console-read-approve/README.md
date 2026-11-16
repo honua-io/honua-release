@@ -44,3 +44,5 @@ python3 certification/console-read-approve/run.py \
 ```
 
 The harness exits nonzero when any check fails and still writes the failed receipt. `--keep` leaves the stack running for diagnosis. Generated certificates are deleted when the run exits, so a kept server can no longer reach the IdP. Store runtime receipts and captured pages in private evidence storage rather than the public repository.
+
+The `fixtures/` directory contains synthetic status-contract examples for unit tests. They record no execution evidence.
