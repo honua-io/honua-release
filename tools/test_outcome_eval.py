@@ -117,6 +117,18 @@ class OutcomeChecks(unittest.TestCase):
             grade = dict(self.grade, **{key: value})
             with self.assertRaises(ValueError): self.count(grade=grade)
 
+    def test_repetition_identity_rejects_numeric_aliases(self):
+        for modality, trial_id in (("agent", "r1-gpt-6.1-sol-style-A"),
+                                   ("browser", "r1-browser-style")):
+            for repetition in (True, 1.0, "1"):
+                grade = dict(self.grade, modality=modality, trialId=trial_id,
+                             **{"pass": repetition})
+                with (self.subTest(modality=modality, repetition=repetition),
+                      self.assertRaisesRegex(ValueError, "grade identity mismatch: pass")):
+                    self.count(grade=grade)
+            grade = dict(self.grade, modality=modality, trialId=trial_id, **{"pass": 1})
+            self.assertEqual(self.count(grade=grade)["pass"], 1)
+
     def test_excluded_before_dispatch_is_retained(self):
         self.grade.update(status="excluded", reason="corrupt before dispatch")
         self.assertIsNone(self.count(events=[])["elapsedMinutes"])
