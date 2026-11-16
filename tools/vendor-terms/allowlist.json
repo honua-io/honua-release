@@ -202,7 +202,7 @@
     {
       "repo": "honua-release",
       "paths": [
-        "certification/installed-clients/mcp-6901-replay-41680771276.json"
+        "certification/installed-clients/mcp-tool-contract-input.json"
       ],
       "tokens": [
         "esri"
