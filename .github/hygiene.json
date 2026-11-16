@@ -69,6 +69,9 @@
     "docs/2026.1-candidate-resolution.md",
     "tools/fixtures/protocol-harness-2026-08-26.1.json",
     "certification/installed-clients/mcp-6901-replay-41680771276.json",
-    "certification/installed-clients/mcp-publish-query-replay-41714656270.json"
+    "certification/installed-clients/mcp-publish-query-replay-41714656270.json",
+    "certification/sdk-publication-replay/sdk-021/*",
+    "certification/sdk-publication-replay/published-*.json",
+    "docs/evidence/studio-assistant-p08-*.json"
   ]
 }

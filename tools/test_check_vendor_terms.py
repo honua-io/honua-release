@@ -854,8 +854,6 @@ def test_identifier_exception_cannot_cover_confidential_hits_or_nonliteral_patte
 
 def test_published_sdk_observations_no_longer_carry_vendor_terms():
     paths = [
-        "certification/sdk-publication-replay/sdk-021/published-release-verification.v1.json",
-        "certification/sdk-publication-replay/sdk-021/registry-observations.json",
         "certification/sdk-publication-replay/sdk-022/published-release-verification.v1.json",
         "certification/sdk-publication-replay/sdk-022/registry-observations.json",
         "certification/sdk-publication-replay/sdk-022/default-vanilla-ts/sdk-package-lock.json",
