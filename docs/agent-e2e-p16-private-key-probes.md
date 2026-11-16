@@ -1,8 +1,8 @@
 # P16 private credential transport and item probes
 
-These controller-only components are development building blocks under #1000,
-a child of #623. They do not register a supported scenario backend, activate a
-campaign, change the frozen 252-case pack or qualify any P16 case.
+These controller-only components provide credential transport and item probes.
+They do not register a supported scenario backend, activate a campaign, change
+the frozen 252-case pack or qualify any P16 case.
 
 `agent_e2e_key_secret.OperationKeyConsumer` consumes exactly one native operation
 secret under the original task API-key principal and workspace/turn. It first
@@ -35,24 +35,19 @@ replacement satisfies the frozen fixture schema. A generic 403 alone is not
 proof of the exact issued key's scoped grants. The caller must also prove bootstrap retirement and fresh worker custody. No report from
 these helpers alone satisfies those obligations or the frozen permission oracle.
 
-## Current runtime prerequisite
+## Runtime qualification prerequisites
 
-Source inspected: Honua Server `e4371c9003212247e6fd7e6e563317f195243939`.
-`AdminAccessOperationCatalog` projects both key create and revoke through
-`AdminOperateOperationCatalog.BuildDescriptor`; non-read operations default to
-`OperatorGate`. `PublishedOperationTool.InvokeAsync` currently returns a typed
-approval-required refusal before dispatch for that approval model (Server #3586).
-Its output also excludes secret references, so these must come from the native
-handle read, not a model response.
+A complete native MCP producer must prove model-selected issuance and revocation
+through a transport-neutral typed approval/proposal path under the original caller's
+authority. Resolve any issued secret privately through its original-principal native
+handle. A typed approval-required refusal or an output without secret references
+cannot substitute for these observations.
 
-The HTTP operation submission route separately evaluates `OperatorApprovalGate`;
-terminal access is not evidence of an authorized approval channel. Raw admin
-issuance/revocation cannot be substituted for typed model operation evidence.
-A complete native MCP P16 producer therefore remains unsupported. The owning
-Server runtime needs a reviewed transport-neutral typed approval/proposal path
-for these operations under unchanged caller authority, plus authorized private
-resolution of the resulting original-principal secret. No worker authority
-upgrade or controller revocation is introduced here.
+The HTTP operation submission route separately evaluates its operator approval gate.
+Terminal access does not prove an authorized approval channel, and raw admin
+issuance/revocation cannot substitute for typed model operation evidence. Do not
+upgrade worker authority or introduce controller revocation to complete the proof.
+If the installed candidate cannot execute the required path, report it unsupported.
 
 Loopback regressions prove transport/probe behavior only. Their simulated state
 transitions are not evidence that a current model or Server can complete P16.
