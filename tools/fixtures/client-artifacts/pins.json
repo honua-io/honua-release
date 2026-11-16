@@ -13,7 +13,7 @@
     "package": "honua-sdk",
     "version": "0.1.12",
     "filename": "honua_sdk-0.1.12-py3-none-any.whl",
-    "digest": "sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2",
+    "digest": "sha256:41ab947d50f514a01e8de2484914a2865c53977c9456af1176567607c64f4a9c",
     "repository": "honua-io/honua-sdk-python",
     "sourceSha": "12670676a1e8acb835e911c358adbf46a731120a",
     "publicationState": "published"
@@ -24,7 +24,7 @@
     "package": "Honua.Sdk",
     "version": "1.10.1",
     "filename": "honua.sdk.1.10.1.nupkg",
-    "digest": "sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd",
+    "digest": "sha256:ed546d737b7d62a956621d32922d4fc2d9c0be69a7379db45299e9d0e8901e5d",
     "repository": "honua-io/honua-sdk-dotnet",
     "sourceSha": "8a0a06c815baefd49e7398d38a9f22642a8c80c5",
     "publicationState": "published"

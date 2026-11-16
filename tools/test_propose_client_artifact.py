@@ -79,14 +79,13 @@ def test_npm_proposal_verifies_synthetic_package_bytes(monkeypatch):
     assert result['candidateQualification'] == 'pending'
 
 
-def test_pypi_proposal_derives_signed_source_and_checks_real_wheel_bytes(monkeypatch):
+def test_pypi_proposal_derives_signed_source_and_checks_synthetic_wheel_bytes(monkeypatch):
     from test_verify_client_artifacts import RECORDED_PINS, recorded_registry
     recorded_registry(monkeypatch)
     request_json = verifier._request_json
     def metadata(url, **kwargs):
         value = request_json(url, **kwargs)
-        # The existing PyPI metadata fixture is explicitly synthetic. Add its
-        # wheel type for discovery; the recorded wheel/provenance stay unedited.
+        # Add the discovery type without changing the signed synthetic wheel.
         if url.endswith('/json') and 'pypi.org/pypi/' in url:
             value['urls'][0]['packagetype'] = 'bdist_wheel'
         return value
@@ -95,7 +94,7 @@ def test_pypi_proposal_derives_signed_source_and_checks_real_wheel_bytes(monkeyp
     current.update(version='0.0.0', sourceSha='a' * 40)
     result = proposal.propose({'clientArtifacts': {'python': current}}, 'python', '0.1.12')
     assert result['verifiedIdentity']['sourceRevision'] == '12670676a1e8acb835e911c358adbf46a731120a'
-    assert result['verifiedIdentity']['sha256'] == 'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'
+    assert result['verifiedIdentity']['sha256'] == 'sha256:41ab947d50f514a01e8de2484914a2865c53977c9456af1176567607c64f4a9c'
 
 
 def test_npm_unsigned_source_hint_never_skips_publisher_verification(monkeypatch):
