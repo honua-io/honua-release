@@ -1,0 +1,8 @@
+{
+  "synthetic": true,
+  "gitHead": "1102d2d55916340edca13cb28411df8da8206f92",
+  "dist": {
+    "integrity": "sha512-VVFNMd27WlLweYLbVnCvEgNwG5x56kkTBt2tFFnMtOLnZQTuMSv7kF8kIwQOzchhEKavc0T/ZJHPW3s7LB+Jqw==",
+    "tarball": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.12.tgz"
+  }
+}

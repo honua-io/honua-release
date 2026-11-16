@@ -1,7 +1,7 @@
 # FOSS4G AI qualification implementation
 
 The coordinating ticket is [honua-release#378](https://github.com/honua-io/honua-release/issues/378).
-The accepted scope and schedule are in [the interaction plan, section 7](plans/agent-console-interaction-plan.md).
+The accepted scope and schedule are in [the archived interaction plan, section 7](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/plans/agent-console-interaction-plan.md).
 Existing RC gates and the 36-scenario/108-prompt/252-case campaign keep their own contracts.
 
 ## Canonical inventory and component projection
@@ -86,7 +86,7 @@ No issue is closed while it still owns an unsatisfied unique requirement.
 ## Current execution status — 2026-10-23 20:55 UTC
 
 The [current canonical release checkpoint](https://github.com/honua-io/honua-release/issues/378)
-and [interaction plan](plans/agent-console-interaction-plan.md#712-execution-checkpoint--2026-10-23-2055-utc)
+and [archived interaction plan](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/plans/agent-console-interaction-plan.md#712-execution-checkpoint--2026-10-23-2055-utc)
 retain the original acceptance requirements. Shared application topology #870 and
 original foundation history #872 are merged. Exact native operation ceilings
 #873 and Console-turn adoption #871 remain under CI/review. The identity-only

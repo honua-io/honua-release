@@ -1,0 +1,210 @@
+"""Synthetic cohort replay, denominator conservation and paired comparison checks."""
+import copy
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import outcome_eval as evaluation
+import outcome_report as reporting
+
+
+class CohortChecks(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.path = self.root / "cohort.json"
+        self.plan = evaluation.plan()
+        self.manifest = {"schema": reporting.SCHEMA, "plan": "plan.json", "files": {},
+                         "trials": [{"trialId": row["id"], "eligible": False,
+                                     "reason": "Synthetic fixture not admitted"}
+                                    for row in self.plan["trials"] + self.plan["baselines"]]}
+        self.store("plan.json", self.plan)
+
+    def store(self, name, value):
+        path = self.root / name
+        path.write_text(json.dumps(value))
+        self.manifest["files"][name] = evaluation.digest(path)
+
+    def report(self):
+        self.path.write_text(json.dumps(self.manifest))
+        return reporting.report(self.path)
+
+    def record(self, trial_id, status="success", sentences=2):
+        entry = next(e for e in self.manifest["trials"] if e["trialId"] == trial_id)
+        trial = next(r for r in self.plan["trials"] + self.plan["baselines"] if r["id"] == trial_id)
+        events = [{"id": "start", "type": "dispatch", "seconds": 0}]
+        if sentences:
+            events.append({"id": "brief", "type": "person", "seconds": 0,
+                           "text": "Go. " * sentences, "sentences": ["Go."] * sentences})
+        events.append({"id": "click", "type": "click", "seconds": 1, "count": 2})
+        events.append({"id": "end", "seconds": 60,
+                       "type": "terminal-readback" if status == "success" else "stop"})
+        event_name, grade_name = f"{trial_id}.jsonl", f"{trial_id}.grade.json"
+        self.store(f"{trial_id}.readback.json", {"synthetic": True})
+        (self.root / event_name).write_text("\n".join(json.dumps(e) for e in events))
+        self.manifest["files"][event_name] = evaluation.digest(self.root / event_name)
+        grade = {"trialId": trial_id, "workflow": trial["workflow"],
+                 "modality": "agent" if "model" in trial else "browser",
+                 "status": status, "grader": "synthetic-only", "reason": "Synthetic grade",
+                 "postconditionsPassed": True, "controlsPassed": True,
+                 "sentenceBoundariesReviewed": True,
+                 "terminalReadback": f"{trial_id}.readback.json",
+                 "evidence": {event_name: self.manifest["files"][event_name],
+                              f"{trial_id}.readback.json": self.manifest["files"][
+                                  f"{trial_id}.readback.json"]}}
+        self.store(grade_name, grade)
+        entry.update(eligible=status != "excluded", events=event_name, grade=grade_name)
+
+    def test_complete_unadmitted_cohort_retained(self):
+        report = self.report()
+        self.assertEqual(len(report["trials"]), 216)
+        self.assertEqual(len(report["groups"]), 72)
+        self.assertEqual(len(report["browserPairs"]), 192)
+        self.assertEqual(len(report["armPairs"]), 144)
+        self.assertFalse(report["live"])
+        self.assertEqual(report["status"], "OFFLINE REPORT")
+        self.assertEqual(report["cohortSha256"], evaluation.digest(self.path))
+        for group in report["groups"]:
+            self.assertEqual(group["planned"], 3)
+            self.assertEqual(group["not-run"], 3)
+            self.assertEqual(group["eligible"], 0)
+            self.assertEqual(group["attempted"], 0)
+            self.assertEqual(group["successPerPlanned"], 0)
+            self.assertIsNone(group["successPerAttempted"])
+        self.assertTrue(all(p["clicksPerPersonSentence"] is None for p in report["browserPairs"]))
+
+    def test_no_dropped_duplicated_invented_or_reordered_trial(self):
+        original = copy.deepcopy(self.manifest["trials"])
+        variants = [original[:-1], original + [original[0]],
+                    [dict(original[0], trialId="invented")] + original[1:],
+                    [original[1], original[0]] + original[2:]]
+        for trials in variants:
+            with self.subTest(trials=len(trials)), self.assertRaises(ValueError):
+                self.manifest["trials"] = trials
+                self.report()
+
+    def test_plan_change_cannot_be_hidden_by_repinning(self):
+        for replacement in (True, 2):
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                changed = copy.deepcopy(self.plan)
+                changed["trials"][0]["pass"] = replacement
+                self.store("plan.json", changed)
+                self.report()
+
+    def test_eligibility_and_not_run_reason_required(self):
+        for entry in ({"eligible": None}, {"eligible": 0}, {"reason": ""}, {"reason": 4}):
+            original = copy.deepcopy(self.manifest["trials"][0])
+            self.manifest["trials"][0].update(entry)
+            with self.subTest(entry=entry), self.assertRaises(ValueError):
+                self.report()
+            self.manifest["trials"][0] = original
+
+    def test_matching_success_ratio_and_primary_pair(self):
+        self.record("r1-gpt-6.1-sol-style-A", sentences=4)
+        self.record("r1-gpt-6.1-sol-style-D")
+        self.record("r1-browser-style")
+        report = self.report()
+        pair = next(p for p in report["browserPairs"] if p["trialId"] == "r1-gpt-6.1-sol-style-D")
+        self.assertEqual((pair["baselineClicks"], pair["agentSentences"]), (2, 2))
+        self.assertEqual(pair["clicksPerPersonSentence"], 1)
+        self.assertEqual(pair["agentClicks"], 2)
+        arm = next(p for p in report["armPairs"] if p["treatmentId"] == pair["trialId"])
+        self.assertTrue(arm["primary"])
+        self.assertEqual(arm["treatmentMinusControl"]["personSentences"], -2)
+
+    def test_failures_censoring_exclusions_and_unknown_tokens_survive(self):
+        for repetition, status in enumerate(("success", "censored", "excluded"), 1):
+            self.record(f"r{repetition}-gpt-6.1-sol-style-D", status)
+        report = self.report()
+        group = next(g for g in report["groups"] if
+                     (g["workflow"], g["model"], g["arm"]) == ("style", "gpt-6.1-sol", "D"))
+        self.assertEqual((group["planned"], group["eligible"], group["attempted"]), (3, 2, 3))
+        self.assertEqual((group["success"], group["censored"], group["excluded"]), (1, 1, 1))
+        self.assertEqual(group["successPerAttempted"], 1 / 3)
+        self.assertEqual(group["attemptedMetrics"]["clicks"]["median"], 2)
+        self.assertEqual(group["attemptedMetrics"]["tokens"]["input"]["missing"], 3)
+        self.assertTrue(all(p["clicksPerPersonSentence"] is None for p in report["browserPairs"]))
+
+    def test_failed_pair_and_zero_denominator_are_undefined(self):
+        for status, sentences in (("failed", 2), ("success", 0)):
+            with self.subTest(status=status):
+                self.record("r1-gpt-6.1-sol-style-D", status, sentences)
+                self.record("r1-browser-style")
+                pair = next(p for p in self.report()["browserPairs"] if
+                            p["trialId"] == "r1-gpt-6.1-sol-style-D")
+                self.assertIsNone(pair["clicksPerPersonSentence"])
+
+    def test_summary_fields_do_not_override_replayed_counts(self):
+        self.record("r1-gpt-6.1-sol-style-A")
+        self.manifest["trials"] = [dict(e, personSentences=0, status="success")
+                                   for e in self.manifest["trials"]]
+        report = self.report()
+        row = next(r for r in report["trials"] if r["trialId"] == "r1-gpt-6.1-sol-style-A")
+        self.assertEqual(row["personSentences"], 2)
+        self.assertEqual(sum(r["status"] == "success" for r in report["trials"]), 1)
+
+    def test_changed_evidence_or_unpinned_grade_rejected(self):
+        self.record("r1-gpt-6.1-sol-style-A")
+        entry = next(e for e in self.manifest["trials"] if "grade" in e)
+        self.manifest["files"].pop(entry["grade"])
+        with self.assertRaises(ValueError):
+            self.report()
+        self.manifest["files"][entry["grade"]] = evaluation.digest(self.root / entry["grade"])
+        (self.root / entry["events"]).write_text("")
+        with self.assertRaises(ValueError):
+            self.report()
+
+    def test_readback_must_also_be_pinned_by_cohort(self):
+        self.record("r1-gpt-6.1-sol-style-A")
+        self.manifest["files"].pop("r1-gpt-6.1-sol-style-A.readback.json")
+        with self.assertRaises(ValueError):
+            self.report()
+
+    def test_grade_cannot_be_assigned_to_another_trial(self):
+        self.record("r1-gpt-6.1-sol-style-A")
+        source = next(e for e in self.manifest["trials"] if "grade" in e)
+        destination = self.manifest["trials"][-1]
+        destination.update(events=source["events"], grade=source["grade"])
+        with self.assertRaises(ValueError):
+            self.report()
+
+    def test_eligibility_cannot_hide_an_attempt_or_include_an_exclusion(self):
+        for status in ("success", "failed", "censored", "excluded"):
+            with self.subTest(status=status):
+                self.record("r1-gpt-6.1-sol-style-A", status)
+                entry = next(e for e in self.manifest["trials"] if "grade" in e)
+                entry["eligible"] = not entry["eligible"]
+                with self.assertRaises(ValueError):
+                    self.report()
+
+    def test_failed_baseline_does_not_produce_a_ratio(self):
+        self.record("r1-gpt-6.1-sol-style-A")
+        self.record("r1-browser-style", "failed")
+        report = self.report()
+        pair = next(p for p in report["browserPairs"] if p["trialId"] == "r1-gpt-6.1-sol-style-A")
+        self.assertEqual(pair["baselineClicks"], 2)
+        self.assertIsNone(pair["clicksPerPersonSentence"])
+
+    def test_missing_recording_half_is_an_error(self):
+        self.record("r1-gpt-6.1-sol-style-A")
+        entry = next(e for e in self.manifest["trials"] if "grade" in e)
+        del entry["events"]
+        with self.assertRaises(KeyError):
+            self.report()
+
+    def test_cli_keeps_existing_report(self):
+        self.report()
+        output = self.root / "report.json"
+        command = [sys.executable, str(Path(reporting.__file__)), str(self.path), str(output)]
+        self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
+        retained = output.read_bytes()
+        self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+        self.assertEqual(output.read_bytes(), retained)
+
+
+if __name__ == "__main__":
+    unittest.main()

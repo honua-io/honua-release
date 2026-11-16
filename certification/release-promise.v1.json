@@ -1,7 +1,7 @@
 {
   "schema": "honua.release-promise-contract/v1",
   "windowDays": 7,
-  "authority": "Founder 2026-11-14 22:50 PT, amending 2026-11-13 runs-itself and AI-native rulings",
+  "authority": "Founder 2026-11-15 approved release gates plan, extending 2026-11-14 release promise rulings",
   "producerPolicy": "Workflow names are producer contracts, not assertions that producers exist. Missing workflows or receipts fail closed. Private security producer publishes only a count; no tracker details.",
   "rows": [
     {
@@ -301,6 +301,206 @@
       ],
       "assertions": {
         "live": true
+      }
+    },
+    {
+      "id": "cloud-image-aot",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-launch-stack.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "cloud-image-aot.json",
+      "assertions": {
+        "live": true,
+        "publishedAotImage": true,
+        "sizeBudgetMet": true
+      },
+      "criterion": "The live stack runs the published AOT image by candidate digest within the image size budget."
+    },
+    {
+      "id": "cloud-no-redis-source",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-source-facts.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "cloud-no-redis-source.json",
+      "assertions": {
+        "redisPackages": 0,
+        "redisSourceReferences": 0
+      },
+      "criterion": "No Redis packages or source references at the candidate SHA."
+    },
+    {
+      "id": "security-agent-default-deny",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-agent-safety.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "security-agent-default-deny.json",
+      "assertions": {
+        "live": true,
+        "allMutatingRoutesChecked": true,
+        "proposalOnly": true,
+        "agentIdentityAudited": true
+      },
+      "criterion": "Every mutating route gives an Agent a proposal, without direct changes, and records agent identity in the audit."
+    },
+    {
+      "id": "operates-8-upgrade",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-upgrade.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-8-upgrade.json",
+      "assertions": {
+        "live": true,
+        "rollingUpgrade": true,
+        "nMinusOneReaderCompatible": true,
+        "rollbackPassed": true,
+        "launchStack": true
+      },
+      "criterion": "Rolling upgrade from the previous release image, N-1 reader compatibility and rollback pass."
+    },
+    {
+      "id": "supply-sbom",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-sbom.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "supply-sbom.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "supply-scan",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-security.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "supply-scan.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "contract-compat",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-contract.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "contract-compat.json",
+      "assertions": {
+        "producerPassed": true
+      },
+      "additionalWorkflows": [
+        "gate-contract-live.yml"
+      ]
+    },
+    {
+      "id": "docs-executable",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-executable-docs.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "docs-executable.json",
+      "assertions": {
+        "producerPassed": true
+      },
+      "additionalWorkflows": [
+        "gate-docs.yml"
+      ]
+    },
+    {
+      "id": "clients-installed",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-installed-clients.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clients-installed.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "operates-telemetry",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-observability.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-telemetry.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "operates-restore",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-dr.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-restore.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "protocol-compat",
+      "required": [
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-protocol-certification.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "protocol-compat.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "operates-capacity",
+      "required": [
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "capacity-soak.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-capacity.json",
+      "assertions": {
+        "producerPassed": true
       }
     }
   ],
@@ -628,7 +828,312 @@
         "releaseNotesReported": true
       },
       "gaMaximum": null
+    },
+    {
+      "id": "sentences-install",
+      "criterion": "User sentences to an agent to complete install.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-install.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-publish-layer",
+      "criterion": "User sentences to an agent to complete publish-layer.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-publish-layer.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-style",
+      "criterion": "User sentences to an agent to complete style.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-style.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-share",
+      "criterion": "User sentences to an agent to complete share.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-share.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-build-app",
+      "criterion": "User sentences to an agent to complete build-app.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-build-app.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-sign-in-roles",
+      "criterion": "User sentences to an agent to complete sign-in-roles.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-sign-in-roles.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-recover-incident",
+      "criterion": "User sentences to an agent to complete recover-incident.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-recover-incident.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "sentences-migrate-service",
+      "criterion": "User sentences to an agent to complete migrate-service.",
+      "unit": "sentences",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "sentences-migrate-service.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-install",
+      "criterion": "Clicks to complete install; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-install.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-publish-layer",
+      "criterion": "Clicks to complete publish-layer; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-publish-layer.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-style",
+      "criterion": "Clicks to complete style; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-style.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-share",
+      "criterion": "Clicks to complete share; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-share.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-build-app",
+      "criterion": "Clicks to complete build-app; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-build-app.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-sign-in-roles",
+      "criterion": "Clicks to complete sign-in-roles; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-sign-in-roles.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-recover-incident",
+      "criterion": "Clicks to complete recover-incident; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-recover-incident.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "clicks-migrate-service",
+      "criterion": "Clicks to complete migrate-service; clicks include typed fields in Console and Studio.",
+      "unit": "clicks",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-release-outcomes.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clicks-migrate-service.json",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-restore",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-dr.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-restore.json",
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "unit": "minutes",
+      "gaMaximum": null
     }
   ],
-  "outcomesPolicy": "RC requires numeric candidate-bound measurements reported in the archived release notes. GA additionally enforces approved gaMaximum values; null means no approved target and blocks GA. No comparison to other products."
+  "outcomesPolicy": "RC requires all numeric candidate-bound measurements in archived release notes. GA additionally enforces approved gaMaximum values for minutes and sentences; null blocks GA for these units. Clicks remain measured only at RC and GA. No comparison to other products."
 }
