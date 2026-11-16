@@ -364,7 +364,8 @@ def test_offline_main_retains_a_receipt_with_logs(tmp_path: Path, monkeypatch, q
     receipts = list(receipt_dir.glob("G3-clean-machine-quickstart-*-run-55-1.md"))
     assert len(receipts) == 1
     text = receipts[0].read_text(encoding="utf-8")
-    assert "G3 evidence" in text
+    assert text.startswith("# G3 clean-machine quickstart run")
+    assert ("## Record" if quickstart == PAGE else "## Defect") in text
     assert SECRET not in text
     assert SECRET not in (log_dir / "quickstart.log").read_text(encoding="utf-8")
     outcome = json.loads((log_dir / "outcome.json").read_text(encoding="utf-8"))
