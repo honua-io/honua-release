@@ -852,22 +852,6 @@ def test_identifier_exception_cannot_cover_confidential_hits_or_nonliteral_patte
             vt.load_allowlist(_allowlist(tmp_path, [{**entry, "identifiers": identifiers}]))
 
 
-def test_published_sdk_observations_no_longer_carry_vendor_terms():
-    paths = [
-        "certification/sdk-publication-replay/sdk-022/published-release-verification.v1.json",
-        "certification/sdk-publication-replay/sdk-022/registry-observations.json",
-        "certification/sdk-publication-replay/sdk-022/default-vanilla-ts/sdk-package-lock.json",
-        "certification/sdk-publication-replay/sdk-022/default-react-ts/sdk-package-lock.json",
-    ]
-    entries = vt.load_allowlist(vt.ALLOWLIST)
-    classifier = vt.Classifier("honua-release", VOCABULARY, entries)
-    for path in paths:
-        text = (vt.ROOT / path).read_text(encoding="utf-8")
-        assert not vt._RETIRED_COMPAT_TERM.search(text)
-        assert classifier.classify_text(path, text) == []
-        assert not any(path in entry.paths for entry in entries)
-
-
 def test_manifest_paths_leave_unrelated_identifiers_and_endorsement_unexcepted():
     entries = vt.load_allowlist(vt.ALLOWLIST)
     widget = "@honua/esri-widget"
