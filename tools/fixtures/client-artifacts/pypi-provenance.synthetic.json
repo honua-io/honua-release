@@ -1,0 +1,22 @@
+{
+  "synthetic": true,
+  "attestation_bundles": [
+    {
+      "publisher": {
+        "kind": "GitHub",
+        "repository": "honua-io/honua-sdk-python"
+      },
+      "attestations": [
+        {
+          "envelope": {
+            "statement": "eyJfdHlwZSI6ICJodHRwczovL2luLXRvdG8uaW8vU3RhdGVtZW50L3YxIiwgInByZWRpY2F0ZVR5cGUiOiAiaHR0cHM6Ly9kb2NzLnB5cGkub3JnL2F0dGVzdGF0aW9ucy9wdWJsaXNoL3YxIiwgInN1YmplY3QiOiBbeyJuYW1lIjogImhvbnVhX3Nkay0wLjEuMTItcHkzLW5vbmUtYW55LndobCIsICJkaWdlc3QiOiB7InNoYTI1NiI6ICI0MWFiOTQ3ZDUwZjUxNGEwMWU4ZGUyNDg0OTE0YTI4NjVjNTM5NzdjOTQ1NmFmMTE3NjU2NzYwN2M2NGY0YTljIn19XSwgInByZWRpY2F0ZSI6IHt9fQ==",
+            "signature": "MEUCIB+DNYF+Ynx44Glpmzk/Hk73SjnxBSjl5iWm7HAXR5VoAiEAnevLEtU3imiLoJ/g9KqRG5ZPzeFt8KbBLmSUz54BM/M="
+          },
+          "verification_material": {
+            "certificate": "MIIBuzCCAWGgAwIBAgIBATAKBggqhkjOPQQDAjApMScwJQYDVQQDDB5TeW50aGV0aWMgb2ZmbGluZSB0ZXN0IGZpeHR1cmUwHhcNMjAwMTAxMDAwMDAwWhcNNDAwMTAxMDAwMDAwWjApMScwJQYDVQQDDB5TeW50aGV0aWMgb2ZmbGluZSB0ZXN0IGZpeHR1cmUwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQS5g6q+hRkY6cUynf8H3nsbC3Rt/Dzfum3L0A+tw9kfSqjD5nF7EFX1j56hXldq4jLM4WmEbqP7fzKL/zZFtcJo3oweDA8BgorBgEEAYO/MAEMBC4MLGh0dHBzOi8vZ2l0aHViLmNvbS9ob251YS1pby9ob251YS1zZGstcHl0aG9uMDgGCisGAQQBg78wAQ0EKgwoMTI2NzA2NzZhMWU4YWNiODM1ZTkxMWMzNThhZGJmNDZhNzMxMTIwYTAKBggqhkjOPQQDAgNIADBFAiA4P0t+lPRKJjfQVhkSRs8T5kHuIVedM9vSbISrrKTMggIhAPPvf/etnZUBlOupj9AQCQsHGKYTqzSz/e3VuTc2QHi0"
+          }
+        }
+      ]
+    }
+  ]
+}
