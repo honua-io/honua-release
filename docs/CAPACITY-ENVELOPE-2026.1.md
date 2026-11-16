@@ -119,12 +119,15 @@ The producer must emit:
    `capacity-soak-receipt.json` and all cited raw artifacts. Attest the ZIP with
    `actions/attest-build-provenance` (SLSA v1) under the approved runner policy and publish it at
    an immutable HTTPS URL used as `capacity_receipt_url`.
-2. A receipt with `schemaVersion: 2`, `status: completed`, `evidenceScope: single-tenant-ga`,
+2. A receipt with `schemaVersion: 2`, `evidenceScope: single-tenant-ga`,
    `profile: soak`, committed `lockSha256`, candidate SHA/image digest, observed server revision,
    and exact UTC `window` of at least 3,600 seconds starting after the freeze and matching
    `steadyStateSeconds`. Include topology (replica ids, failure domains, image digests, database,
    Redis, GP workers), signing identity/signature, and `producer` repository, workflow path/ref,
    source revision, integer run id/attempt, and `https://slsa.dev/provenance/v1` predicate type.
+   Require `status: completed`, except that `status: incomplete` is accepted when every sampling
+   failure matches the lock's permitted Preview prefixes. This exception changes no other
+   required evidence, signal, or GA threshold.
 3. Exactly one raw artifact of kind `capacity-observations`, using
    `honua.capacity-observations/v1`, with the same candidate, window, topology, producer, and lock
    digest. Use `populationMode: complete-disjoint-intervals`, sample periods no greater than
