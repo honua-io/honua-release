@@ -32,3 +32,7 @@ e2e/.cloud-evidence-selftest/
 /site/
 
 /artifacts/
+
+# Outcome browser baseline installs and run output
+tools/outcome-eval/browser/node_modules/
+tools/outcome-eval/browser/test-results/

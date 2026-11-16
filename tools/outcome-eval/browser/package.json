@@ -1,0 +1,8 @@
+{
+  "name": "outcome-eval-browser",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "1.65.0"
+  }
+}
