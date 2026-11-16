@@ -13,8 +13,8 @@ LOCK = 'sha256:' + 'c' * 64
 
 
 def run(tmp_path, gate='gate-contract', status='pass', **kwargs):
-    return k.emit(gate, status, None, LOCK, tmp_path / 'receipt',
-                  server_sha=SHA, image_digest=DIGEST, **kwargs)
+    return k.emit(k.Verdict(gate, status, None, LOCK,
+                            server_sha=SHA, image_digest=DIGEST, **kwargs), tmp_path / 'receipt')
 
 
 @pytest.mark.parametrize('status', ['blocked', 'skipped', 'fail', '', 'PASS'])
@@ -60,6 +60,7 @@ def test_all_existing_producers_use_the_adapter_and_explicit_candidate_digest():
         steps = [s for j in workflow['jobs'].values() for s in j.get('steps', [])
                  if s.get('uses') == './.github/actions/kept-gate-receipt']
         assert len(steps) == 1
+        assert 'run' not in steps[0]
         assert steps[0]['with']['gate'] == gate
         assert 'success()' in steps[0]['if']
 
@@ -78,6 +79,6 @@ def test_launch_stack_requires_every_candidate_identity(tmp_path):
 def test_manifest_uses_actual_source_and_image(tmp_path):
     manifest = tmp_path / 'manifest.yaml'
     manifest.write_text(yaml.safe_dump({'components': {'honua-server': {'sha': SHA, 'digest': DIGEST}}}))
-    doc, = k.emit('gate-sbom', 'pass', manifest, LOCK, tmp_path / 'receipt',
-                  server_sha='d' * 40, image_digest='sha256:' + 'e' * 64)
+    doc, = k.emit(k.Verdict('gate-sbom', 'pass', manifest, LOCK,
+                            server_sha='d' * 40, image_digest='sha256:' + 'e' * 64), tmp_path / 'receipt')
     assert (doc['serverSha'], doc['imageDigest']) == (SHA, DIGEST)

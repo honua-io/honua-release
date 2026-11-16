@@ -1,4 +1,4 @@
-"""Founder-approved promise additions and measurement admission boundaries."""
+"""Promise additions and measurement admission boundaries."""
 import datetime as dt
 
 import pytest

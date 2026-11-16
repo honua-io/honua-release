@@ -359,7 +359,9 @@ jobs:
           set -e
           OVERALL='${{ steps.assemble.outputs.overall_status }}'
           echo "security gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
-          [ "$OVERALL" = "fail" ] && { echo "::error::security gate FAILED"; exit 1; } || echo "not red"      - name: Emit candidate-bound release promise receipt
+          [ "$OVERALL" = "fail" ] && { echo "::error::security gate FAILED"; exit 1; } || echo "not red"
+
+      - name: Emit candidate-bound release promise receipt
         if: ${{ success() && (inputs.platform_lock_digest) }}
         uses: ./.github/actions/kept-gate-receipt
         with:
