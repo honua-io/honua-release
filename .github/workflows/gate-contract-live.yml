@@ -19,6 +19,8 @@ run-name: "gate-contract-live ${{ inputs.platform_label }} (${{ inputs.enforceme
 on:
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
+      candidate_ref: { description: "Immutable candidate snapshot", required: false, type: string, default: "" }
       platform_label: { description: "RC being checked", required: false, type: string, default: "dev-local" }
       enforcement:
         description: "bootstrap = tolerate blocked; strict = any non-pass fails"
@@ -28,6 +30,7 @@ on:
         default: bootstrap
   workflow_call:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
@@ -188,3 +191,10 @@ jobs:
           if [ "$status" != pass ] && [ "$ENFORCEMENT" = strict ]; then
             echo "::error::strict enforcement requires contract-live to pass (status: $status)"; exit 1
           fi
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: gate-contract-live
+          status: ${{ steps.verdict.outputs.status }}
+          lock_digest: ${{ inputs.platform_lock_digest }}

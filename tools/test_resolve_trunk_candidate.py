@@ -1599,7 +1599,7 @@ def test_resolve_pins_every_sdk_to_verified_primary_package_and_reads_declaratio
         'dotnet': ('1.10.1', '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
                    'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'),
         'js': ('0.1.12', '1102d2d55916340edca13cb28411df8da8206f92',
-               'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'),
+               'sha256:8a4e698d7a1d09d6e943ef6db6903f5f1f53cf17cc2acb111cea365fe1a90f58'),
         'python': ('0.1.12', '12670676a1e8acb835e911c358adbf46a731120a',
                    'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'),
     }
@@ -1628,7 +1628,7 @@ def test_resolve_pins_every_sdk_to_verified_primary_package_and_reads_declaratio
         if name != 'js':
             assert artifact['sha256'] == digest
         else:
-            assert artifact['integrity'] == 'sha512-oPdSohKcUVyFplQJ8znruPpjWK3Bbt23+voU6/v9bA7zy6PKCZvkNZMzklM05iT50MDLQQTeUL3qjM/CLVU4pQ=='
+            assert artifact['integrity'] == 'sha512-VVFNMd27WlLweYLbVnCvEgNwG5x56kkTBt2tFFnMtOLnZQTuMSv7kF8kIwQOzchhEKavc0T/ZJHPW3s7LB+Jqw=='
     assert not any('published identity conflicts' in row or 'package hash is not declared' in row
                    or 'registry provenance must bind' in row and 'honua-sdk-' in row
                    for row in draft.unresolved)
