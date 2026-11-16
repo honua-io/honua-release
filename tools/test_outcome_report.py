@@ -1,5 +1,6 @@
 """Synthetic cohort replay, denominator conservation and paired comparison checks."""
 import copy
+from itertools import product
 import json
 from pathlib import Path
 import subprocess
@@ -100,19 +101,18 @@ class CohortChecks(unittest.TestCase):
                     self.report()
 
     def test_mixed_candidate_grade_rejected_even_when_repinned(self):
-        for trial_id in ("r1-gpt-6.1-sol-style-A", "r1-browser-style"):
-            for status in ("success", "failed", "censored", "excluded", "not-run"):
-                for key in self.candidate:
-                    self.record(trial_id, status)
-                    name = f"{trial_id}.grade.json"
-                    grade = json.loads((self.root / name).read_text())
-                    grade["candidate"][key] = ("d" * 40 if key == "serverSha"
-                                               else "sha256:" + "d" * 64)
-                    self.store(name, grade)
-                    with self.subTest(trial=trial_id, status=status, key=key):
-                        with self.assertRaisesRegex(ValueError, "candidates differ"):
-                            self.report()
-                    self.record(trial_id, status)
+        trial_ids = ("r1-gpt-6.1-sol-style-A", "r1-browser-style")
+        statuses = ("success", "failed", "censored", "excluded", "not-run")
+        for trial_id, status, key in product(trial_ids, statuses, self.candidate):
+            self.record(trial_id, status)
+            name = f"{trial_id}.grade.json"
+            grade = json.loads((self.root / name).read_text())
+            grade["candidate"][key] = ("d" * 40 if key == "serverSha"
+                                       else "sha256:" + "d" * 64)
+            self.store(name, grade)
+            with (self.subTest(trial=trial_id, status=status, key=key),
+                  self.assertRaisesRegex(ValueError, "candidates differ")):
+                self.report()
             self.record(trial_id)
 
     def test_recorded_grade_requires_candidate(self):
