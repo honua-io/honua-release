@@ -10,7 +10,7 @@ spec = importlib.util.spec_from_file_location("console_read_approve", HERE / "ru
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 MANIFEST = HERE.parents[1] / "platform-manifest.yaml"
-RECEIPTS = sorted(HERE.glob("receipt.*.json"))
+RECEIPTS = sorted((HERE / "fixtures").glob("*.json"))
 
 
 class ConsoleReadApproveReceiptTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class ConsoleReadApproveReceiptTests(unittest.TestCase):
         for field in ["sha", "image", "digest", "artifactSourceRevision"]:
             self.assertEqual(actual[field], expected[field], field)
 
-    def test_committed_receipt_status_follows_its_checks(self):
+    def test_receipt_contract_status_follows_its_checks(self):
         self.assertTrue(RECEIPTS)
         for path in RECEIPTS:
             with self.subTest(receipt=path.name):
@@ -29,7 +29,7 @@ class ConsoleReadApproveReceiptTests(unittest.TestCase):
                 self.assertEqual(receipt["failedChecks"], failed)
                 self.assertEqual(receipt["status"], "passed" if not failed else "failed")
 
-    def test_committed_receipt_carries_no_credential_fields(self):
+    def test_receipt_contract_carries_no_credential_fields(self):
         for path in RECEIPTS:
             with self.subTest(receipt=path.name):
                 text = path.read_text().lower()
