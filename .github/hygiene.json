@@ -66,6 +66,7 @@
     "tools/fixtures/wps-contract-source-2026-10-13.json",
     "tools/fixtures/candidate-resolution-2026-10-06/*",
     "tools/fixtures/candidate-resolution-2026-10-26/*",
-    "docs/2026.1-candidate-resolution.md"
+    "docs/2026.1-candidate-resolution.md",
+    "tools/fixtures/protocol-harness-2026-08-26.1.json"
   ]
 }
