@@ -48,6 +48,10 @@
     "docs/2026.1-terminal-arc-acceptance.md",
     "tools/release_decision_record.py",
     "tools/test_release_decision_record.py",
-    "docs/2026.1-platform-manifest.md"
+    "docs/2026.1-platform-manifest.md",
+    "artifacts/terminal-journey-377-local-docker-20260929.json",
+    "artifacts/terminal-journey-377-local-docker-20260929.md",
+    "artifacts/terminal-journey-issue-123.json",
+    "artifacts/terminal-journey-issue-123.md"
   ]
 }

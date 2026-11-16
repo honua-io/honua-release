@@ -58,11 +58,7 @@ from `@honua/sdk-js`; `honua-mcp-proxy` comes from `@honua/mcp-server`. A succes
 `honua --help` probe must advertise `admin`. A failed process, missing verification,
 or ambiguous command row cannot certify presence.
 
-The historical smoke fixture used SDK 0.1.7-beta.0 without Admin. The later
-[issue #123 run](../../artifacts/terminal-journey-issue-123.md) verified Admin in
-SDK 0.1.9-beta.0, but preserved obsolete stage blockers. Both are immutable
-observations, not the current command inventory. New receipts distinguish command
-discovery from credentialed execution. When the pinned `honua` binary and a
+Receipts distinguish command discovery from credentialed execution. When the pinned `honua` binary and a
 loopback admin credential are present, stage 2 runs a reversible private-CLI
 preflight: mint an `admin:read` key into a 0600 sink, read its effective
 permissions, list it without key material, revoke it, and delete the sink.
@@ -305,9 +301,7 @@ rejects arbitrary nested content, including DSNs, presigned URLs and unknown sec
 fields. Signed provenance, action attribution and sequence links remain separate.
 The in-memory conversation is never restored from receipt digests or checkpoints.
 
-The [2026-09-29 Docker observation](../../artifacts/terminal-journey-377-local-docker-20260929.md)
-records failed frozen-proxy discovery and credential preflight against the unchanged
-candidate snapshot. The signed loopback fixture and state-machine tests are unit and
+The signed loopback fixture and state-machine tests are unit and
 transport evidence only; they are not genuine-model, GP, geometry or deployment
 qualification.
 
