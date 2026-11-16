@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from fractions import Fraction
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -92,7 +93,8 @@ def workload(run, policy):
     for index, multiplier in enumerate(schedule, start=1):
         require(_number(multiplier) > previous, 'ramp must increase each minute')
         for name in SURFACES:
-            require(buckets[index]['publicRequests'][name] == buckets[0]['publicRequests'][name] * multiplier,
+            require(buckets[index]['publicRequests'][name] ==
+                    buckets[0]['publicRequests'][name] * Fraction(str(multiplier)),
                     'observed requests do not match registered ramp')
         previous = multiplier
     require(previous >= 100, 'registered ramp must reach 100x')

@@ -169,3 +169,12 @@ def test_rejects_probe_coverage_gap(field):
     else:
         probes['buckets'].pop(0)
     assert not evaluate(source, POLICY)['analysisPassed']
+
+
+def test_accepts_fractional_registered_ramp_without_float_rounding():
+    source = observations()
+    policy = dict(POLICY, rampMultipliers=[1.1, *range(20, 101, 10)])
+    for run in source['runs']:
+        run['buckets'][1].update(publicRequests={key: 110 for key in ('map', 'tile', 'query')},
+                                 cacheRequests=330, cacheHits=297)
+    assert evaluate(source, policy)['analysisPassed']
