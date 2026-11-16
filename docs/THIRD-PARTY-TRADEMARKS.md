@@ -275,5 +275,4 @@ matrix lists the alias as a compatibility feature.
 ## Inventory
 
 Each `gate-vendor-terms` run writes its report as a workflow artifact, with the counts and categories in
-the run summary; reports are not kept in the repository. The renaming decisions that need an operator
-ruling are on honua-release#425.
+the run summary; reports are not kept in the repository.
