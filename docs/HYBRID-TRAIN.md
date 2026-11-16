@@ -1,139 +1,102 @@
-# The Hybrid Train
+# Hybrid evidence production
 
-Companion to [`RELEASE-ENGINEERING.md`](RELEASE-ENGINEERING.md) and
-[`TEST-STRATEGY.md`](TEST-STRATEGY.md). Written for the release-safety program
-(epic honua-io/honua-release#58), specifically its P4 child (#61: cloud tier unblock + live
-capability-manifest check + scheduled demo canary), after two decisions from the release owner
-changed the shape of the train:
+Release evidence can come from a workflow-owned disposable target or from an
+independent producer. Both need identity, lineage and freshness checks before a
+release consumer can use them. The place a producer runs does not determine what
+its result proves.
 
-1. **External compatibility evidence is produced out of band** and must be **consumed** by the
-   certification gate using its evidence identifier and freshness bound
-   (honua-io/honua-release#61, comments).
-2. **The release train is HYBRID**: some lanes run hosted (GitHub-hosted runners, OIDC-federated
-   cloud creds), some lanes run locally (an operator's licensed/credentialed environment), and the
-   train's job is to *certify against evidence*, not to *be* every lane itself.
+See [candidate preparation](CANDIDATE-PREPARATION.md),
+[burn-in promotion](BURN-IN-PROMOTION.md) and the
+[test strategy](TEST-STRATEGY.md) for candidate and qualification requirements.
+This guide describes producer boundaries and the standing-demo canary contract;
+it does not grant publication authority or allow release gates to be skipped.
 
-This document names that model explicitly so future gates are designed consistently with it,
-instead of every new evidence source re-litigating "does this run in CI or not."
+## Producer boundaries
 
-## The two-pass model
-
-```mermaid
-flowchart LR
-    subgraph Local["Local evidence pass (operator-run, out-of-band)"]
-        B["Heavy local e2e<br/>(EKS/AKS control-plane, long-running drills)"] -->|"evidence artifacts"| E
-        C["demo-canary<br/>(scheduled, against the always-on<br/>public demo.honua.io deployment)"] -->|"live-canary-evidence.json"| E
-        E["honua-evidence<br/>(joins evidence onto capability-matrix.v1.json,<br/>carries freshness/lineage metadata)"]
-    end
-    subgraph Hosted["Hosted certifying pass (release-train.yml, GitHub-hosted)"]
-        F["gate_docs<br/>(advertised-vs-actual + advertised-GA ⊆ evidenced-GA, #59)"]
-        G["gate_evidence<br/>(evidence lineage/freshness, #60)"]
-        H["gate_e2e / gate_cloud-parity<br/>(local-docker + terraform-provisioned<br/>cloud cells, driven live by the train)"]
-    end
-    E -->|"fetched by the train, freshness-bound"| F
-    E -->|"fetched by the train, freshness-bound"| G
-    H -->|"real HTTP checks, run directly by the train"| Report["gate-report.json<br/>(the train's single machine-readable verdict)"]
-    F --> Report
-    G --> Report
-```
-
-**Local evidence pass.** Producers that need something the train's hosted runners genuinely cannot
-have — a private external-client evidence producer, a persistent deployment the train doesn't own
-(the public demo), or a cadence too expensive/slow for a release cut (EKS/AKS control-plane spin-up,
-DR drills) — run **out-of-band**, on their own schedule, in their own environment. They **push a
-versioned evidence envelope** (a `.cert.json`, a `capability-matrix.v1.json` producer entry, a
-`live-canary-evidence.json`) somewhere the hosted pass can fetch it.
-
-**Hosted certifying pass.** `release-train.yml` runs on GitHub-hosted runners with OIDC-federated
-cloud creds (no static secrets) and is the **one and only** trigger surface for cutting a release
-candidate (AGENTS.md: "Both humans and AI use this one workflow_dispatch"). It does two different
-things depending on the lane:
-- For lanes it CAN run itself (canonical checks, terraform-provisioned cloud cells, contract/SBOM/
-  security scans) — it runs them **for real**, live, every cut.
-
-`demo-canary.yml` runs on its own 6-hour schedule against `https://demo.honua.io`, independent
-of any specific release candidate, and writes a versioned `live-canary-evidence.json` envelope for
-honua-evidence to join — it is deliberately **not** wired as a `release-train.yml` gate job, because
-the public demo is a persistent, always-on deployment, not an ephemeral per-candidate cell the train
-provisions and tears down.
-
-### Probe quarantine — the only sanctioned way a canary failure stays green (honua-release#84)
-
-A live canary against a standing deployment eventually meets a failure that is real, known, and owned
-by someone else's backlog. There are three things you can do with it, and only one is honest:
-
-| Option | What it costs |
+| Producer | Evidence boundary |
 |---|---|
-| Delete the probe | Destroys the signal permanently — the day the gap is fixed, nothing notices, and the day it regresses further, nothing notices either. |
-| Leave it red | Within a week nobody reads the canary, and the *next*, genuine regression is invisible inside a run that was already red. |
-| **Quarantine it** | Nothing, as long as the quarantine is owned and expires. |
+| Disposable target checks | Exercise the deployed candidate through real HTTP or the required client; retain target, artifact identity, inputs, results and cleanup evidence. |
+| Independent compatibility or recovery producer | Deliver a versioned envelope from the required client or environment, with enough lineage and freshness information for the consuming gate to validate it. |
+| Standing-demo canary | Observe an existing deployment on its own schedule. A monitoring result alone does not certify the selected release candidate. |
 
-`e2e/canary-quarantine.yaml` maps a probe name to an owning issue, a reason, a `since` date and a hard
-`reviewBy`. `e2e/quarantine.py` (pure, unit-tested in `e2e/test_quarantine.py`) rewrites that probe's
-`fail` to `quarantined`, which keeps the run green and suppresses the auto-filed demo-canary issue —
-and `demo-canary.yml` prints a table in the step summary linking every quarantined probe to its issue,
-so a remaining failure is *owned*, never *silent*. Four properties keep it from rotting into a mute
-button:
+Expensive drills, licensed client runs and persistent deployments can produce
+out of band. Their consumers must validate the required evidence identifier,
+source and target identity, candidate lineage, completeness and freshness bound.
+A downloaded file or successful producer job alone does not establish those facts.
+Advertising a capability as GA requires qualifying evidence for that capability;
+stale, missing or mismatched evidence cannot establish it.
 
-- **It only ever downgrades a `fail`.** A `pass` or `blocked` verdict is never rewritten.
-- **`reviewBy` is a hard expiry.** Past that date the entry stops applying and the probe reddens the
-  run again. A quarantine cannot become permanent through neglect — only through a deliberate re-dated
-  commit that a reviewer sees.
-- **The registry reports its own rot.** An entry whose probe now passes (`stale`) or whose probe no
-  longer exists (`unknown`) is surfaced as a workflow annotation, because a stale entry is exactly what
-  would hide the next genuine regression.
-- **Evidence is never quarantined.** The `live-canary-evidence.json` envelope published to
-  honua-evidence still reports a quarantined probe as `red`. Quarantine moves a CI verdict; it does not
-  move an evidence verdict. A known gap must not render green on the public evidence site.
+Missing credentials, unseeded data, absent harnesses and unavailable prior-release
+baselines must remain explicit gaps. A `blocked` probe is not a live pass or an
+implicit release exception. Any permitted exception must come from the applicable
+current gate policy, not an old bootstrap skip list. Plain HTTP cannot prove HSTS;
+transport-dependent checks must describe what they actually exercised.
 
-Quarantine is for a *failing* probe with a *named owner*. It is not the mechanism for a capability that
-is legitimately absent on the target (that is `blocked`), nor for a known-broken subsystem the probe
-itself declares report-only (that is `check_geocoding_latency`).
+## Standing-demo canary
 
-## What's genuinely hosted vs. genuinely local today
+[demo-canary.yml](../.github/workflows/demo-canary.yml) runs
+[e2e/demo_canary.py](../e2e/demo_canary.py), combining canonical checks and canary
+probes. The workflow defines the schedule and the conditional extra runs during
+a governed selected-lock burn. Manual dispatch can select a target URL.
 
-| Lane | Where it runs | Why |
-|---|---|---|
-| Canonical slim set + live capability-manifest check (`e2e/canonical_checks.py`) | **Hosted**, per cloud cell, live | Plain HTTP checks against a target the train just provisioned — no license, no persistent state needed. |
-| Cloud-tier canary probes (`e2e/canary_probes.py`, generic mode) | **Hosted**, per cloud cell, live | Same — reachability-only probes run for real; probes needing seeded data honestly BLOCK on a bare cell (no seed-data story yet — a gap, not a lie). |
-| Terraform parity cells (aws-serverless/ecs/eks) | **Hosted**, OIDC into AWS | `e2e-cloud-aws.yml`; self-skips `cloud-creds-unset` until `HONUA_AWS_ROLE_ARN` is wired. |
-| MCP/Studio/GP-execute/top-demo extended scenarios | **Neither yet** — hardcoded `blocked` | Needs the driver toolchain packaged as a harness image (honua-release#35). Not a hybrid-lane decision; a genuine gap. |
-| demo-canary (`.github/workflows/demo-canary.yml`) | **Local-by-schedule** (hosted runner, but targets the persistent public demo, not a train-provisioned cell) | The demo is a standing deployment the train doesn't own or tear down; it is evidence *about* a live environment, not a certifying check *of* the candidate being cut. |
-| Terraform DR drills (honua-terraform) | **Local**, its own runbook cadence | DR drills are expensive/slow and target real backup infrastructure; captured via `dr-evidence-template.json` (honua-io/honua-evidence#8). |
+`HONUA_DEMO_API_KEY` supplies authentication for key-gated probes. Without it,
+those probes report `blocked`. Unseeded data can also block individual probes.
+The process may exit successfully with blocked checks; read the report rather
+than interpreting a green job as full qualification. Report-only latency results
+must remain distinguishable from gating checks.
 
-## Release-1 `ALLOWED_SKIP` (program pillar P5 — first-release bootstrap honesty)
+When a selected promotion record is configured, the workflow authenticates its
+retained mint and observes the ECS deployment before and after probes. Bound
+probes refuse redirects. Those binding checks must succeed before observations
+can be attributed to the selected deployment. Monitoring another deployment does
+not establish candidate provenance.
 
-Epic #58 names P5 explicitly: *"Document the release-1 `ALLOWED_SKIP` set explicitly (upgrade-gate
-baseline, consciously skipped creds-gated tiers) so the first promote is fail-closed on everything
-else."* This is that list, for the first real (non-dry-run) train cut:
+## Probe quarantine
 
-| Item | Why it's allowed to skip release-1 | Tracked by |
-|---|---|---|
-| `gate_upgrade` kind-smoke (prior-release → candidate) | There is no prior GA release yet to upgrade *from* — the upgrade gate needs a baseline manifest that doesn't exist before release-1 ships. | `certification/evidence-freshness.yaml`-style: this is a one-time bootstrap gap, not a recurring skip — release-2's cut has a real baseline and this row should be deleted. |
-| `gate_e2e` / `gate_cloud-parity` extended scenarios (MCP/Studio/GP-execute/top-demo) | Blocked on the cloud harness image, a genuine build gap, not a policy choice. | honua-release#35 |
-| Cloud-tier data-dependent canary probes (render+query smoke, per-service WMS/WMTS/WCS, tile.json) against a bare terraform-provisioned cell | No seed-data provisioning story for ephemeral cloud cells yet — legitimately unprovable, reported `blocked`, not faked. | Follow-up to honua-release#61 (not yet filed as its own issue — seed-data-on-provision is a natural next increment once #35's harness image work is scoped). |
-| Cloud-tier `security-headers`: the HSTS half, on a plain-HTTP parity cell | The ephemeral cells publish a raw cloud load balancer with no certificate and no DNS name to put one on, and RFC 6797 §7.2 requires a client to IGNORE `Strict-Transport-Security` received over plain HTTP — honua-server deliberately does not emit it there. The probe asserts the four transport-independent headers on every cell and HSTS only on an `https://` endpoint (the serverless cell's API Gateway, and demo.honua.io), and its pass message names the header it did not assert so a green cell never reads as "HSTS verified". | Not a harness gap: proving HSTS on these cells would need per-run certificates and DNS. The `https://` serverless cell proves it for the candidate. |
-| `gate_evidence` CITE-freshness producer | honua-evidence has not yet landed per-suite CITE freshness metadata in `capability-matrix.v1.json`'s `freshness` block. | honua-io/honua-evidence#8 |
-| Demo-canary's key-gated probes (metrics, admin-metrics-health, deploy-preflight, capability-manifest `available=true`) | `HONUA_DEMO_API_KEY` is an optional secret; without it these honestly report `blocked`. | Wire the secret (see below) to promote these to live pass/fail. |
+[e2e/canary-quarantine.yaml](../e2e/canary-quarantine.yaml) records a probe's
+owning issue, reason, `since` date and hard `reviewBy` date.
+[e2e/quarantine.py](../e2e/quarantine.py) applies these rules, covered by
+[e2e/test_quarantine.py](../e2e/test_quarantine.py):
 
-Everything **not** in this table is fail-closed from release-1: a capability advertised GA without
-qualifying evidence fails `gate_docs`; a stale/lineage-diverged evidence matrix fails `gate_evidence`;
-a genuine (not merely unseeded) HTTP failure on a provisioned cloud cell or the demo canary reddens
-its run. The `ALLOWED_SKIP` set is deliberately small and named — anything added to it later needs
-the same "why, and who owns closing it" treatment as the rows above, per AGENTS.md ("a gate that
-can't fail is worse than no gate" applies just as much to an ever-growing skip list as to a gate with
-no teeth).
+- Only a matching `fail` becomes `quarantined`. A `pass` or `blocked` result is
+  unchanged. An optional `failureContains` narrows the owned failure; a different
+  failure remains red.
+- After `reviewBy`, the failure stays red. Extending an entry requires a reviewed
+  registry change.
+- Entries whose probes no longer fail (`stale`) or no longer exist (`unknown`)
+  appear in workflow annotations. Applied entries appear in the summary with
+  their owning issue.
+- A quarantined failure can avoid failing the monitoring job and opening its
+  regression alert, but remains a gap in the report and published evidence.
+  Quarantine never turns failing capability evidence green.
 
-## Coordination point: honua-io/honua-evidence#8
+Quarantine is not a substitute for credentials, seeded data or an implemented
+probe. Legitimate absence is `blocked`; a probe's report-only policy is separate.
+Malformed registry entries fail validation instead of silently disabling rules.
 
-Evidence#8's producer contract landed in honua-io/honua-evidence#9
-(`docs/producer-contracts.md`: schema `honua-evidence.live-canary-envelope/v1`, pushed as one file
-per run into that repo's `data/producers/live-canary/`). `demo_canary.py` emits that schema
-directly: required fields `schema` / `manifestId` / `targetEnvironment` / `runAt` / `probes`, with
-each probe carrying `probeName`, non-empty `capabilityKeys` (the mapping to capability-matrix keys
-lives in `demo_canary.PROBE_CAPABILITY_KEYS` — only mapped, non-blocked results become evidence
-probes; the full check list stays in the gate report), `status` (`green`/`red`), and `lastGreenAt`.
-The envelope also carries `candidateServerSha` as a tolerated extra field so the pinned-candidate
-lineage stays traceable. The canary workflow commits each versioned envelope directly into
-honua-evidence's `data/producers/live-canary/` landing zone; the evidence aggregate then records the
-producer as `fresh`, `stale`, or `missing` from those delivered artifacts.
+## Live-canary envelope
+
+The emitter produces schema `honua-evidence.live-canary-envelope/v1`. Required
+fields are `schema`, `manifestId`, `targetEnvironment`, `runAt` and `probes`.
+Each emitted probe has `probeName`, non-empty `capabilityKeys`, `status`
+(`green` or `red`) and `lastGreenAt`. The mapping is
+`demo_canary.PROBE_CAPABILITY_KEYS`; only mapped, non-blocked results become
+capability probes. The full check list stays in the gate report.
+
+A quarantined probe is `red`, with its owning issue in the detail. An unmapped
+quarantined check makes `overallStatus` red. Otherwise, mapped quarantine makes
+the overall status partial. Without quarantine,
+pass/fail map to green/red and a blocked run is partial. A consumer must inspect
+probe results as well as the overall status.
+
+The envelope also records `targetUrl`, `sourceRepo`, `sourceRef`, `sourceRunUrl`
+and `candidateServerSha`. The last field is the revision advertised by the live
+deployment; authenticated candidate binding requires the separate workflow
+checks. An alternate target must retain its own environment identity rather than
+being relabelled as the canonical demo.
+
+The workflow uploads the report and envelope, commits a versioned envelope to
+`honua-evidence/data/producers/live-canary/`, then dispatches aggregation.
+Delivery or aggregation-dispatch failures remain pipeline failures even when
+probes succeeded. The evidence consumer evaluates delivered artifacts for
+freshness; a local output file does not prove delivery or a current aggregate.
