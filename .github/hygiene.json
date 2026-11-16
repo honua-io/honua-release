@@ -50,6 +50,7 @@
     "tools/fixtures/client-artifacts/nuget-1.10.0-registration.json",
     "tools/fixtures/client-artifacts/nuget-1.10.0-catalog.json",
     "tools/fixtures/client-artifacts/nuget-1.10.0.nupkg",
-    "tools/fixtures/client-artifacts/pypi-provenance.json"
+    "tools/fixtures/client-artifacts/pypi-provenance.json",
+    "docs/DEVELOPER-PREVIEW-DOGFOOD.md"
   ]
 }

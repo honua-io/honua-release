@@ -1,7 +1,7 @@
 # Honua agent map (real-world harness)
 
-Reference harness for the 2026.1 promise journey (honua-release#376, #378): a genuine model composes a map
-through the published Honua SDK and MCP server. It is a developer tool, not a certification gate.
+A genuine model composes a map through the published Honua SDK and MCP server.
+This developer harness supplies observations, not certification admission.
 
 A prompt-to-map loop built only on published packages and public endpoints:
 
@@ -33,14 +33,12 @@ Playwright is optional (`CDP_URL` / `POST /attach`); screenshots otherwise come 
   started, so another website open in the same browser cannot drive the agent.
 - Tool results and layer titles are rendered as text, never as HTML.
 
-## M1 dogfood recording
+## Workflow evaluation
 
-Follow [the developer-preview dogfood runbook](../../docs/DEVELOPER-PREVIEW-DOGFOOD.md)
-for prerequisite verification, the $25 per-run ceiling, exact operator prompts,
-receipts, rollback and tagged teardown. Claims are **developer preview;
-certification in progress**. The Console is display-and-approve; no dashboards
-are claimed. Studio and mixed topology are Preview, EKS/Helm is Preview under the October 16 amendment ([release#376](https://github.com/honua-io/honua-release/issues/376)), and
-`customer-install-manifest.json` stays `pre-cut-rehearsal`.
+Follow the [agent workflow evaluation guide](../../docs/AGENT-WORKFLOW-EVALUATION.md)
+for prerequisites, the cost boundary, separate approvals, rollback, evidence
+handling and inventory reconciliation. This procedure grants no cloud access or
+spending authority. Candidate readiness requires recorded installed observations.
 
 This harness calls Bedrock directly and renders hardcoded public-demo sources.
 It does not install ECS, import/publish a new layer, persist/publish a map, roll
