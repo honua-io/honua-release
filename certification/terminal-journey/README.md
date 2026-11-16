@@ -22,7 +22,7 @@ this roster.
 | `oracles.py` | Independent geometry, feature, PNG pixel and map-content assertions. |
 | `run.py` | The driver. `--mode build` (contract only) or `--mode live --target …`. |
 | `live_driver.py` | The `terminal-journey-driver-v1` adapter #161 calls, at the path its protocol contract fixes. |
-| `fixtures/smoke-receipt.local-docker.json` | A real receipt from a real run against the pinned candidate. Not a template. |
+| `fixtures/smoke-receipt.synthetic.json` | Synthetic schema and refusal fixture; no installed execution evidence. |
 
 ## Honesty rules
 
@@ -195,19 +195,18 @@ Secret/session exclusions stay REST/CLI-only and use a private secret sink.
 Anonymous MCP discovery never implies call authorization. Until those two files
 exist the roster verdict is `blocked`, never `pass`.
 
-## What the live lane proves today
+## Synthetic refusal fixture
 
-The committed smoke receipt records eleven passing probes against the pinned candidate,
-including readiness, exact candidate identity (`deploymentRevision` equal to the manifest
-server SHA), anonymous admin refusal, a paginated 52-tool surface read through the pinned
-proxy, and the presence of the style, GP, Studio and publication tool families. Every
-stage in that receipt is `blocked`, because no stage's full contract was satisfied.
-The receipt names which dependency stops each one. It is not rewritten by the
-stage 2 preflight. A later live run can pass stage 2 only from those observations,
-and that still does not pass the journey.
+The committed smoke fixture exercises the live receipt schema with eleven passing
+probe examples and eight blocked stages. Each blocked stage names a synthetic
+missing dependency. Passing individual probes cannot satisfy an incomplete stage
+or admit a journey. The fixture uses synthetic identities and does not prove any
+candidate was installed or exercised.
 
-AWS wrapping and genuine-model evidence are linked as #129 and #161, never embedded or
-treated as substitutes.
+Live qualification requires a fresh receipt bound to the actual candidate and
+installed client artifacts. AWS provisioning and genuine-model evidence remain
+separate contracts; neither substitutes for terminal journey evidence.
+
 # Measured setup discovery
 
 Stage 1 now selects the server's `setup` view in the actual HTTP and installed
