@@ -237,6 +237,13 @@ def test_needs_in_python_js_and_csharp():
     assert needs(cs, set())["env"] == ["KEY"]
 
 
+def test_needs_sees_python_env_reads_inside_a_shell_heredoc():
+    code = "```bash\npython3 - <<'PY'\nimport os\nk = os.environ[\"HONUA_API_KEY\"]\nu = os.getenv(\"U\", \"d\")\nPY\n```\n"
+    need = needs(extract(code, "markdown")[0], set())
+    assert need["env"] == ["HONUA_API_KEY"] and need["optionalEnv"] == ["U"]
+    assert needs(extract(code, "markdown")[0], {"HONUA_API_KEY"})["env"] == []
+
+
 def test_vars_file_entries_must_cite_the_document(tmp_path):
     (tmp_path / "doc.json").write_text(json.dumps({"env": {"K": {"value": "{candidate.apiKey}"}}}))
     with pytest.raises(ValueError, match="documentedAt"):

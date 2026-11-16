@@ -2215,7 +2215,12 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "411c695cb4fd25f3bd33274ad260bfe5a0c7e52cf745697810f00aafb23c9cbb"
+          "sha256": "411c695cb4fd25f3bd33274ad260bfe5a0c7e52cf745697810f00aafb23c9cbb",
+          "needs": {
+            "env": [
+              "HONUA_API_KEY"
+            ]
+          }
         },
         {
           "index": 5,

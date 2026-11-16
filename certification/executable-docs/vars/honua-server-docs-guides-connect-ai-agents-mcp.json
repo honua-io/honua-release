@@ -1,6 +1,11 @@
 {
   "document": "honua-server-docs-guides-connect-ai-agents-mcp",
-  "env": {},
+  "env": {
+    "HONUA_API_KEY": {
+      "value": "{candidate.apiKey}",
+      "documentedAt": "docs/guides/connect/ai-agents-mcp.md:148-151 — \"an anonymous `tools/list` returns an empty array, so this check sends an API key. Set `HONUA_API_KEY` to the key your agent uses\"; the quickstart's admin password is the key this check uses"
+    }
+  },
   "substitute": {
     "http://localhost:18080": {
       "value": "{candidate.baseUrl}",
