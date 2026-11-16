@@ -1,10 +1,11 @@
 # First release cut checklist
 
-The 2026.1 cut follows continuous certification on trunk, as adopted by
-[the canonical plan](https://github.com/honua-io/agent-delivery-spec/tree/trunk/.specifica/2026-1-release-plan-ai-cloud-to-maps/)
-(honua-release#376, rulings R18–R21). An all-green nightly strict train mints a signed lock. The release
-captain selects a lock to burn and qualify; promotion publishes that lock and moves the public channels.
-There is no freeze train or hand re-pin cycle. Gates can fail and cannot be overridden.
+The release adopts one candidate, proves its required journeys against frozen inputs,
+then publishes only after admission. Retain the exact manifest, compatibility matrix,
+platform lock and authenticated producer evidence. A green strict train certifies its
+own lock; promotion requires the selected lock's burn, qualification and protected
+approval. Publication retains certified bytes and does not rebuild artifacts or move
+package, container or Helm channels. Gates can fail and cannot be overridden.
 
 **2026.1 rc.2 certification scope (founder ruling, 2026-11-09):** the sole production
 deployment target is AWS ECS Fargate with RDS PostGIS, ElastiCache, and Console hosted in
@@ -63,13 +64,12 @@ Use the isolated staging target. Health-only evidence cannot discharge
 [Lambda GA bill ledger](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/2026.1-lambda-ga-bill.md) and
 [serverless operating limits](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits).
 
-**Upgrade baseline (R26, #376, 2026-10-03):** no prior `honua-*` platform release exists for rc.3. The
-prior release is the newest published, non-pre-release `honua-*` GitHub Release carrying the signed
+**Upgrade baseline:** resolve the prior release from current publication history. It is the newest published, non-pre-release `honua-*` GitHub Release carrying the signed
 platform lock that promotion publishes (`platform-lock.json` with `platform-lock.sigstore.json`).
 `gate-upgrade` and `tools/release_rollback_target.py` resolve it through the same function,
 `prior_platform_release` in `tools/check_upgrade.py`. The 2026-08-20 `honua-2026.1` engineering snapshot
 is a pre-release without a lock, so it is excluded and remains published unchanged. The upgrade gate
-reports the self-limiting first-release basis until the first promotion. A failed release lookup is
+may report the self-limiting first-release basis only when verified publication history has no eligible prior. A failed release lookup is
 blocked; it is not evidence that no prior release exists. Same-image lifecycle coverage alone cannot
 replace the required two-revision application proof below.
 
@@ -130,8 +130,9 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
   certify their own locks and are not prerequisites. Promotion remains open after hour 72 while all
   evidence stays within its freshness bound.
 - [ ] Pass the GA documentation gates ([release#379](https://github.com/honua-io/honua-release/issues/379))
-  and regenerate the release decision record with Decision: GO. Record the operator's disposition of
-  every server security-review finding and the measured AWS spending ceilings.
+  and retain the candidate-specific admission result with its exact evidence. Record security
+  dispositions and measured spending ceilings in private operator records; a historical decision
+  record cannot grant admission or replace a required gate.
 - [ ] Rehearse fix-forward patching before GA ([release#380](https://github.com/honua-io/honua-release/issues/380)):
   fix on trunk → next certified lock → 12-hour patch burn and two canaries → `2026.1.1` promotion →
   rollback to the previous promoted lock. Maintenance commits reach `release/2026.1` only as labelled
@@ -146,8 +147,7 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
   against the certified commit, and runs `gh release create` with the lock assets listed in the
   job. If the tag already exists it verifies instead of re-signing. If the GitHub release already
   exists it exits 1 and does not overwrite it. `promote.yml` does not move an npm dist-tag, a
-  container `:stable` or `:2026.1` tag, or a Helm channel. The decision override that says
-  promotion moves those channels is intent, not a step in that workflow. See
+  container `:stable` or `:2026.1` tag, or a Helm channel. See
   [RELEASE-WITHDRAWAL.md](RELEASE-WITHDRAWAL.md). No rebuild or unsigned update channel ships.
 - [ ] Archive the readiness decision, lock, signatures, full receipts, approval and publication URLs.
   Preserve the previous promoted lock as rollback target and the next cut's upgrade baseline.
