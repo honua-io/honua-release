@@ -41,6 +41,7 @@
     "docs/rehearsals/2026-09-04-clean-room-install.md",
     "certification/sdk-publication-replay/sdk-021/*",
     "certification/sdk-publication-replay/published-*.json",
-    "docs/evidence/studio-assistant-p08-*.json"
+    "docs/evidence/studio-assistant-p08-*.json",
+    "certification/sdk-publication-replay/sdk-022/*"
   ]
 }
