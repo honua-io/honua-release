@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "44f079b922507617f5dc0914d579bbaf568f4bfd",
+      "revision": "5e18cb9b64558d55b5f2f5d5d553c4e261216975",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/44f079b922507617f5dc0914d579bbaf568f4bfd/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/5e18cb9b64558d55b5f2f5d5d553c4e261216975/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -18,7 +18,7 @@
       "blocks": [
         {
           "index": 0,
-          "line": 50,
+          "line": 53,
           "language": "typescript",
           "infoString": "ts doc-test=compile",
           "intent": "compile",
@@ -27,7 +27,7 @@
         },
         {
           "index": 1,
-          "line": 76,
+          "line": 79,
           "language": "typescript",
           "infoString": "ts doc-test=compile",
           "intent": "compile",
@@ -36,7 +36,7 @@
         },
         {
           "index": 2,
-          "line": 238,
+          "line": 241,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -45,7 +45,7 @@
         },
         {
           "index": 3,
-          "line": 291,
+          "line": 294,
           "language": "html",
           "infoString": "html",
           "intent": "illustrative",
@@ -55,7 +55,7 @@
         },
         {
           "index": 4,
-          "line": 301,
+          "line": 304,
           "language": "html",
           "infoString": "html",
           "intent": "illustrative",
@@ -65,7 +65,7 @@
         },
         {
           "index": 5,
-          "line": 351,
+          "line": 354,
           "language": "typescript",
           "infoString": "ts doc-test=compile",
           "intent": "compile",
@@ -74,7 +74,7 @@
         },
         {
           "index": 6,
-          "line": 407,
+          "line": 410,
           "language": "typescript",
           "infoString": "ts doc-test=compile",
           "intent": "compile",
@@ -83,7 +83,7 @@
         },
         {
           "index": 7,
-          "line": 426,
+          "line": 429,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -92,7 +92,7 @@
         },
         {
           "index": 8,
-          "line": 434,
+          "line": 437,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -101,7 +101,7 @@
         },
         {
           "index": 9,
-          "line": 459,
+          "line": 462,
           "language": "typescript",
           "infoString": "ts doc-test=skip reason=\"partial excerpt requires application host context\"",
           "intent": "excluded",
@@ -111,16 +111,16 @@
         },
         {
           "index": 10,
-          "line": 482,
+          "line": 485,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "fbd392bc9de2d66231104a6852fc706ec68c6321b015694206c11cb6ed83e07c"
+          "sha256": "0cc9c00365141f5deefb89d259bedb19f6bf60aec23f81a46a380ad921ec7d91"
         },
         {
           "index": 11,
-          "line": 543,
+          "line": 546,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -129,7 +129,7 @@
         },
         {
           "index": 12,
-          "line": 561,
+          "line": 564,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
