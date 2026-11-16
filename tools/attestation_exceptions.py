@@ -1,6 +1,6 @@
 """Founder-ruled, dated exceptions for publisher attestations on exact pinned bytes.
 
-Ruling `sdk-attestation-exception-2026-10-27` (docs/2026.1-release-decision-overrides.json)
+Ruling `sdk-attestation-exception-2026-10-27` (contracts/release-exceptions.json)
 lets 2026.1 ship six already-published client components whose bytes predate their
 publishers' attestation workflows. Sigstore attestations cannot be added after the fact
 to bytes a workflow did not build, and re-releasing them would invalidate the
@@ -26,7 +26,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-DECISION_OVERRIDES = ROOT / 'docs/2026.1-release-decision-overrides.json'
+DECISION_OVERRIDES = ROOT / 'contracts/release-exceptions.json'
 RULING = 'sdk-attestation-exception-2026-10-27'
 EXCLUDED_KINDS = frozenset({'image', 'oci-chart', 'executor-image'})
 EXCLUDED_COMPONENTS = frozenset({'honua-server'})
