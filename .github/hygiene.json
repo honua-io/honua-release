@@ -67,6 +67,7 @@
     "docs/GRPC-0.2.0-ALPHA.1-CUT.md",
     "docs/DEVELOPER-PREVIEW-DOGFOOD.md",
     "docs/upgrade-chaos-matrix.md",
-    "docs/rc2-candidate-verification.md"
+    "docs/rc2-candidate-verification.md",
+    "certification/ai-arc/evidence/studio-sharing-unpublished-negative.json"
   ]
 }
