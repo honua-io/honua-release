@@ -75,6 +75,9 @@
     "artifacts/terminal-journey-377-local-docker-20260929.md",
     "artifacts/terminal-journey-issue-123.json",
     "artifacts/terminal-journey-issue-123.md",
-    "certification/hosted-pilot/history/environment-producer-39937421185-observation.json"
+    "certification/hosted-pilot/history/environment-producer-39937421185-observation.json",
+    "certification/sdk-publication-replay/sdk-021/*",
+    "certification/sdk-publication-replay/published-*.json",
+    "docs/evidence/studio-assistant-p08-*.json"
   ]
 }
