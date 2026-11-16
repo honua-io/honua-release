@@ -2,7 +2,7 @@
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
   "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
-  "total": 1226,
+  "total": 1216,
   "pathRenames": {
     "reason": "Retained gate inputs and protocol matrix directories use stable names; identical content keeps the same vocabulary count at its new path.",
     "paths": [
@@ -67,7 +67,6 @@
     "compatibility-ledger.v1.yaml": 3,
     "compatibility-matrix.yaml": 1,
     "docs/2026.1-RELEASE-PLAN.md": 1,
-    "docs/2026.1-evidence-map.md": 10,
     "docs/2026.1-release-decision-overrides.json": 51,
     "docs/2026.1-release-decision-record.md": 8,
     "docs/BURN-IN-PROMOTION.md": 2,

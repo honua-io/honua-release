@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse docs/2026.1-evidence-map.md into machine-readable instances and validate them.
+"""Parse a supplied evidence map into machine-readable instances and validate them.
 
 The evidence map's row data is a Markdown table. This tool turns each row into JSON and
 validates the machine-checkable fields against schemas/2026.1-evidence-map.schema.json, so a
@@ -188,7 +188,7 @@ def self_test(md_path: Path, schema_path: Path) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--map", type=Path, default=Path("docs/2026.1-evidence-map.md"))
+    ap.add_argument("--map", type=Path, required=True, help="audit Markdown to validate; no committed audit is implied")
     ap.add_argument("--schema", type=Path, default=Path("schemas/2026.1-evidence-map.schema.json"))
     ap.add_argument("--emit", type=Path,
                     help="write one JSON instance per packet, named <stem>.<packet><suffix>")
