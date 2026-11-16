@@ -81,8 +81,6 @@
     "certification/README.md": 5,
     "certification/RECEIPT-V2.md": 5,
     "certification/conformance-evidence.yaml": 8,
-    "certification/console-read-approve/receipt.nightly-42596b4.console-dcb9eb2.json": 1,
-    "certification/console-read-approve/receipt.nightly-80e23be.console-dcb9eb2.json": 1,
     "certification/first-publication/preflight.v1.json": 3,
     "certification/generate-protocol-requirements.py": 21,
     "certification/installed-clients/README.md": 1,
