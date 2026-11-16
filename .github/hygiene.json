@@ -62,6 +62,8 @@
     "certification/ecs-recovery/environment-discovery.json",
     "certification/ecs-recovery/published-artifact-discovery.json",
     "certification/hosted-pilot/history/environment-producer-39937421185-observation.json",
-    "docs/2026.1-sdk-pin-convergence.md"
+    "docs/2026.1-sdk-pin-convergence.md",
+    "docs/audit-synthesis.md",
+    "docs/GRPC-0.2.0-ALPHA.1-CUT.md"
   ]
 }
