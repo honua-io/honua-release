@@ -1597,11 +1597,11 @@ def test_resolve_pins_every_sdk_to_verified_primary_package_and_reads_declaratio
     candidate, matrix, source = resolve_published(monkeypatch)
     expected = {
         'dotnet': ('1.10.1', '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
-                   'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'),
+                   'sha256:ed546d737b7d62a956621d32922d4fc2d9c0be69a7379db45299e9d0e8901e5d'),
         'js': ('0.1.12', '1102d2d55916340edca13cb28411df8da8206f92',
                'sha256:8a4e698d7a1d09d6e943ef6db6903f5f1f53cf17cc2acb111cea365fe1a90f58'),
         'python': ('0.1.12', '12670676a1e8acb835e911c358adbf46a731120a',
-                   'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'),
+                   'sha256:41ab947d50f514a01e8de2484914a2865c53977c9456af1176567607c64f4a9c'),
     }
     for name, (version, revision, digest) in expected.items():
         sdk = candidate['components']['honua-sdk-' + name]
@@ -1639,7 +1639,7 @@ def test_a_new_published_pin_advances_source_and_artifact_identity_together(monk
     old_pins = recorded_pins()
     old_pins['dotnet'].update(version='1.10.0', filename='honua.sdk.1.10.0.nupkg',
         sourceSha='d81067a035854a1bc4c396ed763ba0de6b18864e',
-        digest='sha256:dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa')
+        digest='sha256:65d3e7f87f1e4c326bbce3c35ab318b52aee86e7d4e19066a54b711a87a323d7')
     older, _, _ = resolve_published(monkeypatch, old_pins)
     newer, _, _ = resolve_published(monkeypatch)
     old = older['components']['honua-sdk-dotnet']
@@ -1648,10 +1648,10 @@ def test_a_new_published_pin_advances_source_and_artifact_identity_together(monk
     assert new['version'] == new['artifactVersion'] == '1.10.1'
     assert (old['sha'], old['artifactVersion'], old['artifactSha256']) == (
         'd81067a035854a1bc4c396ed763ba0de6b18864e', '1.10.0',
-        'sha256:dcc6bb0477e64982854f38ee704709abafae43e373d7f963af15b23c540859aa')
+        'sha256:65d3e7f87f1e4c326bbce3c35ab318b52aee86e7d4e19066a54b711a87a323d7')
     assert (new['sha'], new['artifactVersion'], new['artifactSha256']) == (
         '8a0a06c815baefd49e7398d38a9f22642a8c80c5', '1.10.1',
-        'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd')
+        'sha256:ed546d737b7d62a956621d32922d4fc2d9c0be69a7379db45299e9d0e8901e5d')
 
 
 def test_red_published_sdk_source_refuses_without_advancing_to_green_head(monkeypatch):
