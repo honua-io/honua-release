@@ -65,6 +65,7 @@
     "docs/2026.1-sdk-pin-convergence.md",
     "docs/audit-synthesis.md",
     "docs/GRPC-0.2.0-ALPHA.1-CUT.md",
-    "docs/DEVELOPER-PREVIEW-DOGFOOD.md"
+    "docs/DEVELOPER-PREVIEW-DOGFOOD.md",
+    "docs/upgrade-chaos-matrix.md"
   ]
 }
