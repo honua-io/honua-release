@@ -72,6 +72,7 @@
     "certification/rc-repin-3/boot-observations.json",
     "certification/rc-repin-4/boot-observations.json",
     "certification/terminal-journey/fixtures/issue-377-build.evidence.md",
-    "certification/terminal-journey/fixtures/issue-405-review.evidence.md"
+    "certification/terminal-journey/fixtures/issue-405-review.evidence.md",
+    "certification/terminal-journey/fixtures/smoke-receipt.local-docker.json"
   ]
 }
