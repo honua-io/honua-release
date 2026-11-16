@@ -4,16 +4,27 @@ from collections import Counter
 from itertools import product
 import json
 from pathlib import Path
+import re
 from statistics import median
 
 from outcome_eval import (ARMS, MODELS, VERSION, WORKFLOWS, confined, digest,
                           plan, summarize, verify_files, write_new)
 from strict_json import parse_json
 
-SCHEMA = "honua.outcome-cohort/v1"
+SCHEMA = "honua.outcome-cohort/v2"
 METRICS = ("personSentences", "personWords", "clicks", "fieldActions",
            "enteredCharacters", "distinctFields", "toolCalls", "elapsedMinutes")
 STATUSES = ("success", "failed", "censored", "not-run", "excluded")
+
+
+def candidate_identity(value):
+    formats = {"serverSha": r"[0-9a-f]{40}", "imageDigest": r"sha256:[0-9a-f]{64}",
+               "platformLockDigest": r"sha256:[0-9a-f]{64}"}
+    if (not isinstance(value, dict) or value.keys() != formats.keys()
+            or any(not isinstance(value[key], str) or not re.fullmatch(pattern, value[key])
+                   for key, pattern in formats.items())):
+        raise ValueError("candidate requires canonical serverSha, imageDigest and platformLockDigest")
+    return value
 
 
 def pinned(root, manifest, name):
@@ -26,6 +37,8 @@ def recorded_trial(entry, context):
     root, manifest = context
     events = pinned(root, manifest, entry["events"])
     grade = pinned(root, manifest, entry["grade"])
+    if candidate_identity(parse_json(grade.read_text()).get("candidate")) != manifest["candidate"]:
+        raise ValueError("cohort and independent grade candidates differ")
     result = summarize(events, grade)
     for name in result["evidence"]:
         evidence = confined(grade.parent, name)
@@ -62,6 +75,7 @@ def load_cohort(path):
     manifest = parse_json(path.read_text())
     if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
         raise ValueError("registered cohort schema required")
+    candidate = candidate_identity(manifest.get("candidate"))
     root = path.parent
     verify_files(root, manifest.get("files"))
     ordered = plan()
@@ -79,7 +93,7 @@ def load_cohort(path):
         identity = {key: trial.get(key) for key in ("workflow", "pass", "model", "arm")}
         rows.append(dict(result, **identity, baselineId=trial.get("baselineId", trial["id"]),
                          modality="agent" if "model" in trial else "browser"))
-    return rows
+    return candidate, rows
 
 
 def distribution(values):
@@ -150,8 +164,9 @@ def arm_pairs(rows):
 
 
 def report(path):
-    rows = load_cohort(path)
-    return {"schema": "honua.outcome-report/v1", "counterVersion": VERSION,
+    candidate, rows = load_cohort(path)
+    return {"schema": "honua.outcome-report/v2", "counterVersion": VERSION,
+            "candidate": candidate,
             "cohortSha256": digest(path), "live": False, "status": "OFFLINE REPORT",
             "trials": rows, "groups": groups(rows), "browserPairs": browser_pairs(rows),
             "armPairs": arm_pairs(rows)}

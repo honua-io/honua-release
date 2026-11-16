@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "id": "Honua.Sdk",
+  "version": "1.10.0",
+  "listed": true,
+  "packageHashAlgorithm": "SHA512",
+  "packageHash": "oOdkEyJ1XpZPCCS41ZwQdUIx8sf5LqLXJ9X0L4pcvsqWK8NmGIgD80pv5CGVWlmI9mkSa1gz2M2wi22FxUjTvA==",
+  "repository": {
+    "url": "https://github.com/honua-io/honua-sdk-dotnet",
+    "commit": "d81067a035854a1bc4c396ed763ba0de6b18864e"
+  }
+}
