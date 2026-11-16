@@ -840,8 +840,9 @@ def test_container_runs_as_host_user_with_writable_home(tmp_path, monkeypatch):
     ("honua-io/honua-site", "docs/playbooks/install-with-docker/index.md", []),
     ("honua-io/honua-site", "docs/playbooks/publish-a-service/index.md", ["jq"]),
     ("honua-io/honua-sdk-python", "README.md", []),
+    ("honua-io/honua-samples", "README.md", ["jq", "python-is-python3", "python3-venv", "sudo"]),
 ])
-def test_document_declared_tools_reach_its_python_session(tmp_path, monkeypatch, repository, path, expected_packages):
+def test_document_declared_tools_reach_its_runtime_session(tmp_path, monkeypatch, repository, path, expected_packages):
     import subprocess
     import run
     sources = json.loads((HERE / "sources.json").read_text())
@@ -856,13 +857,17 @@ def test_document_declared_tools_reach_its_python_session(tmp_path, monkeypatch,
                           prerequisites=set(doc.get("prerequisites", {})))
     name = session.container(doc["runtime"])
     invocation = next(args for args in calls if args[0] == "run")
-    assert invocation[-3:] == (sources["runtimes"]["python"], "sleep", "infinity")
-    assert f"{session.tools / 'node'}:/opt/node:ro" in invocation
-    assert any(arg.startswith("PATH=/opt/node/bin:") for arg in invocation)
+    assert invocation[-3:] == (sources["runtimes"][doc["runtime"]], "sleep", "infinity")
+    if doc["runtime"] != "node":
+        assert f"{session.tools / 'node'}:/opt/node:ro" in invocation
+        assert any(arg.startswith("PATH=/opt/node/bin:") for arg in invocation)
     assert "npm_config_registry=http://guard/npm/" in invocation
     installs = [args[-1] for args in calls if args[:3] == ("exec", "--user", "0")]
-    assert installs == (["apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq"]
-                        if expected_packages else [])
+    if expected_packages:
+        expected = "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "
+        assert len(installs) == 1 and installs[0].startswith(expected + " ".join(expected_packages))
+    else:
+        assert installs == []
     assert all(doc["path"] in citation for citation in doc["prerequisites"].values())
     session.close()
     assert calls[-1] == ("rm", "-f", name)
