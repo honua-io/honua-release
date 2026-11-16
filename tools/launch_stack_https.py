@@ -20,6 +20,7 @@ def require(condition, reason):
 def checked_origin(origin):
     require(isinstance(origin, str) and not re.search(r'[\x00-\x20\x7f]', origin),
             'Invalid HTTPS origin characters')
+    require('?' not in origin and '#' not in origin, 'Origin must not contain delimiters')
     parsed = urlsplit(origin)
     require(parsed.scheme == 'https' and parsed.hostname and parsed.username is None
             and parsed.password is None and parsed.port in (None, 443)
@@ -41,7 +42,7 @@ def hsts_age(headers):
     require(len(values) == 1, 'Missing or ambiguous HSTS policy')
     directives = {}
     for directive in values[0].split(';'):
-        match = re.fullmatch(r'\s*([A-Za-z][A-Za-z-]*)(?:\s*=\s*("[0-9]+"|[0-9]+))?\s*', directive)
+        match = re.fullmatch(r'[ \t]*([A-Za-z][A-Za-z-]*)(?:[ \t]*=[ \t]*("[0-9]+"|[0-9]+))?[ \t]*', directive)
         require(match is not None, 'Malformed HSTS directive')
         name, value = match.groups()
         name = name.lower()
