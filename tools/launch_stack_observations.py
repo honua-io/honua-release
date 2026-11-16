@@ -78,8 +78,7 @@ def task_definition(aws, resources):
     platform = definition.get('runtimePlatform', {})
     require(platform.get('cpuArchitecture') in ('ARM64', 'X86_64')
             and platform.get('operatingSystemFamily') == 'LINUX', 'Missing Linux platform identity')
-    container = one([c for c in definition.get('containerDefinitions', []) if c.get('name') == 'honua'],
-                    'Missing or ambiguous server container')
+    container = server_container(definition.get('containerDefinitions', []))
     image = container.get('image', '')
     require(container.get('essential') is True and
             re.fullmatch(r'[a-zA-Z0-9./:_-]+@sha256:[0-9a-f]{64}', image),
@@ -107,13 +106,17 @@ def running_tasks(aws, resources):
     return tasks
 
 
+def server_container(containers):
+    return one([container for container in containers if container.get("name") == "honua"],
+               "Missing or ambiguous server container")
+
+
 def server_digest(task, resources):
     require(task.get('taskDefinitionArn') == resources['ServerTask'], 'Running task uses another revision')
     require(task.get('launchType') == 'FARGATE' and task.get('lastStatus') == 'RUNNING'
             and task.get('desiredStatus') == 'RUNNING' and task.get('healthStatus') != 'UNHEALTHY',
             'Running task is not healthy Fargate')
-    container = one([c for c in task.get('containers', []) if c.get('name') == 'honua'],
-                    'Missing or ambiguous running server container')
+    container = server_container(task.get('containers', []))
     require(container.get('lastStatus') == 'RUNNING' and container.get('healthStatus') != 'UNHEALTHY',
             'Running server container is not healthy')
     digest = container.get('imageDigest', '')
@@ -126,8 +129,7 @@ def task_snapshot(tasks, resources):
     observations = {}
     for task in tasks:
         digest = server_digest(task, resources)
-        container = one([c for c in task.get('containers', []) if c.get('name') == 'honua'],
-                        'Missing server container')
+        container = server_container(task.get('containers', []))
         observations[task['taskArn']] = {
             'digest': digest, 'health': task.get('healthStatus'),
             'containerHealth': container.get('healthStatus'),
@@ -151,8 +153,7 @@ def ready_targets(aws, resources, tasks):
     readiness_group(aws, resources)
     addresses = []
     for task in tasks:
-        container = one([c for c in task.get('containers', []) if c.get('name') == 'honua'],
-                        'Missing server network identity')
+        container = server_container(task.get('containers', []))
         interface = one(container.get('networkInterfaces'), 'Missing server network interface')
         try:
             addresses.append(str(IPv4Address(interface.get('privateIpv4Address', ''))))
