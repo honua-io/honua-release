@@ -73,6 +73,7 @@
     "certification/sdk-publication-replay/sdk-021/*",
     "certification/sdk-publication-replay/published-*.json",
     "docs/evidence/studio-assistant-p08-*.json",
-    "certification/sdk-publication-replay/sdk-022/*"
+    "certification/sdk-publication-replay/sdk-022/*",
+    "docs/2026.1-evidence-map.md"
   ]
 }
