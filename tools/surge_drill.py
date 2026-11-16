@@ -61,14 +61,45 @@ def freshness(edits, duration):
 
 
 def private_and_drain(run, default_minimum):
+    duration = len(run['buckets']) * MINUTE_SECONDS
+    drain = run['drain']
+    require(count(drain['startedOffsetSeconds']) == duration, 'drain must follow load collection')
+    end = count(drain['endedOffsetSeconds'])
+    require(end > duration and (end - duration) % MINUTE_SECONDS == 0, 'invalid drain interval')
+    require(_count(drain['finalTasks']) == default_minimum, 'default task count not restored')
+    require(len(drain['buckets']) == (end - duration) // MINUTE_SECONDS, 'drain coverage gap')
+    for index, probe in enumerate(drain['buckets']):
+        require(count(probe['offsetSeconds']) == duration + index * MINUTE_SECONDS and
+                count(probe['durationSeconds']) == MINUTE_SECONDS, 'drain coverage gap or overlap')
+        _count(probe['requests'])
+        require(count(probe['errors']) == 0, 'requests failed during task drain')
     probes = run['privateProbes']
-    for field in ('ownerRequests', 'otherUserRequests', 'anonymousRequests'):
-        _count(probes[field])
-    for field in ('ownerContentMissing', 'crossUserLeaks', 'anonymousLeaks'):
-        require(count(probes[field]) == 0, 'private content missing or leaked')
-    _count(run['drain']['requests'])
-    require(count(run['drain']['errors']) == 0, 'requests failed during task drain')
-    require(_count(run['drain']['finalTasks']) == default_minimum, 'default task count not restored')
+    require(len(probes) == end // MINUTE_SECONDS, 'private probe coverage gap')
+    for index, probe in enumerate(probes):
+        require(count(probe['offsetSeconds']) == index * MINUTE_SECONDS and
+                count(probe['durationSeconds']) == MINUTE_SECONDS, 'private probe coverage gap or overlap')
+        for field in ('ownerRequests', 'otherUserRequests', 'anonymousRequests'):
+            _count(probe[field])
+        for field in ('ownerContentMissing', 'crossUserLeaks', 'anonymousLeaks'):
+            require(count(probe[field]) == 0, 'private content missing or leaked')
+
+
+def workload(run, policy):
+    buckets = run['buckets']
+    schedule = policy['rampMultipliers']
+    require(len(schedule) == 10, 'ten ramp multipliers required')
+    previous = 1
+    for index, multiplier in enumerate(schedule, start=1):
+        require(_number(multiplier) > previous, 'ramp must increase each minute')
+        for name in SURFACES:
+            require(buckets[index]['publicRequests'][name] == buckets[0]['publicRequests'][name] * multiplier,
+                    'observed requests do not match registered ramp')
+        previous = multiplier
+    require(previous >= 100, 'registered ramp must reach 100x')
+    serving = run['newTaskServingOffsetSeconds']
+    require(buckets[int(serving // MINUTE_SECONDS)]['tasks'] > run['minimumTasks'],
+            'new-task serving event lacks scaled task observation')
+    return [b['publicRequests'] for b in buckets]
 
 
 def import_impact(run):
@@ -135,6 +166,8 @@ def evaluate(source, policy):
         require(source['runs'][1]['minimumTasks'] > default, 'second run must raise minimum tasks')
         for run in source['runs']:
             report['runs'][run['name']] = measure_run(run, policy, default)
+        profiles = [workload(run, policy) for run in source['runs']]
+        require(profiles[0] == profiles[1], 'comparison requires identical per-surface workload')
         before, after = (report['runs'][name] for name in ('default', 'prescaled'))
         report['firstFiveMinutesComparison'] = {
             'p95ChangeMs': after['firstFiveMinutesMaximumP95Ms'] - before['firstFiveMinutesMaximumP95Ms'],

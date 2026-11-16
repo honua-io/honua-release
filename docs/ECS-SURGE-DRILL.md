@@ -26,6 +26,10 @@ against per-user canaries as well as status codes.
 
 Before execution, the operator writes `surge-policy.json` with numeric
 `maximumErrorRate` (0–1) and `maximumOriginGrowthFraction` (strictly between 0 and 1).
+`rampMultipliers` is an array of ten strictly increasing multipliers above one,
+ending at least at 100 (for example, `[10,20,30,40,50,60,70,80,90,100]`).
+Each minute must match its registered per-surface request count; both runs use
+identical baseline and minute-by-minute workloads, including hold duration.
 These are explicit operator-approved limits, not release defaults supplied by this
 tool. The latter bounds peak origin-request growth divided by minimum public
 request growth across map, tile and query. Record the approval and the intended
@@ -48,7 +52,7 @@ task startup failures or the agreed error limit; retain partial observations.
    continue probing after the configured cache lifetime. Archive the effective
    lifetime, visibility time, probe count and any stale response after expiry.
    Cache-busting URLs do not prove ordinary cached-path freshness.
-3. During load, continue private queries as owner, other user and anonymous user.
+3. Throughout baseline, load and drain, continue private queries as owner, other user and anonymous user.
    Count missing owner content and every cross-user or anonymous content leak.
    Record scaling alarm and first new-task-serving timestamps from real events,
    desired/running task counts, pool acquisition failures, database connections
@@ -75,12 +79,13 @@ The unit-test fixture is synthetic and must never be used as observed evidence.
 | Run | `name`, `minimumTasks`, `buckets`, `edits`, `privateProbes`, `drain`, `import`, `scalingAlarmOffsetSeconds`, `newTaskServingOffsetSeconds` |
 | Minute bucket | `offsetSeconds` (0,60,…), `durationSeconds` (60), `publicRequests` with exactly `map`, `tile`, `query` counts, `errors`, `originRequests`, `cacheHits`, `cacheRequests`, `p95LatencyMs`, `tasks`, `databaseConnections`, `databaseConnectionLimit`, `taskConnectionFailures` |
 | Contiguous edits from minute one through at least minute ten | `committedOffsetSeconds`, `visibleOffsetSeconds`, `cacheLifetimeSeconds`, `afterLifetimeRequests`, `lastProbeOffsetSeconds`, `staleAfterLifetime` |
-| Private probes | `ownerRequests`, `otherUserRequests`, `anonymousRequests`, `ownerContentMissing`, `crossUserLeaks`, `anonymousLeaks` |
-| Drain | `requests`, `errors`, `finalTasks` |
+| Private probes, one bucket per minute from baseline through end of drain | `offsetSeconds`, `durationSeconds` (60), `ownerRequests`, `otherUserRequests`, `anonymousRequests`, `ownerContentMissing`, `crossUserLeaks`, `anonymousLeaks` |
+| Drain | `startedOffsetSeconds` (end of load collection), `endedOffsetSeconds`, `finalTasks`, contiguous one-minute `buckets` with `offsetSeconds`, `durationSeconds` (60), positive `requests`, `errors` |
 | Import | `startedOffsetSeconds`, `endedOffsetSeconds`, `result` (`succeeded`) |
 
 Counts are integers; rates and timings are finite, nonnegative numbers. Each run
-has at least twelve minute bins. Both runs must actually scale out; if the chosen
+has at least twelve minute bins. The serving-event minute must record tasks above the configured minimum.
+Both runs must actually scale out; if the chosen
 pre-scaled minimum absorbs all traffic, record that result separately and arrange
 an explicitly approved scale-out exercise rather than inventing an event. Each
 edit needs a probe after expiry within the observation window; extend collection

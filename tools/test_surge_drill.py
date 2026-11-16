@@ -28,10 +28,11 @@ def observations():
                        'cacheLifetimeSeconds': 30, 'staleAfterLifetime': 0,
                        'afterLifetimeRequests': 5, 'lastProbeOffsetSeconds': minute * 60 + 40}
                       for minute in range(1, 12)],
-            'privateProbes': {'ownerRequests': 10, 'otherUserRequests': 10,
+            'privateProbes': [dict(offsetSeconds=minute * 60, durationSeconds=60, **{'ownerRequests': 10, 'otherUserRequests': 10,
                               'anonymousRequests': 10, 'ownerContentMissing': 0,
-                              'crossUserLeaks': 0, 'anonymousLeaks': 0},
-            'drain': {'requests': 100, 'errors': 0, 'finalTasks': 2},
+                              'crossUserLeaks': 0, 'anonymousLeaks': 0}) for minute in range(13)],
+            'drain': {'startedOffsetSeconds': 720, 'endedOffsetSeconds': 780, 'finalTasks': 2,
+                      'buckets': [{'offsetSeconds': 720, 'durationSeconds': 60, 'requests': 100, 'errors': 0}]},
             'import': {'startedOffsetSeconds': 120, 'endedOffsetSeconds': 240,
                        'result': 'succeeded'},
         })
@@ -40,7 +41,8 @@ def observations():
             'defaultMinimumTasks': 2, 'runs': runs}
 
 
-POLICY = {'maximumErrorRate': 0.01, 'maximumOriginGrowthFraction': 0.1}
+POLICY = {'maximumErrorRate': 0.01, 'maximumOriginGrowthFraction': 0.1,
+          'rampMultipliers': list(range(10, 101, 10))}
 
 
 def test_reports_measured_comparison_without_release_credit():
@@ -72,10 +74,10 @@ def test_reports_measured_comparison_without_release_credit():
     lambda x: x['runs'][0]['edits'][4].update(staleAfterLifetime=1),
     lambda x: x['runs'][0]['edits'][4].update(afterLifetimeRequests=0),
     lambda x: x['runs'][0]['edits'][4].update(lastProbeOffsetSeconds=320),
-    lambda x: x['runs'][0]['privateProbes'].update(otherUserRequests=0),
-    lambda x: x['runs'][0]['privateProbes'].update(crossUserLeaks=1),
-    lambda x: x['runs'][0]['privateProbes'].update(anonymousLeaks=1),
-    lambda x: x['runs'][0]['drain'].update(errors=1),
+    lambda x: x['runs'][0]['privateProbes'][0].update(otherUserRequests=0),
+    lambda x: x['runs'][0]['privateProbes'][0].update(crossUserLeaks=1),
+    lambda x: x['runs'][0]['privateProbes'][0].update(anonymousLeaks=1),
+    lambda x: x['runs'][0]['drain']['buckets'][0].update(errors=1),
     lambda x: x['runs'][0]['drain'].update(finalTasks=6),
     lambda x: x['runs'][0]['import'].update(result='failed'),
     lambda x: x['runs'][0]['import'].update(startedOffsetSeconds=0),
@@ -106,6 +108,9 @@ def test_freshness_collection_can_outlast_editing_for_long_cache_lifetimes():
     for run in source['runs']:
         last_bucket = dict(run['buckets'][-1], offsetSeconds=720)
         run['buckets'].append(last_bucket)
+        run['drain'].update(startedOffsetSeconds=780, endedOffsetSeconds=840)
+        run['drain']['buckets'][0]['offsetSeconds'] = 780
+        run['privateProbes'].append(dict(run['privateProbes'][-1], offsetSeconds=780))
         for edit in run['edits']:
             edit.update(cacheLifetimeSeconds=90,
                         lastProbeOffsetSeconds=edit['committedOffsetSeconds'] + 100)
@@ -131,3 +136,36 @@ def test_cli_archives_result_and_uses_failure_exit_status(tmp_path, valid_json):
     report = json.loads(output.read_text())
     assert report['analysisPassed'] is valid_json
     assert report['releaseQualified'] is False
+
+
+def test_rejects_different_prescaled_workload():
+    source = observations()
+    for bucket in source['runs'][1]['buckets']:
+        bucket['publicRequests'] = {key: value * 100 for key, value in bucket['publicRequests'].items()}
+    assert not evaluate(source, POLICY)['analysisPassed']
+
+
+def test_rejects_step_instead_of_ramp():
+    source = observations()
+    for run in source['runs']:
+        for bucket in run['buckets'][1:10]:
+            bucket.update(publicRequests={key: 100 for key in ('map', 'tile', 'query')},
+                          cacheRequests=300, cacheHits=270)
+    assert not evaluate(source, POLICY)['analysisPassed']
+
+
+def test_rejects_serving_event_without_scaled_tasks():
+    source = observations()
+    source['runs'][0]['buckets'][2]['tasks'] = 2
+    assert not evaluate(source, POLICY)['analysisPassed']
+
+
+@pytest.mark.parametrize('field', ['privateProbes', 'drain'])
+def test_rejects_probe_coverage_gap(field):
+    source = observations()
+    probes = source['runs'][0][field]
+    if isinstance(probes, list):
+        probes.pop(0)
+    else:
+        probes['buckets'].pop(0)
+    assert not evaluate(source, POLICY)['analysisPassed']
