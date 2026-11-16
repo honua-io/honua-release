@@ -56,6 +56,11 @@
     "tools/fixtures/client-artifacts/nuget-1.10.0-catalog.json",
     "tools/fixtures/client-artifacts/nuget-1.10.0.nupkg",
     "tools/fixtures/client-artifacts/pypi-provenance.json",
+    "certification/console-read-approve/receipt.nightly-2cc2213.console-dcb9eb2.json",
+    "certification/console-read-approve/receipt.nightly-42596b4.console-dcb9eb2.json",
+    "certification/console-read-approve/receipt.nightly-80e23be.console-dcb9eb2.json",
+    "certification/ecs-recovery/environment-discovery.json",
+    "certification/ecs-recovery/published-artifact-discovery.json",
     "certification/hosted-pilot/history/environment-producer-39937421185-observation.json"
   ]
 }
