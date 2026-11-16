@@ -7,11 +7,11 @@ import jsonschema
 
 ROOT = Path(__file__).resolve().parent
 SCHEMA = json.loads((ROOT / "certification.schema.json").read_text())
-RECEIPT = json.loads((ROOT / "certification.issue-122.json").read_text())
+RECEIPT = json.loads((ROOT / "certification-contract-input.json").read_text())
 
 
 class CertificationTest(unittest.TestCase):
-    def test_issue_122_receipt_is_valid_and_fail_closed(self):
+    def test_static_receipt_is_valid_and_fail_closed(self):
         jsonschema.validate(RECEIPT, SCHEMA, format_checker=jsonschema.FormatChecker())
         self.assertEqual("blocked", RECEIPT["status"])
         self.assertFalse(RECEIPT["promotionEligible"])
