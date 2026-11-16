@@ -62,6 +62,9 @@
     "certification/ecs-recovery/environment-discovery.json",
     "certification/ecs-recovery/published-artifact-discovery.json",
     "docs/2026.1-evidence-map.md",
-    "certification/hosted-pilot/history/environment-producer-39937421185-observation.json"
+    "certification/hosted-pilot/history/environment-producer-39937421185-observation.json",
+    "certification/sdk-publication-replay/sdk-021/*",
+    "certification/sdk-publication-replay/published-*.json",
+    "docs/evidence/studio-assistant-p08-*.json"
   ]
 }
