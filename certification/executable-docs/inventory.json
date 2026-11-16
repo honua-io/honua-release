@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "64b77055ee15290c2b7c88b2ed8dc5f52ae9be7d",
+      "revision": "44f079b922507617f5dc0914d579bbaf568f4bfd",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/64b77055ee15290c2b7c88b2ed8dc5f52ae9be7d/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/44f079b922507617f5dc0914d579bbaf568f4bfd/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -23,7 +23,7 @@
           "infoString": "ts doc-test=compile",
           "intent": "compile",
           "intentSource": "fence-attribute",
-          "sha256": "ed0439bec34e0bc5d329ca06feabef89f0e41611a48bd9bdc75d23aecb215156"
+          "sha256": "f014edd8d44c621ce8c94cd0ffa2ab5cc6f6685af87649c7e191fafffa778dec"
         },
         {
           "index": 1,
@@ -1793,11 +1793,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "79dda83554ca28d84f06dd42d3f1816ae1c946f3",
+      "revision": "9b6bc929eed807ba48991cf42d0b92fc9431ddee",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/79dda83554ca28d84f06dd42d3f1816ae1c946f3/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/9b6bc929eed807ba48991cf42d0b92fc9431ddee/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1908,7 +1908,7 @@
         },
         {
           "index": 11,
-          "line": 565,
+          "line": 566,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -1918,7 +1918,7 @@
         },
         {
           "index": 12,
-          "line": 605,
+          "line": 606,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1927,7 +1927,7 @@
         },
         {
           "index": 13,
-          "line": 639,
+          "line": 640,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2159,11 +2159,11 @@
       "id": "honua-server-docs-guides-connect-ai-agents-mcp",
       "repo": "honua-io/honua-server",
       "path": "docs/guides/connect/ai-agents-mcp.md",
-      "revision": "629854dad94874d74db5e1a4bd3fb3c2dbf87699",
+      "revision": "72a898717040e0867937b413292f847b9f9654c0",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/629854dad94874d74db5e1a4bd3fb3c2dbf87699/docs/guides/connect/ai-agents-mcp.md",
+      "url": "https://github.com/honua-io/honua-server/blob/72a898717040e0867937b413292f847b9f9654c0/docs/guides/connect/ai-agents-mcp.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2201,7 +2201,7 @@
         },
         {
           "index": 3,
-          "line": 152,
+          "line": 153,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2210,16 +2210,16 @@
         },
         {
           "index": 4,
-          "line": 156,
+          "line": 157,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "8947f517e1548a73ed4f0c827863896bd0ddcfabeedaeea7158d4e0752a780a9"
+          "sha256": "411c695cb4fd25f3bd33274ad260bfe5a0c7e52cf745697810f00aafb23c9cbb"
         },
         {
           "index": 5,
-          "line": 373,
+          "line": 378,
           "language": "json",
           "infoString": "json",
           "intent": "illustrative",
@@ -2229,7 +2229,7 @@
         },
         {
           "index": 6,
-          "line": 502,
+          "line": 507,
           "language": "jsonc",
           "infoString": "jsonc",
           "intent": "illustrative",
