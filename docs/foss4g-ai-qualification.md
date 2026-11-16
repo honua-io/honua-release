@@ -1,8 +1,8 @@
 # FOSS4G AI qualification implementation
 
-The coordinating ticket is [honua-release#378](https://github.com/honua-io/honua-release/issues/378).
-The accepted scope and schedule are in [the archived interaction plan, section 7](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/plans/agent-console-interaction-plan.md).
-Existing RC gates and the 36-scenario/108-prompt/252-case campaign keep their own contracts.
+This guide defines qualification for the bounded pilot profile. Existing RC
+gates and the separate 36-scenario/108-prompt/252-case campaign retain their own
+contracts. Pilot support or a passing subset does not replace either AI gate.
 
 ## Canonical inventory and component projection
 
@@ -46,24 +46,17 @@ external session. See [its instructions](../certification/native-docker-first/RE
 Its tool-directed orchestration is integration evidence; it does not satisfy the
 pilot's natural, goal-only prompt requirement.
 
-## Remaining qualification work
+## Qualification coverage
 
-The profile is an inventory with explicit blockers. It does not execute all 134
-cases. Operational repair, GP-to-map and the remaining interaction/fault adapters,
-the authenticated pilot receipt producer, pilot dispatch integration,
-live candidate matrix, cleanup qualification and five user sessions remain open.
-Authoring and published-audience controls, including consistent widget/control
-alias resolution and teardown cancellation, passed hosted Studio validation at
-`dabd2c6`: 1,592 unit tests, typecheck/build/style and all smoke jobs. Console
-`7237e8c` contains that provenance-verified artifact and passed its normal hosted
-core, E2E and pinned-server integration checks. Bounded-count follow-up
-[Studio #124](https://github.com/honua-io/honua-studio/pull/124) keeps informational
-notices separate from rendering errors; at `fda6681`, all 1,598 unit tests and
-hosted typecheck/build/style and all smoke jobs pass. Console `41d8cc1` vendors
-that verified bundle and passes 93 focused checks; its normal CI and Studio
-sequential review are pending. The original PR merged during second review; the separately labeled
-post-merge audit does not establish historical pre-merge clearance.
-Installed-candidate execution is required before these checks can qualify the pilot.
+The profile is an inventory with explicit blockers; it does not execute all 134
+cases by itself. Qualification needs operational repair, GP-to-map and the
+remaining interaction/fault adapters, an authenticated pilot receipt producer,
+pilot dispatch integration, a live candidate matrix, cleanup qualification and
+five representative user sessions. Component unit tests, build/style checks,
+smoke tests and a Console-vendored Studio artifact are supporting evidence.
+They require verified artifact provenance and installed-candidate execution
+before they can qualify this pilot. Source review and a post-merge audit do not
+establish historical pre-merge clearance or installed acceptance.
 
 The [fixed budget amendment](foss4g-pilot-budget.md) preserves the same candidate's
 historical costs and liability. Candidate-scoped admissions enforce the
@@ -71,40 +64,32 @@ four-active-attempt ceiling and retain stale capacity until cleanup and all
 liabilities are settled. The existing controller's stricter single-owner lease
 remains; the legacy dispatcher refuses the amended policy rather than funding
 an unqualifiable campaign. Pilot dispatch must integrate these primitives before
-live execution. No paid campaign is started by this change.
+live execution. Configuration or inventory generation does not authorize a paid campaign.
 
 [Hosted candidate qualification](foss4g-hosted-candidate.md) defines isolated
 Console/authentication deployment and installed acceptance requirements. A
 healthy standing Server does not establish an installed ECS/Redis Console
 candidate or its real human/model sessions.
 
-Scope overlap was reconciled into existing tickets: #619 retains the broad
-campaign, #652 the platform audit, #277 commercial readiness, #377/#480 the
-terminal journey and scheduled proofs, #481 canary binding, and #791 toil metrics.
-No issue is closed while it still owns an unsatisfied unique requirement.
+## Execution and evidence requirements
 
-## Current execution status — 2026-10-23 20:55 UTC
+Record current outcomes against the selected candidate and authenticated
+producer evidence. A genuine terminal-model canary is supporting evidence;
+do not repeat paid inference merely to refresh a status note. It does not
+qualify the cloud deployment or full agent campaign. Environment approval,
+successful planning, exact-plan custody and installed execution are separate
+steps. A successful unapplied plan is not a deployment receipt, and source
+checks or an identity-only enrollment emitter do not qualify human sign-in.
 
-The [current canonical release checkpoint](https://github.com/honua-io/honua-release/issues/378)
-and [archived interaction plan](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/plans/agent-console-interaction-plan.md#712-execution-checkpoint--2026-10-23-2055-utc)
-retain the original acceptance requirements. Shared application topology #870 and
-original foundation history #872 are merged. Exact native operation ceilings
-#873 and Console-turn adoption #871 remain under CI/review. The identity-only
-enrollment emitter at `5d1019cd` passed 290 Python checks and actionlint; its
-complete deployment integration still needs the reviewed Server task output and
-SCIM credential binding. None of these source checks qualifies human sign-in.
+Retain application topology, native operation ceilings, Console-turn adoption,
+reviewed Server task outputs and SCIM credential bindings as applicable to the
+selected installation. Infrastructure changes use checked-in IaC and reviewed
+workflows; historical shell commands do not override that execution boundary.
 
-The last measured RC result remains 18/20: AWS cloud and the full agent campaign
-are incomplete. The genuine terminal-model canary passed on original run
-40001824669; do not repeat paid inference merely to refresh a status note.
-Original cloud deployment39942695095 still awaits genuine environment approval.
-Custody PLAN40014973402 is successful and unapplied. Separate exact-plan custody
-and foundation phases are being implemented and reviewed before deployment.
-
-Preserve the 252-case legacy campaign, the separate134-case pilot, all original
-failed attempts and the $334 aggregate reservations. Distinct real author/approver
-nominations, actual Cognito sessions, five user sessions, complete AI journeys,
-recovery and the installed-candidate recording are still outstanding. The runbook
-remains at `/home/mike/honua-io/RC1-RUNBOOK-20261022.md`; its historical commands do
-not override the requirement to configure infrastructure only through IaC and
-checked workflows.
+Preserve the 252-case campaign, the separate 134-case pilot, all original failed
+attempts, candidate costs, aggregate reservations and unsettled liabilities.
+Readiness requires distinct real author/approver nominations, actual Cognito
+sessions, five representative user sessions, complete AI journeys, recovery
+and an installed-candidate recording. No issue is complete while it owns an
+unsatisfied unique requirement. Report missing evidence as blocked rather than
+inferring a pass from source, an old outcome or a supporting fragment.
