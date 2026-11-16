@@ -240,6 +240,7 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
     if not isinstance(workflow, str) or not re.fullmatch(
             r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml', workflow):
         raise ValueError('exact producing signer workflow is required')
+    signer_identity = rf'^https://github\.com/{re.escape(workflow)}@.+$'
     with tempfile.TemporaryDirectory(prefix='verify-publisher-') as directory:
         package = Path(directory) / 'artifact.bin'
         document = Path(directory) / 'attestation.json'
@@ -258,7 +259,7 @@ def verify_publisher_bundle(raw: bytes | str, bundle: dict, artifact: dict, repo
             constraints += ['--deny-self-hosted-runners']
         retry(lambda: subprocess.run(['gh', 'attestation', 'verify', target, '--bundle', str(document),
             '--repo', repository, '--source-digest', artifact['sourceRevision'],
-            '--signer-workflow', workflow, '--predicate-type', predicate, '--format', 'json', *constraints], capture_output=True, text=True, check=True))
+            '--cert-identity-regex', signer_identity, '--predicate-type', predicate, '--format', 'json', *constraints], capture_output=True, text=True, check=True))
 
 
 LAMBDA_OUT_OF_LOCK_RULING = 'lambda-preview-out-of-lock-2026-10-27'
