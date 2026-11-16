@@ -114,13 +114,9 @@ All steps run against the one booted candidate, in contract order. The scenarios
     the final publication. The judge checks agreement first: the family, the content hash the JS SDK saved,
     and the fixture map body. A disagreement is a red. Agreeing digests are still not a pass: the judge also
     recomputes the content hash as SHA-256 of the canonical hash input the reader returns (base64
-    `contentHashInput`) and requires that input to carry the fixture map body. No published client returns
-    that input yet ([honua-server#5449](https://github.com/honua-io/honua-server/issues/5449)). Until one
-    does, `published-content` reports the agreement it verified and is blocked on the missing derivation.
-    honua-server#5794 (in the server pinned since the 2026-10-12 re-pin to 0e03bdd) returns
-    `contentHashInput` on the version read and `publicationUrl` on the publish-request read, and
-    `Honua.Sdk` 1.11.0 (honua-sdk-dotnet#425) exposes `StudioContentVersion.ContentHashInput`, which the
-    .NET runner reports. So `publication-url` and `published-content` are active.
+    `contentHashInput`) and requires that input to carry the fixture map body. The .NET runner
+    reports `StudioContentVersion.ContentHashInput`; the publication read must also return
+    `publicationUrl`. Missing derivation input cannot be replaced by agreement between clients.
 - **`interop-api-key-revocation`.** `honua admin secure createAdminApiKey --secret-output` mints one key.
   The secret goes to a private file, never to output or a log. Each of `honua-sdk`, `@honua/sdk-js`,
   `Honua.Sdk` and `honua-mcp-proxy` reads the sites layer with it on a client instance (one proxy
@@ -211,14 +207,10 @@ Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `H
 | `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client. OGC API Tiles is not supported in the .NET SDK for 2026.1. | `mikemcdougall` | `2026.1.x` |
 | `nuget-service-layer-import-fidelity` | the cell | [honua-release#418](https://github.com/honua-io/honua-release/issues/418): no producer emits the published-.NET-SDK import-fidelity receipt | `mikemcdougall` | `2026.1.x` |
 
-Every other cell is active. The earlier blockers on the `*-sdk-geoservices`, `pypi-sdk-ogc-tiles` and
-`interop-api-key-revocation` cells were closed by the re-pins that flipped them.
-
-Honua.Sdk 1.12.0 (pinned since the 2026-10-22 rc re-pin) carries honua-sdk-dotnet#424, which closed
-[#410](https://github.com/honua-io/honua-sdk-dotnet/issues/410) (`PublishLayerRequest.StorageMode` /
-`Capabilities`) and [#411](https://github.com/honua-io/honua-sdk-dotnet/issues/411)
-(`IHonuaStudioPackageClient.GetPublishedArtifactAsync`). The .NET interop runner uses both, so
-`interop-publish-query-edit` and `interop-proposal-approval` are active with no blocked steps.
+Every other cell is active. The .NET interop runner uses `PublishLayerRequest.StorageMode`,
+`Capabilities` and `IHonuaStudioPackageClient.GetPublishedArtifactAsync`;
+`interop-publish-query-edit` and `interop-proposal-approval` must execute with no blocked steps.
+The matrix and qualification policy define these expectations; this page records no live pass.
 
 The SDK re-pin or server re-pin that carries a fix must flip the matching `blockedSteps` entry in the
 same PR, or the gate turns red.

@@ -11,6 +11,10 @@ next release candidate. The canonical server reference is honua-server
 [`docs/guides/deploy/upgrade-and-rollback.md`](https://github.com/honua-io/honua-server/blob/trunk/docs/guides/deploy/upgrade-and-rollback.md).
 This page applies it to concrete releases.
 
+For 2026.1 rc.2, the [release cut scope](RELEASE-CUT-CHECKLIST.md) limits production
+certification to AWS ECS. Compose remains a local evaluation path; the earlier GA Compose
+requirements below do not certify an rc.2 production deployment.
+
 ## 1. Identify the exact release artefacts
 
 Take every reference from the release, never from a floating tag:
@@ -272,8 +276,8 @@ python mcp/release_rollback.py \
 Reissuing that call resumes the same operation. A divergent plane ends
 `ManualInterventionRequired`. The provider command comes from `environment.json`.
 
-This page does not record an ECS or Lambda execution against `ghcr.io/honua-io/honua-server:2026.1-rc`.
-The AWS cells were not run for this document.
+An actuator description is not execution evidence. Retain authenticated producer receipts for
+any claimed ECS or Lambda run; this page makes no installed qualification claim.
 
 ## Where the evidence is
 
@@ -285,12 +289,13 @@ from Helm on kind: every `upgrade-kind-*` fragment is advisory and does not chan
 `gate-upgrade` (scheduled daily) runs `upgrade-kind-published-release-normal` and uploads
 `published-release-upgrade-receipt.json`. The receipt records `priorSource: published-release`,
 the release tag and its pre-release flag, the exact public image reference, the contract-approval
-steps with the nonce and gated scripts, the backup, and the rollback outcome. For 2026.1 rc this
-pair is **advisory** (`certification.verdict: advisory`) until a real release exists: the only
-published artefact is the August 2026.1 snapshot, which has no schema-reader guard (coordinator
-ruling, honua-release#376). The `trunk-candidate` kind pair (previous trunk pin → candidate →
-rollback, plus the fault scenarios) was the required rc path under the 2026-10-22 ruling; under D9
-it is Preview evidence like every kind cell (`certification.role: trunk-candidate-path`,
-`verdict: advisory`, `tier: preview`), and it is never a customer release pair. Neither pair has a signed prior lock yet
-(`certifiedReleasePair: false`), so the signed-lock fragment stays `blocked` until the first
-promoted release.
+steps with the nonce and gated scripts, the backup, and the rollback outcome. A published snapshot without a schema-reader guard or
+signed prior lock cannot establish a certified customer release pair. The workflow labels its
+kind pairs with `certifiedReleasePair: false` and keeps the signed-lock fragment `blocked`;
+publication alone must not clear that requirement.
+
+The `trunk-candidate` kind pair (previous trunk pin → candidate → rollback, plus the fault
+scenarios) carries `certification.role: trunk-candidate-path`, `verdict: advisory`, and
+`tier: preview`. Every kind cell remains Preview evidence under D9, including the
+`published-release` pair. A trunk-candidate run never proves a customer release pair, and no
+advisory result discharges the required production evidence.
