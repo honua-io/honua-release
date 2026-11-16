@@ -67,7 +67,7 @@ def test_registry_source_must_be_immutable(monkeypatch, source):
         proposal.propose(fixture(), 'sdk', '1.1.1')
 
 
-def test_npm_proposal_verifies_recorded_package_bytes(monkeypatch):
+def test_npm_proposal_verifies_synthetic_package_bytes(monkeypatch):
     from test_verify_client_artifacts import RECORDED_PINS, recorded_registry
     recorded_registry(monkeypatch)
     current = copy.deepcopy(RECORDED_PINS['js'])
@@ -75,7 +75,7 @@ def test_npm_proposal_verifies_recorded_package_bytes(monkeypatch):
     current['sourceSha'] = 'a' * 40
     result = proposal.propose({'clientArtifacts': {'js': current}}, 'js', '0.1.12')
     assert result['verifiedIdentity']['sourceRevision'] == '1102d2d55916340edca13cb28411df8da8206f92'
-    assert result['verifiedIdentity']['sha256'] == 'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'
+    assert result['verifiedIdentity']['sha256'] == 'sha256:8a4e698d7a1d09d6e943ef6db6903f5f1f53cf17cc2acb111cea365fe1a90f58'
     assert result['candidateQualification'] == 'pending'
 
 
