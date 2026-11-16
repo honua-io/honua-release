@@ -1,7 +1,5 @@
-# Protocol compliance and certification plan
+# Protocol compliance and certification
 
-Status: normative implementation plan  
-Program: [honua-release#157](https://github.com/honua-io/honua-release/issues/157)  
 Guide inventory: [cloud-native-client-inventory.yaml](cloud-native-client-inventory.yaml)
 
 ## Outcomes and certification boundaries
@@ -152,30 +150,3 @@ The release view must publish:
 - all exclusions with maturity and reason
 
 Aggregate percentages never override a failed required cell. The target for release certification is 100% of required addressable cells, zero required skips, and zero stale or mismatched evidence.
-
-## Execution sequence
-
-1. Make the denominator executable in [honua-release#158](https://github.com/honua-io/honua-release/issues/158).
-2. Implement the normalized ledger and governed guide inventory in [honua-evidence#22](https://github.com/honua-io/honua-evidence/issues/22).
-3. Repair the current cloud-native lane and add canonical consumers in [honua-server#3377](https://github.com/honua-io/honua-server/issues/3377).
-4. Deliver Kerchunk through [honua-server#3378](https://github.com/honua-io/honua-server/issues/3378) and COPC through [#2442](https://github.com/honua-io/honua-server/issues/2442), [#3289](https://github.com/honua-io/honua-server/issues/3289), and [#3290](https://github.com/honua-io/honua-server/issues/3290).
-5. Join existing SDK, gRPC, MCP, CITE, deployment, upgrade, security, and provenance producers.
-6. Run the exact-candidate release matrix, publish immutable evidence, and promote only after both certification boundaries pass.
-
-## Owned work and exit artifacts
-
-| Work | Owning repo | Tier | Dependencies | Exit artifact |
-|---|---|---|---|---|
-| Program and dependency map | honua-release #157 | all | all rows below | closed program checklist and release decision |
-| Manifest and gate semantics | honua-release #158 | all | capability vocabulary | versioned schema, validator, aggregate gate |
-| Evidence ledger and guide inventory | honua-evidence #22 | nightly/release | #158 | public normalized ledger and evidence index |
-| Cloud-native lane repair/clients | honua-server #3377 | PR/nightly/release | #158, #22 | green pinned workflow and normalized receipts |
-| Kerchunk | honua-server #3378 | nightly/release after promotion | raster/storage security design | implemented surface and client receipts |
-| COPC | honua-server #2442/#3289/#3290 | nightly/release after promotion | 3D capability work | PDAL-verified range-serving receipts |
-| SDK matrices | sdk-js #39/#1113, sdk-python #21/#197, sdk-dotnet #31/#294, server #3381 | PR/nightly/release | server candidate and #158 | versioned SDK coverage snapshots |
-| gRPC | geospatial-grpc #88 (parent #18) | PR/nightly/release | generated clients and shared fixtures | fixture-versioned client receipts |
-| MCP | geospatial-mcp #78 (parent #1/#5) | PR/nightly/release | conformance corpus | deterministic transport/eval receipts |
-
-## Release handling
-
-Published 2026.1-rc.2 evidence remains valid as historical evidence with its disclosed defects. Defect fixes target 2026.1. Adoption of this plan is forward-looking: no capability becomes certified under the new vocabulary until its normalized evidence exists and the applicable gates pass.
