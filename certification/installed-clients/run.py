@@ -53,7 +53,7 @@ OWNER = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")
 TARGET = re.compile(r"20[0-9]{2}\.[0-9]+\.(?:x|[0-9]+)")
 # A declared blocked cell is a limitation the release ships with, not a pass, and it stops holding
 # the lock ONLY when a founder ruling in the decision overrides lists it (D6, 2026-10-26).
-DECISION_OVERRIDES = ROOT / "docs/2026.1-release-decision-overrides.json"
+DECISION_OVERRIDES = ROOT / "contracts/release-exceptions.json"
 DECLARED_BLOCKED_RULING = "dotnet-declared-blocked-2026-10-26"
 # Founder ruling cloud-cli-workflow-na-2026-10-27: on the GA cloud cells the governed CLI publication
 # (cli-workflow) cannot run beside the terminal journey, whose operator is the same scoped-admin-key

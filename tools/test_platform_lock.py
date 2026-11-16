@@ -1057,3 +1057,13 @@ def test_live_inputs_record_helm_out_of_the_lock_under_the_ruling():
     helm = draft.lock["components"]["honua-helm"]
     assert helm["artifactIdentityModel"] == "preview-out-of-lock" and helm["artifacts"] == []
     assert helm["outOfLock"] == {"ruling": HELM_RULING}
+
+
+def test_default_exceptions_apply_only_to_the_supported_release_line():
+    from generate_platform_lock import REPO_ROOT, decision_overrides_path
+
+    assert decision_overrides_path("2026.1-rc.2") == REPO_ROOT / "contracts/release-exceptions.json"
+    assert decision_overrides_path("2026.1.1") == REPO_ROOT / "contracts/release-exceptions.json"
+    assert decision_overrides_path("2026.10") is None
+    assert decision_overrides_path("2027.1") is None
+    assert decision_overrides_path("") is None
