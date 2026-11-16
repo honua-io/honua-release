@@ -97,7 +97,7 @@ def receipt(count, candidate):
         'serverSha': candidate.server_sha,
         'imageDigest': candidate.server_digest,
         'platformLockDigest': candidate.platform_lock,
-        'observedAt': dt.datetime.now(dt.timezone.utc).isoformat(),
+        'observedAt': dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z'),
         'assertions': {'privateScoped': True},
         'openHighFindings': count,
     }

@@ -6,14 +6,6 @@ on:
       server_sha: { required: true, type: string }
       server_digest: { required: true, type: string }
       platform_lock_digest: { required: true, type: string }
-  workflow_call:
-    inputs:
-      server_sha: { required: true, type: string }
-      server_digest: { required: true, type: string }
-      platform_lock_digest: { required: true, type: string }
-    secrets:
-      SECURITY_TRACKER_REPOSITORY: { required: true }
-      SECURITY_TRACKER_TOKEN: { required: true }
 permissions:
   contents: read
 jobs:

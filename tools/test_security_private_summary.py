@@ -131,14 +131,17 @@ def test_receipt_contains_only_allowed_public_fields(monkeypatch, count):
     assert 'private' not in summary.RECEIPT.read_text().replace('privateScoped', '')
     row = next(row for row in release_promise.load_contract() if row['id'] == 'security-open-high')
     now = gate.dt.datetime.now(gate.dt.timezone.utc)
-    run = {'run_started_at': (now - gate.dt.timedelta(minutes=1)).isoformat(),
-           'updated_at': now.isoformat()}
-    assert release_promise._receipt_valid(result, row, (CANDIDATE, now, run)) == (count == 0)
+    timestamp = lambda value: value.isoformat().replace('+00:00', 'Z')
+    run = {'run_started_at': timestamp(now - gate.dt.timedelta(minutes=1)),
+           'updated_at': timestamp(now), 'status': 'completed', 'conclusion': 'success',
+           'head_branch': 'trunk', 'event': 'workflow_dispatch',
+           'path': '.github/workflows/gate-security-private-summary.yml', 'reports': [result]}
+    assert release_promise._run_passes(run, row, (CANDIDATE, now)) == (count == 0)
 
 
 def test_workflow_trust_boundary_and_artifact_allowlist():
     workflow = yaml.safe_load((ROOT / '.github/workflows/gate-security-private-summary.yml').read_text())
-    assert set(workflow[True]) == {'workflow_dispatch', 'workflow_call'}
+    assert set(workflow[True]) == {'workflow_dispatch'}
     job = workflow['jobs']['summary']
     assert job['if'] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
     assert workflow['permissions'] == {'contents': 'read'}

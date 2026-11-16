@@ -2,7 +2,7 @@
 
 `gate-security-private-summary.yml` produces the `security-open-high` release promise.
 Dispatch it on `trunk` with `server_sha`, `server_digest`, and `platform_lock_digest` for
-one candidate. It also supports a reusable call from the trusted trunk workflow.
+one candidate. Use the dedicated dispatch so the receipt belongs to this producer run.
 
 Configure two Actions secrets in honua-release:
 
