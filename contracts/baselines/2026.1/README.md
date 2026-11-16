@@ -176,3 +176,18 @@ byte-identically. Review of what moved:
 
 This refresh records reviewed release movement; the gate keeps failing on any unreviewed change at
 the next pin.
+
+## Pinned JS baseline repair (2026-11-16)
+
+The JS surface at unchanged pin `965c013637722cb70d1a781c3d2d4f6537e6bf44`
+contains 7,932 exports. A repository terminology cleanup removed one historical
+published entry point and its 526 exports from the baseline, leaving 7,406
+exports and making re-extraction fail. Canonical regeneration restores those
+526 exports (403 types and 123 values), with zero removals and no pin or version
+change. All other component baselines remain byte-identical.
+
+The baseline records the package at its immutable manifest pin. Its narrow
+terminology exception preserves that source record; it does not restore the
+retired product or change the supported certification denominator. Retiring an
+entry point from the extracted surface requires a manifest pin that no longer
+publishes it. The extractor and its fail-on-drift policy remain unchanged.
