@@ -6,6 +6,60 @@ procedure is documented in [`docs/ACTION-PINNING.md`](../docs/ACTION-PINNING.md)
 Offline outcome recording and complete-cohort reporting use `outcome_eval.py`
 and `outcome_report.py`; see [input pins and denominator rules](../docs/OUTCOME-REPORTING.md).
 
+## Launch Stack observations
+
+`launch_stack_observations.observe_stack(aws, stack_name)` collects deployed ECS
+identity for the authenticated gate producer. Supply a region-bound JSON client
+with the signature `aws(service, operation, *cli_arguments)`. It must complete AWS
+CLI pagination; an unconsumed continuation token fails the observation. The module
+does not obtain credentials, provision resources or write gate receipts.
+
+Only `honua-gate-*` stacks tagged `HonuaGate=true` with a completed
+deployment are accepted. The collector checks stack-owned service/task resources,
+a converged Fargate rollout, digest-pinned server configuration, identical running
+server digests and ALB `/healthz/ready` targets matching every running task. ECS
+container health may be `UNKNOWN` when no container health check is configured;
+the independently observed ALB readiness check is required. Incomplete, denied,
+unhealthy, rolled-back or changing observations raise an exception.
+
+The returned allowlist contains stack name, observation times, declared image,
+CPU architecture, observed platform image digest and healthy task count. It omits
+raw stack parameters, task environment, credentials and network addresses. The
+producer must bind this observation to the current run and signed candidate.
+An OCI index digest can differ from the running platform digest: validate their
+relationship using attested image metadata. This collector alone does not prove
+AOT, image size, PostGIS-only dependencies, security controls or browser journeys,
+and never emits a certification status.
+
+Offline fault tests: `python -m pytest tools/test_launch_stack_observations.py -q`.
+
+## Launch Stack HTTPS observations
+
+`launch_stack_https.observe_https(request, origin)` checks the effective HTTPS
+responses at `/console/` and `/healthz/ready` on one frontend origin. Inject the
+producer's certificate- and hostname-verifying HTTP transport. Its signature is
+`request(url, follow_redirects=False)`; it must preserve repeated header pairs and
+return `url`, integer `status`, boolean `redirected` and a `headers` list.
+Certificate failures and unavailable responses must raise exceptions. Do not use
+a transport that disables TLS verification, follows redirects or collapses headers.
+
+Both responses must be direct HTTP 200 responses with exactly one HSTS policy.
+The hardened profile requires `max-age` of at least 31536000 seconds,
+`includeSubDomains` and `preload`. The checker deliberately rejects duplicate,
+malformed and additional directives rather than interpreting ambiguous policies.
+See [RFC 6797](https://www.rfc-editor.org/rfc/rfc6797) and the
+[preload header requirements](https://hstspreload.org/#submission-requirements).
+These observations check the requested header policy; they do not establish
+browser preload-list membership or prove certificate verification independently
+of the injected transport. No connection is opened by this module itself.
+
+The output contains observation times, fixed route paths, status and HSTS lifetime;
+it omits bodies, URLs, cookies and raw headers. The authenticated producer must bind
+the transport and output to the installed candidate. This is one component of the
+Hardened profile and never emits a security certification or gate receipt.
+
+Offline fault tests: `python -m pytest tools/test_launch_stack_https.py -q`.
+
 ## `validate_platform.py` — Phase 0 source-of-truth gate (issue #1)
 
 Validates `platform-manifest.yaml` + `compatibility-matrix.yaml` and enforces compatibility drift.
