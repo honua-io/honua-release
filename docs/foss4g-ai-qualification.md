@@ -73,10 +73,10 @@ remains; the legacy dispatcher refuses the amended policy rather than funding
 an unqualifiable campaign. Pilot dispatch must integrate these primitives before
 live execution. No paid campaign is started by this change.
 
-[Hosted candidate preparation](foss4g-hosted-candidate.md) records the verified
-existing AWS demo and the isolated Console/authentication deployment work. The
-healthy Lambda server at `demo.honua.io` does not establish an installed ECS/Redis
-Console candidate or its real human/model sessions.
+[Hosted candidate qualification](foss4g-hosted-candidate.md) defines isolated
+Console/authentication deployment and installed acceptance requirements. A
+healthy standing Server does not establish an installed ECS/Redis Console
+candidate or its real human/model sessions.
 
 Scope overlap was reconciled into existing tickets: #619 retains the broad
 campaign, #652 the platform audit, #277 commercial readiness, #377/#480 the

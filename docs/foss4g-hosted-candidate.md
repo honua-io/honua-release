@@ -1,6 +1,11 @@
-# FOSS4G hosted candidate preparation
+# Hosted candidate qualification
 
-Status: private infrastructure and Cognito configuration prepared for review, 2026-10-22. The [private root](../certification/hosted-pilot/README.md) defines isolated Server/Redis/storage and a Console task with no ingress. No apply, installed Console candidate, or passing hosted AI journey has been produced by this work. Both AI gates are required for RC admission under the latest owner instruction; the bounded pilot profile does not replace the full agent campaign.
+This guide describes isolated hosted-candidate installation and qualification.
+Configuration validation, a healthy standing deployment and source tests do not
+establish an installed Console/Studio/native-agent candidate. Both AI gates
+remain required for RC admission; a bounded pilot does not replace the full
+agent campaign. See the [hosted root](../certification/hosted-pilot/README.md)
+for its configuration contract and selected artifact bindings.
 
 ## Infrastructure execution rule
 
@@ -13,11 +18,14 @@ that path before installation. The current contract workflow validates offline;
 it is not an apply workflow. A reviewed saved-plan deployment workflow remains
 required. The existing public demo retains its `honua-demo-infra` ownership.
 
-## Observed demo and candidate separation
+## Candidate isolation
 
-Read-only observations on 2026-10-22 identified `https://demo.honua.io` as the existing public Server deployment. Its capabilities manifest reported revision `199bce77fe990eb14855831790b07cfbc103d4ba`. Lambda function `honua-demo-demo-honua` in `us-west-2` had live alias version `51`, description `rc1 199bce7 clean`, and image digest `sha256:24bb5279ece9dc55da46a69c4bbed5430a773490fcb11476c5ab615f7305e7d3`. Both `/healthz/live` and `/healthz/ready` returned HTTP 200; `/studio` and `/version.json` returned 404. These observations establish a healthy existing Server, not an installed Console/Studio/native-agent candidate. Reobserve before relying on them.
-
-The candidate needs its own state key, resource prefix, HTTPS origins, data fixtures, storage prefixes, users, workspace and reset boundary. Do not repoint the public demo alias or reset its data. Historical receipts in `honua-demo-infra/runbook/rc1-upgrade-dogfood-20261022.md` describe earlier versions and do not supersede live observations.
+The candidate needs its own state key, resource prefix, HTTPS origins, data
+fixtures, storage prefixes, users, workspace and reset boundary. Do not repoint
+an existing public-demo alias or reset its data. Reobserve the selected target
+and bind its actual artifacts before using any result as candidate evidence.
+A standing Server health response does not prove Console, embedded Studio,
+native-agent operation or authenticated human sessions.
 
 ## Existing reusable contracts
 
@@ -29,9 +37,16 @@ Source paths below are repository-relative, prefixed by repository name; they id
 * `honua-console/src/Honua.Console.Web/AgentSessionBff.cs` checks human workspace membership and binds the independent agent credential to the configured Server. GIS model requests use Server `/api/v1/studio/ai/chat` and canonical MCP `/api/mcp`. The optional `HONUA_AGENT_GATEWAY_URL` DevOps extension is not a prerequisite for this hosted GIS path. Do not transplant the SDK local-Docker installer gateway into ECS as a substitute.
 * Release `.github/workflows/e2e-cloud-aws{,-cell}.yml` and `e2e/{run_cloud.py,targets/terraform_target.py,reap_cloud.py}` provide isolated ECS/Redis provisioning, readiness, evidence and teardown patterns. They do not currently deploy the required Console/authentication stack or establish a retained multi-day pilot environment.
 
-## Private preparation and remaining hosted implementation
+## Hosted implementation boundaries
 
-The release-owned `certification/hosted-pilot` root now pins the reusable module and validates digest-only candidate inputs, configures one private Console task with scoped secret-reference permissions, and records nonsecret resource references. Its [module prerequisite](https://github.com/honua-io/honua-iac/pull/284), pinned at `5eff1c5e2fc2b4cf358457d87ff46e85b650df88`, exposes VPC/private-subnet/ALB identities and adds typed browser-authentication settings with scoped secret injection for Server tasks. This is a preparation slice: Console has no ingress, public route or audience route; native inference and Server provider access remain disabled. Terraform validation and mocked plan tests establish configuration contracts, not deployability or installed behavior.
+The release-owned `certification/hosted-pilot` root pins the reusable module,
+validates digest-only candidate inputs, configures a private Console task with
+scoped secret-reference permissions, and records nonsecret resource references.
+Use the module revision pinned in the root when checking its VPC/private-subnet/
+ALB outputs, typed browser-authentication settings and scoped Server secret
+injection. Terraform validation and mocked plan tests establish configuration
+contracts. They do not prove ingress, public or audience routes, enabled native
+inference, Server provider access, deployability or installed behavior.
 
 Complete the following parts after identity, transport and artifact inputs are bound:
 
@@ -58,15 +73,16 @@ Cognito is the selected issuer. Use a pinned maintained OIDC proxy with a privat
 
 Direct ALB OIDC remains an alternative only with a reviewed signed-identity verifier. Although Console's configurable header names can mechanically map to `x-amzn-oidc-identity` and `x-amzn-oidc-accesstoken`, that mapping alone is insufficient. AWS requires signature verification of `x-amzn-oidc-data`, the expected signer ALB ARN, and extraction of the verified subject. Implement and negatively test that verifier before treating the ALB identity as trusted. See [AWS authenticate users using an Application Load Balancer](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-authenticate-users.html). Private security groups do not replace the documented verification requirement.
 
-A read-only `cognito-idp list-user-pools` inventory in the current account's `us-west-2` returned no pools on 2026-10-22. Demo source contained workload GitHub OIDC configuration, not an application issuer/client binding. This does not prove there is no external IdP or pool in another account/region. No existing human issuer, client, credential or session is assumed.
+Bind the actual human issuer, clients, credentials and sessions explicitly;
+workload GitHub OIDC configuration does not establish an application login.
 
 For direct raw OIDC bearers, Server `honua-server/src/Honua.Hosting/Features/Authentication/OidcAuthenticationExtensions.cs` validates issuer, audience, lifetime and signing key, applies Honua OAuth scope governance, and derives human provenance separately. That route needs compatible audience, human-session evidence, tenant/role claims and Honua scopes. The Server-session/operator-bearer alternative instead uses a validated ID-token session, Server-issued bearer and normal ownership/grant authorization; it does not require inventing Cognito Honua scopes. A successful ALB login or valid JWT alone does not establish permission. Use actual distinct human proposer and approver principals; keep the agent separately authorized and preserve the governed pending-proposal path.
 
 ## Configuration and references, never secret values
 
-### Cognito compatibility findings from inspected source
+### Cognito compatibility requirements
 
-The owner explicitly selected Cognito. Release `identity.tf` now defines an isolated pool/domain, code-only confidential edge and Server BFF clients, distinct author/approver groups and separate secret versions. `main.tf` binds the Server client, a separately generated operator-bearer signing key and a 15-minute operator lifetime through the pinned module. No AWS resources or users have been created. The following are source-level compatibility constraints, not observed live authentication failures or deployment qualification.
+The owner explicitly selected Cognito. Release `identity.tf` now defines an isolated pool/domain, code-only confidential edge and Server BFF clients, distinct author/approver groups and separate secret versions. `main.tf` binds the Server client, a separately generated operator-bearer signing key and a 15-minute operator lifetime through the pinned module. Configuration alone does not prove resources, users or successful authentication. Check these compatibility constraints against the exact candidate artifacts before installation.
 
 * Cognito access tokens normally identify the app client with `client_id`; `aud` is present only when resource binding was requested. Server `honua-server/src/Honua.Hosting/Features/Authentication/OidcAuthenticationExtensions.cs` currently maps a Generic issuer to its configured `ClientId` audience and checks that pairing. A resource URL audience is not automatically accepted through that mapping. Do not disable audience validation. See [AWS access-token claims](https://docs.aws.amazon.com/cognito/latest/developerguide/amazon-cognito-user-pools-using-the-access-token.html).
 * Cognito resource-server custom scopes use the resource identifier and scope name separated by `/`. Server `honua-server/src/Honua.Core/Features/Authorization/Domain/OperatorScopeCatalog.cs` recognizes exact `honua.mcp.*` tokens, so a prefixed custom scope is not automatically a Honua grant. See [AWS scopes and resource servers](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html).
@@ -74,9 +90,15 @@ The owner explicitly selected Cognito. Release `identity.tf` now defines an isol
 
 The existing identity-only BFF path is a separate alternative to forwarding raw Cognito access tokens. `honua-console/src/Honua.Console.Web/Auth/ConsoleServerSessionBff.cs` completes a real Server authorization-code sign-in, retains the Server session cookie, and uses `HttpConsoleOperatorBearerExchange` to obtain a Server-issued operator bearer. `honua-console/docs/console-authentication.md` documents preservation of that bearer across subsequent identity-only edge requests. For this path, do **not** require oauth2-proxy `--pass-access-token`: an edge token can override the stored operator bearer. The direct-access-token path instead needs an explicitly compatible token contract; oauth2-proxy `--pass-authorization-header` forwards an ID token and is not an access-token substitute. See [OAuth2 Proxy header options](https://oauth2-proxy.github.io/oauth2-proxy/configuration/overview/).
 
-Separate-origin sign-in also needs a Server callback correction. The Console broker sends an empty authorize request and retains state/server cookies privately, while the current Server broker builds `/admin/auth/callback` from the API public origin for both authorize and exchange. `Generic.CallbackPath` configures different middleware and does not fix this. [Server PR 6518](https://github.com/honua-io/honua-server/pull/6518) adds a deployment-pinned `Oidc:AdminAuthCallbackUri`, restricted to an absolute HTTPS URL with the exact callback path and no query, fragment or userinfo. Bind it to the Console origin and preserve API `Public:BaseUrl`; a candidate image must contain the change before this path can be qualified. Caller-supplied redirect parameters must remain ignored, and state/PKCE validation must still hold.
+For separate-origin sign-in, bind deployment-pinned `Oidc:AdminAuthCallbackUri`
+to the Console origin and preserve API `Public:BaseUrl`. The candidate must support
+an absolute HTTPS callback with the exact `/admin/auth/callback` path and no query,
+fragment or userinfo. `Generic.CallbackPath` configures different middleware and
+is not a substitute for that binding. Caller-supplied redirect parameters must
+remain ignored, and state/PKCE validation must still hold. Qualify both authorize
+and exchange against the selected image; a source change alone proves neither.
 
-Endpoint-specific source review identifies a conditional BFF route once that callback correction and the actual deployment bindings are installed. `AgentSessionBff.cs` checks human workspace membership with the retained operator bearer, then invokes AI/MCP with the separately authorized agent key. Studio content lifecycle endpoints use ownership/per-item authorization; publication approval uses its actual human authorization and canonical actor. The missing interactive marker on an operator bearer is therefore not, by itself, a blocker for this BFF route. Direct human operator-bearer access to the AI proxy is a different path and must not be inferred from it.
+The conditional BFF route requires that callback support and the actual deployment bindings. `AgentSessionBff.cs` checks human workspace membership with the retained operator bearer, then invokes AI/MCP with the separately authorized agent key. Studio content lifecycle endpoints use ownership/per-item authorization; publication approval uses its actual human authorization and canonical actor. The missing interactive marker on an operator bearer is therefore not, by itself, a blocker for this BFF route. Direct human operator-bearer access to the AI proxy is a different path and must not be inferred from it.
 
 Although `AdminAuthClaimsProjector.cs` directly normalizes only `roles`/`role`, the global `OidcClaimsTransformation.cs` also processes AdminSession and OperatorBearer identities. Existing additional-role/custom-claim mapping can consume `cognito:groups` and an actual signed tenant claim, subject to the active `identity.claims-mapping` entitlement. No new role-mapping implementation is established as necessary. Required configuration is:
 
@@ -85,7 +107,7 @@ Although `AdminAuthClaimsProjector.cs` directly normalizes only `roles`/`role`, 
 * `Studio:EndUserAuthorization:Enabled`, an actual nonadmin author with ownership/per-item publish grants, and a distinct authorized approver. Preserve the pending-proposal path and independent agent workspace grants.
 * Console identity-only trusted edge settings below, followed by the real Server Sign In flow. The edge must strip incoming identity/trust and bearer headers and inject its own trusted identity. Do not forward a raw Cognito access/ID token over the retained Server operator bearer.
 
-The two role indices replace both appsettings values. Source review also found that binding initialized arrays can retain constructor defaults; the Server correction must explicitly replace configured `AdminRoles` (and avoid duplicate generic scopes). Shared authorization policies still recognize legacy admin aliases. This configuration does not establish a global approver-only policy: restrict pool group administration and prove nonadmin-author refusal plus distinct-approver acceptance at the actual endpoints.
+The two role indices replace both appsettings values. Binding initialized arrays can retain constructor defaults; verify that the candidate explicitly replaces configured `AdminRoles` and avoids duplicate generic scopes. Shared authorization policies still recognize legacy admin aliases. This configuration does not establish a global approver-only policy: restrict pool group administration and prove nonadmin-author refusal plus distinct-approver acceptance at the actual endpoints.
 
 `ConsoleServerSessionBff.cs` binds pending login state to the Console operator/profile/origin and stores the authenticated Server session in that partition. It does not compare the edge identity to the Server login subject. Evidence must record the actual Server actor and issuer rather than treating an edge display label as that identity. If same-person edge/Server binding is required, validate a Server session subject/issuer against an explicitly configured canonical identity before retaining the session; blind subject-string equality across providers is insufficient.
 
@@ -113,4 +135,7 @@ Keep one Console task for the first slice. Its operator session stores are proce
 6. Have the real human propose in normal Console UI, capture the existing pending proposal read-only, and have the distinct human approve. Verify exact item/version/hash/operation/request joins and an independent audience witness. Direct admin publication does not satisfy the governed path.
 7. Save evidence with its installation provenance and bounded scope, then demonstrate isolated reset and teardown. A healthy endpoint, model response or supporting fragment is not full AI-01 through AI-05 acceptance and does not alter RC gates.
 
-Current readiness is private infrastructure preparation: reusable Server infrastructure, a Console task definition and a source-supported conditional BFF sign-in route exist. Actual identity/entitlement/grant bindings, public routing, artifact availability, transport/readiness, coordinated teardown, isolated installation and live acceptance evidence remain to be established.
+Record readiness from the selected installation. Identity/entitlement/grant
+bindings, public routing, artifact availability, transport/readiness, coordinated
+teardown, isolated installation and live acceptance each need their own evidence;
+configuration preparation does not settle any missing result.
