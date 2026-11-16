@@ -157,8 +157,8 @@ def test_a_harness_workflow_without_the_package_inputs_refuses_before_any_dispat
     assert api.dispatches == []
 
 
-def test_the_ruling_is_recorded_in_the_release_exceptions():
-    overrides = json.loads((ROOT / "contracts/release-exceptions.json").read_text())
+def test_the_ruling_is_recorded_in_the_decision_overrides():
+    overrides = json.loads((ROOT / "contracts/2026.1-qualification-policy.json").read_text())
     ruling = overrides["rulings"]["sdk-harness-trunk-pinned-package-2026-10-27"]
     assert "founder" in ruling["owner"].lower()
     assert ruling["producers"] == ["honua-sdk-dotnet", "honua-sdk-python"]

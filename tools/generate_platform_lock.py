@@ -48,9 +48,9 @@ CHART_IDENTITY_FIELDS = ("digest", "artifactSha256", "artifactSourceRevision", "
 
 
 def decision_overrides_path(release: str) -> Path | None:
-    """The versioned exceptions contract for the supported release line."""
+    """The release line's qualification policy (contracts/<YYYY.N>-qualification-policy.json)."""
     line = RELEASE_LINE_RE.match(release or "")
-    return REPO_ROOT / "contracts/release-exceptions.json" if line and line.group(1) == "2026.1" else None
+    return REPO_ROOT / "contracts" / f"{line.group(1)}-qualification-policy.json" if line else None
 
 
 def out_of_lock_rulings(path: Path | None) -> dict[str, set[str]]:
