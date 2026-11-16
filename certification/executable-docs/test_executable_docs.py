@@ -408,7 +408,7 @@ def test_js_sdk_readme_is_the_github_copy():
     doctor = next(b for b in recorded["blocks"] if b["index"] == 10)
     # The published 0.2.10 fence. The GitHub README's fence installs the CLI and the devkit first.
     assert doctor["sha256"] != "b588b8fa84ab980f00d00fc55afcb4c3ff355e6d63ec77e3d849d5a92d936b6c"
-    assert doctor["sha256"] == "fbd392bc9de2d66231104a6852fc706ec68c6321b015694206c11cb6ed83e07c"
+    assert doctor["sha256"] == "0cc9c00365141f5deefb89d259bedb19f6bf60aec23f81a46a380ad921ec7d91"
     assert doctor["intent"] == "run"
 
 
