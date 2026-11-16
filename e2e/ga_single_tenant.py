@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DECISION_OVERRIDES = ROOT / "docs/2026.1-release-decision-overrides.json"
+DECISION_OVERRIDES = ROOT / "contracts/release-exceptions.json"
 RULING = "ga-cells-single-tenant-2026-10-27"
 GA_CELLS = frozenset({"aws-ecs/redis-off", "aws-ecs/redis-on"})
 CHECK = "8.tenant-isolation"
