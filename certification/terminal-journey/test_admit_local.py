@@ -66,6 +66,6 @@ def test_committed_fixtures_are_not_required_to_contain_a_pass():
     for path in admitted:
         document = json.loads(path.read_text(encoding="utf-8"))
         assert admit_local.admits(document, server_sha=sha, server_image=image)
-    smoke = fixtures / "smoke-receipt.local-docker.json"
+    smoke = fixtures / "smoke-input.synthetic.json"
     assert smoke.exists()
     assert smoke not in admitted

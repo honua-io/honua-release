@@ -8,6 +8,6 @@ An interrupted publication can resume only when the existing image config/platfo
 
 GitHub Container Registry creates new packages privately by default. Initial package public visibility and repository access must be configured and independently verified before this workflow can pass anonymous consumption. A successful authenticated push is not proof of public availability. The fresh anonymous job uses an empty Docker configuration and no registry login; failure leaves public consumption unqualified.
 
-The installed GitHub CLI verification output was checked against CLI v2.98.0's documented `verificationResult.statement.predicate` shape and its signed upstream SLSA v1 fixture. The invocation binding is the exact Actions run URL including `/attempts/N`. This schema inspection does not replace cryptographic verification of the actual selected Honua candidate during publication.
+Verification must bind the signed SLSA v1 statement to the selected candidate using the GitHub CLI `verificationResult.statement.predicate` output shape. The invocation binding is the exact Actions run URL including `/attempts/N`. Schema inspection and upstream fixtures do not replace cryptographic verification of the actual selected Honua candidate during publication.
 
-Publication and anonymous consumption have not yet run against an actual qualified public candidate. Local tests verify rejection and reconciliation boundaries only.
+Publication and anonymous consumption require recorded evidence for the actual qualified public candidate. Local tests verify rejection and reconciliation boundaries only; they cannot establish publication or public availability.

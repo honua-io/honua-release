@@ -88,6 +88,18 @@
     "docs/2026.1-candidate-resolution.md",
     "tools/fixtures/protocol-harness-2026-08-26.1.json",
     "certification/installed-clients/mcp-6901-replay-41680771276.json",
-    "certification/installed-clients/mcp-publish-query-replay-41714656270.json"
+    "certification/installed-clients/mcp-publish-query-replay-41714656270.json",
+    "docs/2026.1-sdk-pin-convergence.md",
+    "docs/audit-synthesis.md",
+    "docs/GRPC-0.2.0-ALPHA.1-CUT.md",
+    "docs/DEVELOPER-PREVIEW-DOGFOOD.md",
+    "docs/upgrade-chaos-matrix.md",
+    "docs/rc2-candidate-verification.md",
+    "certification/ai-arc/evidence/studio-sharing-unpublished-negative.json",
+    "certification/rc-repin-3/boot-observations.json",
+    "certification/rc-repin-4/boot-observations.json",
+    "certification/terminal-journey/fixtures/issue-377-build.evidence.md",
+    "certification/terminal-journey/fixtures/issue-405-review.evidence.md",
+    "certification/terminal-journey/fixtures/smoke-receipt.local-docker.json"
   ]
 }

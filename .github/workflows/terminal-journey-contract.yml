@@ -153,16 +153,16 @@ jobs:
           assert all(s['evidence']['source'] == 'harness-build' for s in r['stages'])
           PY
 
-      # The committed smoke receipt is real evidence from a real run. It must keep
-      # satisfying the schema, and it must never quietly become a green claim.
-      - name: Validate the committed smoke receipt
+      # Synthetic probe successes must not turn blocked stage contracts into a pass.
+      - name: Validate the synthetic smoke receipt
         run: |
           python - <<'PY'
           import json
           import jsonschema
           schema = json.load(open('certification/terminal-journey/receipt.schema.json'))
-          receipt = json.load(open('certification/terminal-journey/fixtures/smoke-receipt.local-docker.json'))
+          receipt = json.load(open('certification/terminal-journey/fixtures/smoke-input.synthetic.json'))
           jsonschema.validate(receipt, schema)
+          assert receipt['notices'][0] == 'Synthetic contract fixture; no execution evidence.'
           assert receipt['mode'] == 'live'
           assert receipt['status'] in {'blocked', 'fail'}, receipt['status']
           for stage in receipt['stages']:

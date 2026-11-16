@@ -2,7 +2,7 @@
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
   "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
-  "total": 1103,
+  "total": 1097,
   "pathRenames": {
     "reason": "Retained gate inputs and protocol matrix directories use stable names; identical content keeps the same vocabulary count at its new path.",
     "paths": [
@@ -117,7 +117,6 @@
     "docs/PROTOCOL-CERTIFICATION.md": 7,
     "docs/RELEASE-CUT-CHECKLIST.md": 2,
     "docs/TEST-STRATEGY.md": 22,
-    "docs/audit-synthesis.md": 6,
     "e2e/canonical_checks.py": 6,
     "e2e/drivers/demos/README.md": 4,
     "e2e/drivers/demos/drive.mjs": 14,

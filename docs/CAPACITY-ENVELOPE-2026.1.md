@@ -1,215 +1,170 @@
 # Honua 2026.1 capacity envelope and frozen SLO
 
 The normative, machine-readable contract is
-[`certification/capacity-envelope.v1.json`](../certification/capacity-envelope.v1.json). This page
-explains the support claim; it does not carry independent numbers.
+[`certification/capacity-envelope.v1.json`](../certification/capacity-envelope.v1.json).
+This page explains its qualification requirements; it does not carry independent numbers or
+establish a current candidate pass.
 
 ## Scope
 
-Operator ruling A (2026-09-13) excludes `activeSubscriptions` and `alertEvaluationsPerSecond` from the 2026.1 capacity envelope. Realtime subscriptions and customer alerting are **Preview**; Preview features carry no capacity promise. Founder ruling `gp-out-of-ga-capacity-envelope-2026-10-27` makes `gpWorkers` and `gpQueueDepth` Preview evidence and takes GPServer requests out of the GA SLO population (GP is Preview and GP capacity is not qualified in 2026.1), so the six GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`, `maximumFeaturePayloadBytes`, and `concurrentVirtualUsers`. The eight required SLO signals remain availability, error rate, p95/p99 latency, throughput, queue age, saturation, and recovery. Founder ruling `capacity-steady-state-and-drill-2026-10-27` computes the steady-state signals only over the measured window, which excludes the fault-injection period, and judges the fault drill, which runs after that window, on its own: every worker and Redis fault recovers within 19 s and every Postgres fault within 36 s (ruling `capacity-drill-per-fault-bounds-2026-10-27`), with no data loss and no stuck jobs.
+The six GA dimensions are `tenants`, `services`, `layersPerService`, `featuresPerLayer`,
+`maximumFeaturePayloadBytes`, and `concurrentVirtualUsers`. The locked topology is one tenant,
+one service, four layers per service, 10,000 features per layer, 1 MiB maximum feature payloads,
+and 170 concurrent virtual users. Larger or differently shaped deployments are outside this claim.
 
-Options B (keeping Preview dimensions in the lock as informational) and C (a second Preview
-producer before the cut) were declined. A receipt may still report Preview observations; the
-gate echoes them as informational and never uses them to qualify the GA envelope.
+Realtime subscriptions and customer alerting are Preview and carry no capacity promise.
+`gpWorkers` and `gpQueueDepth` remain configured and exercised at their locked values (one worker,
+queue depth 100), but are reported as Preview evidence, not GA requirements. GPServer requests
+are excluded from the GA SLO population.
 
-The 2026.1 support claim is bounded to the topology in the lock: one tenant, one service, four
-layers per service, 10,000 features per layer, 1 MiB maximum feature payloads, 170 concurrent
-virtual users, and one GP worker with a queue depth of 100. Larger or differently shaped deployments are not certified by this gate.
+The `soak` profile requires at least 3,600 seconds at the entire declared envelope. All eight
+structured signals remain required: availability, error rate, p95/p99 latency, throughput,
+queue age, saturation, and recovery. Queue age is the Preview GP queue's oldest job: its value
+and evidence are reported, but its threshold does not gate GA qualification. Missing, skipped,
+null, non-finite, stale, or revision-mismatched required evidence fails.
 
-The soak uses the `soak` profile for at least 3,600 seconds. It must report availability, error
-rate, p95 and p99 latency, throughput, oldest queue age, saturation, and recovery time. The
-acceptance denominator is one complete candidate-bound soak at the entire declared envelope. All
-eight signals are required; a skipped, null, non-finite, stale, or revision-mismatched signal fails.
+Steady-state signals use the measured window. A separate fault drill follows that window;
+it must recover every worker and Redis fault within 19 seconds and every Postgres fault within
+36 seconds, with no data loss and no stuck GP jobs. Recovery evidence uses that fault period.
 
-## Substrate (operator ruling A, 2026-09-12)
+## Substrate
 
-The 2026.1 soak and disaster-recovery envelope is the **local-docker substrate**: the single-tenant
-local Docker install (PostGIS, Redis and a local file-storage volume) that the candidate manifest's
-`disasterRecovery` block resolves. Every recovery and capacity claim on this page is bounded to that
-substrate and to nothing else. **AWS qualification remains unqualified in 2026.1** — ECS, Lambda and
-every other cloud shape stay outside the qualified envelope for this release, and no local-docker
-receipt extends to them. Recovery evidence for the local-docker substrate is produced by
-[`e2e/dr-drill/full_platform.py`](../e2e/dr-drill/README.md) and validated by
-`tools/validate_dr_receipt.py`; a soak receipt does not stand in for it, and it does not stand in
-for a soak.
+The qualified scope is **local-docker**: a single-tenant Docker install with PostGIS, Redis,
+and local file storage, resolved by the candidate manifest's `disasterRecovery` block.
+ECS, Lambda, and other cloud shapes are outside this capacity and recovery envelope. A local
+receipt cannot qualify them. Local full-platform disaster recovery uses
+[`e2e/dr-drill/full_platform.py`](../e2e/dr-drill/README.md) and
+`tools/validate_dr_receipt.py`; capacity soak and full-platform disaster recovery require their
+own evidence and cannot substitute for each other.
 
 ## Freeze and allowance
 
-The lock's `frozenAt` and `baseline` identify the amended freeze and its measured source:
-[local-docker candidate soak 34753540275](https://github.com/honua-io/honua-server/actions/runs/34753540275),
-with an [immutable attested receipt](https://raw.githubusercontent.com/honua-io/honua-server/e185c1aaa3b0a45704a9f517dea828d1111db62d/capacity/9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd-34753540275.json). It ran the manifest-pinned
-`9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd` image
-`sha256:a5d962958ec8a6890ecd0f5f34f1da9c08a9d464da0418bdfbbc381c754d30fc`
-in Production on a four-CPU Ubuntu local-docker runner, with four 10,000-feature layers,
-170 virtual users and a 3,600-second observation window. All eight GA dimensions were verified
-and all eight SLO signals observed. The older `2a98428e` nightly used the small fixture;
-it is historical evidence and is no longer the threshold baseline.
+The committed lock's `frozenAt`, `receiptContract.frozenAt`, and SHA-256 bind the qualification
+contract. Its baseline and derivation records explain the frozen limits; historical measurements
+do not establish qualification of the current candidate.
 
-The first [baseline 34749955367](https://github.com/honua-io/honua-server/actions/runs/34749955367)
-observed p95 587.26 ms, p99 775.17 ms and 1,617.83 successful requests/s. Its derived limits did
-not reproduce in the independent run 34753540275: p95 was 746.50 ms, p99 929.28 ms and throughput
-1,254.18/s. That completed run is now the baseline, yielding 822 ms, 1,023 ms and 1,191/s bounds
-with the unchanged allowances (the throughput bound is superseded below). The lock retains both runs and the failed qualification.
+The current bounds are availability at least 0.9999, error rate at most 0.05, p95 latency at most
+822 ms, p99 at most 1,023 ms, throughput at least 357 requests/s, and saturation at most 0.85.
+The lock stores a 30-second queue-age threshold, which is reported as Preview rather than gated.
+Recovery also must meet the stricter per-dependency fault-drill bounds above.
 
-The current baseline error rate is **4.8903%** (259,240 failures / 5,301,057 requests). The absolute
-ceiling remains **5%**, which also covers the first baseline's 4.9165% reading. This capacity budget does not waive
-functional-correctness gates. The observed values and derivation are recorded in the lock.
+Latency limits already include the 10% allowance, rounded up to whole milliseconds; throughput
+already includes the 5% allowance, rounded down to whole requests/s. Never apply
+`regressionAllowance` a second time. Other bounds receive no additional allowance. The capacity
+error budget does not waive functional-correctness gates.
 
-Latency limits include the existing 10% allowance, rounded up to whole milliseconds. The
-throughput floor includes the existing 5% regression allowance, rounded down to whole requests
-per second. Availability, queue age, saturation and recovery retain their existing bounds,
-which this run demonstrably meets; they receive no additional allowance. The error ceiling also
-receives no additional allowance during evaluation. `regressionAllowance` is never applied twice.
+The checker applies the lock's scoring rules:
 
-The producer's measurement definitions remain explicit: availability, queue age and saturation
-come from the driver's 3,600-second window; error rate and worst-scenario p95/p99 come from the
-whole load run; throughput is successful requests divided by its 4,020 seconds, including ramps.
-Recovery is a subsequent container restart to the first served query. A soak is separate from
-full-platform disaster recovery. These readings must not be presented as different measurement
-windows or as cloud qualification.
+- Expected 413 refusals for low-zoom OGC tiles over the locked layer remain in the request and
+  throughput population, but count as expected refusals rather than errors or outages.
+- GP queue age is reported without gating its threshold. Only sampling failures matching the
+  lock's Preview sampling-failure prefixes may be informational; other collection failures fail.
+- Database pool saturation gates on its time-mean over the measured window. Worker and Redis
+  gate on their peaks; the maximum of those three ruled components must meet the bound.
 
-### Re-freeze after SEC-20 (founder ruling `capacity-refreeze-post-sec20-2026-10-28`)
-
-**The 2026.1 throughput floor is 357 requests/s**, not 1,191/s. The 1,191/s bound above came from
-a server that answered anonymous GETs from a blanket 60-second output cache: the 09-16 qualifying
-run reached the database for 32 of 2,128 sampled queries, with a server-side p50 of 1.6 ms. The
-SEC-20 fix (honua-server #5083, 2026-09-21) removed that cache, so every request now reaches the
-database. On the same four-CPU runner, candidate `a4bde4b8` measured
-[376.29/s](https://github.com/honua-io/honua-server/actions/runs/40640175278) and
-[385.24/s](https://github.com/honua-io/honua-server/actions/runs/40695639068), with p95 771/754 ms
-and p99 980/958 ms. The floor uses the existing derivation: the lower run times 0.95, rounded
-down. The latency bounds already hold and are unchanged. A local reproduction pinned to four
-cores found the server CPU per request, not the load harness, limits throughput. Performance and
-response-caching work is tracked after the RC.
-
-The same ruling scores three readings differently:
-
-- **413 tile refusals:** low-zoom OGC tiles (z0–z2) over the 10,000-feature layer are refused by
-  design with 413. They stay in the request and throughput population, but they count as expected
-  refusals, not as errors or outages. Both runs had no other GA errors.
-- **Queue age:** this is the GP queue's oldest job. GP is Preview
-  (`gp-out-of-ga-capacity-envelope-2026-10-27`), so queue age is reported, not gated. GP sampling
-  failures likewise don't make the soak incomplete; any other sampling failure still does.
-- **Database pool saturation:** this is gated on its time-mean over the measured window (0.69 in
-  both runs, against the 0.85 bound). Momentary peaks reached 1.0 and 0.94. Worker and Redis keep
-  their peak bound.
-
-The amended lock must be committed before a **new** qualification soak begins. The baseline
-receipt cannot qualify that new lock: its lock digest and start time predate the amended freeze.
-Any later amendment likewise requires a new committed lock digest and another post-freeze soak.
+A lock amendment must be committed before a new qualification soak starts. A baseline receipt
+cannot qualify an amended lock: its digest and start time predate the amended freeze. Every
+amendment requires a fresh lock digest and another post-freeze soak.
 
 ## Receipt
 
-`tools/check_capacity_soak.py` validates the lock and an extracted evidence bundle. The release train
-runs this gate with its required `capacity_receipt_url`, which is the attested evidence ZIP rather than
-a numeric JSON document. A missing or failing soak therefore blocks certification and promotion.
-Candidate and observed revisions must equal the manifest-pinned `honua-server` SHA, and every replica
-must name the same immutable image digest.
+`tools/check_capacity_soak.py` validates the lock and extracted evidence bundle. The release
+train's required `capacity_receipt_url` identifies the **attested evidence ZIP**, not a numeric
+JSON document. Missing or failing soak evidence blocks certification and promotion.
 
-The ZIP contains the receipt plus every raw request-ledger, metric, load, and recovery artifact the
-receipt references. The checker re-hashes those bytes, requires an immutable Actions artifact URL and
-raw observation population for each, and rejects missing evidence or changed bytes. Every one of the
-eight GA envelope dimensions must be exercised on the candidate topology; declared-only, skipped, demo,
-source-built, or Preview/proxy workloads fail. Every one of the eight SLIs carries a frozen query and
-hash, owner, alert, runbook, exact UTC window, candidate identity, raw-artifact references, exercised
-workload references, observation population, computed value, and lock-derived verdict. Ratio signals
-retain numerator and denominator; distribution/gauge/duration signals retain sample counts. Recovery
-also retains an injected/detected/recovered timeline, while saturation retains worker, database, and
-Redis populations separately and gates on their maximum.
+Candidate and observed revisions must equal the manifest-pinned `honua-server` SHA. Every replica
+must name the same manifest-pinned immutable image digest, supplied independently to the checker.
+Matching only the SHA or supplying another well-formed image digest is insufficient.
 
-Before extraction, the workflow verifies SLSA provenance for the complete ZIP, pins the signer to
-`honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml`, pins the source digest to the
-manifest candidate. Self-hosted attestations additionally require live Actions job and restricted
-runner-group verification under the committed [dedicated runner policy](DEDICATED-RELEASE-RUNNER.md);
-an empty policy admits none. The checker then binds that verification output
-to the evidence: every verified statement must name exactly the ZIP's SHA-256 as its subject, and its
-certificate's signer workflow ref, run invocation (run id and attempt), GitHub-hosted runner and source
-commit must equal the receipt's `producer` block and the candidate revision. The receipt, raw hashes,
-producer identity, and workflow run are therefore one signed subject; a self-declared run id or workflow
-ref that the signing certificate does not carry fails. This is single-tenant GA evidence only: it creates
-neither a per-tenant SLO nor a demo-environment SLA. No skipped or numeric-only outcome maps to green.
+The ZIP retains the receipt and every raw request, metric, load, and recovery artifact it cites.
+The checker re-hashes those bytes and requires immutable Actions artifact URLs and observation
+populations. All six GA workload dimensions must be exercised on the candidate topology;
+declared-only, skipped, demo, source-built, or proxy workloads cannot qualify it. GP dimensions
+remain configured and reported as Preview evidence.
 
-## Approved producer (release#258 amendment, 2026-09-29)
+Each required signal includes the frozen query and hash, owner, immutable HTTPS alert and
+runbook references, exact UTC measurement window, candidate identity, topology, raw-artifact
+and exercised-workload references, observation population, computed value, and lock-derived
+verdict. Ratio signals retain numerator and denominator; other signals retain sample counts.
+Saturation retains separate worker, database, and Redis populations. Recovery retains the
+injected/detected/recovered timeline and explicitly names the separate fault window.
 
-The approved producer is honua-server's `capacity-soak-candidate.yml`: the only server workflow that
-boots an immutable candidate image under the Production policy, seeds the locked envelope, drives the
-soak, runs the recovery drill and attests its output. `load-soak-nightly.yml` is not a producer. It
-builds the current checkout, has no attestation permission or step, and emits load reports rather than a
-receipt, so evidence it signs, or claims to come from it, fails the gate. The amendment moves
-`receiptContract.approvedProducer` and `receiptContract.frozenAt`. Thresholds, envelope and queries are
-unchanged, and a qualifying soak must start after the amended freeze and bind the amended lock digest.
+Before extraction, the workflow verifies SLSA provenance for the whole ZIP, pinning the signer
+to `honua-io/honua-server/.github/workflows/capacity-soak-candidate.yml` and the source digest to
+the manifest candidate. Self-hosted attestations additionally require live Actions job and
+restricted runner-group verification under the committed
+[dedicated runner policy](DEDICATED-RELEASE-RUNNER.md); an empty policy admits none.
 
-The attested source commit must be the candidate. The producer is therefore dispatched on a branch or tag
-whose head is the manifest-pinned `honua-server` SHA, with `candidate_sha` set to that same SHA, so the
-certificate's source digest, `producer.sourceRevision`, `candidateIdentity.serverRevision` and
-`observedRevision` name one commit. A trunk dispatch that soaks an older candidate attests the producer's
-commit rather than the candidate's and is refused. Run 35126254288 (trunk `fc278112`, candidate
-`87966c3f`) has that shape. It also predates the observation schema and published a bare receipt JSON
-instead of the evidence ZIP.
+The checker binds verification to the evidence: each verified statement names exactly the ZIP's
+SHA-256 subject, and the certificate's workflow ref, run id/attempt, runner identity, and source
+commit must match the receipt and candidate under the approved runner policy. A self-declared
+producer identity is insufficient. This is single-tenant GA evidence; it creates neither a
+per-tenant SLO nor a demo-environment SLA. Skipped or numeric-only results never map to green.
 
-No qualifying producer exists yet. For its output to pass, the candidate's `capacity-soak-candidate.yml`
-must:
+## Approved producer
 
-1. Package one ZIP of root-level files, at most 64 members, 64 MiB per file and 256 MiB in total, holding
-   `capacity-soak-receipt.json` and every raw artifact that receipt cites. Attest that ZIP with
-   `actions/attest-build-provenance` (SLSA v1) on a GitHub-hosted runner and publish it at an immutable
-   HTTPS URL. That URL is the train's `capacity_receipt_url`.
-2. Emit a receipt with `schemaVersion: 2`, `status: completed`, `evidenceScope: single-tenant-ga`,
-   `profile: soak`, `lockSha256` of the committed lock, `candidateIdentity {serverRevision, imageDigest}`
-   plus `observedRevision` read back from the running server, an exact UTC `window` of at least 3,600
-   seconds that starts after the freeze and equals `steadyStateSeconds`, `topology` (replicas with id,
-   failure domain and image digest; database and Redis kind and failure domain; `gpWorkers`),
-   `signingIdentity` and `signature`, and
-   `producer {repository: honua-io/honua-server, workflowPath: .github/workflows/capacity-soak-candidate.yml,
-   workflowRef: <github.workflow_ref>, sourceRevision: <candidate SHA>, runId: <int>, runAttempt: <int>,
-   predicateType: https://slsa.dev/provenance/v1}`. The run id and attempt are integers.
-3. Emit exactly one `rawArtifacts` entry of kind `capacity-observations`: a
-   `honua.capacity-observations/v1` document with `candidateIdentity`, `window`, `topology`, `producer`
-   and `lockSha256` identical to the receipt; `samplingFailures: []`;
-   `populationMode: complete-disjoint-intervals`; `samplePeriodSeconds` no greater than 60; `requestCount`;
-   `requests` as gap-free, non-overlapping per-replica interval deltas that cover the window, each with
-   `replica`, `incarnation` and `buckets` of `{count, durationMs, httpStatus, inBandError, protocol}`;
-   `metrics` rows `{at, worker, database, redis, queueAgeSeconds}` and `workloads` rows
-   `{at, dimensions (all eight GA dimensions at their locked values), executionMode: candidate-topology,
-   proxy: false}`, both starting at the window start, ending at the window end and never further apart than
-   the sample period; and `recoveries` with in-window `{dependency, failure, probe, injectedAt, detectedAt,
-   recoveredAt}` events for `worker`, `database` and `redis`.
-4. Give every raw artifact an `id`, `kind`, bundle `path`, `sha256` of its bytes, a positive
-   `observationCount`, and a `uri` of the form
+The approved producer is honua-server's `capacity-soak-candidate.yml`. It boots an immutable
+candidate under the Production policy, seeds the locked envelope, drives the soak, runs the
+recovery drill, and attests the evidence ZIP. `load-soak-nightly.yml` is not an approved producer:
+it builds a checkout and emits load reports without the required attestation contract.
+
+Dispatch the producer on a branch or tag whose head is the manifest-pinned server SHA, with
+`candidate_sha` set to that same SHA. The certificate source digest, `producer.sourceRevision`,
+`candidateIdentity.serverRevision`, and `observedRevision` must name one commit. Dispatching on
+trunk to soak an older candidate attests the wrong source and is refused.
+
+The producer must emit:
+
+1. One ZIP of root-level files: at most 64 members, 64 MiB per file, and 256 MiB total, containing
+   `capacity-soak-receipt.json` and all cited raw artifacts. Attest the ZIP with
+   `actions/attest-build-provenance` (SLSA v1) under the approved runner policy and publish it at
+   an immutable HTTPS URL used as `capacity_receipt_url`.
+2. A receipt with `schemaVersion: 2`, `evidenceScope: single-tenant-ga`,
+   `profile: soak`, committed `lockSha256`, candidate SHA/image digest, observed server revision,
+   and exact UTC `window` of at least 3,600 seconds starting after the freeze and matching
+   `steadyStateSeconds`. Include topology (replica ids, failure domains, image digests, database,
+   Redis, GP workers), signing identity/signature, and `producer` repository, workflow path/ref,
+   source revision, integer run id/attempt, and `https://slsa.dev/provenance/v1` predicate type.
+   Require `status: completed`, except that `status: incomplete` is accepted when every sampling
+   failure matches the lock's permitted Preview prefixes. This exception changes no other
+   required evidence, signal, or GA threshold.
+3. Exactly one raw artifact of kind `capacity-observations`, using
+   `honua.capacity-observations/v1`, with the same candidate, window, topology, producer, and lock
+   digest. Use `populationMode: complete-disjoint-intervals`, sample periods no greater than
+   60 seconds, a request count, and gap-free, non-overlapping per-replica/incarnation interval
+   deltas. Buckets retain `{count, durationMs, httpStatus, inBandError, protocol}`. Metric rows
+   retain `{at, worker, database, redis, queueAgeSeconds}`; workload rows retain timestamps,
+   locked dimensions, `executionMode: candidate-topology`, and `proxy: false`. Both sample
+   series cover the measured window from start to end without gaps beyond the sample period.
+   `samplingFailures` must be empty except for the explicit Preview exception. Retain the
+   separate `faultDrill`, whose `recoveries` equal the observation document's recovery events.
+4. Raw-artifact entries with `id`, `kind`, bundle `path`, byte `sha256`, positive
+   `observationCount`, and a URI of the form
    `https://github.com/honua-io/honua-server/actions/runs/<producer runId>/artifacts/<id>`.
-5. Provide all eight `workloads`, each with `status: exercised`, `target` and `observed` at the locked
-   value, `executionMode: candidate-topology`, `proxy: false`, the lock's `workloadQueries` entry, the
-   receipt's candidate identity and window, and a sample population equal to the observation document's
-   workload rows. Provide all eight `signals`, each with `status: observed`, the frozen lock query, owner,
-   immutable HTTPS alert and runbook references, window, candidate identity, topology and threshold
-   verdict. Each value and population must equal what the checker recomputes from the observation
-   document. Saturation carries separate worker, database and Redis components, and recovery carries the
-   observation document's event timeline.
+5. Exercised GA workloads at the locked target and observed values, with frozen workload queries,
+   candidate identity/window, and populations matching the raw workload rows. Report Preview
+   workloads separately. Include all eight structured signals with values and populations that
+   the checker recomputes from raw observations, including saturation components and recovery
+   events. The reported threshold verdicts must match the frozen lock; the checker separately
+   applies its ruled GA scoring and Preview exclusions.
 
-The workflow must still publish a negative receipt when the soak misses the lock and let the gate refuse
-it. It must never omit a failed dimension or signal.
+The fault drill must follow and be excluded from the measured window. Its data-integrity
+readback must retain all four complete layer counts and equal, present SHA-256 values for the
+expected and observed maximum payload, with `payloadIntact: true`. Report the GP stuck-job list
+and drill failures; a producer verdict alone cannot establish recovery or data integrity.
 
+Publish negative evidence when the soak misses the lock so the gate can refuse it. Never omit
+a failed dimension or signal.
 
 ## Recomputed observations and remaining qualification
 
-The `capacity-observations` artifact uses `honua.capacity-observations/v1`. It binds the
-candidate image/SHA, producer, topology, lock hash and window to complete, disjoint request
-intervals for every replica. Request buckets are lossless joint histograms of protocol,
-HTTP status, in-band failure, duration and count. They are interval deltas from the full
-serving population, never cumulative-counter snapshots, percentile averages or retained tails.
-The checker recomputes success/error ratios, nearest-rank p95/p99 and throughput from that
-single population. Periodic worker/database/Redis and queue observations, GA workload samples,
-and injected/detected/recovered events for all three dependencies must cover the same window.
-Sampling gaps or collection failures fail the gate. All eight queries are frozen in the lock;
-changing a query and rehashing it inside a receipt cannot change the gate calculation.
+Request buckets are lossless joint histograms from the complete serving population, not
+cumulative-counter snapshots, percentile averages, or retained tails. The checker recomputes
+ratios, nearest-rank latency percentiles, and throughput from that population, applies the
+locked GA exclusions and expected-refusal policy, and independently evaluates saturation and
+the later fault drill. Changing a query and rehashing it inside a receipt cannot change the
+frozen gate calculation.
 
-The manifest's image digest is an independent checker input. Matching only the SHA or supplying
-another well-formed image digest is insufficient. Provenance requirements are part of the amended
-lock. The historical numeric baseline predates that lock and has no bound observation population, so
-it cannot qualify a candidate.
-
-A green result requires the approved producer to attest this observation schema for the locked
-local-docker envelope: immutable candidate image, exercised GA dimensions, retained recovery probes,
-and the raw artifacts the receipt cites. Numeric signal values, a source-built load report, or a
-unit fixture are not a soak receipt and must not be submitted as release evidence. Preview
-observations may be echoed and are not part of the GA denominator.
+Qualification requires the approved producer's authenticated, candidate-bound evidence for
+the locked local-docker envelope. Historical numeric baselines, source-built reports, unit
+fixtures, and Preview observations cannot establish a current candidate pass.

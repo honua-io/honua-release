@@ -21,12 +21,7 @@ automation cannot grant itself.
 
 ## Chosen design: GitHub protected-environment required reviewers
 
-This repository is **public**, and environment protection rules — required reviewers, protected-branch
-deployment policy, prevent-self-review — are available to public repositories on every plan. The
-blocker recorded when this issue was filed (required reviewers being Enterprise-only for **private**
-repositories on GitHub Team) no longer applies, so no external approval system is needed.
-
-Approval authority therefore sits in GitHub's deployment-protection layer:
+Approval authority sits in GitHub's deployment-protection layer:
 
 - `GITHUB_TOKEN` and the release App can *dispatch* `promote`, but **neither can approve the
   deployment**. Approval is a repository-permission action performed by a named human in the GitHub
@@ -34,14 +29,7 @@ Approval authority therefore sits in GitHub's deployment-protection layer:
 - Tagging, signing, and release creation remain the workflow's own OIDC identity — the AI never holds
   keys (AGENTS.md).
 
-The alternative — an external approval service or detached signature — was rejected: it would add a
-second trust root and a second set of credentials to protect, for an authority GitHub already provides
-and already refuses to delegate to a workflow token.
-
-**If this repository ever becomes private again**, the required-reviewer rule stops being enforceable
-on a Team plan. The gate does not silently degrade — the environment read would show the rule gone and
-promotion fails closed — but the design must be re-chosen (Enterprise, or an external signature)
-*before* re-privatising.
+Required-reviewer protection must remain enforceable for the repository visibility and account configuration. Before changing either, verify that the declared protection rules remain available. Missing or unreadable protection fails closed; a declaration alone cannot authorize promotion.
 
 ## The enforcement chain
 
@@ -161,8 +149,7 @@ creating a tag.
 The policy declares an exact `required_reviewers` roster of one to six human `User` accounts. GitHub
 needs only one member's approval, so a standby can approve when the primary is unavailable. The
 checker compares the live roster's id/login pairs to the declaration as a set; reordering is harmless,
-but an added, removed, substituted, Team, app, or automation reviewer is refused. The current roster
-contains one member because no second human repository member is presently available.
+but an added, removed, substituted, Team, app, or automation reviewer is refused.
 
 ## Roster changes
 
@@ -205,12 +192,12 @@ which leaves durable evidence:
 Never weaken `tools/check_release_promotion_approval.py`, `tools/candidate_binding.py`, or
 `tools/finalize_release.py` to make a release pass — a gate that can't fail is worse than no gate.
 
-## Current state
+## Current approval evidence
 
-`certification/release-promotion-approval.yaml` records `attestation.applied: true`. The live
-`release-promotion` environment currently matches its one-member roster. `repo-control-drift` reports
-any later roster or protection-setting drift as hard red, and `promote.yml` runs the identical check
-and refuses promotion.
+An `attestation.applied: true` declaration is not proof that live settings still match.
+`repo-control-drift` reports roster or protection-setting drift as hard red, and `promote.yml`
+runs the identical check and refuses promotion. Retain the live read-back and preflight evidence
+for the exact promotion; an earlier matching configuration cannot establish current authority.
 
 ## Verify locally
 
