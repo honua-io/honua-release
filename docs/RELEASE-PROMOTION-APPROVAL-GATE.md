@@ -106,7 +106,7 @@ python3 tools/check_release_promotion_approval.py \
 
 The default branch must also be protected (`branches/trunk.protected == true`) with administrator
 enforcement, required pull requests, and the required `validate` check — see
-`docs/RELEASE-ENGINEERING-PLAN.md` § *Repository configuration prerequisites*.
+[Release engineering requirements](RELEASE-ENGINEERING.md#repository-configuration).
 
 ## Two-actor operation
 
