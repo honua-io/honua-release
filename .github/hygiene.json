@@ -38,6 +38,11 @@
     "docs/2026.1-backlog-stage-review-20261012.md",
     "docs/2026.1-lambda-ga-bill.md",
     "docs/FIRST-PUBLICATION-PREFLIGHT-57.md",
-    "docs/rehearsals/2026-09-04-clean-room-install.md"
+    "docs/rehearsals/2026-09-04-clean-room-install.md",
+    "certification/console-read-approve/receipt.nightly-2cc2213.console-dcb9eb2.json",
+    "certification/console-read-approve/receipt.nightly-42596b4.console-dcb9eb2.json",
+    "certification/console-read-approve/receipt.nightly-80e23be.console-dcb9eb2.json",
+    "certification/ecs-recovery/environment-discovery.json",
+    "certification/ecs-recovery/published-artifact-discovery.json"
   ]
 }
