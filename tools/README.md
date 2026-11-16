@@ -14,7 +14,7 @@ with the signature `aws(service, operation, *cli_arguments)`. It must complete A
 CLI pagination; an unconsumed continuation token fails the observation. The module
 does not obtain credentials, provision resources or write gate receipts.
 
-Only `honua-gate-*` stacks tagged `honua:qualification=true` with a completed
+Only `honua-gate-*` stacks tagged `HonuaGate=true` with a completed
 deployment are accepted. The collector checks stack-owned service/task resources,
 a converged Fargate rollout, digest-pinned server configuration, identical running
 server digests and ALB `/healthz/ready` targets matching every running task. ECS
