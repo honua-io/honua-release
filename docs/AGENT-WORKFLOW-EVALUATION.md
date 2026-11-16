@@ -142,7 +142,12 @@ its dependencies. Starting it without submitting a prompt needs no AWS credentia
 a model turn requires scoped Bedrock access and an explicitly approved model.
 Rendering still needs a browser and access to the public demo and basemap.
 
+The terminal driver implements save/reopen, publication proposals, approval by a
+separate principal and final URL/authority verification. Require actual execution
+receipts for each stage; transport probes and fixture-only results do not prove
+those operations ran. The browser map harness does not implement that complete
+durable journey, so record its missing stages explicitly.
+
 Local checks cannot prove cloud IAM, notifications, model entitlement, installed
-StudioAi, registry inputs, billing, ECS install/rollback or cloud teardown. Neither
-the deterministic driver nor the browser harness implements the whole durable
-save/approve/publish journey; record missing steps rather than implying completion.
+StudioAi, registry inputs, billing, ECS install/rollback or cloud teardown. Collect
+separate observations for each cloud requirement before claiming completion.
