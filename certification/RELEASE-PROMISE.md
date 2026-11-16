@@ -166,3 +166,5 @@ the exact release-notes line. The upgrade adapter refuses kind/Compose-only
 success: its report must include candidate-bound live Launch Stack, N-1 reader,
 rolling-upgrade and rollback assertions. Until the Launch Stack harness supplies
 that proof the row remains unproved. Local adapter tests never establish a live pass.
+
+Protocol receipts compare every evaluated component SHA, SDK package version, cut time, and requirements revision with the lock-bound manifest. Capacity receipts retain `sourceObservedAt`; admission checks that original observation against the seven-day window as well as checking the authenticated adapter run.

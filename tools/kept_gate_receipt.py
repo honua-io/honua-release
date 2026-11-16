@@ -42,12 +42,15 @@ def candidate_document(verdict):
     if verdict.manifest is None or verdict.lock is None:
         raise ValueError('candidate manifest and lock bytes are required')
     raw = verdict.manifest.read_bytes()
-    pins = resolve_pins(yaml.safe_load(raw), ('server',))
+    manifest = yaml.safe_load(raw)
+    pins = resolve_pins(manifest, ('server',))
     validate_lock(verdict.lock.read_bytes(), verdict.lock_digest, PinnedCandidate(raw, pins))
     server_sha, image_digest = pins['server']['sha'], pins['server']['digest']
     if verdict.gate == 'gate-protocol-certification' and (
             verdict.server_sha != server_sha or verdict.image_digest != image_digest):
         raise ValueError('protocol evaluated another candidate')
+    if verdict.gate == 'gate-protocol-certification':
+        validate_protocol(manifest, verdict.proof)
     if not re.fullmatch(r'[0-9a-f]{40}', server_sha):
         raise ValueError('missing immutable server source SHA')
     for digest in (image_digest, verdict.lock_digest):
@@ -58,6 +61,29 @@ def candidate_document(verdict):
             'platformLockDigest': verdict.lock_digest,
             'observedAt': dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z'),
             'assertions': {'producerPassed': True}}
+
+
+def validate_protocol(manifest, proof):
+    try:
+        certification = manifest['protocolCertification']
+        expected = {
+            'EXPECTED_REQUIREMENTS_REVISION': certification['ledger']['requirementsSourceRevision'],
+            'EXPECTED_CUT_AT': certification['candidateCutAt'],
+            'EXPECTED_SERVER_CERTIFICATION_SHA': certification['serverCertificationProducerSha'],
+        }
+        for short, component in (('SDK_JS', 'honua-sdk-js'), ('SDK_PYTHON', 'honua-sdk-python'),
+                ('SDK_DOTNET', 'honua-sdk-dotnet'), ('GEOSPATIAL_GRPC', 'geospatial-grpc'),
+                ('GEOSPATIAL_MCP', 'geospatial-mcp')):
+            expected['EXPECTED_' + short + '_SHA'] = manifest['components'][component]['sha']
+        for short, artifact in (('SDK_JS', 'honua-sdk-js'), ('SDK_PYTHON', 'honua-sdk-python-wheel'),
+                ('SDK_DOTNET', 'honua-sdk-dotnet')):
+            expected['EXPECTED_' + short + '_VERSION'] = manifest['clientArtifacts'][artifact]['version']
+        if not isinstance(proof, dict) or any(
+                not isinstance(value, str) or not value or proof.get(key) != value
+                for key, value in expected.items()):
+            raise ValueError('protocol evaluated another component set')
+    except (KeyError, TypeError) as exc:
+        raise ValueError('protocol candidate component pins are missing') from exc
 
 
 def validate_upgrade(doc, proof):
@@ -88,13 +114,14 @@ def validate_capacity(proof):
         raise ValueError('capacity source observation time is required') from exc
     if not dt.timedelta(0) <= age <= dt.timedelta(days=7):
         raise ValueError('capacity source evidence is stale or from the future')
+    return proof['window']['endedAt']
 
 
 def emit(verdict, out):
     doc = candidate_document(verdict)
     documents = [doc]
     if verdict.gate == 'capacity-soak':
-        validate_capacity(verdict.proof)
+        doc['sourceObservedAt'] = validate_capacity(verdict.proof)
     if verdict.gate == 'gate-upgrade':
         validate_upgrade(doc, verdict.proof)
     if verdict.gate == 'gate-dr':

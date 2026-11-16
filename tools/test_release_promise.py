@@ -18,6 +18,7 @@ def evidence(row):
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock,
             'observedAt': '2026-11-14T00:00:00Z', 'openHighFindings': 0,
+            'sourceObservedAt': '2026-11-13T00:00:00Z',
             'assertions': row['assertions'], 'stackName': 'honua-gate-test'}
 
 
@@ -388,3 +389,18 @@ def test_ga_promotion_checks_selected_lock_and_retains_measurements(tmp_path, mo
     else:
         exec(script, {})
         assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 35
+
+
+@pytest.mark.parametrize('source', [None, '2026-11-01T00:00:00Z', '2026-11-15T00:00:00Z'])
+def test_capacity_original_observation_must_remain_fresh(source):
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'operates-capacity')
+    record = run(row)
+    record['reports'][0]['sourceObservedAt'] = source
+    assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] != 'PASS'
+
+
+def test_capacity_fresh_original_observation_passes():
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'operates-capacity')
+    record = run(row)
+    record['reports'][0]['sourceObservedAt'] = '2026-11-13T00:00:00Z'
+    assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] == 'PASS'

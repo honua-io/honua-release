@@ -144,3 +144,40 @@ def test_capacity_accepts_fresh_source_but_never_missing_time(tmp_path):
     observed = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
     doc, = run(tmp_path, gate='capacity-soak', proof={'window': {'endedAt': observed}})
     assert doc['row'] == 'operates-capacity'
+
+
+@pytest.mark.parametrize('field', ['EXPECTED_SDK_JS_SHA', 'EXPECTED_SDK_PYTHON_SHA',
+    'EXPECTED_SDK_DOTNET_SHA', 'EXPECTED_GEOSPATIAL_GRPC_SHA', 'EXPECTED_GEOSPATIAL_MCP_SHA',
+    'EXPECTED_SDK_JS_VERSION', 'EXPECTED_SDK_PYTHON_VERSION', 'EXPECTED_SDK_DOTNET_VERSION',
+    'EXPECTED_CUT_AT', 'EXPECTED_SERVER_CERTIFICATION_SHA', 'EXPECTED_REQUIREMENTS_REVISION'])
+def test_protocol_rejects_different_evaluated_component_set(tmp_path, field):
+    import protocol_candidate
+    manifest, lock, _ = binding(tmp_path)
+    frozen = yaml.safe_load((Path(__file__).resolve().parents[1] / 'platform-manifest.yaml').read_text())
+    frozen['components']['honua-server'].update(sha=SHA, digest=DIGEST)
+    manifest.write_text(yaml.safe_dump(frozen))
+    locked = json.loads(lock.read_text())
+    locked['sourceInputs']['platformManifest']['sha256'] = 'sha256:' + hashlib.sha256(manifest.read_bytes()).hexdigest()
+    lock.write_text(json.dumps(locked))
+    digest = 'sha256:' + hashlib.sha256(lock.read_bytes()).hexdigest()
+    (tmp_path / 'platform-manifest.yaml').write_bytes(manifest.read_bytes())
+    identity = protocol_candidate.prepare(tmp_path, (1, 1, digest), verifier=lambda *args: {
+        'qualificationLockDigest': digest, 'producer': {}})
+    proof = {key.upper(): value for key, value in identity['inputs'].items() if key.startswith('expected_')}
+    proof['EXPECTED_SHA'] = proof.pop('EXPECTED_SOURCE_SHA')
+    proof['EXPECTED_DIGEST'] = proof.pop('EXPECTED_IMAGE_DIGEST')
+    proof['EXPECTED_REQUIREMENTS_REVISION'] = proof.pop('EXPECTED_REQUIREMENTS_SOURCE_REVISION')
+    verdict = k.Verdict('gate-protocol-certification', 'pass', manifest, digest,
+                        server_sha=SHA, image_digest=DIGEST, lock=lock, proof=proof)
+    assert k.emit(verdict, tmp_path / 'valid')[0]['row'] == 'protocol-compat'
+    proof[field] = 'different'
+    with pytest.raises(ValueError, match='protocol'):
+        k.emit(verdict, tmp_path / 'invalid')
+    assert not (tmp_path / 'invalid').exists()
+
+
+def test_capacity_preserves_original_time(tmp_path):
+    import datetime as dt
+    observed = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=6)).isoformat()
+    doc, = run(tmp_path, gate='capacity-soak', proof={'window': {'endedAt': observed}})
+    assert doc['sourceObservedAt'] == observed

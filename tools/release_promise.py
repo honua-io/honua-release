@@ -79,6 +79,10 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
     if row['id'] in ('security-hardened', 'cloud-launch-stack', 'cloud-image-aot'):
         if not re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', str(doc.get('stackName', ''))):
             return False
+    if row['id'] == 'operates-capacity':
+        source = instant(doc.get('sourceObservedAt'))
+        if source is None or not now - dt.timedelta(days=7) <= source <= observed:
+            return False
     if row['id'] == 'security-open-high':
         count = doc.get('openHighFindings')
         return type(count) is int and count == 0

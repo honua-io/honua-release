@@ -355,6 +355,12 @@ jobs:
             code=$?
             if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi
           fi
+          python3 - <<'PYPROOF'
+          import json, os
+          from pathlib import Path
+          Path('out/protocol-candidate-inputs.json').write_text(json.dumps({
+              key: value for key, value in os.environ.items() if key.startswith('EXPECTED_')}))
+          PYPROOF
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
@@ -394,3 +400,4 @@ jobs:
           lock_digest: ${{ inputs.platform_lock_digest }}
           server_sha: ${{ inputs.expected_source_sha }}
           image_digest: ${{ inputs.expected_image_digest }}
+          proof: out/protocol-candidate-inputs.json
