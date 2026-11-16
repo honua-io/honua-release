@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "release": "2026.1.0-rc.1",
   "owner": "release-engineering",
-  "frozenAt": "2026-10-28T15:40:00Z",
+  "frozenAt": "2026-11-16T22:50:23Z",
   "baseline": {
     "repository": "honua-io/honua-server",
     "revision": "9f2f16a5b9d19becf052f8b2635cf7c2ce109fdd",
@@ -264,8 +264,8 @@
     "saturationRatio": {
       "language": "honua-observation-query",
       "version": "1",
-      "expression": "max(metrics[worker], metrics[database], metrics[redis])",
-      "sha256": "7d78e5d70bb0b90691cb51b0f6b0a66b95c1744980278c79f0a088228ffd0211"
+      "expression": "max(metrics[worker], metrics[database])",
+      "sha256": "70a44e1df216c914a26de8458eacc244f1cd47343a63c4f1364034aef4008f22"
     },
     "recoveryTimeSeconds": {
       "language": "honua-observation-query",
@@ -329,13 +329,11 @@
     "amends": "capacity-steady-state-and-drill-2026-10-27",
     "requiredFaultDependencies": [
       "worker",
-      "database",
-      "redis"
+      "database"
     ],
     "maxRecoverySecondsByDependency": {
       "worker": 19.0,
-      "database": 36.0,
-      "redis": 19.0
+      "database": 36.0
     },
     "requireNoDataLoss": true,
     "requireNoStuckJobs": true,
@@ -344,5 +342,9 @@
       "https://raw.githubusercontent.com/honua-io/honua-server/7f912b18/capacity/87966c3f7b6c840ffc4d4da0b451714ab717b18a-35126254288.json",
       "https://github.com/honua-io/honua-server/actions/runs/40542363841"
     ]
-  }
+  },
+  "capacityComponents": [
+    "worker",
+    "database"
+  ]
 }

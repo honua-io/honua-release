@@ -24,12 +24,12 @@ and evidence are reported, but its threshold does not gate GA qualification. Mis
 null, non-finite, stale, or revision-mismatched required evidence fails.
 
 Steady-state signals use the measured window. A separate fault drill follows that window;
-it must recover every worker and Redis fault within 19 seconds and every Postgres fault within
+it must recover every worker fault within 19 seconds and every Postgres fault within
 36 seconds, with no data loss and no stuck GP jobs. Recovery evidence uses that fault period.
 
 ## Substrate
 
-The qualified scope is **local-docker**: a single-tenant Docker install with PostGIS, Redis,
+The qualified scope is **local-docker**: a single-tenant Docker install with PostGIS
 and local file storage, resolved by the candidate manifest's `disasterRecovery` block.
 ECS, Lambda, and other cloud shapes are outside this capacity and recovery envelope. A local
 receipt cannot qualify them. Local full-platform disaster recovery uses
@@ -59,12 +59,18 @@ The checker applies the lock's scoring rules:
   throughput population, but count as expected refusals rather than errors or outages.
 - GP queue age is reported without gating its threshold. Only sampling failures matching the
   lock's Preview sampling-failure prefixes may be informational; other collection failures fail.
-- Database pool saturation gates on its time-mean over the measured window. Worker and Redis
-  gate on their peaks; the maximum of those three ruled components must meet the bound.
+- Database pool saturation gates on its time-mean over the measured window. Worker saturation
+  gates on its peak; the maximum of those two ruled components must meet the bound.
 
 A lock amendment must be committed before a new qualification soak starts. A baseline receipt
 cannot qualify an amended lock: its digest and start time predate the amended freeze. Every
 amendment requires a fresh lock digest and another post-freeze soak.
+
+The lock declares `capacityComponents: [worker, database]` for the Redis-free runtime.
+The worker and database recovery bounds, all eight SLIs, data-integrity checks and job-drain
+requirements remain unchanged. Historical locks without this declaration still require Redis
+saturation, topology and fault recovery; historical receipts cannot qualify the amended lock.
+The preserved baseline and derivation records describe historical measurements, not a new pass.
 
 ## Receipt
 
@@ -86,7 +92,7 @@ Each required signal includes the frozen query and hash, owner, immutable HTTPS 
 runbook references, exact UTC measurement window, candidate identity, topology, raw-artifact
 and exercised-workload references, observation population, computed value, and lock-derived
 verdict. Ratio signals retain numerator and denominator; other signals retain sample counts.
-Saturation retains separate worker, database, and Redis populations. Recovery retains the
+Saturation retains separate worker and database populations. Recovery retains the
 injected/detected/recovered timeline and explicitly names the separate fault window.
 
 Before extraction, the workflow verifies SLSA provenance for the whole ZIP, pinning the signer

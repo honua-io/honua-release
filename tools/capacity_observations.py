@@ -14,6 +14,14 @@ from datetime import datetime
 from pathlib import Path
 
 
+def capacity_components(lock):
+    """Only the pinned lock selects dependencies; older locks retain Redis."""
+    components = lock.get('capacityComponents', ['worker', 'database', 'redis'])
+    if components not in (['worker', 'database'], ['worker', 'database', 'redis']):
+        raise ValueError('unsupported capacity component policy')
+    return tuple(components)
+
+
 def _time(value):
     if not isinstance(value, str) or not value.endswith('Z'):
         raise ValueError('timestamps must be UTC with Z suffix')
@@ -183,7 +191,7 @@ def _validate(lock, receipt, root):
     metrics = source['metrics']
     samples(metrics, 'metrics')
     components = {name: max(_number(row[name], high=1) for row in metrics)
-                  for name in ('worker', 'database', 'redis')}
+                  for name in capacity_components(lock)}
     queue_age = max(_number(row['queueAgeSeconds']) for row in metrics)
     workloads = source['workloads']
     samples(workloads, 'workloads')
@@ -235,9 +243,10 @@ def _validate(lock, receipt, root):
                         'denominator': duration if name == 'throughputRps' else request_count}
         else:
             expected = {'kind': 'distribution' if 'Latency' in name else 'duration' if name == 'recoveryTimeSeconds' else 'gauge',
-                        'sampleCount': request_count if 'Latency' in name else len(recovery_durations) if name == 'recoveryTimeSeconds' else len(metrics)*3 if name == 'saturationRatio' else len(metrics)}
+                        'sampleCount': request_count if 'Latency' in name else len(recovery_durations) if name == 'recoveryTimeSeconds' else len(metrics)*len(components) if name == 'saturationRatio' else len(metrics)}
         _equal(population, expected, f'{name} numerator/denominator/sample population')
     saturation = receipt['signals']['saturationRatio']['saturationComponents']
+    _equal(set(saturation), set(components), 'saturation components')
     for name, value in components.items():
         _equal(saturation[name]['value'], value, f'{name} saturation')
         _equal(saturation[name]['sampleCount'], len(metrics), f'{name} saturation population')
@@ -253,6 +262,6 @@ def _validate(lock, receipt, root):
     return {'availability': (request_count-errors+refused)/request_count,
             'errorRate': (errors-refused)/request_count,
             'expectedRefusals': refused,
-            'saturation': {'worker': components['worker'], 'redis': components['redis'],
+            'saturation': {**{name: value for name, value in components.items() if name != 'database'},
                            'databaseMean': database_mean},
             'previewSamplingFailures': len(source['samplingFailures'])}

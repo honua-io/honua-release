@@ -10,7 +10,8 @@ from digests import file_sha256_hex, sha256_hex
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCK_PATH = ROOT / "certification" / "capacity-envelope.v1.json"
+LOCK_PATH = ROOT / "tools" / "fixtures" / "capacity-envelope.redis.v1.json"
+CURRENT_LOCK_PATH = ROOT / "certification" / "capacity-envelope.v1.json"
 LOCK = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 REVISION = "a" * 40
 IMAGE_DIGEST = "sha256:" + "b" * 64
@@ -22,7 +23,8 @@ def _z(value: datetime) -> str:
 
 _FREEZE = max(
     datetime.fromisoformat(value.replace("Z", "+00:00"))
-    for value in (LOCK["frozenAt"], LOCK["receiptContract"]["frozenAt"])
+    for value in (LOCK["frozenAt"], LOCK["receiptContract"]["frozenAt"],
+                  json.loads(CURRENT_LOCK_PATH.read_text())["frozenAt"])
 )
 _START = _FREEZE + timedelta(days=1)
 WINDOW = {"startedAt": _z(_START), "endedAt": _z(_START + timedelta(seconds=3600))}
