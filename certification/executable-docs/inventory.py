@@ -32,10 +32,11 @@ sys.path.insert(0, str(HERE))
 
 from blocks import extract  # noqa: E402
 from execution_contexts import ContextError, compile_plan  # noqa: E402
-from inputs import assigned_names, doc_id, needs  # noqa: E402
+from inputs import assigned_names, doc_id, load_vars, needs  # noqa: E402
 
 DEFAULT_SOURCES = HERE / "sources.json"
 DEFAULT_INVENTORY = HERE / "inventory.json"
+DEFAULT_VARS = HERE / "vars"
 DELAYS = (0, 10, 30, 60, 120, 60)   # transient network errors retry for up to ~5 minutes
 
 
@@ -213,17 +214,38 @@ def document_record(document: dict[str, Any], revision: str, text: str,
     return record, defined
 
 
-def build(sources: dict[str, Any], resolver: Resolver) -> dict[str, Any]:
+def unbound_substitutions(table: dict[str, Any], text: str) -> list[str]:
+    """Name substituted values that no key binds in the document text any more.
+
+    The runner's replace is silent when its key is absent, so a stale key would run the page's own
+    image or URL instead of the candidate's. A value may list alternate keys (release-channel
+    spellings); one of them must still appear.
+    """
+    keys_by_value: dict[str, list[str]] = {}
+    for key, entry in table.items():
+        keys_by_value.setdefault(str(entry["value"]), []).append(key)
+    return [f"no substitute key for {value} is in the document (tried {', '.join(repr(k) for k in keys)})"
+            for value, keys in keys_by_value.items() if not any(k in text for k in keys)]
+
+
+def build(sources: dict[str, Any], resolver: Resolver, vars_dir: Path | None = None) -> dict[str, Any]:
     documents = []
+    unbound: list[str] = []
     session_env: dict[str, set[str]] = {}
     for document in sources["documents"]:
         revision = resolver.revision(document)
         text = resolver.read(document, revision)
+        if vars_dir is not None:
+            ident = doc_id(document["repo"], document["path"])
+            unbound += [f"{ident} at {revision[:12]}: {problem}"
+                        for problem in unbound_substitutions(load_vars(vars_dir, ident)["substitute"], text)]
         session = document.get("session")
         record, defined = document_record(document, revision, text, session_env.get(session) if session else None)
         if session:
             session_env[session] = defined
         documents.append(record)
+    if unbound:
+        raise InventoryError("; ".join(unbound))
     counts: dict[str, int] = {}
     for record in documents:
         for row in record["blocks"]:
@@ -269,6 +291,7 @@ def main() -> int:
     parser.add_argument("--sources", type=Path, default=DEFAULT_SOURCES)
     parser.add_argument("--manifest", type=Path, default=ROOT / "platform-manifest.yaml")
     parser.add_argument("--inventory", type=Path, default=DEFAULT_INVENTORY)
+    parser.add_argument("--vars-dir", type=Path, default=DEFAULT_VARS)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true", help="regenerate the committed inventory")
     mode.add_argument("--check", action="store_true", help="print all drift; exit 1 on block or document-set changes")
@@ -278,7 +301,7 @@ def main() -> int:
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     try:
-        current = build(sources, Resolver(manifest, token=token))
+        current = build(sources, Resolver(manifest, token=token), args.vars_dir)
     except InventoryError as exc:
         print(f"inventory error: {exc}", file=sys.stderr)
         return 2
