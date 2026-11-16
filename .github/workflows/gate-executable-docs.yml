@@ -31,6 +31,8 @@ on:
     - cron: "40 9 * * *"
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
+      candidate_ref: { description: "Immutable candidate snapshot", required: false, type: string, default: "" }
       sdk_publication_replay:
         description: "Diagnostic only: reviewed published SDK / MCP; never rebinds release inputs"
         required: false
@@ -48,6 +50,7 @@ on:
       - "e2e/harness/seed/**"
   workflow_call:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
     outputs:
       overall_status:
@@ -180,6 +183,13 @@ jobs:
             e2e/out/seed-inspections-publication.json
             e2e/out/seed-edit-proof.json
           if-no-files-found: warn
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: gate-executable-docs
+          status: ${{ steps.verdict.outputs.overall_status }}
+          lock_digest: ${{ inputs.platform_lock_digest }}
 
   sdk-publication-diagnostic:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.sdk_publication_replay }}

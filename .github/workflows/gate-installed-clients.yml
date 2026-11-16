@@ -28,6 +28,8 @@ on:
       - .github/workflows/gate-installed-clients.yml
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
+      candidate_ref: { description: "Immutable candidate snapshot", required: false, type: string, default: "" }
       qualify_import_fidelity:
         description: Execute all 142 required published-SDK fidelity checks (missing prerequisites fail closed)
         required: false
@@ -37,6 +39,7 @@ on:
       platform_label: { required: false, type: string, default: "dev-local" }
   workflow_call:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       qualify_import_fidelity: { required: false, type: boolean, default: false }
       authored_source_manifest: { required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
@@ -150,6 +153,16 @@ jobs:
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use the immutable candidate inputs
+        if: ${{ inputs.candidate_ref }}
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install "pyyaml>=6.0"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
@@ -204,3 +217,10 @@ jobs:
         run: |
           echo "installed-clients gate: $OVERALL"
           [ "$OVERALL" = "fail" ] && { echo "::error::installed-clients gate FAILED"; exit 1; } || echo "not red (blocked is not a pass)"
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: gate-installed-clients
+          status: ${{ steps.assemble.outputs.overall_status }}
+          lock_digest: ${{ inputs.platform_lock_digest }}
