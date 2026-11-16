@@ -83,11 +83,14 @@ def assigned_names(block: Block, defined: set[str] | None = None) -> set[str]:
             | _sourced_names(block, defined or set()))
 
 
-def _python_env_reads(code: str, skip: set[str], required: set[str], optional: set[str]) -> None:
-    required |= {n for n in PY_REQUIRED.findall(code) if n not in skip}
+def _python_env_reads(code: str, skip: set[str]) -> tuple[set[str], set[str]]:
+    """(required, optional) names a Python script reads from os.environ, minus skip."""
+    required = {n for n in PY_REQUIRED.findall(code) if n not in skip}
+    optional: set[str] = set()
     for name, has_default in PY_OPTIONAL.findall(code):
         if name not in skip:
             (optional if has_default else required).add(name)
+    return required, optional
 
 
 def needs(block: Block, defined: set[str]) -> dict[str, list[str]]:
@@ -106,9 +109,11 @@ def needs(block: Block, defined: set[str]) -> dict[str, list[str]]:
             elif name.isupper():
                 required.add(name)
         # A heredoc or -c script run by python3 reads its environment the Python way.
-        _python_env_reads(code, own, required, optional)
+        py_required, py_optional = _python_env_reads(code, own)
+        required |= py_required
+        optional |= py_optional
     elif block.language == "python":
-        _python_env_reads(code, defined, required, optional)
+        required, optional = _python_env_reads(code, defined)
     elif block.language in {"javascript", "typescript"}:
         for dotted, indexed, fallback in JS_ENV.findall(code):
             (optional if fallback else required).add(dotted or indexed)
