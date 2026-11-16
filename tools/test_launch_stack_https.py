@@ -42,7 +42,7 @@ def test_both_effective_routes_are_observed_without_disclosing_headers():
     'http://qualification.example.test', 'https://user:secret@example.test',
     'https://@example.test', 'https://example.test\n',
     'https://example.test:8443', 'https://example.test/console/',
-    'https://example.test?value=secret', 'https://example.test#secret', 'https:///'])
+    'https://example.test?value=secret', 'https://example.test#secret', 'https:///', 'https://example.test/?', 'https://example.test/#'])
 def test_invalid_origin_fails_before_transport(origin):
     request, calls = transport()
     with pytest.raises(ValueError):
@@ -51,7 +51,9 @@ def test_invalid_origin_fails_before_transport(origin):
 
 
 @pytest.mark.parametrize('policy', [
-    '', 'max-age=31536000', 'max-age=31536000; preload',
+    '', 'max-age=\u00a031536000; includeSubDomains; preload',
+    'max-age=\v31536000; includeSubDomains; preload',
+    'max-age=\f31536000; includeSubDomains; preload', 'max-age=31536000', 'max-age=31536000; preload',
     'max-age=31536000; includeSubDomains', 'max-age=0; includeSubDomains; preload',
     'max-age=31535999; includeSubDomains; preload',
     'max-age=31536000; max-age=0; includeSubDomains; preload',
