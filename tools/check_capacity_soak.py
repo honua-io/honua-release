@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from capacity_observations import expected_refusals, ga_dimensions, gate_values, preview_protocols, preview_signals
+from capacity_observations import capacity_components, expected_refusals, ga_dimensions, gate_values, preview_protocols, preview_signals
 from release_runner_policy import admit as admit_release_runner
 from digests import file_sha256_hex, sha256_hex
 
@@ -143,7 +143,8 @@ def _validate_raw_artifacts(
     return known
 
 
-def _validate_topology(receipt: dict[str, Any], image_digest: str, failures: list[str]) -> None:
+def _validate_topology(lock: dict[str, Any], receipt: dict[str, Any], failures: list[str]) -> None:
+    image_digest = str(_mapping(receipt.get("candidateIdentity")).get("imageDigest", ""))
     topology = _mapping(receipt.get("topology"))
     replicas = topology.get("replicas")
     if not isinstance(replicas, list) or not replicas:
@@ -162,7 +163,7 @@ def _validate_topology(receipt: dict[str, Any], image_digest: str, failures: lis
             failures.append("every topology replica must name a failure domain")
         if item.get("imageDigest") != image_digest:
             failures.append(f"{replica_id or '<missing>'}: replica image digest differs from candidate")
-    for dependency in ("database", "redis"):
+    for dependency in capacity_components(lock)[1:]:
         item = _mapping(topology.get(dependency))
         if not _nonempty(item.get("kind")) or not _nonempty(item.get("failureDomain")):
             failures.append(f"topology {dependency} identity/failure domain is missing")
@@ -335,10 +336,12 @@ def _validate_recovery(signal: dict[str, Any], artifacts: set[str], window: dict
         failures.append(f"recoveryTimeSeconds: {exc}")
 
 
-def _validate_saturation(signal: dict[str, Any], artifacts: set[str], failures: list[str]) -> None:
+def _validate_saturation(lock: dict[str, Any], signal: dict[str, Any], artifacts: set[str]) -> list[str]:
+    failures: list[str] = []
+    names = capacity_components(lock)
     components = _mapping(signal.get("saturationComponents"))
     values: list[float] = []
-    for name in ("worker", "database", "redis"):
+    for name in names:
         component = _mapping(components.get(name))
         if not _finite(component.get("value")) or not _positive_count(component.get("sampleCount")):
             failures.append(f"saturationRatio: {name} saturation observation is missing")
@@ -346,10 +349,11 @@ def _validate_saturation(signal: dict[str, Any], artifacts: set[str], failures: 
         if not _refs(component.get("rawArtifactIds"), artifacts):
             failures.append(f"saturationRatio: {name} raw artifact reference is missing")
         values.append(float(component["value"]))
-    if len(values) == 3 and _finite(signal.get("value")) and not math.isclose(
+    if len(values) == len(names) and _finite(signal.get("value")) and not math.isclose(
         float(signal["value"]), max(values), rel_tol=1e-9, abs_tol=1e-12
     ):
-        failures.append("saturationRatio: gate value must equal the maximum worker/database/Redis observation")
+        failures.append("saturationRatio: gate value must equal the maximum locked component observation")
+    return failures
 
 
 def _validate_signals(
@@ -431,7 +435,7 @@ def _validate_signals(
             failures.append(f"{name}: {value} violates frozen requirement {operator} {limit}")
 
         if name == "saturationRatio":
-            _validate_saturation(signal, artifacts, failures)
+            failures.extend(_validate_saturation(lock, signal, artifacts))
         elif name == "recoveryTimeSeconds":
             # Recovery is observed in the fault period that follows the measured window.
             fault_window = _mapping(_mapping(receipt.get("faultDrill")).get("window"))
@@ -467,11 +471,17 @@ def evaluate(
         failures.append("every excluded Preview dimension must be accounted for by a ruling")
     if preview_protocols(lock) != {"GPServer"}:
         failures.append("the GP Preview ruling must exclude exactly the GPServer protocol from the GA SLOs")
+    try:
+        components = set(capacity_components(lock))
+    except ValueError as exc:
+        return [str(exc)]
     drill_policy = _mapping(lock.get("drill"))
     bounds = _mapping(drill_policy.get("maxRecoverySecondsByDependency"))
     if (drill_policy.get("ruling") != DRILL_RULING or drill_policy.get("amends") != DRILL_AMENDS
-            or set(bounds) != {"worker", "database", "redis"} or not all(_finite(value) for value in bounds.values())
-            or set(drill_policy.get("requiredFaultDependencies") or []) != {"worker", "database", "redis"}
+            or set(bounds) != components or not all(
+                _finite(value) and 0 < value <= {"worker": 19, "database": 36, "redis": 19}.get(name, 0)
+                for name, value in bounds.items())
+            or set(drill_policy.get("requiredFaultDependencies") or []) != components
             or drill_policy.get("requireNoDataLoss") is not True or drill_policy.get("requireNoStuckJobs") is not True):
         failures.append("frozen fault-drill policy is missing or weaker than the drill ruling")
     if set(_mapping(lock.get("soak")).get("requiredSignals", [])) != {"availability", "errorRate", "p95LatencyMs", "p99LatencyMs", "throughputRps", "queueAgeSeconds", "saturationRatio", "recoveryTimeSeconds"}:
@@ -564,7 +574,7 @@ def evaluate(
     except ContractError as exc:
         failures.append(str(exc))
 
-    _validate_topology(receipt, image_digest, failures)
+    _validate_topology(lock, receipt, failures)
     _validate_producer(receipt, expected_revision, failures)
     artifacts = _validate_raw_artifacts(receipt, artifact_root, failures)
     workload_names = _validate_workloads(lock, receipt, artifacts, failures)
