@@ -12,6 +12,8 @@ import re
 
 import yaml
 
+from candidate_lock import PinnedCandidate, resolve_pins, validate_lock
+
 ROWS = {
     'gate-sbom': 'supply-sbom', 'gate-security': 'supply-scan',
     'gate-contract': 'contract-compat', 'gate-contract-live': 'contract-compat',
@@ -31,15 +33,21 @@ class Verdict:
     server_sha: str = ''
     image_digest: str = ''
     proof: dict | None = None
+    lock: Path | None = None
 
 
 def candidate_document(verdict):
     if verdict.status != 'pass':
         raise ValueError('only a validated pass can emit a promise receipt')
-    server_sha, image_digest = verdict.server_sha, verdict.image_digest
-    if verdict.manifest is not None:
-        server = yaml.safe_load(verdict.manifest.read_text())['components']['honua-server']
-        server_sha, image_digest = server['sha'], server['digest']
+    if verdict.manifest is None or verdict.lock is None:
+        raise ValueError('candidate manifest and lock bytes are required')
+    raw = verdict.manifest.read_bytes()
+    pins = resolve_pins(yaml.safe_load(raw), ('server',))
+    validate_lock(verdict.lock.read_bytes(), verdict.lock_digest, PinnedCandidate(raw, pins))
+    server_sha, image_digest = pins['server']['sha'], pins['server']['digest']
+    if verdict.gate == 'gate-protocol-certification' and (
+            verdict.server_sha != server_sha or verdict.image_digest != image_digest):
+        raise ValueError('protocol evaluated another candidate')
     if not re.fullmatch(r'[0-9a-f]{40}', server_sha):
         raise ValueError('missing immutable server source SHA')
     for digest in (image_digest, verdict.lock_digest):
@@ -48,7 +56,7 @@ def candidate_document(verdict):
     return {'schema': 'honua.release-promise-receipt/v1', 'row': ROWS[verdict.gate],
             'status': 'PASS', 'serverSha': server_sha, 'imageDigest': image_digest,
             'platformLockDigest': verdict.lock_digest,
-            'observedAt': dt.datetime.now(dt.timezone.utc).isoformat(),
+            'observedAt': dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z'),
             'assertions': {'producerPassed': True}}
 
 
@@ -72,9 +80,21 @@ def recovery_outcome(doc, proof):
             'unit': 'minutes', 'assertions': {'live': True, 'releaseNotesReported': True}}
 
 
+def validate_capacity(proof):
+    try:
+        ended = dt.datetime.fromisoformat(proof['window']['endedAt'].replace('Z', '+00:00'))
+        age = dt.datetime.now(dt.timezone.utc) - ended
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ValueError('capacity source observation time is required') from exc
+    if not dt.timedelta(0) <= age <= dt.timedelta(days=7):
+        raise ValueError('capacity source evidence is stale or from the future')
+
+
 def emit(verdict, out):
     doc = candidate_document(verdict)
     documents = [doc]
+    if verdict.gate == 'capacity-soak':
+        validate_capacity(verdict.proof)
     if verdict.gate == 'gate-upgrade':
         validate_upgrade(doc, verdict.proof)
     if verdict.gate == 'gate-dr':
@@ -95,13 +115,14 @@ def main():
     p.add_argument('--status', required=True)
     p.add_argument('--manifest', type=Path)
     p.add_argument('--lock-digest', required=True)
+    p.add_argument('--lock', type=Path, required=True)
     p.add_argument('--server-sha', default='')
     p.add_argument('--image-digest', default='')
     p.add_argument('--proof', type=Path)
     p.add_argument('--out', type=Path, required=True)
     a = p.parse_args()
     emit(Verdict(gate=a.gate, status=a.status, manifest=a.manifest, lock_digest=a.lock_digest,
-                 server_sha=a.server_sha, image_digest=a.image_digest,
+                 server_sha=a.server_sha, image_digest=a.image_digest, lock=a.lock,
                  proof=json.loads(a.proof.read_text()) if a.proof else None), a.out)
 
 

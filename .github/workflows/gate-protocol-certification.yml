@@ -386,12 +386,11 @@ jobs:
           echo "::error::Protocol certification ledger is missing, invalid, stale, mismatched, skipped, or failing."
           exit 1
       - name: Emit candidate-bound release promise receipt
-        if: ${{ success() && (inputs.platform_lock_digest) }}
+        if: ${{ success() && inputs.tier == 'release' && (inputs.platform_lock_digest) }}
         uses: ./.github/actions/kept-gate-receipt
         with:
           gate: gate-protocol-certification
           status: ${{ steps.evaluate.outputs.status }}
           lock_digest: ${{ inputs.platform_lock_digest }}
-          manifest: ""
           server_sha: ${{ inputs.expected_source_sha }}
           image_digest: ${{ inputs.expected_image_digest }}

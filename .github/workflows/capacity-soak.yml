@@ -149,3 +149,4 @@ jobs:
           gate: capacity-soak
           status: pass
           lock_digest: ${{ inputs.platform_lock_digest }}
+          proof: ${{ runner.temp }}/capacity-evidence/capacity-soak-receipt.json
