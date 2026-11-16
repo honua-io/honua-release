@@ -5,7 +5,7 @@ identities and validates individual independently graded transcripts.
 `tools/outcome_report.py` replays those transcripts to produce descriptive cohort
 results. Neither command admits a live trial, authenticates a grader, dispatches
 a model or produces a release-promise PASS receipt. Authenticated producer
-provenance, candidate binding, admission approval and live readback remain
+provenance, verification of the declared candidate, admission approval and live readback remain
 separate release requirements.
 
 Create the ordered plan with `python3 tools/outcome_eval.py plan plan.json`.
@@ -13,7 +13,12 @@ The cohort manifest uses this structure (the example abbreviates `trials`):
 
 ```json
 {
-  "schema": "honua.outcome-cohort/v1",
+  "schema": "honua.outcome-cohort/v2",
+  "candidate": {
+    "serverSha": "<40 lowercase hexadecimal characters>",
+    "imageDigest": "sha256:<64 lowercase hexadecimal characters>",
+    "platformLockDigest": "sha256:<64 lowercase hexadecimal characters>"
+  },
   "plan": "plan.json",
   "files": {
     "plan.json": "<SHA256 of exact file bytes>",
@@ -36,6 +41,17 @@ The cohort manifest uses this structure (the example abbreviates `trials`):
   ]
 }
 ```
+
+The cohort and every recorded grade require the same `candidate` object, with
+exactly these three canonical pins. This includes failed, censored, excluded and
+NOT RUN grades. A cohort with no recordings still names its intended candidate.
+Reports use `honua.outcome-report/v2` and retain that identity alongside the exact
+cohort hash. Unbound v1 cohorts are rejected: retain their original records and
+prepare a new manifest and independently reviewed grades for v2. Never add pins
+to old evidence as a substitute for establishing what was actually deployed.
+This consistency check does not authenticate the supplied pins or prove that
+readbacks came from that deployment; the protected producer must establish that
+through the installed-stack harness and Actions provenance.
 
 List every identity exactly once: ordered plan `trials` followed by `baselines`.
 Eligibility is explicit, including for eligible trials not yet attempted. Missing
