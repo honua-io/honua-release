@@ -1,0 +1,51 @@
+{
+  "synthetic": true,
+  "name": "Server Tests (FeatureServer Tiles and Replica)",
+  "workflow_run": {
+    "id": 1182,
+    "name": "CI",
+    "path": ".github/workflows/ci.yml",
+    "event": "workflow_dispatch",
+    "status": "completed",
+    "conclusion": "success",
+    "run_attempt": 2,
+    "head_sha": "a176748b58ed9fb3b2480c71506be6ab9be50f1f",
+    "workflow_id": 1000,
+    "created_at": "2000-01-01T17:53:46Z",
+    "updated_at": "2000-01-01T19:31:22Z"
+  },
+  "check_runs": [
+    {
+      "id": 1881,
+      "name": "Server Tests (FeatureServer Tiles and Replica)",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T17:58:58Z",
+      "completed_at": "2000-01-01T18:24:03Z",
+      "details_url": "https://example.invalid/tests/honua-server/actions/runs/1182/job/1881",
+      "html_url": "https://example.invalid/tests/honua-server/actions/runs/1182/job/1881",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1
+      }
+    },
+    {
+      "id": 1977,
+      "name": "Server Tests (FeatureServer Tiles and Replica)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T19:08:11Z",
+      "completed_at": "2000-01-01T19:31:08Z",
+      "details_url": "https://example.invalid/tests/honua-server/actions/runs/1182/job/1977",
+      "html_url": "https://example.invalid/tests/honua-server/actions/runs/1182/job/1977",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 2
+      }
+    }
+  ]
+}

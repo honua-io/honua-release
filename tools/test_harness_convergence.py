@@ -46,9 +46,9 @@ def candidate(tmp_path):
     # selected versions must match them; no real publication or pin update.
     historical = {row["source"]: row["version"] for row in read(target / "sources/official-sdk-protocol-assignments.v1.json")["clients"]}
     align_manifest_versions(target, historical)
-    # Byte-identical actual server 00a23a8c62f2e0ba5dd03244cdcf9f205790cbff contract.
-    data = (ROOT / "tools/fixtures/protocol-harness-2026-08-26.1.json").read_bytes()
-    assert len(read(ROOT / "tools/fixtures/protocol-harness-2026-08-26.1.json")["assignments"]) == 42
+    # Static assignments exercise contract convergence; they do not attest a server run.
+    data = (ROOT / "tools/fixtures/server-harness-contract-input.json").read_bytes()
+    assert len(read(ROOT / "tools/fixtures/server-harness-contract-input.json")["assignments"]) == 42
     (target / HARNESS).write_bytes(data)
     return target
 
@@ -356,7 +356,7 @@ def drop_unproduced_lane(candidate, lane):
 
 def add_reviewed_wps_contract(candidate):
     """Extracted source inputs, not a conformance receipt or a support promotion."""
-    fixture = read(ROOT / "tools/fixtures/wps-contract-source-2026-10-13.json")
+    fixture = read(ROOT / "tools/fixtures/wps-contract-input.json")
     drop_matrix_capability(candidate, "serve.wps")
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"
     matrix = read(matrix_path)
@@ -423,7 +423,7 @@ def test_wps_cite_disposition_must_be_exactly_once(candidate, mutation, count):
 
 def add_reviewed_h3_contract(candidate, *, implemented=True, assignments=True):
     """Reviewed adapter source data; never an executed or image-qualified receipt."""
-    fixture = read(ROOT / "tools/fixtures/h3-contract-source-2026-10-13.json")
+    fixture = read(ROOT / "tools/fixtures/h3-contract-input.json")
     drop_matrix_capability(candidate, "analytics.h3")
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"
     matrix = read(matrix_path)
@@ -501,7 +501,7 @@ def stage_reviewed_unassigned_gap(candidate, capability):
         (candidate.parent / path).write_bytes(data)
         path, data = REBIND.project_h3_production_gap(candidate.parent)
     elif capability == "serve.wps":
-        fixture = read(ROOT / "tools/fixtures/wps-contract-source-2026-10-13.json")
+        fixture = read(ROOT / "tools/fixtures/wps-contract-input.json")
         drop_matrix_capability(candidate, "serve.wps")
         matrix_path = candidate / "sources/server/capability-matrix.v1.json"
         matrix = read(matrix_path)

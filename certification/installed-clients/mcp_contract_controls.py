@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Replay actual honua-server 86286687 observations through the corrected judges.
+"""Validate MCP contract shapes using static, non-qualification inputs.
 
-mcp-6901-replay-41680771276.json is a trimmed copy of the retained raw evidence of
-geospatial-mcp certify run 41680771276 (both distributed clients). It keeps only what these
-judges read: every non-render tool result of the style, ingest, findings/events, health,
-grounding and publish-result journeys, the declared serving projection, and the publication's
-new service-layer rows. That run failed on three server contracts the judges did not model:
-  * honua-server #6901 returns [json] or [summary, json] text content;
-  * honua-server #6851 writes serving observationStatus;
-  * a new service's only layer is ordered 1 (PostgreSqlLayerPublishingService.LayerPersistence.cs:819).
+Fixtures cover single and summarized JSON text content, serving observation status,
+publication query source identity and attributes, and new service-layer ordering.
+They do not establish installed-product behavior or candidate qualification.
 """
 from __future__ import annotations
 
@@ -25,8 +20,8 @@ import mcp_ops_health_validation as health
 import mcp_publish_result_validation as publication
 import mcp_style_validation as style
 
-FIXTURE = json.loads(Path(__file__).with_name("mcp-6901-replay-41680771276.json").read_text(encoding="utf-8"))
-QUERY_FIXTURE = json.loads(Path(__file__).with_name("mcp-publish-query-replay-41714656270.json").read_text(encoding="utf-8"))
+FIXTURE = json.loads(Path(__file__).with_name("mcp-tool-contract-input.json").read_text(encoding="utf-8"))
+QUERY_FIXTURE = json.loads(Path(__file__).with_name("mcp-query-contract-input.json").read_text(encoding="utf-8"))
 SUMMARIES = {
     "honua_ops_health": "Ops health snapshot returned in structuredContent.",
     "honua_alert_events": "Alert-event page returned in structuredContent.",
@@ -42,11 +37,9 @@ def results():
                 yield client, family, item["tool"], item["result"]
 
 
-class ActualServerReplay(unittest.TestCase):
-    def test_retained_publication_queries_preserve_source_ids_and_attributes(self):
-        self.assertEqual(QUERY_FIXTURE["source"]["workflowRun"], 41714656270)
-        self.assertEqual(QUERY_FIXTURE["source"]["serverSourceSha"], "8628668794df9f0c22a490e59cedaee409cc1bdd")
-        self.assertEqual(QUERY_FIXTURE["source"]["artifactId"], 13270967941)
+class McpContractControls(unittest.TestCase):
+    def test_publication_queries_preserve_source_ids_and_attributes(self):
+        self.assertEqual(QUERY_FIXTURE["source"], {"kind": "static-contract-input", "revision": "v1", "executionEvidence": False})
         self.assertEqual(set(QUERY_FIXTURE["clients"]), {"sdk", "inspector"})
         for client, observations in QUERY_FIXTURE["clients"].items():
             self.assertEqual(len(observations["queryResults"]), 2)
@@ -54,12 +47,11 @@ class ActualServerReplay(unittest.TestCase):
                 with self.subTest(client=client, query=name):
                     publication.query_output(result, {}, observations["database"])
 
-    def test_fixture_is_the_retained_candidate_evidence(self):
-        self.assertEqual(FIXTURE["source"]["workflowRun"], 41680771276)
-        self.assertEqual(FIXTURE["source"]["serverSourceSha"], "8628668794df9f0c22a490e59cedaee409cc1bdd")
+    def test_fixture_is_a_static_contract_input(self):
+        self.assertEqual(FIXTURE["source"], {"kind": "static-contract-input", "revision": "v1", "executionEvidence": False})
         self.assertEqual(set(FIXTURE["clients"]), {"sdk", "inspector"})
 
-    def test_every_actual_tool_result_has_the_server_text_shape(self):
+    def test_every_tool_result_has_the_server_text_shape(self):
         shapes = collections.Counter()
         for client, family, tool, result in results():
             with self.subTest(client=client, family=family, tool=tool):
@@ -73,7 +65,7 @@ class ActualServerReplay(unittest.TestCase):
         self.assertGreater(shapes[(True, 1)], 0)
         self.assertEqual(shapes[(True, 2)], 0)
 
-    def test_family_judges_accept_the_actual_successes(self):
+    def test_family_judges_accept_successes(self):
         judged = collections.Counter()
         for client, family, tool, result in results():
             if result.get("isError"):
@@ -93,7 +85,7 @@ class ActualServerReplay(unittest.TestCase):
                 judged[family] += 1
         self.assertEqual(set(judged), {"style", "ingest", "opsEvents", "opsHealth", "grounding", "publishResult"})
 
-    def test_actual_summarized_results_were_what_the_single_block_rule_refused(self):
+    def test_summarized_results_cover_large_json_payloads(self):
         summarized = [(tool, result) for *_, tool, result in results() if len(result["content"]) == 2]
         self.assertTrue({"honua_ops_health", "honua_query_features", "honua_ops_findings"}
                         <= {tool for tool, _ in summarized})
@@ -101,7 +93,7 @@ class ActualServerReplay(unittest.TestCase):
             with self.subTest(tool=tool):
                 self.assertGreaterEqual(len(result["content"][1]["text"]), wire.INLINE_TEXT_THRESHOLD)
 
-    def test_mutations_of_actual_results_are_refused(self):
+    def test_mutations_of_results_are_refused(self):
         for client, family, tool, result in results():
             if len(result["content"]) != 2:
                 continue
@@ -125,13 +117,13 @@ class ActualServerReplay(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         wire.structured_text_content(changed, summary=False if changed.get("isError") else summary)
 
-    def test_actual_serving_observation_status(self):
+    def test_serving_observation_status(self):
         for client, families in FIXTURE["clients"].items():
             for entries in families["grounding"]["serving"]:
                 for entry in entries:
                     with self.subTest(client=client):
                         self.assertEqual(grounding.serving_projection(copy.deepcopy(entry))["observationStatus"], "notObserved")
-                        with self.assertRaises(ValueError):  # the #1232 rule this corrects
+                        with self.assertRaises(ValueError):
                             grounding.plane_projection(copy.deepcopy(entry))
                         for status in ("healthy", None, "NotObserved", ""):
                             with self.assertRaises(ValueError):
@@ -139,7 +131,7 @@ class ActualServerReplay(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             grounding.serving_projection({k: v for k, v in entry.items() if k != "observationStatus"})
 
-    def test_actual_new_service_layer_order(self):
+    def test_new_service_layer_order(self):
         for client, families in FIXTURE["clients"].items():
             rows = families["publishResult"]["newServiceLayers"]
             self.assertEqual(len(rows), 1, client)
