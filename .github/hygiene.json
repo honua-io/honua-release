@@ -29,5 +29,15 @@
     "certification/hosted-pilot/history/legacy-lambda-liabilities-20261023.json": "Exact-path restoration of liabilities bound by foundation-funding-basis.json and foundation-inventory.json; tools/hosted_pilot/budget_bootstrap.py verifies the source.",
     "certification/hosted-pilot/history/legacy-model-liabilities-20261023.json": "Exact-path restoration of liabilities bound by foundation-funding-basis.json legacyModelObservation, documented in history/README.md.",
     "certification/hosted-pilot/history/reconciled-20261023T161500Z.json": "Exact-path restoration of the candidate-bound bootstrap input documented in HISTORY-RECONCILIATION.md; tools/hosted_pilot/budget_bootstrap.py verifies its sources."
-  }
+  },
+  "denied_public_paths": [
+    "tools/vendor-terms/reports/*",
+    "docs/PLATFORM-LOCK-231-DELIVERY.md",
+    "docs/rehearsals/2026-09-12-licensing-disabled.md",
+    "docs/validation/2026-09-06-lambda-qualification-gate.md",
+    "docs/2026.1-backlog-stage-review-20261012.md",
+    "docs/2026.1-lambda-ga-bill.md",
+    "docs/FIRST-PUBLICATION-PREFLIGHT-57.md",
+    "docs/rehearsals/2026-09-04-clean-room-install.md"
+  ]
 }
