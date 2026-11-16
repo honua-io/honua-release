@@ -8,8 +8,8 @@ on:
       - e2e/harness/boot.sh
       - e2e/harness/compose.candidate.yml
       - certification/terminal-journey/certification.schema.json
-      - certification/terminal-journey/certification.issue-122.json
-      - certification/terminal-journey/certification.issue-122.md
+      - certification/terminal-journey/certification-contract-input.json
+      - certification/terminal-journey/CERTIFICATION-CONTRACT.md
       - certification/terminal-journey/test_certification.py
       - release-notes/README.md
       - .github/workflows/terminal-journey-certification.yml
