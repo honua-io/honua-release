@@ -38,6 +38,15 @@
     "docs/2026.1-backlog-stage-review-20261012.md",
     "docs/2026.1-lambda-ga-bill.md",
     "docs/FIRST-PUBLICATION-PREFLIGHT-57.md",
-    "docs/rehearsals/2026-09-04-clean-room-install.md"
+    "docs/rehearsals/2026-09-04-clean-room-install.md",
+    "tools/fixtures/client-artifacts/pypi.whl",
+    "tools/fixtures/client-artifacts/nuget-registration.json",
+    "tools/fixtures/client-artifacts/nuget-catalog.json",
+    "tools/fixtures/client-artifacts/nuget.nupkg",
+    "tools/fixtures/client-artifacts/nuget-index.json",
+    "tools/fixtures/client-artifacts/nuget-1.10.0-registration.json",
+    "tools/fixtures/client-artifacts/nuget-1.10.0-catalog.json",
+    "tools/fixtures/client-artifacts/nuget-1.10.0.nupkg",
+    "tools/fixtures/client-artifacts/pypi-provenance.json"
   ]
 }

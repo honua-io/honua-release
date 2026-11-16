@@ -124,13 +124,26 @@ def test_public_nuget_rejects_archive_source_drift(monkeypatch):
 RECORDED = vca.REPO_ROOT / 'tools' / 'fixtures' / 'client-artifacts'
 
 
+def test_package_fixtures_contain_only_synthetic_metadata():
+    for filename, members in [
+        ('pypi.synthetic.whl', ['honua_sdk-0.1.12.dist-info/METADATA']),
+        ('nuget.synthetic.nupkg', ['Honua.Sdk.nuspec']),
+        ('nuget-1.10.0.synthetic.nupkg', ['Honua.Sdk.nuspec']),
+    ]:
+        with zipfile.ZipFile(RECORDED / filename) as archive:
+            assert archive.namelist() == members
+            assert b'Synthetic verifier fixture' in archive.read(members[0])
+    for path in RECORDED.glob('*.synthetic.json'):
+        assert json.loads(path.read_text())['synthetic'] is True
+
+
 def _pypi_metadata_url():
     pin = json.loads((RECORDED / 'pins.json').read_text())['python']
     return f"https://pypi.org/pypi/{pin['package']}/{pin['version']}/json"
 
 
 def recorded_responses():
-    """Replay captured packages and synthetic npm/PyPI documents.
+    """Replay synthetic registry documents and minimal package archives.
 
     Synthetic documents and archives are not publication evidence.
     """
@@ -155,7 +168,7 @@ def test_pypi_metadata_fixture_is_synthetic_and_not_recorded_evidence():
     pin = json.loads((RECORDED / 'pins.json').read_text())['python']
     assert row['filename'] == pin['filename']
     assert row['digests'] == {'sha256': pin['digest'].removeprefix('sha256:')}
-    assert row['url'] == urls['pypi.whl']
+    assert row['url'] == urls['pypi.synthetic.whl']
 
 
 def recorded_registry(monkeypatch):
@@ -182,9 +195,9 @@ def test_registry_fixtures_return_verified_artifact_identities(monkeypatch):
         'js': {'version': '0.1.12', 'sourceRevision': '1102d2d55916340edca13cb28411df8da8206f92',
                'sha256': 'sha256:8a4e698d7a1d09d6e943ef6db6903f5f1f53cf17cc2acb111cea365fe1a90f58'},
         'python': {'version': '0.1.12', 'sourceRevision': '12670676a1e8acb835e911c358adbf46a731120a',
-                   'sha256': 'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'},
+                   'sha256': 'sha256:41ab947d50f514a01e8de2484914a2865c53977c9456af1176567607c64f4a9c'},
         'dotnet': {'version': '1.10.1', 'sourceRevision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
-                   'sha256': 'sha256:65e096cdea4d6f2e35226ae3ed3d769fea5f19fc1c4d3612a6339e75a42a8bbd'},
+                   'sha256': 'sha256:ed546d737b7d62a956621d32922d4fc2d9c0be69a7379db45299e9d0e8901e5d'},
     }
     assert len(reads) == 8  # metadata, bytes, NuGet catalog, and PyPI provenance
     assert vca.verify_manifest({'clientArtifacts': RECORDED_PINS}) == [
@@ -214,8 +227,8 @@ def test_recorded_identity_drift_never_returns_an_identity(monkeypatch, name, fi
 
 @pytest.mark.parametrize('name,filename,message', [
     ('js', 'npm.synthetic.tgz', 'npm bytes'),
-    ('python', 'pypi.whl', 'wheel bytes'),
-    ('dotnet', 'nuget.nupkg', 'NuGet bytes'),
+    ('python', 'pypi.synthetic.whl', 'wheel bytes'),
+    ('dotnet', 'nuget.synthetic.nupkg', 'NuGet bytes'),
 ])
 def test_recorded_package_corruption_refuses_identity(monkeypatch, name, filename, message):
     recorded_registry(monkeypatch)
@@ -228,7 +241,7 @@ def test_recorded_package_corruption_refuses_identity(monkeypatch, name, filenam
 
 
 def test_recorded_nuget_index_does_not_publish_1_6_2():
-    assert json.loads((RECORDED / 'nuget-index.json').read_text())['versions'] == [
+    assert json.loads((RECORDED / 'nuget-index.synthetic.json').read_text())['versions'] == [
         '1.6.4', '1.7.0', '1.8.0', '1.9.0', '1.10.0', '1.10.1',
     ]
 
@@ -237,7 +250,7 @@ def test_recorded_nuget_index_does_not_publish_1_6_2():
 def test_pypi_refuses_missing_or_invalid_provenance(monkeypatch, mutation):
     recorded_registry(monkeypatch)
     request = vca._request
-    provenance = json.loads((RECORDED / 'pypi-provenance.json').read_text())
+    provenance = json.loads((RECORDED / 'pypi-provenance.synthetic.json').read_text())
     bundle = provenance['attestation_bundles'][0]
     envelope = bundle['attestations'][0]['envelope']
     if mutation == 'absent':
