@@ -18,7 +18,7 @@ def evidence(row):
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock,
             'observedAt': '2026-11-14T00:00:00Z', 'openHighFindings': 0,
-            'sourceObservedAt': '2026-11-13T00:00:00Z',
+            'sourceObservedAt': '2026-11-13T00:00:00Z', 'imageSizeBytes': 220_000_000,
             'assertions': row['assertions'], 'stackName': 'honua-gate-test'}
 
 

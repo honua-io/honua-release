@@ -128,7 +128,7 @@ identity and authenticated execution) are:
 
 | Row | Producer | Assertions |
 |---|---|---|
-| `cloud-image-aot` | `gate-launch-stack.yml` | `live`, `publishedAotImage`, `sizeBudgetMet`: true; `stackName` uses `honua-gate-` prefix. Published image digest must equal the receipt candidate digest. |
+| `cloud-image-aot` | `gate-launch-stack.yml` | `live`, `publishedAotImage`, `sizeBudgetMet`: true; `stackName` uses `honua-gate-` prefix. Published image digest must equal the receipt candidate digest. `imageSizeBytes` is the positive integer uncompressed image size: RC <=370,000,000 bytes; GA <=220,000,000 bytes. The aggregate retains this measurement and rechecks the requested profile; a boolean size assertion alone cannot pass. |
 | `cloud-no-redis-source` | `gate-source-facts.yml` | `redisPackages`, `redisSourceReferences`: integer zero at the candidate SHA; this is source evidence, without a live-stack assertion. |
 | `security-agent-default-deny` | `gate-agent-safety.yml` | `live`, `allMutatingRoutesChecked`, `proposalOnly`, `agentIdentityAudited`: true. Every mutating route must return a proposal without making a direct change. |
 | `operates-8-upgrade` | `gate-upgrade.yml` | `live`, `rollingUpgrade`, `nMinusOneReaderCompatible`, `rollbackPassed`, `launchStack`: true, using the previous release image on the Launch Stack. |
