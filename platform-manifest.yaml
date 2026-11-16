@@ -92,7 +92,7 @@ protocolCertification:
   # advancing the working component pin does not change that package's provenance.
   # Keep certification pending until the cut selects certifiable published SDKs,
   # regenerates the catalog, and atomically rebinds the ledger and trusted gates.
-  # Evidence and the remaining candidate criterion: docs/2026.1-sdk-pin-convergence.md.
+  # Producer convergence contract: docs/SDK-PRODUCER-CONVERGENCE.md.
   ledger:
     status: pending
     repository: "honua-io/honua-evidence"
