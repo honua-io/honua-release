@@ -74,7 +74,7 @@ class EventCounter:
         self.counts["personWords"] += len(WORDS.findall(text))
 
     def click(self, event):
-        count = integer(event.get("count", 1), "click count")
+        count = integer(event.get("count"), "click count")
         if count not in (1, 2):
             raise ValueError("click count must be 1 or 2")
         self.counts["clicks"] += count

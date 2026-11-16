@@ -40,6 +40,44 @@ class OutcomeChecks(unittest.TestCase):
         grade_path.write_text(json.dumps(grading))
         return h.summarize(events_path, grade_path)
 
+    def test_duplicate_json_keys_rejected(self):
+        for raw in ('{"type":"tool-attempt","type":"observer"}',
+                    '{"evidence":{"raw":"first","raw":"second"}}'):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                h.parse_json(raw)
+
+    def test_transcript_cannot_be_its_own_readback(self):
+        for name in ("events.jsonl", "alias.jsonl", "hardlink.jsonl"):
+            with self.subTest(name=name):
+                self.count()
+                events = self.root / "events.jsonl"
+                if name == "alias.jsonl":
+                    (self.root / name).symlink_to(events)
+                elif name == "hardlink.jsonl":
+                    (self.root / name).hardlink_to(events)
+                grade = copy.deepcopy(self.grade)
+                grade["terminalReadback"] = name
+                grade["evidence"][name] = h.digest(events)
+                with self.assertRaises(ValueError):
+                    self.count(grade=grade)
+
+    def test_click_count_must_be_explicit(self):
+        self.events.insert(-1, {"id": "click", "seconds": 10, "type": "click"})
+        with self.assertRaises(ValueError):
+            self.count()
+
+    def test_equal_time_cannot_reverse_boundaries(self):
+        events = [{"id": "read", "seconds": 0, "type": "terminal-readback"},
+                  {"id": "call", "seconds": 0, "type": "tool-attempt"},
+                  {"id": "start", "seconds": 0, "type": "dispatch"}]
+        with self.assertRaises(ValueError):
+            self.count(events=events)
+        for order in ((1, 0, 2), (0, 2, 1)):
+            normal = [events[2], events[1], events[0]]
+            with self.subTest(order=order), self.assertRaises(ValueError):
+                self.count(events=[normal[i] for i in order])
+        self.assertEqual(self.count(events=[events[2], events[1], events[0]])["toolCalls"], 1)
+
     def test_balanced_deterministic_plan(self):
         p = h.plan()
         self.assertEqual(p, h.plan())

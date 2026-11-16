@@ -34,7 +34,7 @@ publish-layer workflow. Agent trials also record any person clicks and field wor
 ## Raw events
 
 Each JSONL event has a unique nonempty `id`, nonnegative finite monotonic `seconds`
-from the recorder's clock, and a `type`. Keep failed attempts and retries.
+from the recorder's clock, and a `type`. Reject duplicate JSON keys. Keep failed attempts and retries.
 
 | Type | Additional fields and meaning |
 | --- | --- |
@@ -63,10 +63,11 @@ Optional `pass`, `model`, `arm` and `baselineId` must agree with the planned tri
 Statuses are `success`, `failed`, `censored`, `excluded` and `not-run`. Every
 non-success needs a reason. Success additionally requires
 `postconditionsPassed: true`, `controlsPassed: true`, and `terminalReadback`
-naming a hashed independent readback. The grader verifies the actual product
+naming a hashed independent readback distinct from the transcript, including file aliases. The grader verifies the actual product
 state and hostile-input controls; model prose and shell exit status cannot supply
 that evidence. Any person text requires `sentenceBoundariesReviewed: true`.
 
+Dispatch must precede the end boundary in event order, even for equal timestamps.
 Dispatch and terminal readback determine successful elapsed time. Other evaluated
 runs require dispatch and stop; stop and terminal readback cannot coexist. More
 than ten person sentences, 100 tool calls, or the plan's workflow time limit

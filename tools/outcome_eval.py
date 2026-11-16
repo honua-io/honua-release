@@ -17,6 +17,19 @@ MODELS = ("gpt-6.1-sol", "claude-opus-5-5")
 ARMS = {"A": [], "B": ["okf"], "C": ["skills"], "D": ["okf", "skills"]}
 
 
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def parse_json(raw):
+    return json.loads(raw, object_pairs_hook=unique_object)
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -115,8 +128,13 @@ def finish_timing(result, events, grade):
         end = boundaries.get("terminal-readback") if grade["status"] == "success" else boundaries.get("stop")
         if end is None or end < boundaries["dispatch"]:
             raise ValueError("terminal readback/stop boundary required")
-        if any(e["type"] not in {"observer"} and
-               (e["seconds"] < boundaries["dispatch"] or e["seconds"] > end) for e in events):
+        start_index = next(i for i, e in enumerate(events) if e["type"] == "dispatch")
+        end_kind = "terminal-readback" if grade["status"] == "success" else "stop"
+        end_index = next(i for i, e in enumerate(events) if e["type"] == end_kind)
+        if start_index >= end_index:
+            raise ValueError("dispatch must precede terminal readback/stop")
+        if any(e["type"] != "observer" and
+               (i < start_index or i > end_index) for i, e in enumerate(events)):
             raise ValueError("evaluated events outside task timing boundary")
         result["elapsedMinutes"] = (end - boundaries["dispatch"]) / 60
         result["limitExceeded"] = (
@@ -153,7 +171,7 @@ def _summarize(events, grade, root):
 
 def summarize(events_path, grade_path):
     """Count the exact transcript pinned by the independent grade."""
-    grade = json.loads(grade_path.read_text())
+    grade = parse_json(grade_path.read_text())
     if not isinstance(grade, dict) or not isinstance(grade.get("evidence"), dict):
         raise ValueError("grade and evidence must be objects")
     event_name = str(events_path.resolve().relative_to(grade_path.parent.resolve()))
@@ -161,7 +179,11 @@ def summarize(events_path, grade_path):
     raw = events_path.read_bytes()
     if grade.get("evidence", {}).get(event_name) != hashlib.sha256(raw).hexdigest():
         raise ValueError("grade must pin the raw event transcript")
-    events = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    if grade.get("status") == "success":
+        readback = confined(grade_path.parent, grade.get("terminalReadback"))
+        if readback.samefile(events_path):
+            raise ValueError("terminal readback must be independent of the transcript")
+    events = [parse_json(line) for line in raw.splitlines() if line.strip()]
     return _summarize(events, grade, grade_path.parent)
 
 
@@ -181,7 +203,7 @@ def main():
         if args.command == "plan":
             write_new(args.output, plan())
         elif args.command == "verify-pins":
-            verify_files(args.manifest.parent, json.loads(args.manifest.read_text())["files"])
+            verify_files(args.manifest.parent, parse_json(args.manifest.read_text())["files"])
             print("Pinned files match; this is not live admission or grading.")
         else:
             write_new(args.output, summarize(args.events, args.grade))
