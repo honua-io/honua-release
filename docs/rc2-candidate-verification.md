@@ -24,7 +24,8 @@ On the first successful nightly event, preserve these identities together:
 | Admission | Minted `nightly-lock/<label>` tag and exact lock bytes/digest; train gate report and binding |
 | Raw results | Per-gate artifacts, producer run URLs, attempts, cell results and durable evidence URIs |
 
-Follow [the cut runbook](rc2-cut-runbook.md) for lock generation and binding.
+See [candidate evidence and release admission](rc2-cut-runbook.md) for the
+identity and proof requirements.
 Keep the snapshot commit, server source SHA, manifest hash and platform-lock digest
 distinct. No mutable trunk pin, release tag alone, successful job badge, or manifest
 hash substitutes for the lock used by the candidate's gates.
