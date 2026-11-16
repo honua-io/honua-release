@@ -1,6 +1,6 @@
 # Honua Platform Test & Certification Strategy
 
-Companion to RELEASE-ENGINEERING-PLAN.md. Defines the layered test architecture, the deploy-target
+Companion to RELEASE-ENGINEERING.md. Defines the layered test architecture, the deploy-target
 matrix (and how to avoid its combinatorial explosion), the canonical scenarios, and an AWS-first build.
 
 ## The problem
@@ -80,9 +80,9 @@ runs that pairing. No component repo owns cross-component tests (it would just m
 
 ## Protocol compliance and certification program
 
-> **Normative contract:** [PROTOCOL-CERTIFICATION-PLAN.md](PROTOCOL-CERTIFICATION-PLAN.md) resolves the
+> **Normative contract:** [PROTOCOL-CERTIFICATION.md](PROTOCOL-CERTIFICATION.md) resolves the
 > independent-review findings and governs maturity, denominator, freshness, client assignment, tier
-> promotion, and evidence semantics. If earlier prose conflicts with that contract, the plan takes precedence.
+> promotion, and evidence semantics. If earlier prose conflicts with that contract, the contract takes precedence.
 
 This section defines how Honua proves the supported public API and format surface without turning ordinary
 pull-request CI into the full certification lab. It covers server protocols, official Honua SDKs, licensed GIS

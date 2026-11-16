@@ -334,7 +334,6 @@
   "tools/test_rc_gate_window_ordering.py": 0.028,
   "tools/test_rc_release_notes.py": 0.001,
   "tools/test_release_controls.py": 0.26,
-  "tools/test_release_dashboard.py": 0.183,
   "tools/test_release_inspect.py": 0.943,
   "tools/test_release_notes_ref.py": 1.135,
   "tools/test_release_profile_gates.py": 11.79,

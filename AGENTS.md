@@ -1,9 +1,9 @@
 # honua-release: agent instructions
 
-Platform release engineering: `platform-manifest.yaml` (pinned, certified component set per
-`Honua YYYY.N`), `compatibility-matrix.yaml` (interop rules), the release train
-(`release-train.yml`) and environment-gated promotion (`promote.yml`), cross-repo
-certification (`certification/`, `e2e/`), BOM and release notes. Overview: `README.md`.
+Platform release contracts and admission: adopt a candidate using frozen manifest,
+compatibility matrix and platform-lock bytes; prove required journeys using authenticated
+producer evidence; publish only after admission. Keep server SHA, image digest and lock
+digest distinct. Overview: `README.md`; evidence guide: `docs/rc2-cut-runbook.md`.
 
 ## Commands (from `.github/workflows/manifest-validate.yml`, the required `validate` check)
 ```bash
@@ -24,9 +24,10 @@ Run the steps that cover what you changed; the workflow lists the rest.
 - **AI proposes, the pipeline disposes.** Release gates live in GitHub Actions and must be
   able to fail; no human or AI overrides them. A gate that can't fail is worse than no gate.
 - **Do not grant AI release autonomy until the gates can't lie** (real gates and real
-  telemetry first; `docs/RELEASE-ENGINEERING-PLAN.md`, Phase 1).
-- **`platform-manifest.yaml` and `compatibility-matrix.yaml` are the source of truth** for
-  which versions ship together. Narrowing a matrix range without a contract-version bump fails.
+  telemetry first; `docs/RELEASE-ENGINEERING.md`).
+- **The manifest and matrix declare candidate pins and compatibility rules.** Retain their
+  certified bytes with the platform lock; declarations alone do not prove installed readiness.
+  Narrowing a matrix range without a contract-version bump fails.
 - **`customer-install-manifest.json` is published, not internal.** honua-site copies it
   byte-for-byte to `https://honua.io/data/customer-install-manifest.json`. Its pins must match
   `platform-manifest.yaml` (release-candidate profiles always use current pins; only the
