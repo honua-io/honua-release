@@ -90,7 +90,8 @@ def task_definition(aws, resources):
 def running_tasks(aws, resources):
     response = aws('ecs', 'list-tasks', '--cluster', resources['Cluster'],
                    '--service-name', resources['Service'], '--desired-status', 'RUNNING')
-    require(not response.get('nextToken'), 'Incomplete task list response')
+    require(not response.get('nextToken') and not response.get('NextToken'),
+            'Incomplete task list response')
     arns = response.get('taskArns', [])
     require(arns and len(set(arns)) == len(arns), 'Missing or duplicate running task identities')
     tasks = []
@@ -152,6 +153,7 @@ def ready_targets(aws, resources, tasks):
                 and target.get('Target', {}).get('Port') == 8080, 'Readiness target is not healthy')
         observed.append(target['Target'].get('Id'))
     require(set(observed) == set(addresses), 'Readiness targets do not match running server tasks')
+    readiness_group(aws, resources)
 
 
 def observe_stack(aws, stack_name):
