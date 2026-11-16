@@ -121,6 +121,21 @@ def server_digest(task, resources):
     return digest
 
 
+
+def task_snapshot(tasks, resources):
+    observations = {}
+    for task in tasks:
+        digest = server_digest(task, resources)
+        container = one([c for c in task.get('containers', []) if c.get('name') == 'honua'],
+                        'Missing server container')
+        observations[task['taskArn']] = {
+            'digest': digest, 'health': task.get('healthStatus'),
+            'containerHealth': container.get('healthStatus'),
+            'network': container.get('networkInterfaces'),
+        }
+    return observations
+
+
 def readiness_group(aws, resources):
     response = aws('elbv2', 'describe-target-groups', '--target-group-arns', resources['Targets'])
     group = one(response.get('TargetGroups'), 'Missing readiness target group')
@@ -166,9 +181,12 @@ def observe_stack(aws, stack_name):
     definition = task_definition(aws, resources)
     tasks = running_tasks(aws, resources)
     require(len(tasks) == service['desiredCount'], 'Running task count differs from desired capacity')
-    digests = {server_digest(task, resources) for task in tasks}
+    snapshot = task_snapshot(tasks, resources)
+    digests = {task['digest'] for task in snapshot.values()}
     require(len(digests) == 1, 'Running tasks have mixed image digests')
     ready_targets(aws, resources, tasks)
+    require(task_snapshot(running_tasks(aws, resources), resources) == snapshot,
+            'Tasks changed during readiness observation')
     require(service_state(aws, resources) == service, 'Service changed during observation')
     require(stack_state(aws, stack_name) == stack, 'Stack changed during observation')
     return {'stackName': stack_name, 'startedAt': started,
