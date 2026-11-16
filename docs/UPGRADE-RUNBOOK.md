@@ -220,9 +220,8 @@ Founder re-tier 2026-10-25: only the `aws-ecs` cells are GA. Lambda (`aws-server
 run as Preview. The aggregate promotion proof is the GA set (`GA_CELLS` in
 `e2e/runner/update_rollback.py`). This section is the operator reading of that driver. It does
 not add a gate. The Compose gate in section 6 stays the required runtime proof (founder decision
-D9). Do not cite the nginx ECS certification in
-[`docs/2026.1-evidence-map.md`](2026.1-evidence-map.md) I-07 as a Honua server rollback: that
-workflow's image is nginx.
+D9). A deployment running nginx does not prove a Honua server rollback.
+Use receipts from the actual server image and required deployment topology.
 
 `preflight` refuses a schema mismatch before any provider mutation. Qualification mode needs two
 distinct signed locks. A rehearsal must not claim lock qualification: both lock digests are absent.
