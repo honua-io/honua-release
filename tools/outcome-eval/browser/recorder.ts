@@ -46,12 +46,17 @@ export class Recorder {
 
   /** Runs the evaluated work between dispatch and exactly one end boundary, which the time limit forces. */
   async trial(limitMinutes: number, task: () => Promise<Verdict>): Promise<Verdict> {
+    if (this.startedAt !== undefined) throw new Error('a recorder can run only one trial');
+    if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) throw new Error('the time limit must be positive and finite');
     this.startedAt = performance.now();
     this.emit('dispatch');
     let timer: NodeJS.Timeout | undefined;
+    const timeoutError = new Error(`the time limit of ${limitMinutes} minutes was reached`);
     const deadline = new Promise<never>((_, reject) => {
-      const expire = () => reject(new Error(`the time limit of ${limitMinutes} minutes was reached`));
-      timer = setTimeout(expire, limitMinutes * MILLISECONDS_PER_MINUTE);
+      timer = setTimeout(() => {
+        this.end('stop', { reason: timeoutError.message });
+        reject(timeoutError);
+      }, limitMinutes * MILLISECONDS_PER_MINUTE);
     });
     try {
       const verdict = await Promise.race([task(), deadline]);
@@ -60,6 +65,7 @@ export class Recorder {
       return verdict;
     } catch (error) {
       this.end('stop', { reason: `exception: ${firstLine(error)}` });
+      if (error === timeoutError) await this.page.close().catch(() => undefined);
       throw error;
     } finally {
       clearTimeout(timer);
@@ -72,6 +78,7 @@ export class Recorder {
   }
 
   async goto(path: string) {
+    this.assertRunning();
     try {
       await this.page.goto(path, { waitUntil: 'load' });
     } catch (error) {
@@ -98,6 +105,7 @@ export class Recorder {
 
   /** One click opens the chooser and one field action picks the file. */
   async chooseFile(trigger: Locator, fieldId: string, file: UploadedFile) {
+    this.assertRunning();
     const opened = this.page.waitForEvent('filechooser', { timeout: 15_000 });
     opened.catch(() => undefined);
     await this.click(trigger, `${fieldId} (open file chooser)`);
@@ -107,9 +115,11 @@ export class Recorder {
 
   /** An action is counted when it is dispatched, whether or not it then completes; an unready target counts nothing. */
   private async act(action: Action, ready: () => Promise<unknown>, dispatch: () => Promise<unknown>) {
+    this.assertRunning();
     let dispatched = false;
     try {
       await ready();
+      this.assertRunning();
       dispatched = true;
       this.emit(action.type, action.fields);
       await dispatch();
@@ -117,6 +127,10 @@ export class Recorder {
       this.emit('retry', { failed: action.type, target: action.target, dispatched, error: firstLine(error) });
       throw error;
     }
+  }
+
+  private assertRunning() {
+    if (this.startedAt === undefined || this.ended) throw new Error('the trial is not running');
   }
 
   private end(type: 'stop' | 'terminal-readback', fields: Record<string, unknown>) {
