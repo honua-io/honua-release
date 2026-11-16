@@ -8,8 +8,7 @@
 #                    customer upgrade/rollback is proven on the runner's own Docker (x86_64, no cloud cost):
 #                    prior -> seed -> backup -> candidate (contract nonce) -> journal advanced + rows
 #                    survived -> image rollback or documented restore -> the prior serves the rows. See the
-#                    job comment for the explicit definition of "prior". Founder-approved exception to the
-#                    pre-rc.3 gate freeze (docs/2026.1-release-decision-overrides.json, D9 ruling).
+#                    job comment for the explicit definition of "prior".
 #   kind-upgrade     PREVIEW EVIDENCE, non-blocking (Helm is Preview). Still runs every cell and uploads its
 #                    receipts; every upgrade-kind-* fragment is advisory and the job is continue-on-error.
 #                    The real seed -> apply -> migrate -> health smoke, reusing the honua-helm

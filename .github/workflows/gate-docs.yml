@@ -25,7 +25,6 @@ on:
     paths:
       - "docs/capabilities.yaml"
       - "docs/2026.1-operating-envelope.md"
-      - "docs/2026.1-release-decision-record.md"
       - "docs/INSTALL-2026.1.md"
       - "docs/SDK-SERVER-COMPATIBILITY.md"
       - "e2e/licensing.py"
@@ -88,7 +87,6 @@ jobs:
         id: check
         run: |
           python -m pytest e2e/test_licensing.py tools/test_platform_lock_bundle.py -q
-          python tools/release_decision_record.py --check
           python tools/generate_compatibility_table.py docs/platform-lock.v1.draft.yaml --check-output
           echo "status=pass" >> "$GITHUB_OUTPUT"
       - name: Emit fragment

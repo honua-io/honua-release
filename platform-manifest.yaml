@@ -1817,10 +1817,8 @@ experimental:
     status: experimental               # ADR-0059 experimental+disabled (Mobile / offline)
     version: "pre-release"             # no releases/tags (.NET MAUI app); pinned by sha
     sha: "4a356a86cd4d056aa13f6cf8bc6855ab7670c2e6"   # branch: trunk HEAD at re-pin time
-    # R39/R23 (docs/2026.1-platform-manifest.md): not released in 2026.1 (founder ruling). The pinned
-    # source predates release/component-versions.json, and the repository's own later declaration
-    # (honua-mobile#384, 0e780fe8) is explicit empty sets, so the
-    # sourcePinnedOnly row declares {} for both: it versions no shipped contract or schema.
+    # This source-only preview versions no shipped contract or schema.
+    # Its sourcePinnedOnly declaration therefore uses empty sets.
     contractVersions: {}
     schemaVersions: {}
 
@@ -1834,10 +1832,8 @@ experimental:
     # `main` does not exist. Every honua-io repo defaults to trunk, and all 11 components in this
     # file were re-verified against `refs/heads/trunk` at re-pin time.
     sha: "7eb948b5e80680e3a4f33c69c671804eebc370fb"   # branch: trunk HEAD at re-pin time
-    # R39/R23 (docs/2026.1-platform-manifest.md): not released in 2026.1 (founder ruling). The pinned
-    # source predates release/component-versions.json, and the repository's own later declaration
-    # (honua-collect#142, ac195333) is explicit empty sets, so the
-    # sourcePinnedOnly row declares {} for both: it versions no shipped contract or schema.
+    # This source-only preview versions no shipped contract or schema.
+    # Its sourcePinnedOnly declaration therefore uses empty sets.
     contractVersions: {}
     schemaVersions: {}
 

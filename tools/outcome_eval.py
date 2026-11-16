@@ -91,7 +91,8 @@ def validate_grade(grade, root):
     if trial is None or trial["workflow"] != grade["workflow"]:
         raise ValueError("trialId must match registered workflow and modality")
     for key in ("pass", "model", "arm", "baselineId"):
-        if key in grade and grade[key] != trial.get(key):
+        if key in grade and (type(grade[key]) is not type(trial.get(key))
+                             or grade[key] != trial.get(key)):
             raise ValueError(f"grade identity mismatch: {key}")
     if grade["status"] == "success":
         if grade.get("postconditionsPassed") is not True or grade.get("controlsPassed") is not True:

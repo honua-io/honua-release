@@ -120,9 +120,6 @@ jobs:
       - name: Verify coverage audit inventory and source revision drift
         run: python3 tools/coverage_audit.py --check
 
-      - name: Verify regenerated release decision
-        run: python3 tools/release_decision_record.py --check
-
       # Separate process: this harness uses module names that e2e/ also uses.
       - name: Self-test the operate harness
         run: python -m pytest certification/agent-ops -q
