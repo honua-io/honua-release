@@ -18,6 +18,7 @@ def evidence(row):
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock,
             'observedAt': '2026-11-14T00:00:00Z', 'openHighFindings': 0,
+            'sourceObservedAt': '2026-11-13T00:00:00Z',
             'assertions': row['assertions'], 'stackName': 'honua-gate-test'}
 
 
@@ -35,13 +36,16 @@ def test_contract_covers_every_required_promise():
     assert {r['id'] for r in rows} == {
         *(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)), 'operates-12-notify',
         *(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection')),
-        'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos'}
-    assert len(rows) == 20
+        'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot', 'cloud-no-redis-source',
+        'security-agent-default-deny', 'operates-8-upgrade',
+        'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable', 'clients-installed',
+        'operates-telemetry', 'operates-restore', 'protocol-compat', 'operates-capacity'}
+    assert len(rows) == 33
 
 
 def test_missing_rows_fail_closed():
     results = p.evaluate(p.load_contract(CONTRACT), {}, (CANDIDATE, NOW))
-    assert len(results) == 20
+    assert len(results) == 33
     assert all(r['status'] == 'missing' for r in results)
 
 
@@ -107,14 +111,16 @@ def test_promise_gate_is_required_and_candidate_bound():
 
 def aggregate():
     results = p.evaluate(p.load_contract(CONTRACT),
-                         {r['id']: [run(r)] for r in p.load_contract(CONTRACT)}, (CANDIDATE, NOW))
+                         {r['id']: [{**run(r), 'id': i + 1, 'path': '.github/workflows/' + workflow}
+                                    for i, workflow in enumerate(p.producer_workflows(r))]
+                          for r in p.load_contract(CONTRACT)}, (CANDIDATE, NOW))
     for result in results:
         if result['id'] in p.adversarial.IDS:
             result.update(status='PASS', observedAt='2026-11-14T00:00:00Z')
     return {'schema': 'honua.release-promise-report/v1', 'status': 'pass',
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock, 'rows': results,
-            'outcomes': [{'id': key, 'status': 'PASS', 'value': 0, 'unit': 'minutes',
+            'outcomes': [{'id': key, 'status': 'PASS', 'value': 0, 'unit': p.outcomes.unit_for(key),
                           'releaseNotesReported': True, 'targetMet': True,
                           'observedAt': '2026-11-14T00:00:00Z'} for key in p.outcomes.IDS]}
 
@@ -209,7 +215,7 @@ def test_outcomes_reported_without_targets_pass_rc_but_not_ga():
     measurements = []
     for row in p.load_outcomes():
         record = run(row)
-        record['reports'][0].update(value=12.5, unit='minutes')
+        record['reports'][0].update(value=12.5, unit=row['unit'])
         record['reports'][0]['releaseNotes'] = p.outcomes.notes_line(record['reports'][0])
         measurements.append(p.evaluate_row(row, [record], (CANDIDATE, NOW)))
     report['outcomes'] = measurements
@@ -382,4 +388,46 @@ def test_ga_promotion_checks_selected_lock_and_retains_measurements(tmp_path, mo
         assert not (tmp_path / 'ga-promise-outcomes.md').exists()
     else:
         exec(script, {})
-        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 18
+        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 35
+
+
+@pytest.mark.parametrize('source', [None, '2026-11-01T00:00:00Z', '2026-11-15T00:00:00Z'])
+def test_capacity_original_observation_must_remain_fresh(source):
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'operates-capacity')
+    record = run(row)
+    record['reports'][0]['sourceObservedAt'] = source
+    assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] != 'PASS'
+
+
+def test_capacity_fresh_original_observation_passes():
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'operates-capacity')
+    record = run(row)
+    record['reports'][0]['sourceObservedAt'] = '2026-11-13T00:00:00Z'
+    assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] == 'PASS'
+
+
+def test_cached_capacity_preserves_original_expiry(monkeypatch):
+    targets = [{**row, 'gaMaximum': 0} for row in p.load_outcomes()]
+    monkeypatch.setattr(p.outcomes, 'load', lambda path: targets)
+    row = next(r for r in p.load_contract(CONTRACT) if r['id'] == 'operates-capacity')
+    record = run(row)
+    record['reports'][0]['sourceObservedAt'] = '2026-11-08T12:00:00Z'
+    result = p.evaluate_row(row, [record], (CANDIDATE, NOW))
+    doc = aggregate()
+    doc['rows'] = [result if r['id'] == row['id'] else r for r in doc['rows']]
+    assert p.report_valid(doc, 'ga', NOW)
+    tomorrow = NOW + dt.timedelta(days=1)
+    assert not p.report_valid(doc, 'ga', tomorrow)
+    assert p.report_valid(doc, 'rc', tomorrow)
+    assert result['sourceObservedAt'] == '2026-11-08T12:00:00Z'
+
+
+@pytest.mark.parametrize('source', [None, '2026-11-01T00:00:00Z', '2026-11-14T12:00:00Z'])
+def test_cached_capacity_rejects_missing_stale_or_post_adapter_source(monkeypatch, source):
+    targets = [{**row, 'gaMaximum': 0} for row in p.load_outcomes()]
+    monkeypatch.setattr(p.outcomes, 'load', lambda path: targets)
+    doc = aggregate()
+    capacity = next(r for r in doc['rows'] if r['id'] == 'operates-capacity')
+    capacity['sourceObservedAt'] = source
+    assert not p.report_valid(doc, 'ga', NOW)
+    assert p.report_valid(doc, 'rc', NOW)

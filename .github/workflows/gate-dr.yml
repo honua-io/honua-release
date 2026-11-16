@@ -21,6 +21,8 @@ on:
     - cron: "47 12 * * 1,4"
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
+      candidate_ref: { description: "Immutable candidate snapshot", required: false, type: string, default: "" }
       receipt_url:
         description: >-
           HTTPS URL of the candidate-bound full-platform DR receipt. Empty resolves the receipt the
@@ -30,6 +32,7 @@ on:
         default: ""
   workflow_call:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
       receipt_url:
         required: true
@@ -240,3 +243,12 @@ jobs:
           path: ${{ runner.temp }}/dr-receipt.json
           if-no-files-found: error
           retention-days: 90
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: gate-dr
+          status: pass
+          lock_digest: ${{ inputs.platform_lock_digest }}
+          manifest: ${{ inputs.candidate_bundle && 'candidate-input/platform-manifest.yaml' || 'platform-manifest.yaml' }}
+          proof: ${{ runner.temp }}/dr-receipt.json

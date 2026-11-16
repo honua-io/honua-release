@@ -3,6 +3,8 @@ name: capacity-soak-frozen-slo
 on:
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
+      candidate_ref: { description: "Immutable candidate snapshot", required: false, type: string, default: "" }
       evidence_bundle_url:
         description: HTTPS URL of the attested candidate soak evidence ZIP
         required: true
@@ -20,6 +22,7 @@ on:
         description: Read-only Actions metadata and organization runner-group access for dedicated runner verification
         required: false
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
       evidence_bundle_url:
         description: HTTPS URL of the attested candidate soak evidence ZIP
@@ -139,3 +142,11 @@ jobs:
             ${{ runner.temp }}/runner-admission*.json
           if-no-files-found: error
           retention-days: 90
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: capacity-soak
+          status: pass
+          lock_digest: ${{ inputs.platform_lock_digest }}
+          proof: ${{ runner.temp }}/capacity-evidence/capacity-soak-receipt.json
