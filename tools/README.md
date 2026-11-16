@@ -3,6 +3,33 @@
 GitHub Actions supply-chain pins are enforced by `check_action_pins.py`; the review and update
 procedure is documented in [`docs/ACTION-PINNING.md`](../docs/ACTION-PINNING.md).
 
+## Launch Stack observations
+
+`launch_stack_observations.observe_stack(aws, stack_name)` collects deployed ECS
+identity for the authenticated gate producer. Supply a region-bound JSON client
+with the signature `aws(service, operation, *cli_arguments)`. It must complete AWS
+CLI pagination; an unconsumed continuation token fails the observation. The module
+does not obtain credentials, provision resources or write gate receipts.
+
+Only `honua-gate-*` stacks tagged `honua:qualification=true` with a completed
+deployment are accepted. The collector checks stack-owned service/task resources,
+a converged Fargate rollout, digest-pinned server configuration, identical running
+server digests and ALB `/healthz/ready` targets matching every running task. ECS
+container health may be `UNKNOWN` when no container health check is configured;
+the independently observed ALB readiness check is required. Incomplete, denied,
+unhealthy, rolled-back or changing observations raise an exception.
+
+The returned allowlist contains stack name, observation times, declared image,
+CPU architecture, observed platform image digest and healthy task count. It omits
+raw stack parameters, task environment, credentials and network addresses. The
+producer must bind this observation to the current run and signed candidate.
+An OCI index digest can differ from the running platform digest: validate their
+relationship using attested image metadata. This collector alone does not prove
+AOT, image size, PostGIS-only dependencies, security controls or browser journeys,
+and never emits a certification status.
+
+Offline fault tests: `python -m pytest tools/test_launch_stack_observations.py -q`.
+
 ## `validate_platform.py` — Phase 0 source-of-truth gate (issue #1)
 
 Validates `platform-manifest.yaml` + `compatibility-matrix.yaml` and enforces compatibility drift.
