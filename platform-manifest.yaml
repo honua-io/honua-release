@@ -1498,7 +1498,7 @@ components:
     # Owner amendment 2026-10-16 supersedes decisions 12/18: EKS/Helm is Preview in
     # 2026.1, with security/isolation/integrity floors retained and no GA qualification claim.
     lifecycleStatus: Preview
-    # Founder ruling helm-preview-out-of-lock-2026-10-26 (docs/2026.1-release-decision-overrides.json):
+    # Founder ruling helm-preview-out-of-lock-2026-10-26 (contracts/2026.1-qualification-policy.json):
     # the 2026.1 lock records the unpublished Preview chart out of the lock, neither frozen nor
     # required. tools/generate_platform_lock.py honours it only while the chart is Preview, carries no
     # published identity and the matrix scopes no deploy.honua-helm row as ga-target.
