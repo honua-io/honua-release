@@ -357,7 +357,7 @@
     {
       "id": "operates-8-upgrade",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-runs-itself.yml",
+      "workflow": "gate-upgrade.yml",
       "required": [
         "rc",
         "ga"
@@ -368,9 +368,140 @@
         "live": true,
         "rollingUpgrade": true,
         "nMinusOneReaderCompatible": true,
-        "rollbackPassed": true
+        "rollbackPassed": true,
+        "launchStack": true
       },
       "criterion": "Rolling upgrade from the previous release image, N-1 reader compatibility and rollback pass."
+    },
+    {
+      "id": "supply-sbom",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-sbom.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "supply-sbom.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "supply-scan",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-security.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "supply-scan.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "contract-compat",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-contract.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "contract-compat.json",
+      "assertions": {
+        "producerPassed": true
+      },
+      "additionalWorkflows": [
+        "gate-contract-live.yml"
+      ]
+    },
+    {
+      "id": "docs-executable",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-executable-docs.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "docs-executable.json",
+      "assertions": {
+        "producerPassed": true
+      },
+      "additionalWorkflows": [
+        "gate-docs.yml"
+      ]
+    },
+    {
+      "id": "clients-installed",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-installed-clients.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "clients-installed.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "operates-telemetry",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-observability.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-telemetry.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "operates-restore",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-dr.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-restore.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "protocol-compat",
+      "required": [
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-protocol-certification.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "protocol-compat.json",
+      "assertions": {
+        "producerPassed": true
+      }
+    },
+    {
+      "id": "operates-capacity",
+      "required": [
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "capacity-soak.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "operates-capacity.json",
+      "assertions": {
+        "producerPassed": true
+      }
     }
   ],
   "outcomes": [
@@ -984,6 +1115,23 @@
         "live": true,
         "releaseNotesReported": true
       },
+      "gaMaximum": null
+    },
+    {
+      "id": "recovery-operates-restore",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-dr.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "recovery-operates-restore.json",
+      "assertions": {
+        "live": true,
+        "releaseNotesReported": true
+      },
+      "unit": "minutes",
       "gaMaximum": null
     }
   ],

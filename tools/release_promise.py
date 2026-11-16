@@ -21,8 +21,19 @@ CONTRACT = Path(__file__).resolve().parents[1] / 'certification/release-promise.
 REQUIRED_IDS = frozenset({*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
                          'operates-12-notify', 'security-hardened', 'security-open-high',
                          'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot',
-                         'cloud-no-redis-source', 'security-agent-default-deny', 'operates-8-upgrade'})
+                         'cloud-no-redis-source', 'security-agent-default-deny', 'operates-8-upgrade',
+                         'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable',
+                         'clients-installed', 'operates-telemetry', 'operates-restore'})
 AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection'))
+
+GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity'}
+ALL_IDS = REQUIRED_IDS | GA_ONLY_IDS
+COMPANIONS = {'contract-compat': ['gate-contract-live.yml'],
+              'docs-executable': ['gate-docs.yml']}
+
+
+def producer_workflows(row):
+    return [row['workflow'], *row.get('additionalWorkflows', [])]
 
 
 def load_outcomes() -> list[dict]:
@@ -34,12 +45,14 @@ def load_contract(path: Path = CONTRACT) -> list[dict]:
     rows = doc['rows']
     ids = [r['id'] for r in rows]
     if (doc.get('schema') != 'honua.release-promise-contract/v1' or doc.get('windowDays') != 7
-            or len(ids) != 24 or set(ids) != REQUIRED_IDS | AI_IDS):
-        raise ValueError('release promise contract must cover exactly the 24 founder rows')
+            or len(ids) != len(ALL_IDS) or set(ids) != ALL_IDS):
+        raise ValueError('release promise contract must cover exactly the founder rows')
     for row in rows:
-        expected = ['ga'] if row['id'] in AI_IDS else ['rc', 'ga']
+        expected = ['ga'] if row['id'] in GA_ONLY_IDS else ['rc', 'ga']
         if row.get('required') != expected:
             raise ValueError('release promise requirement disagrees with founder RC/GA ruling')
+        if row.get('additionalWorkflows', []) != COMPANIONS.get(row['id'], []):
+            raise ValueError('required companion producer changed')
         for key, pattern in (('repo', r'honua-io/[a-z0-9-]+'),
                              ('workflow', r'[a-z0-9-]+\.yml'),
                              ('artifact', r'[a-z0-9-]+'), ('receipt', r'[a-z0-9-]+\.json')):
@@ -80,8 +93,8 @@ def _run_passes(run: dict, row: dict, context: tuple) -> bool:
     candidate, now = context
     if (run.get('status') != 'completed' or run.get('conclusion') != 'success'
             or run.get('head_branch') != 'trunk'
-            or run.get('event') not in ('workflow_dispatch', 'schedule', 'repository_dispatch')
-            or run.get('path') != '.github/workflows/' + row['workflow']):
+            or run.get('event') not in ('workflow_dispatch', 'schedule', 'repository_dispatch', 'workflow_run')
+            or run.get('path') not in {'.github/workflows/' + name for name in producer_workflows(row)}):
         return False
     docs = run.get('reports', [])
     return len(docs) == 1 and _receipt_valid(docs[0], row, (candidate, now, run))
@@ -93,7 +106,15 @@ def evaluate_row(row: dict, runs: list[dict], context: tuple) -> dict:
     if not runs:
         return result
     try:
-        deciding = contenders(runs)
+        deciding = []
+        paths = {'.github/workflows/' + name for name in producer_workflows(row)}
+        if any(run.get('path') not in paths for run in runs):
+            return {**result, 'status': 'invalid'}
+        for path in paths:
+            producer_runs = [run for run in runs if run.get('path') == path]
+            if not producer_runs:
+                return result
+            deciding.extend(contenders(producer_runs))
     except AmbiguousOrder:
         return {**result, 'status': 'invalid'}
     passed = all(_run_passes(run, row, context) for run in deciding)
@@ -182,17 +203,18 @@ def _available_artifacts(repo: str, token: str, run_id: int) -> list[dict]:
 def collect(rows: list[dict], token: str, now: dt.datetime) -> dict:
     records, histories, artifacts = {}, {}, {}
     for row in rows:
-        key = row['repo'], row['workflow']
-        if key not in histories:
-            histories[key] = _history(key, token, now)
-        # Order every completed execution, including receipt-less failures. Never fall back to old green.
         records[row['id']] = []
-        for run in histories[key]:
-            artifact_key = row['repo'], run['id']
-            if artifact_key not in artifacts:
-                artifacts[artifact_key] = _available_artifacts(row['repo'], token, run['id'])
-            reports = _producer_reports(row, token, artifacts[artifact_key])
-            records[row['id']].append({**run, 'reports': reports})
+        for workflow in producer_workflows(row):
+            key = row['repo'], workflow
+            if key not in histories:
+                histories[key] = _history(key, token, now)
+            # Keep each producer's latest failure; never fall back to an older green run.
+            for run in histories[key]:
+                artifact_key = row['repo'], run['id']
+                if artifact_key not in artifacts:
+                    artifacts[artifact_key] = _available_artifacts(row['repo'], token, run['id'])
+                reports = _producer_reports(row, token, artifacts[artifact_key])
+                records[row['id']].append({**run, 'reports': reports})
     return records
 
 
@@ -200,13 +222,13 @@ def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
     if doc.get('schema') != 'honua.release-promise-report/v1' or doc.get('status') != 'pass':
         return False
     rows = doc.get('rows')
-    if not isinstance(rows, list) or len(rows) != 24 or any(not isinstance(r, dict) for r in rows):
+    if not isinstance(rows, list) or len(rows) != len(ALL_IDS) or any(not isinstance(r, dict) for r in rows):
         return False
-    if {r.get('id') for r in rows} != REQUIRED_IDS | AI_IDS:
+    if {r.get('id') for r in rows} != ALL_IDS:
         return False
     if not outcomes.report_valid(doc.get('outcomes'), profile, now):
         return False
-    required = REQUIRED_IDS | AI_IDS if profile == 'ga' else REQUIRED_IDS
+    required = ALL_IDS if profile == 'ga' else REQUIRED_IDS
     return all(r.get('status') == 'PASS' and instant(r.get('observedAt')) is not None
                and now - dt.timedelta(days=7) <= instant(r['observedAt']) <= now
                for r in rows if r['id'] in required)

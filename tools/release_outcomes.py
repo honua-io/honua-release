@@ -15,7 +15,7 @@ COUNT_UNITS = {f'{unit}-{workflow}': unit for unit in ('sentences', 'clicks')
 
 IDS = frozenset({*COUNT_UNITS, 'install-console', 'unattended-person', 'studio-publish-layer', 'studio-build-app',
                  *(f'recovery-operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
-                 'recovery-operates-12-notify',
+                 'recovery-operates-12-notify', 'recovery-operates-restore',
                  *(f'developer-{item}-{mode}-skills' for item in ('map', 'app')
                    for mode in ('with', 'without'))})
 

@@ -1,7 +1,7 @@
 # Release promise receipts
 
 `release-promise.v1.json` is the producer contract for the founder's 14 November
-2026 amendments and the 15 November approved release gates plan. Its 24 promise
+2026 amendments and the 15 November approved release gates plan. Its 33 promise
 rows include four additional RC and GA requirements: `cloud-image-aot`,
 `cloud-no-redis-source`, `security-agent-default-deny`, and `operates-8-upgrade`.
 RC requires these alongside the ten fault rows, hardened default, zero open high
@@ -15,7 +15,7 @@ missing receipts, incomplete API history and unavailable credentials fail closed
 The aggregate only reads Actions evidence; it does not deploy or run paid evaluations.
 
 Each producer runs from its repository's `trunk` through `workflow_dispatch`,
-`schedule` or `repository_dispatch` and uploads a `release-promise-receipts`
+`schedule`, `repository_dispatch` or `workflow_run` and uploads a `release-promise-receipts`
 artifact. Each row has its own JSON file at the artifact root, named by `receipt`
 in the contract. The Actions API authenticates the repository and workflow;
 receipt-supplied provenance is never trusted. The latest completed execution
@@ -59,12 +59,13 @@ producer artifacts require `RELEASE_GH_TOKEN` with Actions read access; the defa
 token suffices for producers in honua-release. The summary artifact is
 `release-promise-report`; its JSON lists every row, requirement and status, and
 binds the candidate. RC admission includes this gate without a manifest-pin
-fallback. GA admission additionally requires all five AI rows. Admission rechecks
+fallback. GA admission additionally requires all five AI rows plus protocol compatibility and capacity. Admission rechecks
 row freshness at its own evaluation time.
 
-The outcomes rulings require all 34 measurements in `outcomes` at RC: the existing
-18 timing measurements and 16 sentence/click counts. `gate-release-outcomes.yml` is the reserved
-producer interface. It uploads one common-schema receipt per metric with numeric,
+The outcomes rulings require all 35 measurements in `outcomes` at RC: the existing
+19 timing measurements and 16 sentence/click counts. `gate-dr.yml` supplies
+`recovery-operates-restore`; `gate-release-outcomes.yml` supplies the other 34.
+Both producers use the same measurement interface. It uploads one common-schema receipt per metric with numeric,
 finite, nonnegative `value`, the contract unit (`minutes`, `sentences`, or `clicks`),
 and assertions `live: true` and
 `releaseNotesReported: true`. The same artifact must contain `release-notes.md`
@@ -130,7 +131,38 @@ identity and authenticated execution) are:
 | `cloud-image-aot` | `gate-launch-stack.yml` | `live`, `publishedAotImage`, `sizeBudgetMet`: true; `stackName` uses `honua-gate-` prefix. Published image digest must equal the receipt candidate digest. |
 | `cloud-no-redis-source` | `gate-source-facts.yml` | `redisPackages`, `redisSourceReferences`: integer zero at the candidate SHA; this is source evidence, without a live-stack assertion. |
 | `security-agent-default-deny` | `gate-agent-safety.yml` | `live`, `allMutatingRoutesChecked`, `proposalOnly`, `agentIdentityAudited`: true. Every mutating route must return a proposal without making a direct change. |
-| `operates-8-upgrade` | `gate-runs-itself.yml` | `live`, `rollingUpgrade`, `nMinusOneReaderCompatible`, `rollbackPassed`: true, using the previous release image. |
+| `operates-8-upgrade` | `gate-upgrade.yml` | `live`, `rollingUpgrade`, `nMinusOneReaderCompatible`, `rollbackPassed`, `launchStack`: true, using the previous release image on the Launch Stack. |
 
 These interfaces reserve evidence requirements; they do not implement producers
 or certify a live pass. Shell runs are debugging evidence only.
+
+The existing gates remain the producers for these kept rows:
+
+| Row | Required | Producer workflows (all must pass) |
+|---|---|---|
+| `supply-sbom` | RC, GA | `gate-sbom.yml` |
+| `supply-scan` | RC, GA | `gate-security.yml` |
+| `contract-compat` | RC, GA | `gate-contract.yml`, `gate-contract-live.yml` |
+| `docs-executable` | RC, GA | `gate-executable-docs.yml`, `gate-docs.yml` |
+| `clients-installed` | RC, GA | `gate-installed-clients.yml` |
+| `operates-telemetry` | RC, GA | `gate-observability.yml` |
+| `operates-restore` | RC, GA | `gate-dr.yml` |
+| `protocol-compat` | GA; reported at RC | `gate-protocol-certification.yml` |
+| `operates-capacity` | GA; reported at RC | `capacity-soak.yml` |
+
+Each kept producer emits `producerPassed: true` only after its validated raw
+verdict is `pass`. Bootstrap acceptance of blocked or skipped checks cannot emit
+PASS. Pass `platform_lock_digest` on dispatch or reusable calls; it identifies the
+signed candidate manifest. The adapter obtains source SHA and image digest from
+the exact manifest consumed by the gate (protocol certification uses the exact
+expected identifiers its evaluator checked). A run without that digest remains
+useful for diagnostics but emits no promise receipt and cannot certify stage 2.
+For companion producers the aggregate evaluates each workflow independently;
+one successful contract or docs producer cannot hide its missing or failed peer.
+
+The DR adapter additionally archives `recovery-operates-restore` in minutes,
+converted from the validated full-platform receipt's `measurements.rtoMs`, with
+the exact release-notes line. The upgrade adapter refuses kind/Compose-only
+success: its report must include candidate-bound live Launch Stack, N-1 reader,
+rolling-upgrade and rollback assertions. Until the Launch Stack harness supplies
+that proof the row remains unproved. Local adapter tests never establish a live pass.

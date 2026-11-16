@@ -36,13 +36,15 @@ def test_contract_covers_every_required_promise():
         *(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)), 'operates-12-notify',
         *(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection')),
         'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot', 'cloud-no-redis-source',
-        'security-agent-default-deny', 'operates-8-upgrade'}
-    assert len(rows) == 24
+        'security-agent-default-deny', 'operates-8-upgrade',
+        'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable', 'clients-installed',
+        'operates-telemetry', 'operates-restore', 'protocol-compat', 'operates-capacity'}
+    assert len(rows) == 33
 
 
 def test_missing_rows_fail_closed():
     results = p.evaluate(p.load_contract(CONTRACT), {}, (CANDIDATE, NOW))
-    assert len(results) == 24
+    assert len(results) == 33
     assert all(r['status'] == 'missing' for r in results)
 
 
@@ -108,7 +110,9 @@ def test_promise_gate_is_required_and_candidate_bound():
 
 def aggregate():
     results = p.evaluate(p.load_contract(CONTRACT),
-                         {r['id']: [run(r)] for r in p.load_contract(CONTRACT)}, (CANDIDATE, NOW))
+                         {r['id']: [{**run(r), 'id': i + 1, 'path': '.github/workflows/' + workflow}
+                                    for i, workflow in enumerate(p.producer_workflows(r))]
+                          for r in p.load_contract(CONTRACT)}, (CANDIDATE, NOW))
     for result in results:
         if result['id'] in p.adversarial.IDS:
             result.update(status='PASS', observedAt='2026-11-14T00:00:00Z')
@@ -383,4 +387,4 @@ def test_ga_promotion_checks_selected_lock_and_retains_measurements(tmp_path, mo
         assert not (tmp_path / 'ga-promise-outcomes.md').exists()
     else:
         exec(script, {})
-        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 34
+        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 35
