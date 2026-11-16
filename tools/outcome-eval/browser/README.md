@@ -37,6 +37,9 @@ Until then those baselines are NOT RUN.
   `terminal-readback` only when every part of the workflow contract it can
   observe holds; any unmet part, any exception and the workflow time limit end
   the trial with `stop`. Events are never rewritten after grading.
+- The time limit closes the trial's page to interrupt pending browser work.
+  Recorder actions refuse to dispatch before the trial or after its end, even
+  when a readiness check completes late. Use one recorder and page per trial.
 
 `build-app.spec.ts` judges saved version 1: its hash, its one layer (by title,
 with a source), its two controls and its package family. It also checks that
@@ -47,6 +50,16 @@ route: the grader checks those, and the script must gain them before its hash
 is frozen for an install that can save an app.
 
 ## Running
+
+Recorder regression tests need no browser, credentials or product install:
+
+```sh
+cd tools/outcome-eval/browser
+npm ci --ignore-scripts
+npx playwright test recorder.test.ts
+```
+
+For a workflow recording:
 
 ```sh
 cd tools/outcome-eval/browser
