@@ -90,6 +90,9 @@ jobs:
 
       # Standard-library-only and deliberately before dependency installation: a mutable action
       # reference must fail the branch-protected validate job even when no Python deps are present.
+      - name: Reject archived internal content in the public repository
+        run: python3 tools/check_public_content.py
+
       - name: Enforce immutable GitHub Actions pins
         env:
           # the ancestry check queries the GitHub API through gh

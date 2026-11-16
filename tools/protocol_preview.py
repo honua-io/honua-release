@@ -6,7 +6,7 @@ skipped cells are reported as declared Preview instead of refusing the lock.
 
 The exemption is narrow and ends by itself:
 - only producers the named founder ruling lists in `preview_producers` are exempt, and only while
-  the ruling is in docs/2026.1-release-decision-overrides.json;
+  the ruling is in contracts/release-exceptions.json;
 - it lapses for a producer the moment any of that producer's cells carries an evidence receipt
   (honua-server#3753 lands), after which its cells are judged like every other producer's;
 - a pass or fail is always judged normally, and every other producer's missing receipt still fails.
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-DECISION_OVERRIDES = ROOT / "docs/2026.1-release-decision-overrides.json"
+DECISION_OVERRIDES = ROOT / "contracts/release-exceptions.json"
 PREVIEW_PRODUCER_RULING = "cng-preview-producer-2026-10-27"
 
 
