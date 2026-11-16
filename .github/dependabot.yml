@@ -55,8 +55,6 @@ updates:
   - package-ecosystem: npm
     directories:
       - "/certification/sources/geospatial-mcp"
-      - "/certification/sdk-publication-replay/sdk-022/default-react-ts"
-      - "/certification/sdk-publication-replay/sdk-022/default-vanilla-ts"
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
