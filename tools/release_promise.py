@@ -28,6 +28,7 @@ AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate',
 
 GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity'}
 ALL_IDS = REQUIRED_IDS | GA_ONLY_IDS
+IMAGE_SIZE_BUDGETS = {'rc': 370_000_000, 'ga': 220_000_000}
 COMPANIONS = {'contract-compat': ['gate-contract-live.yml'],
               'docs-executable': ['gate-docs.yml']}
 
@@ -79,6 +80,8 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
     if row['id'] in ('security-hardened', 'cloud-launch-stack', 'cloud-image-aot'):
         if not re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', str(doc.get('stackName', ''))):
             return False
+    if row['id'] == 'cloud-image-aot' and not _image_budget_met(doc, 'rc'):
+        return False
     if row['id'] == 'operates-capacity':
         source = instant(doc.get('sourceObservedAt'))
         if source is None or not now - dt.timedelta(days=7) <= source <= observed:
@@ -124,6 +127,8 @@ def evaluate_row(row: dict, runs: list[dict], context: tuple) -> dict:
     passed = all(_run_passes(run, row, context) for run in deciding)
     measured = outcomes.summarize(row, [run['reports'][0] for run in deciding]) if (
         passed and row['id'] in outcomes.IDS) else {}
+    if passed and row['id'] == 'cloud-image-aot':
+        measured['imageSizeBytes'] = max(run['reports'][0]['imageSizeBytes'] for run in deciding)
     if passed and row['id'] == 'operates-capacity':
         measured['sourceObservedAt'] = min(
             (run['reports'][0]['sourceObservedAt'] for run in deciding), key=instant)
@@ -236,16 +241,23 @@ def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
     if not outcomes.report_valid(doc.get('outcomes'), profile, now):
         return False
     required = ALL_IDS if profile == 'ga' else REQUIRED_IDS
-    return all(_report_row_fresh(r, now) for r in rows if r['id'] in required)
+    return all(_report_row_fresh(r, now, profile) for r in rows if r['id'] in required)
 
 
-def _report_row_fresh(row: dict, now: dt.datetime) -> bool:
+def _image_budget_met(doc: dict, profile: str) -> bool:
+    size = doc.get('imageSizeBytes')
+    return type(size) is int and 0 < size <= IMAGE_SIZE_BUDGETS[profile]
+
+
+def _report_row_fresh(row: dict, now: dt.datetime, profile: str) -> bool:
     observed = instant(row.get('observedAt'))
     if row.get('status') != 'PASS' or observed is None:
         return False
     oldest = now - dt.timedelta(days=7)
     if not oldest <= observed <= now:
         return False
+    if row['id'] == 'cloud-image-aot':
+        return _image_budget_met(row, profile)
     if row['id'] == 'operates-capacity':
         source = instant(row.get('sourceObservedAt'))
         return source is not None and oldest <= source <= observed
@@ -287,6 +299,8 @@ def main() -> int:
     passed = all(r['status'] == 'PASS' for r in results if args.profile in r['required'])
     measurements = [r for r in results if r['id'] in outcomes.IDS]
     passed = passed and outcomes.report_valid(measurements, args.profile, now)
+    passed = passed and all(_image_budget_met(r, args.profile) for r in results
+                            if r['id'] == 'cloud-image-aot')
     report = dict(schema='honua.release-promise-report/v1', status='pass' if passed else 'fail',
                   profile=args.profile, serverSha=candidate.server_sha,
                   imageDigest=candidate.server_digest, platformLockDigest=candidate.platform_lock,
