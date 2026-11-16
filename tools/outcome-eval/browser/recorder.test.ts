@@ -95,8 +95,13 @@ test('timeout retains an in-flight dispatched click in the stopped transcript', 
 test('actions require a running trial and a recorder cannot be reused', async ({}, info) => {
   const { recorder, events, closes, navigations } = recording(info);
   await expect(recorder.goto('/early')).rejects.toThrow('the trial is not running');
+  const locator = {} as Locator;
+  await expect(recorder.click(locator, 'Publish')).rejects.toThrow('the trial is not running');
+  await expect(recorder.fill(locator, 'title', 'Example')).rejects.toThrow('the trial is not running');
+  await expect(recorder.select(locator, 'style', 'default')).rejects.toThrow('the trial is not running');
   await recorder.trial(1, async () => VERDICT);
   await expect(recorder.goto('/late')).rejects.toThrow('the trial is not running');
+  await expect(recorder.click(locator, 'Publish')).rejects.toThrow('the trial is not running');
   await expect(recorder.trial(1, async () => VERDICT)).rejects.toThrow('only one trial');
   expect(events().map(event => event.type)).toEqual(['dispatch', 'terminal-readback']);
   expect(closes()).toBe(0);

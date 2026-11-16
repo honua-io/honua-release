@@ -115,9 +115,9 @@ export class Recorder {
 
   /** An action is counted when it is dispatched, whether or not it then completes; an unready target counts nothing. */
   private async act(action: Action, ready: () => Promise<unknown>, dispatch: () => Promise<unknown>) {
+    this.assertRunning();
     let dispatched = false;
     try {
-      this.assertRunning();
       await ready();
       this.assertRunning();
       dispatched = true;
