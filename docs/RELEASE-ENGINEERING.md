@@ -20,6 +20,8 @@ Use the [cut checklist](RELEASE-CUT-CHECKLIST.md) to operate a release and the
 contract versions, and required database schema versions. `compatibility-matrix.yaml`
 defines the supported interoperability ranges. Build checks, deployment preflight,
 runtime compatibility handling, and upgrade preflight must enforce those contracts.
+Servers must advertise `contractVersion`; SDKs must check it on connection and report
+a clear warning or error on mismatch rather than silently accepting incompatibility.
 Publish the matrix with the release so customers can validate their own pinned set.
 
 ## Candidate certification
@@ -32,11 +34,13 @@ Required proof covers:
 
 - Contract compatibility, including deleted or renamed RPCs and public SDK APIs.
 - Consumption of the published packages, images, deployment modules, and charts.
-- Security checks, artifact SBOMs, provenance, and signature verification.
+- Dependency, secret, SAST, container, IaC, and license checks, with critical security
+  findings blocking promotion; artifact SBOMs, provenance, and signature verification.
 - Performance and SLO behavior, including errors returned inside successful HTTP responses.
 - Advertised capabilities and executable documentation examples.
-- Upgrade from the prior platform release, including data integrity, configuration
-  migration, rollback, and supported old clients against the new server.
+- Seeded upgrades from the prior platform release, asserting zero downtime, data
+  integrity, configuration migration, rollback, and supported old clients against
+  the new server.
 - Deployment validation and cross-component integration against the exact candidate.
 
 Release-tier tests must provision their backing services. A skipped required test is
@@ -61,7 +65,8 @@ Schema compatibility is a deployment and startup precondition. Version configura
 schemas, provide migration paths, and retain deprecated configuration for its declared
 window. Upgrade preflight validates compatibility, migration behavior, configuration,
 and backups before applying changes. Deployment requires health/readiness checks,
-post-apply validation, and a tested rollback strategy.
+post-apply validation, and a tested rollback strategy that automatically rolls back
+on an SLO breach.
 
 ## Repository configuration
 
