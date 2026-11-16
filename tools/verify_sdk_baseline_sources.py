@@ -13,6 +13,7 @@ from urllib.parse import quote
 import yaml
 
 import server_publication_history
+from strict_json import parse_json
 from sdk_baselines import PUBLISHER, REVISION, SDK_COMPONENTS, content_digest, findings
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,15 +73,6 @@ class SourceReader:
         raise AssertionError("unreachable")
 
 
-def unique_object(pairs: list[tuple[str, object]]) -> dict:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON key in source manifest: {key}")
-        result[key] = value
-    return result
-
-
 def offline_collector(repository: str) -> dict:
     raise ValueError(f"{PUBLISHER}: an offline run cannot prove {repository} is still unpublished; "
                      "the first-release model needs a live enumeration at gate time")
@@ -125,7 +117,7 @@ def verify_sources(lock: dict, reader: SourceReader, root: Path = ROOT, collecto
         for manifest in baseline["manifests"]:
             source = manifest["source"]
             raw = reader(source["repository"], source["revision"], source["path"])
-            content = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+            content = parse_json(raw.decode("utf-8"))
             if content_digest(content) != manifest["sha256"] or content != manifest["content"]:
                 raise ValueError(f"{name}: pinned manifest source disagrees with lock: {source['path']}")
         for declaration in baseline["declarations"]:

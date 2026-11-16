@@ -90,3 +90,6 @@ explicit unexecuted licensed release-tier skips; nightly admission does not
 satisfy those release obligations. These are consumer compatibility controls, never live
 qualification evidence. The original closed-schema rejection is retained in the
 implementation issue; the full chain is replayed against fixture clocks.
+
+Workflow effort measurements use the [outcome recording contract](OUTCOME-RECORDING.md).
+Offline counters do not produce authenticated release gate receipts.
