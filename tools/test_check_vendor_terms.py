@@ -794,11 +794,10 @@ def test_the_site_root_alias_is_allowlisted_only_in_the_two_route_tables():
     assert not alias.covers("honua-server", alias.paths[0], "Esri")
 
 
-def test_the_recorded_leaflet_check_name_is_allowlisted_only_in_the_server_fixtures():
-    """The c19f29d and 08ace249 fixtures quote a real Actions job name. The exception does not
-    cover any other token or path."""
-    paths = ("tools/fixtures/candidate-resolution-2026-10-06/honua-server-c19f29d.json",
-             "tools/fixtures/candidate-resolution-2026-10-26/honua-server-08ace24.json")
+def test_the_leaflet_check_name_is_allowlisted_only_in_the_server_fixtures():
+    """Synthetic fixtures retain an exact workflow job name; other paths and tokens are refused."""
+    paths = ("tools/fixtures/candidate-classification/server-observer.json",
+             "tools/fixtures/candidate-classification/server-parity.json")
     token = "Esri Leaflet"
     for path in paths:
         entries = [entry for entry in vt.load_allowlist(vt.ALLOWLIST) if entry.covers("honua-release", path, token)]
@@ -809,7 +808,7 @@ def test_the_recorded_leaflet_check_name_is_allowlisted_only_in_the_server_fixtu
         assert entry.reason and entry.owner
         assert not entry.covers("honua-release", path, "ArcGIS")
         assert not entry.covers("honua-release", path, "esri")
-    other = "tools/fixtures/candidate-resolution-2026-10-06/honua-sdk-js-984425f.json"
+    other = "tools/fixtures/candidate-classification/sdk-js.json"
     assert not entry.covers("honua-release", other, token)
 
 

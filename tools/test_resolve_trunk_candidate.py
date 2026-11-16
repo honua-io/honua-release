@@ -1988,10 +1988,10 @@ def test_an_unreadable_server_vocabulary_refuses(body, message):
         resolver.advertised_capabilities(Server(), candidate)
 
 
-def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_observations():
-    """Keep captured bytes intact; an old name-only fixture cannot certify current execution."""
+def test_green_passes_advisory_but_refuses_metadata_without_actual_job_observations():
+    """Check metadata without actual job observations cannot certify execution."""
     captured = json.loads((
-        resolver.ROOT / 'tools' / 'fixtures' / 'candidate-resolution-2026-10-06' / 'honua-server-c19f29d.json'
+        resolver.ROOT / 'tools' / 'fixtures' / 'candidate-classification' / 'server-observer.json'
     ).read_text())
     seen = {}
     original = resolver.ci.BuildTestGate
@@ -2012,7 +2012,7 @@ def test_green_passes_advisory_but_refuses_historical_server_without_actual_job_
         raise AssertionError(path)
 
     github.pages = pages
-    github.json = lambda path: pytest.fail('historical fixture has no authoritative source/job observations')
+    github.json = lambda path: pytest.fail('synthetic fixture has no authoritative source/job observations')
     resolver.ci.BuildTestGate = RecordingGate
     try:
         ok, why = github.green('honua-server', 'honua-io/honua-server', captured['sha'])

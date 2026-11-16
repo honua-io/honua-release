@@ -1,9 +1,7 @@
-"""Fixture proofs for the 2026-10-06 candidate check-run classification.
+"""Synthetic inputs for candidate check classification and attempt selection.
 
-The payloads under tools/fixtures/candidate-resolution-2026-10-06/ are the check-runs
-and Actions runs the resolver read for the three refused sources. These tests pin which
-names stay core, which a later attempt already supersedes, and which are advisory only
-because they do not judge the pinned source.
+Names and workflow paths exercise policy; identities are test-only. These fixtures
+contain no execution or qualification proof.
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ POLICY = BuildTestPolicy.load()
 SERVER = POLICY.component("honua-server")
 SDK_JS = POLICY.component("honua-sdk-js")
 
-FIXTURES = ROOT / "tools" / "fixtures" / "candidate-resolution-2026-10-06"
+FIXTURES = ROOT / "tools" / "fixtures" / "candidate-classification"
 THREE_ENGINE = "Three-engine smoke and source-packed parity"
 FEATURE_SHARD = "Server Tests (FeatureServer Tiles and Replica)"
 PREBUILD = (
@@ -53,14 +51,13 @@ def _red_names(why: str) -> str:
 
 
 def test_dotnet_certify_pin_lag_is_advisory_on_the_published_source():
-    data, payload = _fixture("honua-sdk-dotnet-d9d9fd1.json")
-    assert data["sha"] == "d9d9fd1fcbe99570594160a6a3cc61b70594257b"
+    data, payload = _fixture("sdk-dotnet.json")
+    assert data["sha"] == "254f111547f6a9effc2c0a9da49e17905ff127d5"
     certify = [run for run in data["check_runs"] if run["name"] == "certify"]
-    assert [run["id"] for run in certify] == [111999844920]
+    assert [run["id"] for run in certify] == [1593]
     assert certify[0]["conclusion"] == "failure"
 
-    # Ruling 2026-10-09 (pin-lag rule): certify's pin gate refuses the published source by
-    # construction, so it is excluded as advisory; the 38 build/test lanes stay core.
+    # Pin-follow certification is advisory; the 38 build/test lanes stay core.
     status, why = _classify("honua-sdk-dotnet", payload)
     assert status == "pass", why
     assert why.startswith("all 38 core check-run(s) green")
@@ -69,11 +66,10 @@ def test_dotnet_certify_pin_lag_is_advisory_on_the_published_source():
 
 
 def test_js_three_engine_firefox_red_is_advisory_and_the_rest_stays_core():
-    data, payload = _fixture("honua-sdk-js-984425f.json")
-    assert data["sha"] == "984425f9d88b3c699cbd4766538ba311b48790aa"
+    data, payload = _fixture("sdk-js.json")
+    assert data["sha"] == "6772a96710a2b6111bfd5fdece97e37be75636f2"
     status, why = _classify("honua-sdk-js", payload)
-    # Ruling 2026-10-09: the Firefox-only First Map sample assertion (honua-sdk-js#687) is
-    # advisory; the SDK's 46 unit/browser/verify/build lanes stay core.
+    # The sample assertion is advisory; the 46 SDK build/test lanes stay core.
     assert status == "pass", why
     assert why.startswith("all 46 core check-run(s) green")
     for name in JS_ADVISORY:
@@ -84,13 +80,13 @@ def test_js_three_engine_firefox_red_is_advisory_and_the_rest_stays_core():
 
 
 def test_js_passes_when_the_three_engine_attempt_is_green():
-    _, payload = _fixture("honua-sdk-js-984425f.json")
+    _, payload = _fixture("sdk-js.json")
     flipped = copy.deepcopy(payload)
     matched = [
         run for run in flipped["check_runs"]
         if run.get("name") == THREE_ENGINE
     ]
-    assert len(matched) == 1 and matched[0]["id"] == 112238828187
+    assert len(matched) == 1 and matched[0]["id"] == 2043
     matched[0]["conclusion"] = "success"
     status, why = _classify("honua-sdk-js", flipped)
     assert status == "pass", why
@@ -100,28 +96,27 @@ def test_js_passes_when_the_three_engine_attempt_is_green():
 
 
 def test_build_site_and_release_please_ci_are_superseded_not_excluded():
-    data, payload = _fixture("honua-sdk-js-984425f.json")
+    data, payload = _fixture("sdk-js.json")
     latest = {run["name"]: run for run in bt._latest_named_runs(payload["check_runs"])}
-    assert latest["Build site"]["id"] == 112238700540
+    assert latest["Build site"]["id"] == 2040
     assert latest["Build site"]["conclusion"] == "success"
-    assert latest["release-please-ci"]["id"] == 112239395576
+    assert latest["release-please-ci"]["id"] == 2045
     assert latest["release-please-ci"]["conclusion"] == "skipped"
     raw = data["check_runs"]
-    assert any(run["id"] == 112234412516 and run["conclusion"] == "failure" for run in raw)
-    assert any(run["id"] == 112236298922 and run["conclusion"] == "failure" for run in raw)
-    assert any(run["id"] == 112237235014 and run["conclusion"] == "failure" for run in raw)
+    assert any(run["id"] == 1989 and run["conclusion"] == "failure" for run in raw)
+    assert any(run["id"] == 2029 and run["conclusion"] == "failure" for run in raw)
+    assert any(run["id"] == 2033 and run["conclusion"] == "failure" for run in raw)
     advice = SDK_JS.advisory_names
     assert "Build site" not in advice
     assert "release-please-ci" not in advice
 
 
 def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
-    data, payload = _fixture("honua-server-c19f29d.json")
-    assert data["sha"] == "c19f29d1828814f0f4c372b0dce73554074ba3b1"
+    data, payload = _fixture("server-observer.json")
+    assert data["sha"] == "a176748b58ed9fb3b2480c71506be6ab9be50f1f"
     status, why = _classify("honua-server", payload)
     assert status == "pass", why
-    # 115, not 120: the Resolve pull request identity job is governance and the four green/skipped Server Test Prebuild Parity Observation checks in this
-    # capture are advisory too (server-test-prebuild-parity.yml, 2026-10-26).
+    # Governance and observer jobs are excluded; 115 build/test lanes remain core.
     assert why.startswith("all 115 core check-run(s) green")
     for name in PREBUILD:
         assert name in why
@@ -129,14 +124,13 @@ def test_server_prebuild_observer_is_advisory_only_with_its_workflow_path():
     report = bt.BuildTestGate(lambda *_: payload, POLICY).evaluate(
         {"components": {"honua-server": {"sha": data["sha"]}}}, "strict")
     row = report["components"][0]
-    # Preserve historical captured bytes. They contain check metadata but no authoritative
-    # job/attempt + immutable shard inventory observations required by the strengthened gate.
+    # Check metadata alone cannot establish actual jobs or the pinned shard inventory.
     assert row["decided"] == "fail"
     assert "missing actual Actions job and pinned shard selection evidence" in row["why"]
 
 
 def test_prebuild_checks_stay_core_when_the_workflow_path_was_not_recorded():
-    _, payload = _fixture("honua-server-c19f29d.json")
+    _, payload = _fixture("server-observer.json")
     stripped = copy.deepcopy(payload)
     for run in stripped["check_runs"]:
         run.pop("_workflow_path", None)
@@ -149,7 +143,7 @@ def test_prebuild_checks_stay_core_when_the_workflow_path_was_not_recorded():
 
 
 def test_a_prebuild_named_job_on_ci_yml_is_not_covered_by_the_observer_exclusion():
-    _, payload = _fixture("honua-server-c19f29d.json")
+    _, payload = _fixture("server-observer.json")
     retargeted = copy.deepcopy(payload)
     moved = 0
     for run in retargeted["check_runs"]:
@@ -163,7 +157,7 @@ def test_a_prebuild_named_job_on_ci_yml_is_not_covered_by_the_observer_exclusion
         assert name in _red_names(why)
 
 
-PARITY_FIXTURE = ROOT / "tools" / "fixtures" / "candidate-resolution-2026-10-26" / "honua-server-08ace24.json"
+PARITY_FIXTURE = ROOT / "tools" / "fixtures" / "candidate-classification" / "server-parity.json"
 PARITY_RED = ("Independent prebuild baseline / ai", "Opportunistic prebuild candidate / ai")
 PARITY_WORKFLOW = ".github/workflows/server-test-prebuild-parity.yml"
 
@@ -176,13 +170,9 @@ def _parity_payload() -> tuple[dict, dict]:
 
 
 def test_server_prebuild_parity_observer_is_advisory_on_the_trunk_sha_it_is_filed_on():
-    # Nightly run 40354887147 skipped 08ace249 (full-matrix run 40317136321 green, image
-    # nightly-08ace24 published) for these two reds. They are workflow_run jobs of the
-    # Server Test Prebuild Parity Observation that GitHub files on the trunk SHA while the
-    # jobs build pull-request heads: run 40318181771 checked out e0807412 (PR #6593) and
-    # run 40317711085 checked out 91ca40d (PR #6589), neither in 08ace249's history.
+    # Observer workflows evaluate other source heads and are advisory by workflow path.
     data, payload = _parity_payload()
-    assert data["sha"] == "08ace249b20bc2c27bd7326fd77cd48525719eb7"
+    assert data["sha"] == "6f197b2c8b243497ec708421bc70d27a4e562277"
     red = [run for run in payload["check_runs"] if run["name"] in PARITY_RED and run["conclusion"] == "failure"]
     assert red and {run["_workflow_path"] for run in red} == {PARITY_WORKFLOW}
     status, why = _classify("honua-server", payload)
@@ -209,7 +199,7 @@ def test_server_prebuild_parity_checks_stay_core_without_a_workflow_path_or_on_c
 
 
 def test_feature_server_shard_uses_the_latest_attempt_and_stays_core():
-    shard = json.loads((FIXTURES / "honua-server-matrix-shard-attempts.json").read_text(encoding="utf-8"))
+    shard = json.loads((FIXTURES / "server-shard-attempts.json").read_text(encoding="utf-8"))
     assert [run["conclusion"] for run in shard["check_runs"]] == ["failure", "success"]
     assert shard["check_runs"][0]["check_suite"]["id"] != shard["check_runs"][1]["check_suite"]["id"]
     build = {
@@ -224,7 +214,7 @@ def test_feature_server_shard_uses_the_latest_attempt_and_stays_core():
 
     both = {"check_runs": [build, *copy.deepcopy(shard["check_runs"])]}
     enriched = enrich_action_workflow_ids(both, {"workflow_runs": [shard["workflow_run"]]})
-    assert {run["_workflow_id"] for run in enriched["check_runs"] if run["name"] == FEATURE_SHARD} == {"216825513"}
+    assert {run["_workflow_id"] for run in enriched["check_runs"] if run["name"] == FEATURE_SHARD} == {"1000"}
     status, why = bt.classify(enriched)
     assert status == "pass", why
     assert FEATURE_SHARD not in why
@@ -370,8 +360,7 @@ def test_js_overture_live_lane_is_env_gated_and_three_engine_is_advisory_not_env
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure")))
     assert status == "pass", why
-    # Both were red on 984425f9; the three-engine matrix is advisory (Firefox-only sample
-    # assertion, honua-sdk-js#687), never env-gated: it needs no external backend.
+    # The sample matrix is advisory; the unit and browser build lanes remain core.
     status, why = _classify("honua-sdk-js", _runs_named(
         ("Unit tests", "success"), ("Bounded AWS semantic workflow", "failure"),
         (THREE_ENGINE, "failure")))

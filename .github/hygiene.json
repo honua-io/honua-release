@@ -63,6 +63,9 @@
     "certification/ecs-recovery/published-artifact-discovery.json",
     "certification/hosted-pilot/history/environment-producer-39937421185-observation.json",
     "tools/fixtures/h3-contract-source-2026-10-13.json",
-    "tools/fixtures/wps-contract-source-2026-10-13.json"
+    "tools/fixtures/wps-contract-source-2026-10-13.json",
+    "tools/fixtures/candidate-resolution-2026-10-06/*",
+    "tools/fixtures/candidate-resolution-2026-10-26/*",
+    "docs/2026.1-candidate-resolution.md"
   ]
 }
