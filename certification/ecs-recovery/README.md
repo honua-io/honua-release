@@ -1,26 +1,6 @@
-# Real Honua ECS version recovery qualification — proposed, unrun
+# Honua ECS version recovery qualification harness
 
-This is a separate qualification from the standing nginx ECS/ALB weighted-cutover
-fixture. That fixture is unchanged and cannot satisfy this gate. Registry
-inspection confirmed two distinct anonymous-pull Honua OCI indexes, their runnable
-amd64 manifests, configuration hashes and source revision labels in
-`published-artifact-discovery.json`. Those observations prove publication and
-identity only. They do not prove signed release provenance, compatibility,
-installation, serving, upgrade, or recovery.
-
-Read-only AWS discovery on October 18, 2026 is recorded in
-[`environment-discovery.json`](environment-discovery.json). In the inspected
-account and `us-east-1`, no `honua-qual-*` cluster exists. The cutover service's
-actual task definition runs nginx. The downloaded `honua-2026.1` manifest and
-bundle hashes are retained, but their signatures were not verified and the
-manifest's server digest matches neither proposed recovery image. This record
-does not authorize repurposing the fixture or qualify any recovery scenario.
-
-Here nginx is the placeholder application behind the AWS ALB, not Honua's
-reverse-proxy architecture. The ECS deployment path uses the ALB; the separate
-self-hosted rolling deployment path uses embedded YARP. The qualification gap is
-running and recovering real Honua versions through the ECS/ALB path. Replacing
-the load balancer or adding nginx to Honua is not part of this work.
+This harness qualifies real Honua version recovery through ECS/ALB. The standing nginx weighted-cutover fixture checks deployment mechanics and cannot satisfy this qualification. The separate self-hosted rolling deployment path uses embedded YARP.
 
 `tools/ecs_honua_recovery.py` acts only on an existing, explicitly reviewed
 `honua-qual-*` substrate. It has no Terraform apply, ECS update/register, ALB
@@ -32,7 +12,7 @@ Approval receipts contain only references and identity, never hidden execution
 payloads or credentials. The harness requires a stored proposer key identity,
 rechecks its active metadata, and rejects immediate execution or approval bypass.
 
-## Concrete scope for root review before any cloud write
+## Scope review before any cloud write
 
 Provision/reuse a dedicated Honua qualification cell, not the nginx mechanics
 cell and not a production target. The proposed topology is two smallest adequate
@@ -64,12 +44,9 @@ the certificate issuer/repository, and compares component source, registry index
 and runnable amd64 identity. The manifest route supports older releases whose
 manifest binds the OCI index but does not yet carry platformDigests; the immutable
 index is resolved using the existing registry proof. It does not fabricate a lock.
-The published `honua-2026.1` release has signed manifest assets; their declared
-server is f897700/sha256:78e3088d…, not either of the two images discovered here.
-A matching signed provenance pair has not yet been established for this proposed
-pair. No image will execute merely because it can be pulled from the registry.
+No image may execute merely because it can be pulled from a registry.
 
-Before approval, root must fill and review the exact AWS account, region, resource
+Before approval, the qualification owner must fill and review the exact AWS account, region, resource
 names/ARNs, public HTTPS serving/control origins, database/snapshot references,
 signed artifact provenance, seeded query/count/checksum, schema compatibility review and cost
 budget. Proposed run scope creates zero new resources; owner provisioning and
@@ -132,9 +109,7 @@ A green syntax/unit result cannot certify any of them. `upgrade_recovery.py`'s
 existing failed-upgrade classification continues to govern those broader receipts;
 this harness does not synthesize its required migration/write evidence.
 
-No new live Honua target, dataset, credential pair, telemetry connection, signed
-provenance pair, or canonical approval journey has been established. No cloud resources
-were changed and this harness has not been run against AWS.
+A passing qualification needs recorded live evidence for the approved target, dataset, credentials, telemetry, signed provenance and approval journey. This guide makes no execution or qualification claim. Store actual discovery and runtime receipts in private evidence storage.
 
 The current deploy DTO exposes the original requester, but does not expose a
 distinct manual workflow submitter identity. The harness proves the distinct
