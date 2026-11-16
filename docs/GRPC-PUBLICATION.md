@@ -16,8 +16,9 @@ Regenerate affected consumers and update their package and conformance pins
 together, with the owning repository's compatibility checks passing.
 
 In this repository, `gate-contract.yml` validates the manifest-pinned protocol
-revision against the highest version-sorted `v*` release tag using `buf breaking`.
-Verify the selected revision against that baseline; do not treat a skipped
+revision against the highest version-sorted stable `vX.Y.Z` release tag strictly
+before that commit using `buf breaking`. Prerelease tags and tags at the pinned
+commit are excluded. Verify the selected revision against that baseline; do not treat a skipped
 publication job or an unrelated green workflow as protocol qualification.
 
 The proto package `geospatial.v1`, its schema distribution version and the
