@@ -1,0 +1,1569 @@
+{
+  "synthetic": true,
+  "component": "honua-sdk-js",
+  "sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+  "check_runs": [
+    {
+      "id": 2060,
+      "name": "claude",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T22:54:42Z",
+      "completed_at": "2000-01-01T22:54:42Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1210/job/2060",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1210/job/2060",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1470
+      }
+    },
+    {
+      "id": 2059,
+      "name": "Shadow parity",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T22:54:20Z",
+      "completed_at": "2000-01-01T22:56:06Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1209/job/2059",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1209/job/2059",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1469
+      }
+    },
+    {
+      "id": 2058,
+      "name": "realtime-contract",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T21:49:35Z",
+      "completed_at": "2000-01-01T21:55:10Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1208/job/2058",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1208/job/2058",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1468
+      }
+    },
+    {
+      "id": 2057,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T21:13:21Z",
+      "completed_at": "2000-01-01T21:13:21Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1207/job/2057",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1207/job/2057",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1467
+      }
+    },
+    {
+      "id": 2056,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T21:11:50Z",
+      "completed_at": "2000-01-01T21:12:45Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1206/job/2056",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1206/job/2056",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1466
+      }
+    },
+    {
+      "id": 2055,
+      "name": "Publish artifacts PR + gate strict validation",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T21:07:33Z",
+      "completed_at": "2000-01-01T21:11:30Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1205/job/2055",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1205/job/2055",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1465
+      }
+    },
+    {
+      "id": 2054,
+      "name": "Verify published release against the registry",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T21:05:04Z",
+      "completed_at": "2000-01-01T21:05:04Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202/job/2054",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202/job/2054",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1462
+      }
+    },
+    {
+      "id": 2053,
+      "name": "SDK verified",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:54:42Z",
+      "completed_at": "2000-01-01T20:54:45Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2053",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2053",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2052,
+      "name": "Verify: merged unit coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:53:07Z",
+      "completed_at": "2000-01-01T20:53:53Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2052",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2052",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2051,
+      "name": "Regenerate + reseal on trunk",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:51:22Z",
+      "completed_at": "2000-01-01T21:07:29Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1205/job/2051",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1205/job/2051",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1465
+      }
+    },
+    {
+      "id": 2050,
+      "name": "Persist the release-matrix receipt through evidence automation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:51:06Z",
+      "completed_at": "2000-01-01T20:51:11Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1203/job/2050",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1203/job/2050",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1463
+      }
+    },
+    {
+      "id": 2049,
+      "name": "release-please-disposition",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:49:00Z",
+      "completed_at": "2000-01-01T20:49:00Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/2049",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/2049",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1452
+      }
+    },
+    {
+      "id": 2048,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:48:51Z",
+      "completed_at": "2000-01-01T20:49:49Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1204/job/2048",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1204/job/2048",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1464
+      }
+    },
+    {
+      "id": 2047,
+      "name": "Deploy to GitHub Pages",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:48:35Z",
+      "completed_at": "2000-01-01T20:49:02Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1201/job/2047",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1201/job/2047",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1461
+      }
+    },
+    {
+      "id": 2046,
+      "name": "release-please-disposition",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:47:17Z",
+      "completed_at": "2000-01-01T20:47:17Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2046",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2046",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1455
+      }
+    },
+    {
+      "id": 2045,
+      "name": "release-please-ci",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:47:17Z",
+      "completed_at": "2000-01-01T20:47:16Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2045",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2045",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1455
+      }
+    },
+    {
+      "id": 2044,
+      "name": "release-please-refresh",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T20:47:05Z",
+      "completed_at": "2000-01-01T20:47:16Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2044",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2044",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1455
+      }
+    },
+    {
+      "id": 2043,
+      "name": "Three-engine smoke and source-packed parity",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T20:48:13Z",
+      "completed_at": "2000-01-01T20:51:03Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1203/job/2043",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1203/job/2043",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1463
+      }
+    },
+    {
+      "id": 2042,
+      "name": "Ensure derived artifacts are fresh",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:45:44Z",
+      "completed_at": "2000-01-01T20:45:43Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202/job/2042",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202/job/2042",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1462
+      }
+    },
+    {
+      "id": 2041,
+      "name": "publish-js-packages",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:46:44Z",
+      "completed_at": "2000-01-01T21:05:03Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202/job/2041",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202/job/2041",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1462
+      }
+    },
+    {
+      "id": 2040,
+      "name": "Build site",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:46:38Z",
+      "completed_at": "2000-01-01T20:48:21Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1201/job/2040",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1201/job/2040",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1461
+      }
+    },
+    {
+      "id": 2039,
+      "name": "PR Fast (under 2 minutes)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:45:23Z",
+      "completed_at": "2000-01-01T20:45:22Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2039",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2039",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1460
+      }
+    },
+    {
+      "id": 2038,
+      "name": "JS SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:47:40Z",
+      "completed_at": "2000-01-01T21:36:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2038",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2038",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1460
+      }
+    },
+    {
+      "id": 2037,
+      "name": "MCP SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:46:59Z",
+      "completed_at": "2000-01-01T20:50:05Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2037",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2037",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1460
+      }
+    },
+    {
+      "id": 2036,
+      "name": "Deterministic Benchmark Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:45:40Z",
+      "completed_at": "2000-01-01T20:47:30Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2036",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200/job/2036",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1460
+      }
+    },
+    {
+      "id": 2035,
+      "name": "Deploy to GitHub Pages",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:42:47Z",
+      "completed_at": "2000-01-01T20:42:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1197/job/2035",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1197/job/2035",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1457
+      }
+    },
+    {
+      "id": 2034,
+      "name": "Publish artifacts PR + gate strict validation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:44:44Z",
+      "completed_at": "2000-01-01T20:45:25Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1199/job/2034",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1199/job/2034",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1459
+      }
+    },
+    {
+      "id": 2033,
+      "name": "release-please-ci",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T20:43:06Z",
+      "completed_at": "2000-01-01T20:48:59Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/2033",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/2033",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1452
+      }
+    },
+    {
+      "id": 2032,
+      "name": "Regenerate + reseal on trunk",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:41:16Z",
+      "completed_at": "2000-01-01T20:41:57Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1199/job/2032",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1199/job/2032",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1459
+      }
+    },
+    {
+      "id": 2031,
+      "name": "Compare browser impact routing",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:41:08Z",
+      "completed_at": "2000-01-01T20:41:58Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1198/job/2031",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1198/job/2031",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1458
+      }
+    },
+    {
+      "id": 2030,
+      "name": "release-please-refresh",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:40:59Z",
+      "completed_at": "2000-01-01T20:41:20Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/2030",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/2030",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1452
+      }
+    },
+    {
+      "id": 2029,
+      "name": "Build site",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T20:40:57Z",
+      "completed_at": "2000-01-01T20:42:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1197/job/2029",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1197/job/2029",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1457
+      }
+    },
+    {
+      "id": 2028,
+      "name": "PR Fast (under 2 minutes)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:38:44Z",
+      "completed_at": "2000-01-01T20:38:43Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2028",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2028",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1456
+      }
+    },
+    {
+      "id": 2027,
+      "name": "Deterministic Benchmark Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:45:38Z",
+      "completed_at": "2000-01-01T20:47:25Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2027",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2027",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1456
+      }
+    },
+    {
+      "id": 2026,
+      "name": "MCP SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:42:49Z",
+      "completed_at": "2000-01-01T20:45:37Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2026",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2026",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1456
+      }
+    },
+    {
+      "id": 2025,
+      "name": "JS SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:40:05Z",
+      "completed_at": "2000-01-01T21:29:20Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2025",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196/job/2025",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1456
+      }
+    },
+    {
+      "id": 2024,
+      "name": "Browser (examples)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:47:37Z",
+      "completed_at": "2000-01-01T20:52:06Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2024",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2024",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2023,
+      "name": "Unit coverage (4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:48:04Z",
+      "completed_at": "2000-01-01T20:51:26Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2023",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2023",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2022,
+      "name": "Unit coverage (2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:49:17Z",
+      "completed_at": "2000-01-01T20:51:53Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2022",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2022",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2021,
+      "name": "Browser (offline)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:43:45Z",
+      "completed_at": "2000-01-01T20:46:20Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2021",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2021",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2020,
+      "name": "Browser (realtime)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:45:28Z",
+      "completed_at": "2000-01-01T20:47:35Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2020",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2020",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2019,
+      "name": "Browser (map)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:47:36Z",
+      "completed_at": "2000-01-01T20:53:22Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2019",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2019",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2018,
+      "name": "Unit coverage (1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:45:50Z",
+      "completed_at": "2000-01-01T20:50:20Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2018",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2018",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2017,
+      "name": "Verify: core, types, style, coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:47:41Z",
+      "completed_at": "2000-01-01T20:52:28Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2017",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2017",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2016,
+      "name": "Unit coverage (3/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:42:00Z",
+      "completed_at": "2000-01-01T20:45:24Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2016",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2016",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2015,
+      "name": "Verify: examples, demos, scaffolds",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:42:00Z",
+      "completed_at": "2000-01-01T20:48:48Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2015",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2015",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2014,
+      "name": "Verify: MCP",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:45:18Z",
+      "completed_at": "2000-01-01T20:47:43Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2014",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2014",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2013,
+      "name": "Verify: package, publish surface, bundles",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:36:51Z",
+      "completed_at": "2000-01-01T20:46:22Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2013",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2013",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2012,
+      "name": "Publish artifacts PR + gate strict validation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:38:06Z",
+      "completed_at": "2000-01-01T20:38:46Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1185/job/2012",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1185/job/2012",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1446
+      }
+    },
+    {
+      "id": 2011,
+      "name": "Deploy to GitHub Pages",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:35:34Z",
+      "completed_at": "2000-01-01T20:35:34Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1186/job/2011",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1186/job/2011",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1447
+      }
+    },
+    {
+      "id": 2010,
+      "name": "SDK build (producer)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:34:32Z",
+      "completed_at": "2000-01-01T20:36:18Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2010",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2010",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2009,
+      "name": "Quickstart budget (clean install)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:35:17Z",
+      "completed_at": "2000-01-01T20:36:48Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2009",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/2009",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 2008,
+      "name": "release-please",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:40:57Z",
+      "completed_at": "2000-01-01T20:45:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2008",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195/job/2008",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1455
+      }
+    },
+    {
+      "id": 2007,
+      "name": "Regenerate + reseal on trunk",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:34:00Z",
+      "completed_at": "2000-01-01T20:35:41Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1185/job/2007",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1185/job/2007",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1446
+      }
+    },
+    {
+      "id": 2006,
+      "name": "Analyze (python)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:34:26Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184/job/2006",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184/job/2006",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1445
+      }
+    },
+    {
+      "id": 2005,
+      "name": "Analyze (javascript-typescript)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:47:32Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184/job/2005",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184/job/2005",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1445
+      }
+    },
+    {
+      "id": 2004,
+      "name": "Analyze (actions)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:36Z",
+      "completed_at": "2000-01-01T20:34:20Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184/job/2004",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184/job/2004",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1445
+      }
+    },
+    {
+      "id": 2003,
+      "name": "PR Fast (under 2 minutes)",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T20:33:32Z",
+      "completed_at": "2000-01-01T20:33:32Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/2003",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/2003",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1450
+      }
+    },
+    {
+      "id": 2002,
+      "name": "trivy / Trivy fs",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:36Z",
+      "completed_at": "2000-01-01T20:34:04Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194/job/2002",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194/job/2002",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1454
+      }
+    },
+    {
+      "id": 2001,
+      "name": "scorecard / Scorecard analysis",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:34:12Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194/job/2001",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194/job/2001",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1454
+      }
+    },
+    {
+      "id": 2000,
+      "name": "Binary artifact policy",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:34:11Z",
+      "completed_at": "2000-01-01T20:34:21Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194/job/2000",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194/job/2000",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1454
+      }
+    },
+    {
+      "id": 1999,
+      "name": "Analyze (javascript-typescript)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:43Z",
+      "completed_at": "2000-01-01T20:36:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1183/job/1999",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1183/job/1999",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1444
+      }
+    },
+    {
+      "id": 1998,
+      "name": "Analyze (python)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:40Z",
+      "completed_at": "2000-01-01T20:34:24Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1183/job/1998",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1183/job/1998",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1444
+      }
+    },
+    {
+      "id": 1997,
+      "name": "Integration + Conformance",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:39Z",
+      "completed_at": "2000-01-01T20:35:12Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1188/job/1997",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1188/job/1997",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1449
+      }
+    },
+    {
+      "id": 1996,
+      "name": "JS SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T21:13:17Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/1996",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/1996",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1450
+      }
+    },
+    {
+      "id": 1995,
+      "name": "Conformance Drift Guardrail",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:36Z",
+      "completed_at": "2000-01-01T20:33:57Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1188/job/1995",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1188/job/1995",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1449
+      }
+    },
+    {
+      "id": 1994,
+      "name": "Deterministic Benchmark Lab",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:35:16Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/1994",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/1994",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1450
+      }
+    },
+    {
+      "id": 1993,
+      "name": "MCP SDK",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:36:52Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/1993",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190/job/1993",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1450
+      }
+    },
+    {
+      "id": 1992,
+      "name": "release-please",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:39:07Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/1992",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192/job/1992",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1452
+      }
+    },
+    {
+      "id": 1991,
+      "name": "Vendored schemas match pinned upstream",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:34Z",
+      "completed_at": "2000-01-01T20:33:40Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1193/job/1991",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1193/job/1991",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1453
+      }
+    },
+    {
+      "id": 1990,
+      "name": "Admission",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:34:25Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/1990",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187/job/1990",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1448
+      }
+    },
+    {
+      "id": 1989,
+      "name": "Build site",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T20:33:42Z",
+      "completed_at": "2000-01-01T20:35:34Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1186/job/1989",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1186/job/1989",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1447
+      }
+    },
+    {
+      "id": 1988,
+      "name": "Documentation release freshness",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T20:33:35Z",
+      "completed_at": "2000-01-01T20:33:49Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1191/job/1988",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1191/job/1988",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1451
+      }
+    }
+  ],
+  "workflow_runs": [
+    {
+      "id": 1210,
+      "name": "Claude Code",
+      "path": ".github/workflows/claude.yml",
+      "event": "issue_comment",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1036,
+      "created_at": "2000-01-01T22:54:41Z",
+      "updated_at": "2000-01-01T22:54:48Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1210"
+    },
+    {
+      "id": 1209,
+      "name": "SDK Shadow Parity",
+      "path": ".github/workflows/sdk-shadow-parity.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1034,
+      "created_at": "2000-01-01T22:54:17Z",
+      "updated_at": "2000-01-01T22:56:06Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1209"
+    },
+    {
+      "id": 1208,
+      "name": "Realtime Cross-Transport Conformance",
+      "path": ".github/workflows/realtime-live-conformance.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1025,
+      "created_at": "2000-01-01T21:49:19Z",
+      "updated_at": "2000-01-01T21:55:11Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1208"
+    },
+    {
+      "id": 1207,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "skipped",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1027,
+      "created_at": "2000-01-01T21:13:20Z",
+      "updated_at": "2000-01-01T21:13:21Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1207"
+    },
+    {
+      "id": 1206,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1027,
+      "created_at": "2000-01-01T21:11:47Z",
+      "updated_at": "2000-01-01T21:12:46Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1206"
+    },
+    {
+      "id": 1205,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1023,
+      "created_at": "2000-01-01T20:51:09Z",
+      "updated_at": "2000-01-01T21:11:31Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1205"
+    },
+    {
+      "id": 1204,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1027,
+      "created_at": "2000-01-01T20:48:37Z",
+      "updated_at": "2000-01-01T20:49:49Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1204"
+    },
+    {
+      "id": 1203,
+      "name": "First Map Release Smoke",
+      "path": ".github/workflows/first-map-release-smoke.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1022,
+      "created_at": "2000-01-01T20:45:44Z",
+      "updated_at": "2000-01-01T20:51:13Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1203"
+    },
+    {
+      "id": 1202,
+      "name": "Publish JS SDK Packages",
+      "path": ".github/workflows/publish-js-sdk.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1003,
+      "created_at": "2000-01-01T20:45:42Z",
+      "updated_at": "2000-01-01T21:05:04Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1202"
+    },
+    {
+      "id": 1201,
+      "name": "Docs site",
+      "path": ".github/workflows/docs-site.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1017,
+      "created_at": "2000-01-01T20:45:22Z",
+      "updated_at": "2000-01-01T20:49:03Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1201"
+    },
+    {
+      "id": 1200,
+      "name": "SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1002,
+      "created_at": "2000-01-01T20:45:21Z",
+      "updated_at": "2000-01-01T21:36:47Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1200"
+    },
+    {
+      "id": 1199,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1023,
+      "created_at": "2000-01-01T20:41:06Z",
+      "updated_at": "2000-01-01T20:45:27Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1199"
+    },
+    {
+      "id": 1198,
+      "name": "Browser Impact Observation",
+      "path": ".github/workflows/browser-impact-observe.yml",
+      "event": "workflow_run",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1027,
+      "created_at": "2000-01-01T20:41:01Z",
+      "updated_at": "2000-01-01T20:42:00Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1198"
+    },
+    {
+      "id": 1197,
+      "name": "Docs site",
+      "path": ".github/workflows/docs-site.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1017,
+      "created_at": "2000-01-01T20:38:44Z",
+      "updated_at": "2000-01-01T20:42:48Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1197"
+    },
+    {
+      "id": 1196,
+      "name": "SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1002,
+      "created_at": "2000-01-01T20:38:42Z",
+      "updated_at": "2000-01-01T21:29:21Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1196"
+    },
+    {
+      "id": 1195,
+      "name": "Release Please",
+      "path": ".github/workflows/release-please.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1007,
+      "created_at": "2000-01-01T20:34:13Z",
+      "updated_at": "2000-01-01T20:47:17Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1195"
+    },
+    {
+      "id": 1194,
+      "name": "Security",
+      "path": ".github/workflows/security.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1014,
+      "created_at": "2000-01-01T20:33:32Z",
+      "updated_at": "2000-01-01T20:34:22Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1194"
+    },
+    {
+      "id": 1186,
+      "name": "Docs site",
+      "path": ".github/workflows/docs-site.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1017,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:35:35Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1186"
+    },
+    {
+      "id": 1183,
+      "name": "Code Quality: Push on trunk",
+      "path": "dynamic/github-code-quality/codeql",
+      "event": "dynamic",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1037,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:36:48Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1183"
+    },
+    {
+      "id": 1191,
+      "name": "Documentation release freshness",
+      "path": ".github/workflows/docs-release.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1039,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:33:50Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1191"
+    },
+    {
+      "id": 1193,
+      "name": "Schema sync gate",
+      "path": ".github/workflows/schema-sync.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1018,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:33:41Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1193"
+    },
+    {
+      "id": 1189,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1023,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:33:33Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1189"
+    },
+    {
+      "id": 1188,
+      "name": "SDK Integration",
+      "path": ".github/workflows/integration.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1009,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:35:13Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1188"
+    },
+    {
+      "id": 1185,
+      "name": "Regenerate derived artifacts",
+      "path": ".github/workflows/regenerate-derived-artifacts.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1023,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:38:47Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1185"
+    },
+    {
+      "id": 1184,
+      "name": "Push on trunk",
+      "path": "dynamic/github-code-scanning/codeql",
+      "event": "dynamic",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1016,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:47:33Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1184"
+    },
+    {
+      "id": 1187,
+      "name": "SDK Verification",
+      "path": ".github/workflows/sdk-verification.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1032,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:54:46Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1187"
+    },
+    {
+      "id": 1192,
+      "name": "Release Please",
+      "path": ".github/workflows/release-please.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1007,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T20:49:01Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1192"
+    },
+    {
+      "id": 1190,
+      "name": "SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "6772a96710a2b6111bfd5fdece97e37be75636f2",
+      "workflow_id": 1002,
+      "created_at": "2000-01-01T20:33:31Z",
+      "updated_at": "2000-01-01T21:13:18Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-js/actions/runs/1190"
+    }
+  ]
+}

@@ -44,7 +44,7 @@ on:
       - "tools/image_requirement.py"
       - "tools/test_image_requirement.py"
       - "tools/compose_upgrade_prior.py"
-      - "tools/fixtures/candidate-resolution-2026-10-06/**"
+      - "tools/fixtures/candidate-classification/**"
       - ".github/workflows/gate-build-test.yml"
   schedule:
     - cron: "37 6 * * *"          # nightly drift check on the current pins

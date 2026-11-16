@@ -17,13 +17,13 @@
     {
       "repo": "honua-release",
       "paths": [
-        "tools/fixtures/candidate-resolution-2026-10-06/honua-server-c19f29d.json",
-        "tools/fixtures/candidate-resolution-2026-10-26/honua-server-08ace24.json"
+        "tools/fixtures/candidate-classification/server-observer.json",
+        "tools/fixtures/candidate-classification/server-parity.json"
       ],
       "tokens": [
         "Esri Leaflet"
       ],
-      "reason": "Verbatim GitHub check-run name on the recorded c19f29d and 08ace249 payloads (job \"Esri Leaflet Browser Tests\"). The fixture is the Actions response the candidate resolver classifies; the name belongs to the honua-server workflow and renaming it would falsify that evidence. The exception is this token in these files only.",
+      "reason": "Exact workflow job identifier \"Esri Leaflet Browser Tests\" used by synthetic candidate-classification tests. The fixtures exercise policy and do not prove execution. The exception covers only this token in these two files.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#470"
     },
@@ -202,7 +202,7 @@
     {
       "repo": "honua-release",
       "paths": [
-        "certification/installed-clients/mcp-6901-replay-41680771276.json"
+        "certification/installed-clients/mcp-tool-contract-input.json"
       ],
       "tokens": [
         "esri"
@@ -212,7 +212,7 @@
         "esri-drawing-info.",
         "application/vnd.esri.drawinginfo"
       ],
-      "reason": "Verbatim honua-server 8628668794df9f0c22a490e59cedaee409cc1bdd honua_get_style observations retained from geospatial-mcp certify run 41680771276 for the #6901 replay control. Every use is the encoding identifier esri-drawing-info or the media type application/vnd.esri.drawinginfo+json advertised by GetStyleTool.SupportedEncodings, including inside the serialized JSON text block and the server's own unsupported-encoding refusal message; editing them would falsify the replayed evidence. No prose is covered.",
+      "reason": "Static MCP contract input preserves the exact honua_get_style encoding identifier esri-drawing-info and media type application/vnd.esri.drawinginfo+json advertised by GetStyleTool.SupportedEncodings, including serialized JSON and the unsupported-encoding refusal message. These wire identifiers are required for schema and refusal assertions. Synthetic fixture identities establish no execution, installed compatibility or live qualification. Only the listed identifiers in this file are covered; no prose is covered.",
       "owner": "@mikemcdougall",
       "issue": "honua-io/honua-release#705"
     },

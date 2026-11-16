@@ -1,0 +1,819 @@
+{
+  "synthetic": true,
+  "component": "honua-sdk-dotnet",
+  "sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+  "check_runs": [
+    {
+      "id": 1595,
+      "name": "Moving Canary Evidence and Alert",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T07:56:47Z",
+      "completed_at": "2000-01-01T07:56:53Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1051/job/1595",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1051/job/1595",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1325
+      }
+    },
+    {
+      "id": 1594,
+      "name": "Contract Conformance (moving canary)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T07:50:59Z",
+      "completed_at": "2000-01-01T07:56:44Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1051/job/1594",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1051/job/1594",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1325
+      }
+    },
+    {
+      "id": 1593,
+      "name": "certify",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2000-01-01T07:41:32Z",
+      "completed_at": "2000-01-01T07:42:05Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1050/job/1593",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1050/job/1593",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1324
+      }
+    },
+    {
+      "id": 1592,
+      "name": "Staging Read-Only Integration",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T07:08:36Z",
+      "completed_at": "2000-01-01T07:10:56Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1049/job/1592",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1049/job/1592",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1323
+      }
+    },
+    {
+      "id": 1591,
+      "name": "Staging Configuration Preflight",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T07:03:27Z",
+      "completed_at": "2000-01-01T07:03:29Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1049/job/1591",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1049/job/1591",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1323
+      }
+    },
+    {
+      "id": 1590,
+      "name": "Publish Packages",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:48:57Z",
+      "completed_at": "2000-01-01T01:13:59Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1590",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1590",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1322
+      }
+    },
+    {
+      "id": 1589,
+      "name": "Release Staging Integration / Staging Read-Only Integration",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:15:10Z",
+      "completed_at": "2000-01-01T00:16:51Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1589",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1589",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1322
+      }
+    },
+    {
+      "id": 1588,
+      "name": "Release Staging Integration / Staging Configuration Preflight",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:13:41Z",
+      "completed_at": "2000-01-01T00:13:44Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1588",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1588",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1322
+      }
+    },
+    {
+      "id": 1587,
+      "name": "Moving Canary Evidence and Alert",
+      "status": "completed",
+      "conclusion": "skipped",
+      "started_at": "2000-01-01T00:02:04Z",
+      "completed_at": "2000-01-01T00:02:04Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1044/job/1587",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1044/job/1587",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1318
+      }
+    },
+    {
+      "id": 1586,
+      "name": "Release Smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:32Z",
+      "completed_at": "2000-01-01T00:07:54Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1586",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048/job/1586",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1322
+      }
+    },
+    {
+      "id": 1585,
+      "name": "Dispatch the .NET SDK publish",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:24Z",
+      "completed_at": "2000-01-01T00:00:29Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1046/job/1585",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1046/job/1585",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1320
+      }
+    },
+    {
+      "id": 1584,
+      "name": "trivy / Trivy fs",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:10Z",
+      "completed_at": "2000-01-01T00:01:19Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1047/job/1584",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1047/job/1584",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1321
+      }
+    },
+    {
+      "id": 1583,
+      "name": "scorecard / Scorecard analysis",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:01:11Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1047/job/1583",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1047/job/1583",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1321
+      }
+    },
+    {
+      "id": 1582,
+      "name": "Analyze (csharp)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:04:34Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1042/job/1582",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1042/job/1582",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1316
+      }
+    },
+    {
+      "id": 1581,
+      "name": ".NET SDK (GeoServices)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:01:03Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1581",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1581",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1580,
+      "name": "Build DocFX site",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:02:41Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1043/job/1580",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1043/job/1580",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1317
+      }
+    },
+    {
+      "id": 1579,
+      "name": ".NET SDK (Processes)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:00:45Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1579",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1579",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1578,
+      "name": ".NET SDK (ConsoleShare)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:00:53Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1578",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1578",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1577,
+      "name": ".NET SDK (Meta)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:06Z",
+      "completed_at": "2000-01-01T00:01:35Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1577",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1577",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1576,
+      "name": ".NET SDK (Offline)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:35Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1576",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1576",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1575,
+      "name": ".NET SDK (Abstractions)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:01:29Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1575",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1575",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1574,
+      "name": ".NET SDK (Admin)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:43Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1574",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1574",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1573,
+      "name": ".NET SDK (Catalogs)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:06Z",
+      "completed_at": "2000-01-01T00:00:53Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1573",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1573",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1572,
+      "name": ".NET SDK (Spec)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:44Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1572",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1572",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1571,
+      "name": "Security Audit (NuGet)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:01:01Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1571",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1571",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1570,
+      "name": ".NET SDK (Scenes)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:38Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1570",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1570",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1569,
+      "name": ".NET SDK (Cli)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:06Z",
+      "completed_at": "2000-01-01T00:00:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1569",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1569",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1568,
+      "name": ".NET SDK (Grpc)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:39Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1568",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1568",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1567,
+      "name": ".NET SDK (Field)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:00:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1567",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1567",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1566,
+      "name": ".NET SDK (Studio)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:52Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1566",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1566",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1565,
+      "name": "release-please",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:21Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1046/job/1565",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1046/job/1565",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1320
+      }
+    },
+    {
+      "id": 1564,
+      "name": ".NET SDK (OgcFeatures)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:01:23Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1564",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1564",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1563,
+      "name": "Code Coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:02:56Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1563",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1563",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1562,
+      "name": "Admin Bootstrap Sample",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:06Z",
+      "completed_at": "2000-01-01T00:01:51Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1562",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1562",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1561,
+      "name": ".NET SDK (Geometry)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:47Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1561",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1561",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1560,
+      "name": "SDK Capability Coverage Snapshot",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:05Z",
+      "completed_at": "2000-01-01T00:00:13Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1560",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1560",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1559,
+      "name": "Contract Conformance (pinned)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:03Z",
+      "completed_at": "2000-01-01T00:02:03Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1044/job/1559",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1044/job/1559",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1318
+      }
+    },
+    {
+      "id": 1558,
+      "name": "GitHub Workflow Validation",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:00:19Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1558",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1558",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1557,
+      "name": "Browser WASM Smoke",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:03Z",
+      "completed_at": "2000-01-01T00:01:22Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1557",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1557",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    },
+    {
+      "id": 1556,
+      "name": "Trimmed Browser WASM Runtime",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:02:38Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1045/job/1556",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1045/job/1556",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1319
+      }
+    },
+    {
+      "id": 1555,
+      "name": "API Compatibility",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2000-01-01T00:00:04Z",
+      "completed_at": "2000-01-01T00:03:15Z",
+      "details_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1555",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041/job/1555",
+      "app": {
+        "slug": "github-actions"
+      },
+      "check_suite": {
+        "id": 1315
+      }
+    }
+  ],
+  "workflow_runs": [
+    {
+      "id": 1051,
+      "name": "Conformance Gate",
+      "path": ".github/workflows/conformance.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1013,
+      "created_at": "2000-01-01T07:50:55Z",
+      "updated_at": "2000-01-01T07:56:54Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1051"
+    },
+    {
+      "id": 1050,
+      "name": ".NET SDK Protocol Certification",
+      "path": ".github/workflows/sdk-certification.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "failure",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1035,
+      "created_at": "2000-01-01T07:41:29Z",
+      "updated_at": "2000-01-01T07:42:06Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1050"
+    },
+    {
+      "id": 1049,
+      "name": ".NET SDK Staging Integration",
+      "path": ".github/workflows/staging-integration.yml",
+      "event": "schedule",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1008,
+      "created_at": "2000-01-01T06:58:16Z",
+      "updated_at": "2000-01-01T07:10:57Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1049"
+    },
+    {
+      "id": 1048,
+      "name": "Publish .NET SDK Packages",
+      "path": ".github/workflows/publish-dotnet-sdk.yml",
+      "event": "workflow_dispatch",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1005,
+      "created_at": "2000-01-01T00:00:27Z",
+      "updated_at": "2000-01-01T01:13:59Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1048"
+    },
+    {
+      "id": 1047,
+      "name": "Security",
+      "path": ".github/workflows/security.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1015,
+      "created_at": "2000-01-01T00:00:01Z",
+      "updated_at": "2000-01-01T00:01:23Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1047"
+    },
+    {
+      "id": 1042,
+      "name": "CodeQL",
+      "path": ".github/workflows/codeql.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1012,
+      "created_at": "2000-01-01T00:00:00Z",
+      "updated_at": "2000-01-01T00:04:37Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1042"
+    },
+    {
+      "id": 1041,
+      "name": ".NET SDK CI",
+      "path": ".github/workflows/ci.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1004,
+      "created_at": "2000-01-01T00:00:00Z",
+      "updated_at": "2000-01-01T00:03:25Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1041"
+    },
+    {
+      "id": 1046,
+      "name": "Release Please",
+      "path": ".github/workflows/release-please.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1006,
+      "created_at": "2000-01-01T00:00:00Z",
+      "updated_at": "2000-01-01T00:00:31Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1046"
+    },
+    {
+      "id": 1045,
+      "name": "Browser WASM Trim Safety",
+      "path": ".github/workflows/browser-trim.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1020,
+      "created_at": "2000-01-01T00:00:00Z",
+      "updated_at": "2000-01-01T00:02:40Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1045"
+    },
+    {
+      "id": 1044,
+      "name": "Conformance Gate",
+      "path": ".github/workflows/conformance.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1013,
+      "created_at": "2000-01-01T00:00:00Z",
+      "updated_at": "2000-01-01T00:02:04Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1044"
+    },
+    {
+      "id": 1043,
+      "name": "Docs",
+      "path": ".github/workflows/docs.yml",
+      "event": "push",
+      "status": "completed",
+      "conclusion": "success",
+      "run_attempt": 1,
+      "head_sha": "254f111547f6a9effc2c0a9da49e17905ff127d5",
+      "workflow_id": 1011,
+      "created_at": "2000-01-01T00:00:00Z",
+      "updated_at": "2000-01-01T00:02:47Z",
+      "html_url": "https://example.invalid/tests/honua-sdk-dotnet/actions/runs/1043"
+    }
+  ]
+}
