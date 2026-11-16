@@ -4,7 +4,7 @@
   "substitute": {
     "ghcr.io/honua-io/honua-server:nightly-jit-9d2169c@sha256:48d73e13bf47c3c837106f3ee959230c20bfeac926754b1dfecd4cad29b0486e": {
       "value": "{candidate.image}",
-      "documentedAt": "README.md:200 — export HONUA_SERVER_IMAGE=${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:nightly-jit-9d2169c@sha256:48d73e13…}. The page names that digest; the gate certifies the manifest candidate behind it"
+      "documentedAt": "README.md:214 — export HONUA_SERVER_IMAGE=${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:nightly-jit-9d2169c@sha256:48d73e13…}. The page names that digest; the gate certifies the manifest candidate behind it"
     }
   }
 }

@@ -125,3 +125,36 @@ def test_console_assertions_and_readiness_changes_block_revision_drift(case):
     after, _ = document_record(document, "b" * 40, case[1])
     assert before["blocks"][0]["sha256"] == after["blocks"][0]["sha256"]
     assert content_drift({"documents": [before]}, {"documents": [after]})
+
+
+def _substitution_case(tmp_path, text):
+    import inventory
+    (tmp_path / "example-readme.json").write_text(json.dumps({"substitute": {
+        "image:pinned@sha256:abc": {"value": "{candidate.image}", "documentedAt": "README.md:2"},
+        "image:ga": {"value": "{candidate.image}", "documentedAt": "README.md:2, once GA"}}}))
+    sources = {"documents": [{"repo": "honua-io/example", "path": "README.md", "runtime": "python",
+                              "revision": {"defaultBranch": True}}]}
+
+    class FakeResolver:
+        def revision(self, document):
+            return "a" * 40
+
+        def read(self, document, revision):
+            return text
+
+        manifest = {"platformRelease": "2026.1"}
+
+    ident = sources["documents"][0]
+    assert inventory.doc_id(ident["repo"], ident["path"]) == "example-readme"
+    return inventory, sources, FakeResolver()
+
+
+def test_substitution_key_missing_from_its_document_fails_the_inventory(tmp_path):
+    inventory, sources, resolver = _substitution_case(tmp_path, "```sh\ndocker run image:moved@sha256:def\n```")
+    with pytest.raises(inventory.InventoryError, match=r"no substitute key for \{candidate.image\}"):
+        inventory.build(sources, resolver, tmp_path)
+
+
+def test_one_present_alternate_key_binds_its_value(tmp_path):
+    inventory, sources, resolver = _substitution_case(tmp_path, "```sh\ndocker run image:pinned@sha256:abc\n```")
+    assert inventory.build(sources, resolver, tmp_path)["summary"]["blocks"] == 1
