@@ -61,6 +61,9 @@
     "certification/console-read-approve/receipt.nightly-80e23be.console-dcb9eb2.json",
     "certification/ecs-recovery/environment-discovery.json",
     "certification/ecs-recovery/published-artifact-discovery.json",
+    "certification/sdk-publication-replay/sdk-021/*",
+    "certification/sdk-publication-replay/published-*.json",
+    "docs/evidence/studio-assistant-p08-*.json",
     "certification/hosted-pilot/history/environment-producer-39937421185-observation.json"
   ]
 }
