@@ -1,4 +1,4 @@
-"""The customer operating envelope names the 2026.1 RC pins, not the September draft."""
+"""The operating envelope delegates candidate identity to the release lock."""
 
 from pathlib import Path
 
@@ -14,12 +14,15 @@ RETIRED = (
 )
 
 
-def test_envelope_names_the_release_candidate_pins():
+def test_envelope_uses_release_identity_without_a_copied_pin_table():
     text = ENVELOPE.read_text(encoding="utf-8")
-    assert "ghcr.io/honua-io/honua-server:2026.1-rc" in text
-    assert "`@honua/sdk-js` `0.2.10`" in text
-    assert "`honua-sdk` `0.1.19`" in text
-    assert "`Honua.Sdk` `1.12.0`" in text
+    assert "[release notes](../release-notes/2026.1.md)" in text
+    assert "signed release lock" in text
+    assert "[release lock draft](platform-lock.v1.draft.yaml)" in text
+    assert "[incomplete and unqualified](SDK-SERVER-COMPATIBILITY.md)" in text
+    assert "Resolve component versions from the candidate lock" in text
+    assert "a published package" in text
+    assert "alone does not establish a qualified pairing" in text
     assert "Honua Studio" in text
     preview = text.split("## 2026.1 tiers", 1)[1].split("## Multi-tenancy", 1)[0]
     assert "GP catalog" in preview and "Preview" in preview
