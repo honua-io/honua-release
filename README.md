@@ -26,8 +26,8 @@ conformance + artifact-consumption + upgrade gate → emit a digest- and run-bou
 manifest and matrix in that bundle and verifies them against the certifying Actions run before release work
 begins. **AI proposes, the pipeline disposes** — gates live in GHA and can't be overridden.
 
-See `docs/RELEASE-ENGINEERING-PLAN.md` and `docs/TEST-STRATEGY.md` for the full design. Work is tracked in the
-**Phase 0/1 epic** (issues in this repo).
+See `docs/RELEASE-ENGINEERING.md` for the release requirements and `docs/TEST-STRATEGY.md` for
+the certification architecture.
 
-> **Hard rule:** do not give AI release autonomy until the gates can't lie. Phase 1 (real gates + real
-> telemetry) is the prerequisite — see the plan.
+> **Hard rule:** do not give AI release autonomy until the gates can't lie. Real gates and real
+> telemetry are the prerequisites — see the release requirements.

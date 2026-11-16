@@ -25,7 +25,7 @@ Run the steps that cover what you changed; the workflow lists the rest.
 - **AI proposes, the pipeline disposes.** Release gates live in GitHub Actions and must be
   able to fail; no human or AI overrides them. A gate that can't fail is worse than no gate.
 - **Do not grant AI release autonomy until the gates can't lie** (real gates and real
-  telemetry first; `docs/RELEASE-ENGINEERING-PLAN.md`, Phase 1).
+  telemetry first; `docs/RELEASE-ENGINEERING.md`).
 - **`platform-manifest.yaml` and `compatibility-matrix.yaml` are the source of truth** for
   which versions ship together. Narrowing a matrix range without a contract-version bump fails.
 - **`customer-install-manifest.json` is published, not internal.** honua-site copies it
