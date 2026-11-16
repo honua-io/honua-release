@@ -1,5 +1,6 @@
 """The G3 dispatch runs the public quickstart fences and writes a receipt."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -326,11 +327,12 @@ def test_compose_older_than_the_quickstart_blocks_before_a_run():
     assert g3.host_preflight("unavailable") is None
 
 
-def test_offline_main_commits_a_receipt_and_removes_the_run_directory(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("quickstart", [PAGE, FAILURE_PAGE], ids=["passed", "failed"])
+def test_offline_main_retains_a_receipt_with_logs(tmp_path: Path, monkeypatch, quickstart):
     page = tmp_path / "quickstart.md"
-    page.write_text(PAGE, encoding="utf-8")
-    receipt_dir = tmp_path / "docs" / "launch-gates"
+    page.write_text(quickstart, encoding="utf-8")
     log_dir = tmp_path / "logs"
+    receipt_dir = log_dir / "receipts"
     run_dir = tmp_path / "run"
     monkeypatch.chdir(tmp_path)
     code = g3.main(
@@ -344,7 +346,7 @@ def test_offline_main_commits_a_receipt_and_removes_the_run_directory(tmp_path: 
             "--log-dir",
             str(log_dir),
             "--receipt-dir",
-            "docs/launch-gates",
+            str(receipt_dir),
             "--source-sha",
             SHA,
             "--runner",
@@ -357,7 +359,7 @@ def test_offline_main_commits_a_receipt_and_removes_the_run_directory(tmp_path: 
         ]
     )
 
-    assert code == 0
+    assert code == (0 if quickstart == PAGE else 1)
     assert not run_dir.exists()
     receipts = list(receipt_dir.glob("G3-clean-machine-quickstart-*-run-55-1.md"))
     assert len(receipts) == 1
@@ -365,15 +367,18 @@ def test_offline_main_commits_a_receipt_and_removes_the_run_directory(tmp_path: 
     assert "G3 evidence" in text
     assert SECRET not in text
     assert SECRET not in (log_dir / "quickstart.log").read_text(encoding="utf-8")
-    outcome = (log_dir / "outcome.json").read_text(encoding="utf-8")
-    assert '"gate_green": true' in outcome
+    outcome = json.loads((log_dir / "outcome.json").read_text(encoding="utf-8"))
+    assert outcome["gate_green"] is (quickstart == PAGE)
+    assert outcome["status"] == ("passed" if quickstart == PAGE else "failed")
+    assert Path(outcome["receipt"]).resolve() == receipts[0].resolve()
+    assert not (tmp_path / "docs").exists()
     body = (log_dir / "pr-body.md").read_text(encoding="utf-8")
     assert "Refs #1009" in body
     assert "Closes #" not in body
     assert not list(log_dir.rglob(".env"))
 
 
-def test_workflow_is_a_trunk_dispatch_that_opens_a_receipt_pr():
+def test_workflow_retains_evidence_without_repository_writes():
     workflow = Path(__file__).resolve().parents[1] / ".github/workflows/g3-compose-quickstart.yml"
     text = workflow.read_text(encoding="utf-8")
 
@@ -384,23 +389,28 @@ def test_workflow_is_a_trunk_dispatch_that_opens_a_receipt_pr():
     assert "honua-io/honua-release" in text
     assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1" in text
     assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2" in text
-    assert "RELEASE_GH_TOKEN" in text
+    assert "RELEASE_GH_TOKEN" not in text
+    assert "GH_TOKEN: ${{ github.token }}" in text
+    assert "persist-credentials: false" in text
     assert 'IMAGE: ${{ inputs.image }}' in text
     assert text.count("${{ inputs.image }}") == 1
     assert "--offline" not in text
     assert "first-map.md" not in text
     assert "069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a" not in text
     assert "git push origin HEAD:trunk" not in text
-    assert 'git push origin "HEAD:refs/heads/${branch}"' in text
+    assert "git push" not in text
+    assert "gh pr create" not in text
     assert "docs/get-started/quickstart.md" in text
     assert "cancel-in-progress: false" in text
     assert "contents: write" not in text
-    for title in (
-        "docs: record the G3 compose quickstart run",
-        "docs: record the failed G3 compose quickstart run",
-        "docs: record a G3 quickstart run against an override image",
-    ):
-        assert title in text
+    assert '--receipt-dir "$RUNNER_TEMP/g3-logs/receipts"' in text
+    assert 'path: ${{ runner.temp }}/g3-logs' in text
+    assert 'retention-days: 90' in text
+    assert 'if-no-files-found: error' in text
+    assert 'if: always()' in text
+    assert "if: always() && steps.run.outcome != 'success'" in text
+    assert 'run: exit 1' in text
+    assert 'steps.evidence.outputs.artifact-url' in text
 
 
 def test_live_public_quickstart_when_the_server_checkout_is_present(tmp_path: Path):

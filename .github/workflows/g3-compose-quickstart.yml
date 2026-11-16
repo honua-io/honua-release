@@ -5,10 +5,7 @@ name: G3 Compose quickstart
 # leaves the page's HONUA_IMAGE line unchanged. Any other accepted reference
 # replaces only that line, and the receipt says it is not the documented-tag
 # gate. The first-map page is not part of this dispatch.
-#
-# Trunk requires a pull request (enforce_admins, required pull requests), so
-# the receipt is committed on its own branch and opened as a PR. This job
-# does not merge it and does not push to trunk.
+# Receipts and redacted logs are retained together as run artifacts for 90 days.
 
 on:
   workflow_dispatch:
@@ -32,26 +29,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Require the release token that opens the receipt pull request
-        env:
-          RELEASE_GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${RELEASE_GH_TOKEN}" ]; then
-            echo "::error::RELEASE_GH_TOKEN is required to commit the G3 receipt"
-            exit 1
-          fi
-
       - name: Check out honua-release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          token: ${{ secrets.RELEASE_GH_TOKEN }}
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Fetch the public quickstart from honua-server trunk
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           sha="$(gh api repos/honua-io/honua-server/commits/trunk --jq .sha)"
@@ -84,7 +70,7 @@ jobs:
             --image "$IMAGE" \
             --run-dir "$RUNNER_TEMP/g3-quickstart" \
             --log-dir "$RUNNER_TEMP/g3-logs" \
-            --receipt-dir docs/launch-gates \
+            --receipt-dir "$RUNNER_TEMP/g3-logs/receipts" \
             --source-sha "$sha" \
             --runner "GitHub-hosted ubuntu-latest" \
             --run-id "${GITHUB_RUN_ID}" \
@@ -92,61 +78,26 @@ jobs:
 
         continue-on-error: true
 
-      - name: Upload the redacted run log
+      - name: Upload the receipt and redacted run log
+        id: evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: g3-compose-quickstart-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/g3-logs
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
-      - name: Open the receipt pull request
-        if: always() && steps.run.outcome != 'skipped'
+      - name: Link the retained evidence
+        if: always() && steps.evidence.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN }}
+          ARTIFACT_URL: ${{ steps.evidence.outputs.artifact-url }}
           RUN_OUTCOME: ${{ steps.run.outcome }}
         run: |
-          set -euo pipefail
-          log="${RUNNER_TEMP}/g3-logs"
-          if [ ! -f "${log}/outcome.json" ] || [ ! -f "${log}/pr-body.md" ] || [ ! -f "${log}/pr-title.txt" ]; then
-            echo "::error::the quickstart runner did not write a receipt"
-            exit 1
-          fi
-          receipt="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["receipt"])' "${log}/outcome.json")"
-          case "$receipt" in
-            docs/launch-gates/G3-clean-machine-quickstart-*-run-"${GITHUB_RUN_ID}"-"${GITHUB_RUN_ATTEMPT}".md) ;;
-            *) echo "::error::refusing to commit unexpected receipt path"; exit 1 ;;
-          esac
-          title="$(head -n 1 "${log}/pr-title.txt")"
-          case "$title" in
-            "docs: record the G3 compose quickstart run ${GITHUB_RUN_ID}"|\
-            "docs: record a G3 quickstart run against an override image (${GITHUB_RUN_ID})"|\
-            "docs: record the failed G3 compose quickstart run ${GITHUB_RUN_ID}") ;;
-            *) echo "::error::unexpected pull request title"; exit 1 ;;
-          esac
-          branch="docs/g3-quickstart-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          case "$branch" in
-            docs/g3-quickstart-run-[0-9]*-[0-9]*) ;;
-            *) echo "::error::refusing to publish branch ${branch}"; exit 1 ;;
-          esac
-          git config user.name "Mike McDougall"
-          git config user.email "mike@honua.io"
-          git checkout -b "$branch"
-          git add -- "$receipt"
-          staged="$(git diff --cached --name-only)"
-          if [ "$staged" != "$receipt" ]; then
-            echo "::error::refusing to commit unexpected files"
-            printf '%s\n' "$staged"
-            exit 1
-          fi
-          git commit -m "docs: record G3 compose quickstart run ${GITHUB_RUN_ID}"
-          git push origin "HEAD:refs/heads/${branch}"
-          url="$(gh pr create --base trunk --head "$branch" --title "$title" --body-file "${log}/pr-body.md")"
           {
-            echo "## G3 receipt"
+            echo "## G3 receipt and redacted logs"
             echo
-            echo "$url"
+            echo "[Download evidence](${ARTIFACT_URL}) (retained for 90 days)."
             echo
             echo "Quickstart step: ${RUN_OUTCOME}"
           } >> "$GITHUB_STEP_SUMMARY"
