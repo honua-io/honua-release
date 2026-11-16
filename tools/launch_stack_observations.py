@@ -28,8 +28,8 @@ def stack_state(aws, stack_name):
     require(stack.get('StackName') == stack_name, 'Stack identity differs')
     require(stack.get('StackStatus') in ('CREATE_COMPLETE', 'UPDATE_COMPLETE'),
             'Stack has not completed the requested deployment')
-    require({'Key': 'honua:qualification', 'Value': 'true'} in stack.get('Tags', []),
-            'Stack lacks the qualification tag')
+    require({'Key': 'HonuaGate', 'Value': 'true'} in stack.get('Tags', []),
+            'Stack lacks the required gate tag')
     return stack
 
 
