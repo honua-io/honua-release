@@ -1,5 +1,6 @@
 """Synthetic cohort replay, denominator conservation and paired comparison checks."""
 import copy
+from itertools import product
 import json
 from pathlib import Path
 import subprocess
@@ -18,7 +19,10 @@ class CohortChecks(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.path = self.root / "cohort.json"
         self.plan = evaluation.plan()
+        self.candidate = {"serverSha": "a" * 40, "imageDigest": "sha256:" + "b" * 64,
+                          "platformLockDigest": "sha256:" + "c" * 64}
         self.manifest = {"schema": reporting.SCHEMA, "plan": "plan.json", "files": {},
+                         "candidate": copy.deepcopy(self.candidate),
                          "trials": [{"trialId": row["id"], "eligible": False,
                                      "reason": "Synthetic fixture not admitted"}
                                     for row in self.plan["trials"] + self.plan["baselines"]]}
@@ -43,11 +47,14 @@ class CohortChecks(unittest.TestCase):
         events.append({"id": "click", "type": "click", "seconds": 1, "count": 2})
         events.append({"id": "end", "seconds": 60,
                        "type": "terminal-readback" if status == "success" else "stop"})
+        if status == "not-run":
+            events = []
         event_name, grade_name = f"{trial_id}.jsonl", f"{trial_id}.grade.json"
         self.store(f"{trial_id}.readback.json", {"synthetic": True})
         (self.root / event_name).write_text("\n".join(json.dumps(e) for e in events))
         self.manifest["files"][event_name] = evaluation.digest(self.root / event_name)
         grade = {"trialId": trial_id, "workflow": trial["workflow"],
+                 "candidate": copy.deepcopy(self.candidate),
                  "modality": "agent" if "model" in trial else "browser",
                  "status": status, "grader": "synthetic-only", "reason": "Synthetic grade",
                  "postconditionsPassed": True, "controlsPassed": True,
@@ -68,6 +75,8 @@ class CohortChecks(unittest.TestCase):
         self.assertFalse(report["live"])
         self.assertEqual(report["status"], "OFFLINE REPORT")
         self.assertEqual(report["cohortSha256"], evaluation.digest(self.path))
+        self.assertEqual(report["schema"], "honua.outcome-report/v2")
+        self.assertEqual(report["candidate"], self.candidate)
         for group in report["groups"]:
             self.assertEqual(group["planned"], 3)
             self.assertEqual(group["not-run"], 3)
@@ -76,6 +85,57 @@ class CohortChecks(unittest.TestCase):
             self.assertEqual(group["successPerPlanned"], 0)
             self.assertIsNone(group["successPerAttempted"])
         self.assertTrue(all(p["clicksPerPersonSentence"] is None for p in report["browserPairs"]))
+
+    def test_candidate_required_even_for_entirely_unrun_cohort(self):
+        for candidate in (None, {}, [], "unresolved", dict(self.candidate, unexpected="x")):
+            with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                self.manifest["candidate"] = candidate
+                self.report()
+
+    def test_candidate_pins_must_be_canonical_full_identities(self):
+        for key in self.candidate:
+            for value in (None, True, "latest", "f" * 7, self.candidate[key].upper(),
+                          self.candidate[key] + "\n"):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    self.manifest["candidate"] = dict(self.candidate, **{key: value})
+                    self.report()
+
+    def test_mixed_candidate_grade_rejected_even_when_repinned(self):
+        trial_ids = ("r1-gpt-6.1-sol-style-A", "r1-browser-style")
+        statuses = ("success", "failed", "censored", "excluded", "not-run")
+        for trial_id, status, key in product(trial_ids, statuses, self.candidate):
+            self.record(trial_id, status)
+            name = f"{trial_id}.grade.json"
+            grade = json.loads((self.root / name).read_text())
+            grade["candidate"][key] = ("d" * 40 if key == "serverSha"
+                                       else "sha256:" + "d" * 64)
+            self.store(name, grade)
+            with (self.subTest(trial=trial_id, status=status, key=key),
+                  self.assertRaisesRegex(ValueError, "candidates differ")):
+                self.report()
+            self.record(trial_id)
+
+    def test_recorded_grade_requires_candidate(self):
+        self.record("r1-browser-style")
+        name = "r1-browser-style.grade.json"
+        grade = json.loads((self.root / name).read_text())
+        del grade["candidate"]
+        self.store(name, grade)
+        with self.assertRaisesRegex(ValueError, "candidate requires"):
+            self.report()
+
+    def test_matching_candidate_preserves_each_grade_status(self):
+        for status in ("success", "failed", "censored", "excluded", "not-run"):
+            with self.subTest(status=status):
+                self.record("r1-browser-style", status)
+                row = next(r for r in self.report()["trials"]
+                           if r["trialId"] == "r1-browser-style")
+                self.assertEqual(row["status"], status)
+
+    def test_legacy_unbound_cohort_rejected(self):
+        self.manifest["schema"] = "honua.outcome-cohort/v1"
+        with self.assertRaises(ValueError):
+            self.report()
 
     def test_no_dropped_duplicated_invented_or_reordered_trial(self):
         original = copy.deepcopy(self.manifest["trials"])
