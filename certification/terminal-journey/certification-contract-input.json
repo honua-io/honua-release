@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "evidenceKey": "release.e2e.ai-terminal-arc",
+  "release": "static-contract-input-v1",
+  "status": "blocked",
+  "promotionEligible": false,
+  "sourceReceipt": {
+    "evidenceKey": "release.e2e.terminal-zero-to-map",
+    "status": "blocked",
+    "pullRequest": "https://github.com/example/terminal-contract/issues/8591155",
+    "commit": "ccc9ed38aa1680e7c0bf9da6656f086589555015",
+    "receiptPath": "fixtures/synthetic-terminal-receipt.json",
+    "receiptSha256": "1cd1891776e3b3201eda6e5d35768fe53928caa7218a49b0514b8cc7b9fa03c4"
+  },
+  "candidate": {
+    "serverSourceSha": "05ff6819f6339ff3fd1a9609f927da7305a83906",
+    "serverImage": "example.invalid/server:contract@sha256:444d39426580feb68c6bd7391134319f4c7c2c8786797da41914955e51ecc8a2",
+    "clients": [
+      {
+        "package": "@honua/sdk-js",
+        "version": "0.0.0-contract",
+        "integrity": "sha512-1H0rrFTdX5D/wwvHjpUy3oLeCBcV40GhZRYll/4Ojgupjzz3uIMcoV5QfMzKT3uEQH5iwJ7dXqnrDe1vTIohww==",
+        "sourceSha": "dc8d870356cd5b4cdd9ad7354966f3c3200d7103"
+      },
+      {
+        "package": "@honua/mcp-server",
+        "version": "0.0.0-contract",
+        "integrity": "sha512-D3mo75PDhOzgF/PMY6bF+oAd+35DJml/008EYEeKJXOrnjdRFjcjsjSk9Xkir9BuHcXBEQOvWwPr3Q+p5+hvMA==",
+        "sourceSha": "034837896b8aad7eb03b9f27348dace7bcebdc1d"
+      }
+    ],
+    "fixtureRevision": "terminal-zero-to-map-v1",
+    "configRevision": "terminal-profiles-v1",
+    "authPolicyRevision": "terminal-separate-principals-v1"
+  },
+  "stages": [
+    {
+      "number": 1,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/8266764",
+        "https://github.com/example/terminal-contract/issues/8700831"
+      ]
+    },
+    {
+      "number": 2,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/8591155"
+      ]
+    },
+    {
+      "number": 3,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/5372684"
+      ]
+    },
+    {
+      "number": 4,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/5372684"
+      ]
+    },
+    {
+      "number": 5,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/7375723",
+        "https://github.com/example/terminal-contract/issues/14104467",
+        "https://github.com/example/terminal-contract/issues/8700831"
+      ]
+    },
+    {
+      "number": 6,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/5372684",
+        "https://github.com/example/terminal-contract/issues/12117095"
+      ]
+    },
+    {
+      "number": 7,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/5372684",
+        "https://github.com/example/terminal-contract/issues/13047039",
+        "https://github.com/example/terminal-contract/issues/14104467"
+      ]
+    },
+    {
+      "number": 8,
+      "status": "blocked",
+      "blockers": [
+        "https://github.com/example/terminal-contract/issues/15961752",
+        "https://github.com/example/terminal-contract/issues/13047039",
+        "https://github.com/example/terminal-contract/issues/7606007"
+      ]
+    }
+  ],
+  "andGates": {
+    "localCandidate": {
+      "status": "blocked",
+      "evidence": [
+        "https://github.com/example/terminal-contract/issues/8591155"
+      ]
+    },
+    "awsCandidate": {
+      "status": "blocked",
+      "evidence": [
+        "https://github.com/example/terminal-contract/issues/8130678"
+      ]
+    },
+    "clientMatrix": {
+      "status": "blocked",
+      "evidence": [
+        "https://github.com/example/terminal-contract/issues/2519932"
+      ]
+    },
+    "browserStudio": {
+      "status": "blocked",
+      "evidence": [
+        "https://github.com/example/terminal-contract/issues/9369680"
+      ]
+    },
+    "browserConsole": {
+      "status": "blocked",
+      "evidence": [
+        "https://github.com/example/terminal-contract/issues/15180770"
+      ]
+    },
+    "controlPlaneRoster": {
+      "status": "blocked",
+      "evidence": [
+        "https://github.com/example/terminal-contract/issues/3793285"
+      ]
+    }
+  },
+  "requiredOutcomes": {
+    "terminalApproval": false,
+    "styleRenderPixels": false,
+    "dashboardComposition": false,
+    "ownerAuthorization": false,
+    "finalUrl": false
+  },
+  "blockers": [
+    "https://github.com/example/terminal-contract/issues/8591155",
+    "https://github.com/example/terminal-contract/issues/8130678",
+    "https://github.com/example/terminal-contract/issues/2519932",
+    "https://github.com/example/terminal-contract/issues/3793285",
+    "https://github.com/example/terminal-contract/issues/5372684",
+    "https://github.com/example/terminal-contract/issues/8266764",
+    "https://github.com/example/terminal-contract/issues/15961752",
+    "https://github.com/example/terminal-contract/issues/13047039",
+    "https://github.com/example/terminal-contract/issues/12117095",
+    "https://github.com/example/terminal-contract/issues/14104467",
+    "https://github.com/example/terminal-contract/issues/7606007",
+    "https://github.com/example/terminal-contract/issues/8700831"
+  ]
+}
