@@ -92,6 +92,49 @@ class CohortChecks(unittest.TestCase):
                 self.manifest["candidate"] = candidate
                 self.report()
 
+    def test_passes_retain_unattempted_models_and_browser_denominators(self):
+        passes = self.report()["passes"]
+        self.assertEqual(len(passes), 9)
+        self.assertEqual(sum(row["planned"] for row in passes), 216)
+        for row in passes:
+            self.assertIn(row["passNumber"], (1, 2, 3))
+            self.assertEqual(row["planned"], 8 if row["modality"] == "browser" else 32)
+            self.assertEqual(row["not-run"], row["planned"])
+            self.assertEqual((row["attempted"], row["success"], row["stopEvents"]), (0, 0, 0))
+            for metric in ("personSentences", "clicks"):
+                self.assertIsNone(row["attemptedMetrics"][metric]["median"])
+
+    def test_pass_metrics_preserve_failure_costs_without_mixing_models_or_baselines(self):
+        self.record("r1-gpt-6.1-sol-style-A", sentences=4)
+        self.record("r1-gpt-6.1-sol-style-D", "failed", sentences=2)
+        self.record("r1-gpt-6.1-sol-share-B", "censored", sentences=6)
+        self.record("r1-gpt-6.1-sol-share-C", "excluded", sentences=8)
+        self.record("r2-gpt-6.1-sol-style-A", sentences=1)
+        self.record("r1-claude-opus-5-5-style-A", sentences=9)
+        self.record("r1-browser-style", sentences=0)
+        passes = self.report()["passes"]
+        sol = next(r for r in passes if r["passNumber"] == 1 and r["model"] == "gpt-6.1-sol")
+        self.assertEqual((sol["planned"], sol["attempted"], sol["success"],
+                          sol["stopEvents"], sol["not-run"]), (32, 4, 1, 3, 28))
+        self.assertEqual(sol["attemptedMetrics"]["personSentences"]["median"], 5)
+        self.assertEqual(sol["attemptedMetrics"]["clicks"]["median"], 2)
+        browser = next(r for r in passes if r["passNumber"] == 1 and r["model"] is None)
+        self.assertEqual((browser["attempted"], browser["success"], browser["stopEvents"]), (1, 1, 0))
+        self.assertEqual(browser["attemptedMetrics"]["personSentences"]["median"], 0)
+
+    def test_empty_exclusion_is_not_a_recorded_stop(self):
+        trial_id = "r1-gpt-6.1-sol-style-A"
+        self.record(trial_id, "excluded")
+        event_name, grade_name = f"{trial_id}.jsonl", f"{trial_id}.grade.json"
+        (self.root / event_name).write_text("")
+        self.manifest["files"][event_name] = evaluation.digest(self.root / event_name)
+        grade = json.loads((self.root / grade_name).read_text())
+        grade["evidence"][event_name] = self.manifest["files"][event_name]
+        self.store(grade_name, grade)
+        row = next(r for r in self.report()["passes"]
+                   if r["passNumber"] == 1 and r["model"] == "gpt-6.1-sol")
+        self.assertEqual((row["excluded"], row["attempted"], row["stopEvents"]), (1, 0, 0))
+
     def test_candidate_pins_must_be_canonical_full_identities(self):
         for key in self.candidate:
             for value in (None, True, "latest", "f" * 7, self.candidate[key].upper(),

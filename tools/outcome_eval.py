@@ -146,6 +146,7 @@ def _summarize(events, grade, root):
         counter.add(event)
     result.update(counter.result())
     result.update(finish_timing(counter, events, grade))
+    result["stopEvents"] = int("stop" in counter.boundaries)
     result["grader"] = grade["grader"]
     result["evidence"] = grade["evidence"]
     result["sentenceBoundariesReviewed"] = grade.get("sentenceBoundariesReviewed") is True

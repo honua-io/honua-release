@@ -79,6 +79,14 @@ NOT RUN and pre-dispatch exclusions do not count as attempts. Metric medians and
 ranges include all attempts, preserving failure and exclusion costs. Every metric
 includes known/missing counts; unknown tokens stay null.
 
+The `passes` list gives the same descriptive counts and attempted metric medians
+for each repetition and model, plus a separate browser row per repetition: 32
+planned agent trials per model and eight browser baselines. Unattempted passes
+remain present with null medians. `stopEvents` counts raw `stop` boundaries,
+including attempted exclusions; it does not infer a stop from a grade status or
+count a NOT RUN record as a stop. This is a count of recorded trial boundaries,
+not a certification of pass-level safety stop decisions.
+
 Browser ratios pair by workflow/repetition and retain both raw counts and agent
 click/field costs. A failed pair or zero sentence denominator yields null (NA).
 Arm comparisons pair within workflow/repetition/model, with D versus A primary
