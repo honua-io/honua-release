@@ -112,6 +112,7 @@ def descriptive(rows):
                          for key in ("input", "output", "cache")}
     return {"planned": len(rows), "eligible": sum(r["eligible"] for r in rows),
             "attempted": len(attempted), **{status: counts[status] for status in STATUSES},
+            "stopEvents": sum(r.get("stopEvents", 0) for r in rows),
             "successPerPlanned": successful / len(rows) if rows else None,
             "successPerAttempted": successful / len(attempted) if attempted else None,
             "attemptedMetrics": metrics}
@@ -125,6 +126,16 @@ def groups(rows):
         selected = [r for r in rows if (r["workflow"], r["model"], r["arm"]) ==
                     (workflow, model, arm)]
         result.append(dict(workflow=workflow, model=model, arm=arm, **descriptive(selected)))
+    return result
+
+
+def passes(rows):
+    result = []
+    for repetition, model in product(range(1, 4), (*MODELS, None)):
+        selected = [r for r in rows if (r["pass"], r["model"]) == (repetition, model)]
+        result.append(dict(passNumber=repetition, model=model,
+                           modality="browser" if model is None else "agent",
+                           **descriptive(selected)))
     return result
 
 
@@ -168,7 +179,8 @@ def report(path):
     return {"schema": "honua.outcome-report/v2", "counterVersion": VERSION,
             "candidate": candidate,
             "cohortSha256": digest(path), "live": False, "status": "OFFLINE REPORT",
-            "trials": rows, "groups": groups(rows), "browserPairs": browser_pairs(rows),
+            "trials": rows, "passes": passes(rows), "groups": groups(rows),
+            "browserPairs": browser_pairs(rows),
             "armPairs": arm_pairs(rows)}
 
 
