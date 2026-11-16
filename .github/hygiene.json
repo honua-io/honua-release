@@ -38,6 +38,10 @@
     "docs/2026.1-backlog-stage-review-20261012.md",
     "docs/2026.1-lambda-ga-bill.md",
     "docs/FIRST-PUBLICATION-PREFLIGHT-57.md",
-    "docs/rehearsals/2026-09-04-clean-room-install.md"
+    "docs/rehearsals/2026-09-04-clean-room-install.md",
+    "certification/rc-repin-3/boot-observations.json",
+    "certification/rc-repin-4/boot-observations.json",
+    "certification/terminal-journey/fixtures/issue-377-build.evidence.md",
+    "certification/terminal-journey/fixtures/issue-405-review.evidence.md"
   ]
 }

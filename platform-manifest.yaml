@@ -130,26 +130,6 @@ components:
     # this revision and /var/task/Honua.Server; its ECR mirror is not yet observed (pending-ecr-mirror).
     # Every value below was produced by the repo's own readers (resolve_trunk_candidate,
     # image_platforms, upgrade_lock_binding, platform_version) at this SHA, not carried forward.
-    # 2026-10-27 RC RE-PIN #4: certified source a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e.
-    # Full-matrix CI run 40611757494 passed at this SHA; nightly image workflow 40620749251
-    # published the AOT index sha256:c8d7aef9..., whose attestation verifies for this source
-    # digest. The index and its linux/amd64 + linux/arm64 children were read from GHCR and each
-    # child labels this revision. The amd64 child passed fresh customer quickstart and Production
-    # Compose boots: both reported this revision (commit-sha), 80 capabilities and migrations
-    # through 140_CreateAiExecutionAdmission.sql. The documented Production install boots as
-    # written (honua-server#6734 fixed #6702), and the server's own scripts/docker/smoke-production.py
-    # passes against this child. Evidence is in
-    # certification/rc-repin-4/boot-observations.json. The Lambda amd64 child labels this revision
-    # and /var/task/Honua.Server; its ECR mirror is not yet observed (pending-ecr-mirror).
-    # 2026-10-23 RC RE-PIN #3: certified source 8cb074f77d01c0a00617ebe426460aa24c7d890b.
-    # Nightly image workflow 39876804619 attempt 2 completed successfully. The exact
-    # index and its linux/amd64 + linux/arm64 children were read from GHCR; the
-    # amd64 child passed fresh customer pgRouting and Production PostGIS boots.
-    # Both live boots reported this source revision and 80 capabilities; the fresh
-    # migration journal contains 136_CreateAdminApiKeys.sql. Evidence is recorded
-    # in certification/rc-repin-3/boot-observations.json. Lambda's amd64 child also
-    # labels this revision and /var/task/Honua.Server. Checked-in workflow run
-    # 39890789827 observed the actual ECR mirror digest recorded below.
     repository: "https://github.com/honua-io/honua-server"
     lifecycleStatus: GA
     version: "pre-release"             # no GitHub releases or tags; pinned by sha
