@@ -38,6 +38,9 @@
     "docs/2026.1-backlog-stage-review-20261012.md",
     "docs/2026.1-lambda-ga-bill.md",
     "docs/FIRST-PUBLICATION-PREFLIGHT-57.md",
-    "docs/rehearsals/2026-09-04-clean-room-install.md"
+    "docs/rehearsals/2026-09-04-clean-room-install.md",
+    "certification/sdk-publication-replay/sdk-021/*",
+    "certification/sdk-publication-replay/published-*.json",
+    "docs/evidence/studio-assistant-p08-*.json"
   ]
 }
