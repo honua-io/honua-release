@@ -41,7 +41,15 @@
     "docs/rehearsals/2026-09-04-clean-room-install.md",
     ".github/workflows/publish-dashboard.yml",
     "tools/release_dashboard.py",
-    "tools/test_release_dashboard.py"
-
+    "tools/test_release_dashboard.py",
+    "tools/fixtures/client-artifacts/pypi.whl",
+    "tools/fixtures/client-artifacts/nuget-registration.json",
+    "tools/fixtures/client-artifacts/nuget-catalog.json",
+    "tools/fixtures/client-artifacts/nuget.nupkg",
+    "tools/fixtures/client-artifacts/nuget-index.json",
+    "tools/fixtures/client-artifacts/nuget-1.10.0-registration.json",
+    "tools/fixtures/client-artifacts/nuget-1.10.0-catalog.json",
+    "tools/fixtures/client-artifacts/nuget-1.10.0.nupkg",
+    "tools/fixtures/client-artifacts/pypi-provenance.json"
   ]
 }
