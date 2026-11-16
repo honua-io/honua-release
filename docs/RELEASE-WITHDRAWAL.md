@@ -19,9 +19,7 @@ ledger, SDK compatibility note, platform-release document, signed-tag receipt, f
 and CycloneDX BOM, each with its signature bundle where the workflow signs one.
 
 `promote.yml` does not run `npm dist-tag`, and it does not move a container tag `:stable` or
-`:2026.1` or a Helm channel. `docs/2026.1-release-decision-overrides.json` records an intent that
-promotion moves those channels. That sentence is not a step in `promote.yml`. Do not perform those
-moves by hand as part of this procedure.
+`:2026.1` or a Helm channel. Do not perform those moves by hand as part of this procedure.
 
 `schemas/customer-install-manifest.v1.schema.json` allows `status` values `pre-cut-rehearsal` and
 `release-candidate` only. There is no `withdrawn` status. Do not invent one in the published

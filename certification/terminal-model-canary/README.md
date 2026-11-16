@@ -111,8 +111,7 @@ rc.3 plan). The schema requires:
 - `completedAt` — when the attempt finished.
 
 Plain HTTP is accepted for loopback, and for exactly one other host: the cloud cell's own
-harness-provisioned load-balancer hostname, named with `--allow-http-cell <hostname>` (owner ruling
-`canary-http-cell-2026-10-08` in `docs/2026.1-release-decision-overrides.json`). The cell's
+harness-provisioned load-balancer hostname, named with `--allow-http-cell <hostname>`. The cell's
 application key is random per run and is destroyed with the cell. HTTPS on the cell is 2026.1.x
 hardening. Any other non-loopback HTTP host is still refused, and the exemption never covers a
 provider endpoint (only an `*.elb.amazonaws.com` host qualifies). The receipt records
