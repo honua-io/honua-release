@@ -33,7 +33,6 @@
   "denied_public_paths": [
     "tools/vendor-terms/reports/*",
     "docs/PLATFORM-LOCK-231-DELIVERY.md",
-    "docs/launch-gates/G3-clean-machine-quickstart-*.md",
     "docs/rehearsals/2026-09-12-licensing-disabled.md",
     "docs/validation/2026-09-06-lambda-qualification-gate.md",
     "docs/2026.1-backlog-stage-review-20261012.md",

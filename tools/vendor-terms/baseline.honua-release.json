@@ -2,7 +2,7 @@
   "schema": "honua.vendor-terms.baseline.v1",
   "repo": "honua-release",
   "sha": "4a8b6fee51d1cabf932ff696b151bab2606ffff6",
-  "total": 1228,
+  "total": 1226,
   "pathRenames": {
     "reason": "Retained gate inputs and protocol matrix directories use stable names; identical content keeps the same vocabulary count at its new path.",
     "paths": [

@@ -23,7 +23,7 @@ def repository(root, paths):
 @pytest.mark.parametrize("path", [
     "tools/vendor-terms/reports/new-report.md",
     "docs/2026.1-lambda-ga-bill.md",
-    "docs/launch-gates/G3-clean-machine-quickstart-2030-01-01.md",
+    "docs/rehearsals/2026-09-12-licensing-disabled.md",
 ])
 def test_rejects_reintroduced_internal_content(tmp_path, path, capsys):
     repository(tmp_path, [path])
