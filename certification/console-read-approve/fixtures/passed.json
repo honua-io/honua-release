@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "honua.console.focused-read-approve/v1",
+  "synthetic": true,
+  "executionEvidence": false,
+  "checks": {
+    "mintKeysThroughAdminApi": {
+      "status": "passed"
+    },
+    "adminGetsAuthorizedForReadApproveKey": {
+      "status": "passed"
+    },
+    "unrelatedAccessPolicyWriteDenied": {
+      "status": "passed"
+    },
+    "readOnlyKeyDecisionDenied": {
+      "status": "passed"
+    },
+    "readApproveKeyDecides": {
+      "status": "passed"
+    },
+    "consoleOperatorWitness": {
+      "status": "passed"
+    }
+  },
+  "failedChecks": [],
+  "status": "passed"
+}
