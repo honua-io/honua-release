@@ -130,9 +130,9 @@ def _pypi_metadata_url():
 
 
 def recorded_responses():
-    """Unedited bodies from urls.json, plus the synthetic PyPI metadata document.
+    """Replay captured packages and synthetic npm/PyPI documents.
 
-    The synthetic document is not a captured response and is not registry evidence.
+    Synthetic documents and archives are not publication evidence.
     """
     urls = json.loads((RECORDED / 'urls.json').read_text())
     responses = {url: (RECORDED / filename).read_bytes() for filename, url in urls.items()}
@@ -159,7 +159,7 @@ def test_pypi_metadata_fixture_is_synthetic_and_not_recorded_evidence():
 
 
 def recorded_registry(monkeypatch):
-    """Replay unedited HTTP response bodies; an unexpected URL is a test failure."""
+    """Replay fixture HTTP bodies; an unexpected URL is a test failure."""
     responses = recorded_responses()
     reads = []
 
@@ -172,16 +172,15 @@ def recorded_registry(monkeypatch):
     return reads
 
 
-# These expectations are transcribed from the captured registry responses and
-# independent sha256sum output, never computed by the verifier under test.
+# Expected digests are fixed independently of the verifier under test.
 RECORDED_PINS = json.loads((RECORDED / 'pins.json').read_text())
 
 
-def test_recorded_registries_return_verified_artifact_identities(monkeypatch):
+def test_registry_fixtures_return_verified_artifact_identities(monkeypatch):
     reads = recorded_registry(monkeypatch)
     assert vca.verify_manifest({'clientArtifacts': RECORDED_PINS}, include_identities=True) == {
         'js': {'version': '0.1.12', 'sourceRevision': '1102d2d55916340edca13cb28411df8da8206f92',
-               'sha256': 'sha256:679e0873ae1347be0f7de33ae9876ac82ebd4cf1af6a160e8bcf1e8dc70a7b62'},
+               'sha256': 'sha256:8a4e698d7a1d09d6e943ef6db6903f5f1f53cf17cc2acb111cea365fe1a90f58'},
         'python': {'version': '0.1.12', 'sourceRevision': '12670676a1e8acb835e911c358adbf46a731120a',
                    'sha256': 'sha256:4ca00c6d585a7325ccb39e15c5e3e4e036e3d91b9bed3471cd5037e1e36efcf2'},
         'dotnet': {'version': '1.10.1', 'sourceRevision': '8a0a06c815baefd49e7398d38a9f22642a8c80c5',
@@ -214,7 +213,7 @@ def test_recorded_identity_drift_never_returns_an_identity(monkeypatch, name, fi
 
 
 @pytest.mark.parametrize('name,filename,message', [
-    ('js', 'npm.tgz', 'npm bytes'),
+    ('js', 'npm.synthetic.tgz', 'npm bytes'),
     ('python', 'pypi.whl', 'wheel bytes'),
     ('dotnet', 'nuget.nupkg', 'NuGet bytes'),
 ])

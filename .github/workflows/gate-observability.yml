@@ -52,10 +52,13 @@ on:
     - cron: "7 6 * * *"
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
+      candidate_ref: { description: "Immutable candidate snapshot", required: false, type: string, default: "" }
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: choice, options: [bootstrap, strict], default: bootstrap }
   workflow_call:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       candidate_ref: { required: false, type: string, default: "" }
       platform_label: { required: false, type: string, default: "dev-local" }
       enforcement:    { required: false, type: string, default: bootstrap }
@@ -451,3 +454,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "SLO: $STATUS — $WHY"
           exit "$RC"
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: gate-observability
+          status: ${{ steps.eval.outputs.status }}
+          lock_digest: ${{ inputs.platform_lock_digest }}

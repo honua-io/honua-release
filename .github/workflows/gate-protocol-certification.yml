@@ -4,6 +4,7 @@ run-name: "protocol certification ${{ inputs.tier }}"
 on:
   workflow_call:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       matrix_repository:
         description: Repository containing the immutable certification ledger
         required: true
@@ -99,6 +100,7 @@ on:
         value: ${{ jobs.protocol-certification.outputs.status }}
   workflow_dispatch:
     inputs:
+      platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
       matrix_repository:
         description: Repository containing the immutable certification ledger
         required: true
@@ -353,6 +355,12 @@ jobs:
             code=$?
             if [[ "$code" -eq 0 ]]; then status=pass; else status=fail; fi
           fi
+          python3 - <<'PYPROOF'
+          import json, os
+          from pathlib import Path
+          Path('out/protocol-candidate-inputs.json').write_text(json.dumps({
+              key: value for key, value in os.environ.items() if key.startswith('EXPECTED_')}))
+          PYPROOF
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
@@ -383,3 +391,13 @@ jobs:
         run: |
           echo "::error::Protocol certification ledger is missing, invalid, stale, mismatched, skipped, or failing."
           exit 1
+      - name: Emit candidate-bound release promise receipt
+        if: ${{ success() && inputs.tier == 'release' && (inputs.platform_lock_digest) }}
+        uses: ./.github/actions/kept-gate-receipt
+        with:
+          gate: gate-protocol-certification
+          status: ${{ steps.evaluate.outputs.status }}
+          lock_digest: ${{ inputs.platform_lock_digest }}
+          server_sha: ${{ inputs.expected_source_sha }}
+          image_digest: ${{ inputs.expected_image_digest }}
+          proof: out/protocol-candidate-inputs.json
