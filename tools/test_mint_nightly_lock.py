@@ -1679,7 +1679,7 @@ def test_ga_server_image_without_attestation_still_fails_under_the_lambda_ruling
 
 def test_recorded_lambda_ruling_is_the_founders_and_names_only_the_lambda_image():
     overrides = json.loads((Path(nightly.__file__).resolve().parents[1]
-                            / 'docs/2026.1-release-decision-overrides.json').read_text())
+                            / 'contracts/release-exceptions.json').read_text())
     ruling = overrides['rulings'][nightly.LAMBDA_OUT_OF_LOCK_RULING]
     assert 'founder' in ruling['owner'].lower()
     assert ruling['out_of_lock_images'] == ['honua-server/awsLambdaImage']
