@@ -47,6 +47,7 @@
     "docs/2026.1-release-burndown.jsonl",
     "docs/2026.1-terminal-arc-acceptance.md",
     "tools/release_decision_record.py",
-    "tools/test_release_decision_record.py"
+    "tools/test_release_decision_record.py",
+    "docs/2026.1-platform-manifest.md"
   ]
 }
