@@ -1,8 +1,11 @@
 # Release promise receipts
 
 `release-promise.v1.json` is the producer contract for the founder's 14 November
-2026 22:50 PT amendment to the 13 November release gates. RC requires the ten
-runs-itself rows, hardened default, zero open high findings and the cloud install.
+2026 amendments and the 15 November approved release gates plan. Its 24 promise
+rows include four additional RC and GA requirements: `cloud-image-aot`,
+`cloud-no-redis-source`, `security-agent-default-deny`, and `operates-8-upgrade`.
+RC requires these alongside the ten fault rows, hardened default, zero open high
+findings, cloud install, white-hat and chaos evidence.
 AI journeys and injection evidence are reported for RC and required for GA.
 Unproven AI journeys must ship marked Preview; a green RC gate does not certify them.
 
@@ -59,10 +62,11 @@ binds the candidate. RC admission includes this gate without a manifest-pin
 fallback. GA admission additionally requires all five AI rows. Admission rechecks
 row freshness at its own evaluation time.
 
-The founder's 14 November 23:00 PT outcomes ruling also requires all 18 timing
-measurements in `outcomes` at RC. `gate-release-outcomes.yml` is the reserved
+The outcomes rulings require all 34 measurements in `outcomes` at RC: the existing
+18 timing measurements and 16 sentence/click counts. `gate-release-outcomes.yml` is the reserved
 producer interface. It uploads one common-schema receipt per metric with numeric,
-finite, nonnegative `value`, `unit: "minutes"`, and assertions `live: true` and
+finite, nonnegative `value`, the contract unit (`minutes`, `sentences`, or `clicks`),
+and assertions `live: true` and
 `releaseNotesReported: true`. The same artifact must contain `release-notes.md`
 with an exact line for each value, for example:
 
@@ -74,10 +78,11 @@ The collector reads the archived notes itself; receipt-supplied note text is
 ignored. The producer must archive the release notes used for publication.
 The aggregate reports each measured value and whether its GA target passed;
 values alone do not certify any live promise row. RC requires the measurements
-and notes, without enforcing timing targets. GA additionally requires every
-`gaMaximum` to be set and met. The unattended target is zero person-minutes;
+and notes, without enforcing targets. GA additionally requires `gaMaximum` to be set and
+met for minutes and sentences. Clicks remain measured only at GA; their
+`targetMet` is null and no target is enforced. The unattended target is zero person-minutes;
 other targets remain unset until approved, so they cannot silently pass GA.
-No timing measurement or target is fabricated by the gate.
+No measurement or target is fabricated by the gate.
 
 The 14 November 23:45 PT ruling additionally requires `security-whitehat` and
 `chaos` for RC (and retains them for GA). Their reserved producers are
@@ -104,3 +109,28 @@ into the published notes. GA promotion collects fresh evidence under the current
 trunk policy before checking out the certified candidate source, using that train's
 retained manifest and exact lock bytes. A refusal stops publication; successful
 promotion appends the verified outcomes to GA notes and retains its aggregate report.
+
+The eight workflow suffixes for both `sentences-<workflow>` and
+`clicks-<workflow>` are `install`, `publish-layer`, `style`, `share`, `build-app`,
+`sign-in-roles`, `recover-incident`, and `migrate-service`. Sentences count user
+sentences to the agent. Clicks count clicks plus typed fields in Console and
+Studio using Playwright. Both use the same workflow and candidate, and both
+require an exact archived notes line with their own unit, for example:
+
+```markdown
+<!-- honua-outcome:sentences-install --> 3 sentences
+<!-- honua-outcome:clicks-install --> 18 clicks
+```
+
+New producer interfaces and required assertions (in addition to common candidate
+identity and authenticated execution) are:
+
+| Row | Producer | Assertions |
+|---|---|---|
+| `cloud-image-aot` | `gate-launch-stack.yml` | `live`, `publishedAotImage`, `sizeBudgetMet`: true; `stackName` uses `honua-gate-` prefix. Published image digest must equal the receipt candidate digest. |
+| `cloud-no-redis-source` | `gate-source-facts.yml` | `redisPackages`, `redisSourceReferences`: integer zero at the candidate SHA; this is source evidence, without a live-stack assertion. |
+| `security-agent-default-deny` | `gate-agent-safety.yml` | `live`, `allMutatingRoutesChecked`, `proposalOnly`, `agentIdentityAudited`: true. Every mutating route must return a proposal without making a direct change. |
+| `operates-8-upgrade` | `gate-runs-itself.yml` | `live`, `rollingUpgrade`, `nMinusOneReaderCompatible`, `rollbackPassed`: true, using the previous release image. |
+
+These interfaces reserve evidence requirements; they do not implement producers
+or certify a live pass. Shell runs are debugging evidence only.

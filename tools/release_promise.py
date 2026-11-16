@@ -20,7 +20,8 @@ from execution_order import AmbiguousOrder, contenders, instant
 CONTRACT = Path(__file__).resolve().parents[1] / 'certification/release-promise.v1.json'
 REQUIRED_IDS = frozenset({*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
                          'operates-12-notify', 'security-hardened', 'security-open-high',
-                         'cloud-launch-stack', 'security-whitehat', 'chaos'})
+                         'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot',
+                         'cloud-no-redis-source', 'security-agent-default-deny', 'operates-8-upgrade'})
 AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection'))
 
 
@@ -33,8 +34,8 @@ def load_contract(path: Path = CONTRACT) -> list[dict]:
     rows = doc['rows']
     ids = [r['id'] for r in rows]
     if (doc.get('schema') != 'honua.release-promise-contract/v1' or doc.get('windowDays') != 7
-            or len(ids) != 20 or set(ids) != REQUIRED_IDS | AI_IDS):
-        raise ValueError('release promise contract must cover exactly the 20 founder rows')
+            or len(ids) != 24 or set(ids) != REQUIRED_IDS | AI_IDS):
+        raise ValueError('release promise contract must cover exactly the 24 founder rows')
     for row in rows:
         expected = ['ga'] if row['id'] in AI_IDS else ['rc', 'ga']
         if row.get('required') != expected:
@@ -62,7 +63,7 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
             type(assertions.get(key)) is not type(value) or assertions.get(key) != value
             for key, value in row['assertions'].items()):
         return False
-    if row['id'] in ('security-hardened', 'cloud-launch-stack'):
+    if row['id'] in ('security-hardened', 'cloud-launch-stack', 'cloud-image-aot'):
         if not re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', str(doc.get('stackName', ''))):
             return False
     if row['id'] == 'security-open-high':
@@ -199,7 +200,7 @@ def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
     if doc.get('schema') != 'honua.release-promise-report/v1' or doc.get('status') != 'pass':
         return False
     rows = doc.get('rows')
-    if not isinstance(rows, list) or len(rows) != 20 or any(not isinstance(r, dict) for r in rows):
+    if not isinstance(rows, list) or len(rows) != 24 or any(not isinstance(r, dict) for r in rows):
         return False
     if {r.get('id') for r in rows} != REQUIRED_IDS | AI_IDS:
         return False
@@ -222,9 +223,9 @@ def arguments():
 
 
 def print_results(results):
-    print('| Row | Required | Status | Minutes |\n|---|---|---|---|')
+    print('| Row | Required | Status | Measurement |\n|---|---|---|---|')
     for row in results:
-        print(f"| {row['id']} | {', '.join(row['required'])} | {row['status']} | {row.get('value', '')} |")
+        print(f"| {row['id']} | {', '.join(row['required'])} | {row['status']} | {row.get('value', '')} {row.get('unit', '')} |")
 
 
 def main() -> int:

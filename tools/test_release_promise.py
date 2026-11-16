@@ -35,13 +35,14 @@ def test_contract_covers_every_required_promise():
     assert {r['id'] for r in rows} == {
         *(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)), 'operates-12-notify',
         *(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection')),
-        'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos'}
-    assert len(rows) == 20
+        'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot', 'cloud-no-redis-source',
+        'security-agent-default-deny', 'operates-8-upgrade'}
+    assert len(rows) == 24
 
 
 def test_missing_rows_fail_closed():
     results = p.evaluate(p.load_contract(CONTRACT), {}, (CANDIDATE, NOW))
-    assert len(results) == 20
+    assert len(results) == 24
     assert all(r['status'] == 'missing' for r in results)
 
 
@@ -114,7 +115,7 @@ def aggregate():
     return {'schema': 'honua.release-promise-report/v1', 'status': 'pass',
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock, 'rows': results,
-            'outcomes': [{'id': key, 'status': 'PASS', 'value': 0, 'unit': 'minutes',
+            'outcomes': [{'id': key, 'status': 'PASS', 'value': 0, 'unit': p.outcomes.unit_for(key),
                           'releaseNotesReported': True, 'targetMet': True,
                           'observedAt': '2026-11-14T00:00:00Z'} for key in p.outcomes.IDS]}
 
@@ -209,7 +210,7 @@ def test_outcomes_reported_without_targets_pass_rc_but_not_ga():
     measurements = []
     for row in p.load_outcomes():
         record = run(row)
-        record['reports'][0].update(value=12.5, unit='minutes')
+        record['reports'][0].update(value=12.5, unit=row['unit'])
         record['reports'][0]['releaseNotes'] = p.outcomes.notes_line(record['reports'][0])
         measurements.append(p.evaluate_row(row, [record], (CANDIDATE, NOW)))
     report['outcomes'] = measurements
@@ -382,4 +383,4 @@ def test_ga_promotion_checks_selected_lock_and_retains_measurements(tmp_path, mo
         assert not (tmp_path / 'ga-promise-outcomes.md').exists()
     else:
         exec(script, {})
-        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 18
+        assert (tmp_path / 'ga-promise-outcomes.md').read_text().count('<!-- honua-outcome:') == 34
