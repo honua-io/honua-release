@@ -258,13 +258,13 @@ class _Cell:
         if path.endswith("/layers") and method == "POST":
             if self.publish_status == 504:  # the ALB's own answer: an HTML page, no JSON
                 return 504, None
-            return self.publish_status, {"data": {"layerId": self.layer}}
+            return self.publish_status, {"data": {"storageLayerId": self.layer}}
         if "/layers?serviceName=" in path and method == "GET":
             self.list_reads += 1
             if self.list_status != 200:
                 return self.list_status, {"title": "Service Unavailable"}
-            other = {"layerId": 3, "layerName": "other", "schema": "honua_data", "table": "imported_other"}
-            mine = {"layerId": self.layer, "layerName": "s10-large-import", "schema": "honua_data",
+            other = {"storageLayerId": 3, "layerName": "other", "schema": "honua_data", "table": "imported_other"}
+            mine = {"storageLayerId": self.layer, "layerName": "s10-large-import", "schema": "honua_data",
                     "table": "imported_s10_large_import", "serviceName": "s10-large-import"}
             committed = self.appears_after is not None and self.list_reads >= self.appears_after
             return 200, {"success": True, "data": [other] + ([mine] if committed else [])}
@@ -636,12 +636,23 @@ def test_no_publish_answer_is_treated_like_a_gateway_timeout():
 
 
 def test_find_layer_matches_schema_and_table_only():
-    listing = {"data": [{"layerId": 1, "schema": "honua_data", "table": "imported_x"},
-                        {"layerId": "2", "schema": "honua_data", "table": "imported_s10_large_import"},
-                        {"layerId": 9, "schema": "HONUA_DATA", "table": "Imported_S10_Large_Import"}]}
+    listing = {"data": [{"storageLayerId": 1, "schema": "honua_data", "table": "imported_x"},
+                        {"storageLayerId": "2", "schema": "honua_data", "table": "imported_s10_large_import"},
+                        {"storageLayerId": 9, "schema": "HONUA_DATA", "table": "Imported_S10_Large_Import"}]}
     assert s10.find_layer(listing, "honua_data", "imported_s10_large_import") == 9
     assert s10.find_layer({"data": []}, "honua_data", "imported_x") is None
     assert s10.find_layer(None, "honua_data", "imported_x") is None
+
+
+@pytest.mark.parametrize("field", ["storageLayerId", "layerId"])
+def test_publication_handle_reads_the_current_and_the_older_name(field):
+    assert s10.publication_handle({field: 7}) == 7
+    assert s10.find_layer({"data": [{field: 7, "schema": "honua_data", "table": "imported_x"}]},
+                          "honua_data", "imported_x") == 7
+
+
+def test_publication_handle_prefers_the_current_name():
+    assert s10.publication_handle({"storageLayerId": 7, "layerId": 0}) == 7
 
 
 class _AsyncPublishCell(_Cell):
@@ -662,7 +673,7 @@ class _AsyncPublishCell(_Cell):
             self.requests.append((method, path, body))
             states = self.progress or [(200, {"jobId": "publish-123", "status": state,
                         "rowsMaterialized": rows, "rowsTotal": fx.LARGE.features,
-                        "layerId": 7 if state == "Completed" else None}) for state, rows in (
+                        "storageLayerId": 7 if state == "Completed" else None}) for state, rows in (
                             ("Queued", 0), ("Processing", 5000), ("Processing", 10000),
                             ("Completed", fx.LARGE.features))]
             response = states[min(self.publish_reads, len(states) - 1)]
@@ -706,12 +717,12 @@ def test_async_publish_refuses_invalid_or_foreign_handles_without_polling(overri
 
 @pytest.mark.parametrize("overrides", [
     {"jobId": "other"}, {"status": "unknown"}, {"rowsMaterialized": -1},
-    {"rowsMaterialized": True}, {"rowsTotal": 330001}, {"layerId": None},
-    {"layerId": True}, {"layerId": -1}, {"rowsMaterialized": 329999},
+    {"rowsMaterialized": True}, {"rowsTotal": 330001}, {"storageLayerId": None},
+    {"storageLayerId": True}, {"storageLayerId": -1}, {"rowsMaterialized": 329999},
 ])
 def test_async_publish_requires_valid_completion_before_count_query(overrides):
     progress = {"jobId": "publish-123", "status": "Completed", "rowsTotal": 330000,
-                "rowsMaterialized": 330000, "layerId": 7}
+                "rowsMaterialized": 330000, "storageLayerId": 7}
     cell = _AsyncPublishCell(progress=[(200, {**progress, **overrides})])
     row, _ = _scenario(cell)
     assert row.status == "fail" and "publish-job-invalid" in row.why

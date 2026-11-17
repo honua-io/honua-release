@@ -151,8 +151,8 @@ DEF_ACTUAL_COUNT="$(jq_or -1 "$DEF_NAMES" 'length')"
 [ "$DEF_ACTUAL_COUNT" = "$WANT_COUNT" ] || note_failure "default view served $DEF_ACTUAL_COUNT tools, expected $WANT_COUNT"
 [ "$DEF_STAGES" = "$WANT_STAGES" ] || note_failure "default view stage membership drifted: got $DEF_STAGES"
 
-# (b) An unauthenticated client is GUIDED, not served: since honua-server #7112 ("guide
-#     unauthenticated clients without exposing tools", McpAuthenticationGuidanceTests) it receives
+# (b) An unauthenticated client is GUIDED, not served: since honua-server began guiding
+#     unauthenticated clients without exposing tools (McpAuthenticationGuidanceTests) it receives
 #     the same default view identity (view, revision, revisionDigest) with ZERO tools and
 #     toolCount 0. Any advertised tool here is a leak of the authenticated surface.
 anon_rpc tools/list '{}'

@@ -309,7 +309,10 @@ def seed_state(stack: Stack) -> None:
         "storageMode": "managed", "capabilities": CAPABILITIES, "supportsAttachments": True})["data"]
     if published.get("storageMode") != "managed" or "Create" not in (published.get("capabilities") or []):
         raise RuntimeError(f"the dr-sentinel publication did not declare Create on managed storage: {published}")
-    layer_id = int(published["layerId"])
+    # honua-server 5edec5d4 renamed the publish handle storageLayerId; older servers sent layerId.
+    layer_id = published.get("storageLayerId", published.get("layerId"))
+    if type(layer_id) is not int:
+        raise RuntimeError(f"the dr-sentinel publication returned no storageLayerId: {published}")
 
     # transactional-outbox + redis: a transactional insert through OGC API Features writes the
     # outbox row in the same transaction as the feature and publishes the durable change event.

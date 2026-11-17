@@ -3672,7 +3672,7 @@ def _mcp_handler(catalog, topology, signal, anonymous_leak=False):
     page = _EXPECTED_TOOLS["fullCatalog"]["pageSize"]
     meta = {"view": dv["view"], "title": dv["title"], "revision": dv["revision"], "toolCount": dv["toolCount"],
             "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"], "revisionDigest": "sha256:view"}
-    # honua-server #7112: an unauthenticated client gets the same view identity with zero tools.
+    # The server guides an unauthenticated client: it gets the same view identity with zero tools.
     anonymous_meta = {**meta, "toolCount": 0, "stages": [{**stage, "tools": []} for stage in dv["stages"]]}
 
     def rpc_result(result):
