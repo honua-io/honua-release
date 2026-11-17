@@ -222,6 +222,7 @@
         "js",
         "cli",
         "arcgis-stub",
+        "geoservices-rest-stub",
         "bi-excel",
         "bi-powerbi",
         "ci-bi"
