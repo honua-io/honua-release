@@ -11,7 +11,10 @@ set -euo pipefail
 
 dir="${1:?usage: tls-cert.sh DIR}"
 mkdir -p "$dir"
-if [ ! -s "$dir/tls.crt" ] || [ ! -s "$dir/tls.key" ]; then
+# Regenerate when missing or expiring within an hour, so a reused local directory never serves a
+# stale certificate.
+if [ ! -s "$dir/tls.crt" ] || [ ! -s "$dir/tls.key" ] \
+  || ! openssl x509 -checkend 3600 -noout -in "$dir/tls.crt" >/dev/null 2>&1; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=localhost" \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
     -keyout "$dir/tls.key" -out "$dir/tls.crt" >/dev/null 2>&1
