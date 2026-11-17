@@ -251,4 +251,5 @@ jobs:
           status: pass
           lock_digest: ${{ inputs.platform_lock_digest }}
           manifest: ${{ inputs.candidate_bundle && 'candidate-input/platform-manifest.yaml' || 'platform-manifest.yaml' }}
+          lock: ${{ inputs.candidate_bundle && 'candidate-input/platform-lock.json' || 'platform-lock.json' }}
           proof: ${{ runner.temp }}/dr-receipt.json

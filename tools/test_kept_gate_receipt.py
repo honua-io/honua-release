@@ -218,3 +218,16 @@ def test_present_lock_bytes_are_never_regenerated(tmp_path):
 
     k.ensure_lock(lock, manifest, refuse)
     assert lock.read_bytes() == before
+
+
+def test_default_regeneration_is_the_qualification_lock_of_the_repo_manifest(tmp_path):
+    import generate_platform_lock as generator
+    from platform_lock_bundle import canonical_bytes
+    root = Path(__file__).resolve().parents[1]
+    manifest = tmp_path / 'platform-manifest.yaml'
+    manifest.write_bytes((root / 'platform-manifest.yaml').read_bytes())
+    lock = tmp_path / 'platform-lock.json'
+    k.ensure_lock(lock, manifest)  # no matrix beside the manifest: the repository matrix is used
+    draft = generator.generate(root / 'platform-manifest.yaml', root / 'compatibility-matrix.yaml',
+                               qualification=True, image_inspector=None)
+    assert lock.read_bytes() == canonical_bytes(draft.lock)

@@ -127,14 +127,17 @@ def ensure_lock(lock, manifest, generate=None):
     if lock.exists() or manifest is None:
         return
     beside = manifest.parent / 'compatibility-matrix.yaml'
-    matrix = beside if beside.exists() else Path('compatibility-matrix.yaml')
+    matrix = beside if beside.exists() else Path(__file__).resolve().parents[1] / 'compatibility-matrix.yaml'
     if generate is None:
         import generate_platform_lock as generator
         from platform_lock_bundle import canonical_bytes
 
         def generate(manifest_path, matrix_path):
-            draft = generator.generate(manifest_path, matrix_path, qualification=True,
-                                       image_inspector=generator.registry_image_platform_digests)
+            # No registry inspection: it only re-checks values the digest comparison already binds,
+            # and a registry timeout would surface as a misleading digest mismatch.
+            draft = generator.generate(manifest_path, matrix_path, qualification=True, image_inspector=None)
+            if draft.unresolved:
+                raise ValueError(f'cannot regenerate the qualification lock: {draft.unresolved}')
             return canonical_bytes(draft.lock)
     lock.write_bytes(generate(manifest, matrix))
 
