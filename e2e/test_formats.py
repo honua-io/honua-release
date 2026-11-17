@@ -81,3 +81,22 @@ def test_binary_output_requires_expected_content_type(monkeypatch):
     status, note = formats.query_binary_output("arrow", "application/geobuf")
     assert status == "fail"
     assert "content type" in note
+
+
+def test_csv_read_declares_the_source_crs_its_wkt_column_cannot_carry(monkeypatch):
+    # honua-server cac74b17 (direct import CRS contract): a CSV whose WKT geometry column has no
+    # CRS is refused with import.source_srid_required unless SourceSrid names it. TargetSrid alone
+    # does not count. The committed fixture is WGS 84.
+    formats = _load_formats_module()
+    seen = []
+
+    def fake_import(path, table, extra=None, ctype="application/octet-stream"):
+        seen.append((path.name, dict(extra or {}), ctype))
+        if (extra or {}).get("SourceSrid") != "4326":
+            return False, 0, "Csv", "import.source_srid_required"
+        return True, 2, "Csv", ""
+
+    monkeypatch.setattr(formats, "import_file", fake_import)
+    status, count, note = formats.read_csv()
+    assert (status, count) == ("pass", 2), note
+    assert seen == [("sample.csv", {"SourceSrid": "4326"}, "text/csv")]

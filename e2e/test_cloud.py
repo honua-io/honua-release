@@ -3178,7 +3178,9 @@ def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
     {"storageMode": "source", "capabilities": ["Query", "Create", "Update", "Delete"]},
     {"storageMode": "managed", "capabilities": ["Query", "Create", "Delete"]},
 ])
-def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement):
+# honua-server 5edec5d4 renamed the publish handle storageLayerId; older candidates sent layerId.
+@pytest.mark.parametrize("id_field", ["storageLayerId", "layerId"])
+def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement, id_field):
     published = 0
 
     def answers(method, path):
@@ -3187,7 +3189,7 @@ def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgeme
             return 201, b'{"data":{"connectionId":"c1"}}', "task-a"
         if method == "POST":
             published += 1
-            data = {"layerId": published}
+            data = {id_field: published}
             if published == 7:
                 data.update(acknowledgement)
             return 201, json.dumps({"data": data}).encode(), "task-a"
@@ -3665,11 +3667,13 @@ def _common_routes(method, path, topology, signal, environment="Production"):
     return None
 
 
-def _mcp_handler(catalog, topology, signal):
+def _mcp_handler(catalog, topology, signal, anonymous_leak=False):
     dv = _EXPECTED_TOOLS["defaultView"]
     page = _EXPECTED_TOOLS["fullCatalog"]["pageSize"]
     meta = {"view": dv["view"], "title": dv["title"], "revision": dv["revision"], "toolCount": dv["toolCount"],
-            "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"]}
+            "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"], "revisionDigest": "sha256:view"}
+    # The server guides an unauthenticated client: it gets the same view identity with zero tools.
+    anonymous_meta = {**meta, "toolCount": 0, "stages": [{**stage, "tools": []} for stage in dv["stages"]]}
 
     def rpc_result(result):
         return 200, {"jsonrpc": "2.0", "id": 1, "result": result}
@@ -3684,7 +3688,9 @@ def _mcp_handler(catalog, topology, signal):
             return rpc_result({"protocolVersion": "2025-06-18", "serverInfo": {"name": "honua.operator.mcp"}})
         if m == "tools/list":
             if params.get("view") != "full":
-                return rpc_result({"tools": [{"name": n} for n in dv["tools"]], "_meta": meta})
+                if authed or anonymous_leak:
+                    return rpc_result({"tools": [{"name": n} for n in dv["tools"]], "_meta": meta})
+                return rpc_result({"tools": [], "_meta": anonymous_meta})
             if not authed:
                 return 200, {"jsonrpc": "2.0", "id": 1,
                              "error": {"code": -32001, "message": "denied", "data": {"code": "permission_denied"}}}
@@ -3725,8 +3731,8 @@ def _run_driver(driver, handler, redis):
         server.shutdown()
 
 
-def _s2(catalog, topology, redis, signal="jobs.runner"):
-    rows = _run_driver("mcp", _mcp_handler(sorted(catalog), topology, signal), redis)
+def _s2(catalog, topology, redis, signal="jobs.runner", anonymous_leak=False):
+    rows = _run_driver("mcp", _mcp_handler(sorted(catalog), topology, signal, anonymous_leak), redis)
     assert [r["scenario"] for r in rows] == ["S1-mcp-handshake", "S2-mcp-tool-catalog"]
     return rows[1]
 
@@ -3736,6 +3742,12 @@ def test_s2_redis_on_full_161_catalog_passes():
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["topology"] == "redis-on"
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
+
+
+def test_s2_unauthenticated_client_served_the_default_tools_fails():
+    row = _s2(_FULL_ROSTER, "redis-on", None, anonymous_leak=True)
+    assert row["status"] == "fail"
+    assert "unauthenticated tools/list advertised tools without a credential" in row["why"]
 
 
 def test_s2_redis_off_120_catalog_passes_with_topology_recorded():

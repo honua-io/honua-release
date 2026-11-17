@@ -54,6 +54,7 @@ psql_apply() { $E2E_PSQL -v ON_ERROR_STOP=1 "$@"; }
 # The request bodies still come from plan.py, which is the same helper a real seed runs.
 if [ "${SEED_DRY_RUN:-}" = "1" ]; then
   DRY_LAYER_SEQ=0
+  DRY_LAYER_NAMES='{}'
   psql_apply() {
     if [ -n "${SEED_DRY_SQL:-}" ]; then
       cat >> "$SEED_DRY_SQL"
@@ -63,10 +64,24 @@ if [ "${SEED_DRY_RUN:-}" = "1" ]; then
   }
   api_json() {
     local method="$1" path="$2" data="${3:-}"
-    if [ -n "${SEED_DRY_REQUESTS:-}" ]; then
+    if [ -n "${SEED_DRY_REQUESTS:-}" ] && [ -n "$data" ]; then
       printf '%s\n' "$data" >> "$SEED_DRY_REQUESTS"
     fi
+    if [ -n "${SEED_DRY_PATHS:-}" ]; then
+      printf '%s %s\n' "$method" "$path" >> "$SEED_DRY_PATHS"
+    fi
     case "$path" in
+      /rest/services/*/FeatureServer\?f=json)
+        # Every dry-run service lists its one layer at index 0, so a seed that confused the
+        # service-layer index with the storage handle would address the wrong route.
+        local svc="${path#/rest/services/}"; svc="${svc%%/FeatureServer*}"
+        HTTP_CODE=200
+        if [ "${SEED_DRY_FAIL:-}" = "index-missing" ]; then
+          HTTP_BODY='{"layers":[]}'
+        else
+          HTTP_BODY="$(jq -c --arg s "$svc" '{layers:[{id:0,name:.[$s]}]}' <<<"$DRY_LAYER_NAMES")"
+        fi
+        ;;
       */layers/*/metadata|*/access-policy)
         if [ "${SEED_DRY_FAIL:-}" = "access" ]; then
           HTTP_CODE=403
@@ -83,9 +98,12 @@ if [ "${SEED_DRY_RUN:-}" = "1" ]; then
           return 0
         fi
         DRY_LAYER_SEQ=$((DRY_LAYER_SEQ + 1))
+        DRY_LAYER_NAMES="$(jq -c --argjson body "$data" '. + {($body.serviceName):$body.layerName}' <<<"$DRY_LAYER_NAMES")"
         HTTP_CODE=201
+        # The candidate (honua-server 5edec5d4) names the global handle storageLayerId; older
+        # servers called it layerId. SEED_DRY_ID_FIELD replays either acknowledgement.
         HTTP_BODY="$(jq -nc --argjson id "$DRY_LAYER_SEQ" --argjson body "$data" \
-          '{data:($body + {layerId:$id})}')"
+          --arg field "${SEED_DRY_ID_FIELD:-storageLayerId}" '{data:($body + {($field):$id})}')"
         if [ "${SEED_DRY_FAIL:-}" = "managed-ack" ]; then
           HTTP_BODY="$(jq '.data.storageMode = "source"' <<<"$HTTP_BODY")"
         fi
@@ -96,6 +114,7 @@ if [ "${SEED_DRY_RUN:-}" = "1" ]; then
         ;;
     esac
   }
+  api_get() { api_json GET "$1" ""; }
   api_post() { api_json POST "$1" "${2:-}"; }
 fi
 
@@ -316,13 +335,26 @@ echo "   connection: $CID"
 # layer. Without that, every demo request 401s and the OData /Layers catalog comes
 # back empty. Both the service policy and the per-layer policy have to be opened:
 # the layer policy is what the OData catalog and OGC collection listings filter on.
-open_anonymous() { # serviceName layerId allowWrite
+#
+# The layer-metadata route takes the SERVICE-LAYER INDEX (honua-server e8a849aa), not the global
+# storage handle the publish call returns. Read the index off the service's own FeatureServer
+# layer list rather than assuming the two numbers agree.
+open_anonymous() { # serviceName layerName allowWrite
+  local index
   api_json PUT "/api/v1/admin/services/$1/access-policy" \
     "$(jq -nc --argjson w "$3" '{allowAnonymous:true,allowAnonymousWrite:$w}')"
   printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "access-policy $1" --status "$HTTP_CODE"
-  api_json PUT "/api/v1/admin/services/$1/layers/$2/metadata" \
+  api_get "/rest/services/$1/FeatureServer?f=json"
+  printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "FeatureServer layers $1" --status "$HTTP_CODE"
+  index="$(printf '%s' "$HTTP_BODY" | jq -r --arg n "$2" \
+    '[.layers[]? | select(.name == $n) | .id] | if length == 1 then .[0] else empty end' 2>/dev/null || true)"
+  if ! [[ "$index" =~ ^[0-9]+$ ]]; then
+    echo "::error:: service $1 lists no FeatureServer layer named $2: $HTTP_BODY" >&2
+    exit 1
+  fi
+  api_json PUT "/api/v1/admin/services/$1/layers/$index/metadata" \
     "$(jq -nc --argjson w "$3" '{accessPolicy:{allowAnonymous:true,allowAnonymousWrite:$w}}')"
-  printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "layer-metadata $1/$2" --status "$HTTP_CODE"
+  printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "layer-metadata $1/$index" --status "$HTTP_CODE"
 }
 
 # ORDER IS THE CONTRACT: Honua assigns publication ids globally in publish order, and
@@ -335,9 +367,12 @@ while IFS= read -r body; do
   svc="$(jq -r '.serviceName' <<<"$body")"
   api_post "/api/v1/admin/connections/$CID/layers" "$body"
   printf '%s' "$HTTP_BODY" | python3 "$HERE/plan.py" require-http --step "publish $svc" --status "$HTTP_CODE"
-  id="$(jget '.data.layerId // .layerId // empty')"
+  # The global publication handle. honua-server 5edec5d4 renamed it storageLayerId; older
+  # candidates call it layerId. Honua numbers it in publish order, and it is the id the
+  # FeatureServer layer routes and the honua-site pins below address.
+  id="$(jget '.data.storageLayerId // .data.layerId // .layerId // empty')"
   if [ -z "$id" ] || [ "$id" = "null" ]; then
-    echo "::error:: publish $svc returned no layerId (HTTP $HTTP_CODE): $HTTP_BODY" >&2
+    echo "::error:: publish $svc returned no storageLayerId (HTTP $HTTP_CODE): $HTTP_BODY" >&2
     exit 1
   fi
   if [ "$svc" = "maui-inspections" ]; then
@@ -369,7 +404,7 @@ echo "== seed: opening anonymous access on the demo services =="
 while IFS= read -r row; do
   svc="$(jq -r '.serviceName' <<<"$row")"
   write="$(jq -r '.allowAnonymousWrite' <<<"$row")"
-  open_anonymous "$svc" "$(layer_id_of "$svc")" "$write"
+  open_anonymous "$svc" "$(jq -r '.layerName' <<<"$row")" "$write"
 done < <(python3 "$HERE/plan.py" access-plan | jq -c '.[]')
 
 # Exercise the stock managed writer. Seed-only triggers must not repair product behavior

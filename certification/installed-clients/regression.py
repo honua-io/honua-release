@@ -260,7 +260,8 @@ def publish_harness(api: AdminApi, fixture: dict[str, Any], slugs: list[str], db
             "schema": "honua_data", "table": table, "layerName": layer, "serviceName": service,
             "geometryColumn": "geom", "geometryType": geometry, "primaryKey": "gid", "srid": 4326,
             "enabled": True, **extra})
-        layer_id = published.get("layerId") if isinstance(published, dict) else None
+        # honua-server 5edec5d4 renamed the publish handle storageLayerId; older servers sent layerId.
+        layer_id = published.get("storageLayerId", published.get("layerId")) if isinstance(published, dict) else None
         if type(layer_id) is not int:
             raise RegressionError(f"harness publish of {service} returned no layer id")
         return layer_id

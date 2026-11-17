@@ -413,13 +413,21 @@ def layer_list(document) -> list:
     return document if isinstance(document, list) else []
 
 
+def publication_handle(entry: dict):
+    """The global layer id a publish answer, job status or layer-list row carries.
+
+    honua-server 5edec5d4 renamed it storageLayerId; older servers sent layerId.
+    """
+    return entry.get("storageLayerId", entry.get("layerId"))
+
+
 def find_layer(listing, schema: str, table: str) -> int | None:
     """The id of the published layer whose source is schema.table in a layer-list answer, or None."""
     for entry in layer_list(listing):
         if (isinstance(entry, dict) and str(entry.get("schema") or "").lower() == schema.lower()
                 and str(entry.get("table") or "").lower() == table.lower()
-                and _int(entry.get("layerId")) is not None):
-            return entry["layerId"]
+                and _int(publication_handle(entry)) is not None):
+            return publication_handle(entry)
     return None
 
 
@@ -476,7 +484,7 @@ def follow_publish_job(accepted, *, connection: str, expected_rows: int, call, f
             fields["publishJobTransitions"].append({"status": state, "rowsMaterialized": rows, "at": now()})
             last = current
         if state == "completed":
-            layer = _int(progress.get("layerId"))
+            layer = _int(publication_handle(progress))
             if layer is None or layer < 0 or rows != total:
                 return None, "publish-job-invalid: completed job lacks a committed layer id or complete row progress"
             return layer, None
@@ -655,7 +663,8 @@ def run_scenario(state: dict, endpoint: str, admin_key: str, *, source_url: str 
         "enabled": True})
     publish_ms = int((clock() - publish_started) * 1000)
     fields.update(publishPath=PUBLISH_PATH, publishAnswered=status, publishMs=publish_ms)
-    layer = ((published or {}).get("data") or {}).get("layerId") if isinstance(published, dict) else None
+    data = ((published or {}).get("data") or {}) if isinstance(published, dict) else {}
+    layer = publication_handle(data)
     converged = None
     if status == 202:
         layer, error = follow_publish_job(

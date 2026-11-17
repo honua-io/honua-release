@@ -6,7 +6,7 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:60e1f310eb0ccb0fda550807081cab821ac1a67b4296aaa0e52932858d7ddba5
+    sha256: sha256:0b42f9aab38be205cd18f3ffd0bc174bfe67321a0e64fe29580cbb78ac320f4e
   compatibilityMatrix:
     path: compatibility-matrix.yaml
     sha256: sha256:bf82f334655223f100dda9e585b365b44a9f53b2c276c3b49817148bc8c14015
@@ -26,7 +26,12 @@ components:
       certification-evidence-receipt: '2.0'
       inspector-pagination-observer: v2
       metadata: 2.0.0-alpha.1
-      database: '143'
+      operation-initiation: v1
+      operation-human-approval: v1
+      coordinated-release-human-approval: v1
+      normalization-envelope: v3
+      publication-descriptor: '1.0'
+      database: '214'
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-server
@@ -51,7 +56,7 @@ components:
         amd64: sha256:f900ef765cac1ccb7d9479a6aeaf85bf3ea9c4aaf752b9039fc3c83e514a01e5
         arm64: sha256:be0c8ed3a30db2ef3e2fdb8a970b3037bef2dea1d5018b4f4f899cefa7e70870
     artifactIdentityModel: published
-    migrationJournalSha256: sha256:16dcbe69b949b5eb14ec8c48646cb5d0b293a706bc1df2e973512488205267d3
+    migrationJournalSha256: sha256:5588b3f3717273b73ce918e6b418d2f237221658b776bb013d73a6448cdbee7d
     lifecycleStatus: GA
     supportTier: ga
     releaseVersion: 2026.1.0-rc.2
