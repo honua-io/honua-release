@@ -66,3 +66,18 @@ def test_inputs_and_permissions():
         assert inputs["lock_artifact"]["default"] == "candidate-manifest"
     permissions = workflow["jobs"]["platform-sbom"]["permissions"]
     assert permissions == {"contents": "read", "packages": "read", "actions": "read", "attestations": "read"}
+
+
+def test_the_receipt_reads_the_dispatched_lock_bytes():
+    report = _steps("gate-sbom.yml", "report")
+    sbom_download = next(s for s in _steps("gate-sbom.yml", "platform-sbom")
+                         if s.get("with", {}).get("run-id"))
+    download = next(s for s in report if s.get("with", {}).get("run-id"))
+    assert download == sbom_download
+    adopt = next(s for s in report if s.get("name") == "Adopt the dispatched lock for the promise receipt")
+    assert adopt["if"] == download["if"]
+    assert adopt["run"] == "cp candidate-lock/platform-lock.json platform-lock.json"
+    receipt = next(s for s in report if s.get("uses") == "./.github/actions/kept-gate-receipt")
+    assert report.index(download) < report.index(adopt) < report.index(receipt)
+    permissions = yaml.safe_load((ROOT / ".github/workflows/gate-sbom.yml").read_text())["jobs"]["report"]["permissions"]
+    assert permissions == {"contents": "read", "actions": "read"}
