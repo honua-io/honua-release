@@ -26,7 +26,7 @@ Every honua-server pin in `arc.v1.json` (quickstart page, quickstart package fil
 development composition), `tools/ai_arc_ops_local.py` `DEFAULT_REVISION` and the fixture copies under
 `tools/test_ai_arc_fixtures/` stay on 8628668, the candidate this preregistered arc was frozen
 against, after the manifest moved to 532565bc on 17 Nov. Between those revisions all six pinned files
-changed and the candidate's migrations went from 143 to 214, so re-pinning is an ARC re-derivation
+changed and the highest candidate migration went from 143 to 214, so re-pinning is an ARC re-derivation
 (new package bytes, fixtures, harness adaptation and founder sign-off), not a revision swap.
 
 ## Stages
