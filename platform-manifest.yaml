@@ -53,14 +53,14 @@ platformRelease: "2026.1-rc.2"         # calendar label; -rc.N until promoted
 status: rc                             # draft | rc | released
 # Previous snapshotDate "2026-10-27": rc re-pin #4: honua-server 8cb074f -> a4bde4b (124 trunk commits; #6590, #6593, #6595, #6599, #6643, #6650, #6655, #6656, #6670, #6695, #6703, #6721, #6734)
 # Previous snapshotDate "2026-11-02": 2026-11-02 rc.2 cut: honua-server a4bde4b -> daf56db (87 trunk commits, #3213 and #6561-#6864; migrations 141-143)
-snapshotDate: "2026-11-03"             # 2026-11-03 rc.2 redo: honua-server daf56db -> 8628668 (14 trunk commits, #6881-#6904; no migration)
+snapshotDate: "2026-11-17"             # 2026-11-17 rc.2 re-pin: honua-server 8628668 -> 532565b (redesign stage-1 candidate, AOT index d56e8815)
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
 # honua-server's protected default branch; tools/validate_platform.py --exact-candidate fails closed
 # and names this ref when it is anything other than the literal `trunk`.
 candidate:
-  ref: "8628668794df9f0c22a490e59cedaee409cc1bdd"
+  ref: "532565bc7215d4b9ce9657bc110cbd0366076e31"
   refSource: "trunk"
 
 # Pipeline-owned certification boundary. Dispatchers cannot replace the cut or ledger. `pending`
@@ -82,11 +82,13 @@ protocolCertification:
   # candidate image was published by Nightly Container Build run 41374151792).
   # 2026-11-03 RC2 REDO to certified trunk build 8628668: UTC time the rc.2 redo candidate was cut (after
   # the candidate image was published by Nightly Container Build run 41608440714).
-  candidateCutAt: "2026-11-03T10:24:29Z"
+  # 2026-11-17 RC2 RE-PIN to certified trunk build 532565b: the AOT index was published by Nightly
+  # Container Build run 44069870471 (candidate_sha=532565bc, finished about 11:55Z).
+  candidateCutAt: "2026-11-17T11:55:00Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
   # moves in lockstep with the server re-pin below and is not independently selectable.
-  serverCertificationProducerSha: "8628668794df9f0c22a490e59cedaee409cc1bdd"
+  serverCertificationProducerSha: "532565bc7215d4b9ce9657bc110cbd0366076e31"
   # #181: the historical ledger certifies e3ab87ce, not this working snapshot.
   # The published Python 0.1.11 artifact also predates its certification contract;
   # advancing the working component pin does not change that package's provenance.
@@ -450,8 +452,8 @@ components:
     # dated nightly tags backwards, so they were not taken. 679f637 is an ancestor; 19 commits
     # separate this pin from trunk HEAD at re-pin time.
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
-    sha: "8628668794df9f0c22a490e59cedaee409cc1bdd"
-    image: "ghcr.io/honua-io/honua-server:nightly-8628668"   # immutable per-sha tag (NOT a floating tag)
+    sha: "532565bc7215d4b9ce9657bc110cbd0366076e31"
+    image: "ghcr.io/honua-io/honua-server:nightly-aot-532565b"   # immutable per-sha tag (NOT a floating tag)
     # 2026-11-03 RC2 REDO: index and children re-read anonymously from GHCR (docker buildx imagetools
     # inspect); both child configs label org.opencontainers.image.revision=8628668794df....
     # 2026-11-02 RC2 CUT: index and children re-read anonymously from GHCR (docker buildx imagetools
@@ -463,13 +465,13 @@ components:
     #   linux/arm64 sha256:0d18c33537636d13c0c64c2a824295a19418e8f28344fb50207bf4dd61168dff
     # (:nightly-aot-0e03bdd resolves to the same index digest.)
     # Rollback certification dereferences platformDigests.amd64, not this index.
-    digest: "sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da"
+    digest: "sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9"
     # The image's source revision, from its child config labels and SLSA provenance; equals `sha`.
-    artifactSourceRevision: "8628668794df9f0c22a490e59cedaee409cc1bdd"
+    artifactSourceRevision: "532565bc7215d4b9ce9657bc110cbd0366076e31"
     architectures: [amd64, arm64]
     platformDigests:
-      amd64: "sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1"
-      arm64: "sha256:e40b5463edb3b58082eb70996c3c9df09a67e23a945e029a6ca3c3af36c9f334"
+      amd64: "sha256:dbfd0cb4e3eecf2342f466d62a58d2abdc0f33daac6d2deb57f3d975d186efab"
+      arm64: "sha256:671122ca779141f969c03620abeba7647619083d4f5d8d37de754d2a55ebc615"
     # PUBLISHED VARIANT: the candidate ships the native-AOT, PostGIS-only serving image. The resolver
     # proves it from each platform's config labels and skips a commit whose bound tags all break
     # them; a tag name does not identify the variant. `whenDeclared`: images built before the
@@ -489,13 +491,13 @@ components:
     # org.opencontainers.image.revision=8628668794df...; SLSA provenance verifies (signer
     # nightly-container-build.yml, source digest 86286687...).
     composeExecutor:
-      image: "ghcr.io/honua-io/honua-server:nightly-compose-executor-8628668"
-      digest: "sha256:817079be768b1a6f6c6265ff2809c2e39f17c319240bb90148af7449e4fecede"
+      image: "ghcr.io/honua-io/honua-server:nightly-compose-executor-532565b"
+      digest: "sha256:5043183c5d90e28ee59a248589385cfe3532eb556b93faf89a5515f4e9b234fa"
       architectures: [amd64, arm64]
       platformDigests:
-        amd64: "sha256:cb18a062975083bf002781470c455c73e74bf7d9c58c42269534ab3203e2f77c"
-        arm64: "sha256:678573ffdefa0773410077e1a0dc4550da502d3cab57386d7c692a883d82a560"
-      artifactSourceRevision: "8628668794df9f0c22a490e59cedaee409cc1bdd"
+        amd64: "sha256:f900ef765cac1ccb7d9479a6aeaf85bf3ea9c4aaf752b9039fc3c83e514a01e5"
+        arm64: "sha256:be0c8ed3a30db2ef3e2fdb8a970b3037bef2dea1d5018b4f4f899cefa7e70870"
+      artifactSourceRevision: "532565bc7215d4b9ce9657bc110cbd0366076e31"
     # ARM64-ON-FARGATE EXCLUSION — CARRIED FORWARD, NOT RE-VERIFIED (honua-release#98).
     # The exclusion was established against the OLD pin (5cad074, index
     # sha256:7b3cffafebf481ca77d9576f7ee2d6d1a6e8e29a1752761763c4887e655467cd), whose ARM64 child
@@ -561,8 +563,8 @@ components:
     # The same child is the linux/amd64 entry of the multi-arch nightly-lambda-aot-8628668 index
     # (sha256:9523cf4fe04b8a6126e96158c439c2023ddc539e6d53bb7e1ec1cf392084b318); Lambda runs the child.
     # Its attestation verifies (signer nightly-container-build.yml, source digest 86286687...).
-    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-8628668-amd64"
-    awsLambdaDigest: "sha256:1fc4ac0a32fb0566574cd84494446c4c521ccf2a44a198ff90b2d14948fdc9e7"
+    awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-532565b-amd64"
+    awsLambdaDigest: "sha256:8f25cb6bc129afd9e3c24a0041676392447e609335847bf3865d974f25a13eac"
     # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
     # does, this digest is NOT derivable from GHCR and NOT reproducible with a stock registry (checked:
     # pushing the same image through registry:2 preserves sha256:7182e8b7…, whereas ECR turned that
@@ -613,7 +615,9 @@ components:
     # to us-east-1 ECR rc-2026.1-rc.2-lambda-aot-8628668-x86_64, pushing config blob sha256:ec0db2a9... (the
     # GHCR manifest's config digest), and ECR returned sha256:1fc4ac0a.... ECR preserved the source config, so
     # the mirror digest equals awsLambdaDigest.
-    awsLambdaEcrDigest: "sha256:1fc4ac0a32fb0566574cd84494446c4c521ccf2a44a198ff90b2d14948fdc9e7"
+    # 2026-11-17 RC2 RE-PIN to 532565b: reset to the sentinel; the 8628668 mirror belongs to the old pin
+    # and the retired e2e-cloud-aws workflow no longer mirrors (Lambda is Preview).
+    awsLambdaEcrDigest: "pending-ecr-mirror"
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
@@ -1870,14 +1874,14 @@ platformLockEvidence:
     # range); the OKF bundle bytes are unchanged against daf56db2.
     catalog:
       repository: "https://github.com/honua-io/honua-server"
-      revision: "8628668794df9f0c22a490e59cedaee409cc1bdd"
+      revision: "532565bc7215d4b9ce9657bc110cbd0366076e31"
       path: "docs/gis/data/feature-catalog.json"
-      sha256: "sha256:b431b88a6941345732fa5a18d5a9c01374adb117ea09c98006e891a0253fda1f"
+      sha256: "sha256:a32ec832c1f98f449cd53276f2f210fce1db9bc5ea88e5cfdd10f0a311f823e1"
     okf:
       repository: "https://github.com/honua-io/honua-server"
-      revision: "8628668794df9f0c22a490e59cedaee409cc1bdd"
+      revision: "532565bc7215d4b9ce9657bc110cbd0366076e31"
       path: "scripts/ci/okf-bundle.v1.json"
-      sha256: "sha256:f3e514b3bb6b447679731777dd52a74c1332c9bb5aa504fa03b91a5847901144"
+      sha256: "sha256:d23aab64bb5ae88274c85bd87f2a8a535761fcff804e8dae0c4c9d154b04ca26"
   # fixtures: AT-CUT. The certified fixture repositories/revisions are chosen at the cut.
   # sbom / provenance: AT-CUT. Both are emitted for the candidate artifacts by the train.
   # notes: AT-CUT. `artifacts.releaseNotes` is still a placeholder; the lock takes a

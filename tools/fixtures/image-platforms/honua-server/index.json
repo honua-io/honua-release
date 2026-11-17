@@ -4,8 +4,8 @@
   "manifests": [
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1",
-      "size": 3093,
+      "digest": "sha256:dbfd0cb4e3eecf2342f466d62a58d2abdc0f33daac6d2deb57f3d975d186efab",
+      "size": 2154,
       "platform": {
         "architecture": "amd64",
         "os": "linux"
@@ -13,10 +13,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:a2d357e6e7414a34e639f2ccb3e60d97de70d34d2aebbea0c94ddae2616b132a",
-      "size": 1112,
+      "digest": "sha256:0cd63bcf04e33ba47adcb774ba6005ef3d242897bd38d735003845e3063c9455",
+      "size": 1110,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1",
+        "vnd.docker.reference.digest": "sha256:dbfd0cb4e3eecf2342f466d62a58d2abdc0f33daac6d2deb57f3d975d186efab",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -26,8 +26,8 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:e40b5463edb3b58082eb70996c3c9df09a67e23a945e029a6ca3c3af36c9f334",
-      "size": 3093,
+      "digest": "sha256:671122ca779141f969c03620abeba7647619083d4f5d8d37de754d2a55ebc615",
+      "size": 2154,
       "platform": {
         "architecture": "arm64",
         "os": "linux"
@@ -35,10 +35,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:f9feb769cc8333d6adb6fd37a73d9014ed1b3685495f138416159a7d23aa2105",
-      "size": 1112,
+      "digest": "sha256:3897a861a169e9ceb5e255e5133575cc86f77891d2f5d94accb3ada487dd9478",
+      "size": 1110,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:e40b5463edb3b58082eb70996c3c9df09a67e23a945e029a6ca3c3af36c9f334",
+        "vnd.docker.reference.digest": "sha256:671122ca779141f969c03620abeba7647619083d4f5d8d37de754d2a55ebc615",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -48,7 +48,7 @@
     }
   ],
   "annotations": {
-    "org.opencontainers.image.revision": "8628668794df9f0c22a490e59cedaee409cc1bdd",
-    "org.opencontainers.image.version": "2026.1.0-rc.2"
+    "org.opencontainers.image.revision": "532565bc7215d4b9ce9657bc110cbd0366076e31",
+    "org.opencontainers.image.version": "2026.1.0-nightly.g532565b"
   }
 }
