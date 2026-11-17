@@ -328,6 +328,9 @@ jobs:
   report:
     needs: [platform-sbom, image-sbom]
     if: always()
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     outputs:
       overall_status: ${{ steps.assemble.outputs.overall_status }}
@@ -421,6 +424,17 @@ jobs:
           OVERALL='${{ steps.assemble.outputs.overall_status }}'
           echo "sbom gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
           [ "$OVERALL" = "fail" ] && { echo "::error::SBOM gate FAILED"; exit 1; } || echo "not red"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ inputs.lock_run_id != '' }}
+        with:
+          name: ${{ inputs.lock_artifact }}
+          path: candidate-lock
+          run-id: ${{ inputs.lock_run_id }}
+          github-token: ${{ github.token }}
+      # platform-sbom verified these bytes; the receipt rechecks their digest and manifest binding.
+      - name: Adopt the dispatched lock for the promise receipt
+        if: ${{ inputs.lock_run_id != '' }}
+        run: cp candidate-lock/platform-lock.json platform-lock.json
       - name: Emit candidate-bound release promise receipt
         if: ${{ success() && (inputs.platform_lock_digest || inputs.lock_digest) }}
         uses: ./.github/actions/kept-gate-receipt
