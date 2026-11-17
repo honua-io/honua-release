@@ -56,9 +56,12 @@ jobs:
       # The harness is pinned apart from the candidate: the worker below is built at the candidate
       # sha, the harness at a reviewed trunk merge. The 532565bc harness never gave the worker
       # ConnectionStrings__DefaultConnection, which the 532565bc worker requires (it holds the
-      # PostgreSQL job queue), so the worker exited at startup. ef10844c (#8213 merge) carries
-      # #8198, #8205 and #8213 (harness, compose and tests only; no src/ change) and its
-      # gp-lifecycle-qualification trunk run passed. gp-candidate-binding.py is byte-identical.
+      # PostgreSQL job queue), so the worker exited at startup. ef10844c (#8213 merge) is a later
+      # trunk commit; only its scripts/qualification and docker/gp-reliability files are used here,
+      # and the #8198/#8205/#8213 changes to them are harness-only (other trunk changes in that range
+      # are not checked out into this harness). Its trunk qualification ran against its own server,
+      # so the first run of this drill is the proof against 532565bc. gp-candidate-binding.py is
+      # byte-identical to 532565bc's.
       - name: Check out the reviewed GP qualification harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
