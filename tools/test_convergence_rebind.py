@@ -1140,8 +1140,9 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_cut_candidate_server():
 
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     """The 2026-11-17 rc.2 re-pin moves the server to 532565b. Its gRPC surface hash differs from
-    8628668's (file move, method bodies), so the ruling was re-checked by hand: same six mapped
-    services and conditions, same overridden RPCs, ExecutePlan still UNIMPLEMENTED.
+    8628668's, so the ruling was re-checked by hand: same six mapped services and conditions, the
+    same implemented set for every inventoried RPC, ExecutePlan still UNIMPLEMENTED; ten FeatureService
+    RPCs from geospatial-grpc 1.3.0 lie outside the v1.0.3 contract this inventory is bound to.
 
     The generator refuses a pinned server commit the ruling was not verified at, so the pin that
     freezes 532565b as the server-certification pin must record it here."""
@@ -1153,3 +1154,4 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     assert manifest["protocolCertification"]["serverCertificationProducerSha"] == candidate
     recheck = ruling["evidence"].split("Re-checked at 532565b", 1)[1]
     assert "still returns UNIMPLEMENTED for ExecutePlan and ExecutePlanStream" in recheck
+    assert "outside the 2026.1 gRPC denominator" in recheck

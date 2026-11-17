@@ -106,6 +106,15 @@ protocolCertification:
 # Certified component set (experimental+disabled surfaces are excluded — see `experimental:` below).
 components:
   honua-server:
+    # 2026-11-17 RC2 RE-PIN (release redesign stage 1): certified source 532565bc7215d4b9ce9657bc110cbd0366076e31
+    # (trunk 2026-11-17T03:40Z, #8154). Full CI run 44013566836 passed at this SHA. Nightly Container Build
+    # run 44069870471 (candidate_sha=532565bc) published the AOT index nightly-aot-532565b sha256:d56e8815...
+    # (amd64 dbfd0cb4..., arm64 671122ca...), the Compose executor and the Lambda AOT leg. Index and
+    # children were re-read anonymously from GHCR; every child config labels
+    # org.opencontainers.image.revision=532565bc... and the AOT children honua.runtime.compilation=native-aot.
+    # The run was a scheduled-mode nightly, so the image version label is 2026.1.0-nightly.g532565b, not
+    # 2026.1.0-rc.2; `nightly-532565b` is the JIT image, hence the -aot tag. Digests, not tags, bind the pin.
+    # RC size budget: 346,988,032 of 370,000,000 bytes (amd64).
     # 2026-11-03 RC2 REDO: certified source 8628668794df9f0c22a490e59cedaee409cc1bdd (trunk HEAD,
     # 2026-11-03T07:49Z, #6904), the final rc.2 candidate. It replaces daf56db2, whose nightly tags
     # were re-pushed by a scheduled build on 2026-11-02. Full-matrix ci.yml run 41598942111 passed at
@@ -563,6 +572,8 @@ components:
     # The same child is the linux/amd64 entry of the multi-arch nightly-lambda-aot-8628668 index
     # (sha256:9523cf4fe04b8a6126e96158c439c2023ddc539e6d53bb7e1ec1cf392084b318); Lambda runs the child.
     # Its attestation verifies (signer nightly-container-build.yml, source digest 86286687...).
+    # 2026-11-17 RC2 RE-PIN: awsLambdaDigest is the single linux/amd64 child sha256:8f25cb6b... of the tag index
+    # nightly-lambda-aot-532565b-amd64 (sha256:f9833d69...); its config labels revision=532565bc....
     awsLambdaImage: "ghcr.io/honua-io/honua-server:nightly-lambda-aot-532565b-amd64"
     awsLambdaDigest: "sha256:8f25cb6bc129afd9e3c24a0041676392447e609335847bf3865d974f25a13eac"
     # ECR may convert an OCI manifest to Docker schema 2 while preserving the exact config/rootfs; when it
