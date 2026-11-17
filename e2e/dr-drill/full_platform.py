@@ -67,6 +67,10 @@ def pinned_image(reference: str, digest: str) -> str:
     return f"{repository}@{digest}"
 COMPOSE_FILE = ROOT / "e2e" / "dr-drill" / "compose.full-platform.yml"
 MANIFEST = ROOT / "platform-manifest.yaml"
+# The server image ships no shell, tar or chown from honua-server 532565bc on (chiseled AOT and
+# JIT), so volume inspection and the object-storage archive run on the topology's own pinned
+# PostGIS image: already part of the drill, never an extra utility image.
+VOLUME_HELPER_IMAGE = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]["db"]["image"]
 ADMIN_KEY = os.environ.get("HONUA_DR_ADMIN_KEY", "honua-dr-drill-admin-key")
 PROJECT = os.environ.get("HONUA_DR_PROJECT", f"honua-dr-full-{os.environ.get('GITHUB_RUN_ID', 'local')}")
 SERVICE = "dr-sentinel"
@@ -178,7 +182,7 @@ class Stack:
 
     def volume_is_empty(self, name: str, mount: str) -> bool:
         listing = run("docker", "run", "--rm", "-u", "0:0", "-v", f"{self.volume(name)}:{mount}",
-                      "--entrypoint", "/bin/sh", self.image, "-c",
+                      "--entrypoint", "/bin/sh", VOLUME_HELPER_IMAGE, "-c",
                       f"ls -A {mount} | head -5").stdout.decode().strip()
         return listing == ""
 
@@ -532,13 +536,13 @@ def redis_slice_export(stack: Stack, patterns: list[str]) -> bytes:
 
 
 def volume_helper(stack: Stack, volume: str, mount: str, script: str, stdin=None, capture=True):
-    """Run a shell snippet against a named volume using the candidate's own image.
+    """Run a shell snippet against a named volume using the topology's pinned PostGIS image.
 
-    Using the pinned server image keeps the drill's tool surface inside the certified artifact
-    set instead of pulling an unrelated utility image into the recovery path.
+    The shell-less server image cannot run it; the db image is already in the drill, so no
+    unrelated utility image enters the recovery path.
     """
     args = ["docker", "run", "--rm", "-i", "-u", "0:0", "-v", f"{stack.volume(volume)}:{mount}",
-            "--entrypoint", "/bin/sh", stack.image, "-c", script]
+            "--entrypoint", "/bin/sh", VOLUME_HELPER_IMAGE, "-c", script]
     return run(*args, stdin=stdin, capture=capture)
 
 

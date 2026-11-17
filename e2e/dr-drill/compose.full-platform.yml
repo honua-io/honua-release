@@ -26,7 +26,10 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      # The PostGIS entrypoint answers pg_isready from its socket-only init server, then restarts.
+      # Healthy means PID 1 is the final postmaster and it accepts TCP (the shape honua-server's own
+      # docker-compose.yml uses), so the server's one-shot migration cannot race that restart.
+      test: ["CMD-SHELL", "test \"$$(head -n 1 /var/lib/postgresql/data/postmaster.pid 2>/dev/null)\" = \"1\" && pg_isready -h 127.0.0.1 -U honua -d honua"]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -53,9 +56,10 @@ services:
 
   # Named volumes are created root-owned; the server image runs as a non-root UID. Initialize
   # the object-storage volume before the server starts so uploads work on a clean install and
-  # again on every restore into a freshly created volume.
+  # again on every restore into a freshly created volume. The server image ships no shell or
+  # chown from 532565bc on, so this runs on the drill's own pinned PostGIS image (same as `db`).
   storage-init:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
+    image: postgis/postgis:16-3.4
     entrypoint: ["sh", "-c"]
     command: ["mkdir -p /var/lib/honua/storage && chown -R 1001:1001 /var/lib/honua/storage"]
     user: "0:0"
@@ -65,9 +69,8 @@ services:
 
   server:
     image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
-    # Docker can report Postgres healthy a fraction before its container port accepts the
-    # server's one-shot migration connection. A short deterministic delay prevents that race.
-    entrypoint: ["/bin/sh", "-c", "sleep 5; exec /app/Honua.Server"]
+    # No entrypoint override: the shell-less image starts through its own entrypoint. The db
+    # healthcheck carries the cold-start gate the old `sleep 5` shell wrapper approximated.
     depends_on:
       db:
         condition: service_healthy
@@ -92,9 +95,9 @@ services:
     volumes:
       - honua_storage:/var/lib/honua/storage
     healthcheck:
-      # honua-server #6798 dropped runtime wget from the image (absent from daf56db2 on), so probe
-      # readiness with bash /dev/tcp, the shape the product's own docker-compose.yml uses.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /healthz/ready HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3 && IFS= read -r status <&3 && case \"$$status\" in *' 200 '*) exit 0 ;; *) exit 1 ;; esac"]
+      # The image has no shell, wget or curl; readiness is its own compiled probe, the HEALTHCHECK
+      # its Dockerfile declares (GET /healthz/ready on 8080, non-zero unless 200).
+      test: ["CMD", "/app/honua-healthcheck", "--ready"]
       interval: 5s
       timeout: 5s
       retries: 60
