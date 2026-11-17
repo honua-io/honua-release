@@ -2483,11 +2483,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "7d465729d7f7ee991411bd58037954e0a4bb0a62",
+      "revision": "0595526e72e611f5c68997e39f0fbe6e65ae471b",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/7d465729d7f7ee991411bd58037954e0a4bb0a62/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/0595526e72e611f5c68997e39f0fbe6e65ae471b/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2568,7 +2568,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "8417230b461bc578228406f5329f34858b3e12b4e95ff1da4d911ea087078e5c"
+          "sha256": "4c75c28f74faa18ecfe0d437457da25d09eaa4d82434b5c15f5cdd4088ea9b8e"
         },
         {
           "index": 8,
@@ -2770,11 +2770,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "e2af733adca9f674f573b9704928d9bd8c3bf41c",
+      "revision": "0595526e72e611f5c68997e39f0fbe6e65ae471b",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/e2af733adca9f674f573b9704928d9bd8c3bf41c/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/0595526e72e611f5c68997e39f0fbe6e65ae471b/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2789,7 +2789,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "d0b3e9ab4577dc3941011278af69d3ed4d3fb3e67e494ddbaaaf07f604887ad0",
+          "sha256": "1bd48ab40ff14efa68091f3c973afdb6b420b1ffd6ac34a59dda8f4728972de9",
           "needs": {
             "optionalEnv": [
               "HONUA_ADMIN_PASSWORD"

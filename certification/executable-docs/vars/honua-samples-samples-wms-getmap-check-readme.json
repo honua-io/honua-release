@@ -2,9 +2,9 @@
   "document": "honua-samples-samples-wms-getmap-check-readme",
   "env": {},
   "substitute": {
-    "ghcr.io/honua-io/honua-server:nightly-jit-9d2169c@sha256:48d73e13bf47c3c837106f3ee959230c20bfeac926754b1dfecd4cad29b0486e": {
+    "ghcr.io/honua-io/honua-server:nightly-aot-532565b@sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9": {
       "value": "{candidate.image}",
-      "documentedAt": "samples/wms-getmap-check/README.md:21 — export HONUA_SERVER_IMAGE=ghcr.io/honua-io/honua-server:nightly-jit-9d2169c@sha256:48d73e13…. The page names that digest; the gate certifies the manifest candidate behind it"
+      "documentedAt": "samples/wms-getmap-check/README.md:26 — export HONUA_SERVER_IMAGE=ghcr.io/honua-io/honua-server:nightly-aot-532565b@sha256:d56e8815…. The page names that digest; the gate certifies the manifest candidate behind it"
     }
   }
 }

@@ -89,14 +89,14 @@ def test_image_placeholders_bind_only_to_supplied_candidate():
 
 
 SAMPLES_IMAGE = (
-    "ghcr.io/honua-io/honua-server:nightly-jit-9d2169c"
-    "@sha256:48d73e13bf47c3c837106f3ee959230c20bfeac926754b1dfecd4cad29b0486e"
+    "ghcr.io/honua-io/honua-server:nightly-aot-532565b"
+    "@sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9"
 )
 
 
 def test_samples_image_binds_to_the_candidate():
-    """The key must be the literal the pinned page names (README.md:200 at 0069030c, wms-getmap-check
-    README.md:21 at 4f14ce4f); a stale key silently boots the page's own image instead of the candidate."""
+    """The key must be the literal the pinned page names (README.md:214 and wms-getmap-check
+    README.md:26 at 0595526e); a stale key silently boots the page's own image instead of the candidate."""
     from run import substitute
     forms = (
         (f"export HONUA_SERVER_IMAGE={SAMPLES_IMAGE}\n", "export HONUA_SERVER_IMAGE=test@sha256:abc\n"),
@@ -108,7 +108,7 @@ def test_samples_image_binds_to_the_candidate():
         assert list(variables["substitute"]) == [SAMPLES_IMAGE]
         entry = variables["substitute"][SAMPLES_IMAGE]
         assert entry["value"] == "{candidate.image}"
-        assert "nightly-jit-9d2169c" in entry["documentedAt"]
+        assert "nightly-aot-532565b" in entry["documentedAt"]
         table = {SAMPLES_IMAGE: render(entry["value"], {"candidate.image": "test@sha256:abc"})}
         for code, expected in forms:
             assert substitute(code, table) == expected
