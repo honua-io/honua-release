@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SEAM = ROOT / "e2e/local-docker/docker-compose.yml"
 FULL = ROOT / "e2e/dr-drill/compose.full-platform.yml"
 JOURNEY = ROOT / "certification/terminal-journey/targets/build-compose.yml"
+CANDIDATE = ROOT / "e2e/harness/compose.candidate.yml"
+CONSOLE_S4 = ROOT / "e2e/harness/compose.console-s4.yml"
 SHELLS = ("sh", "/bin/sh", "bash", "/bin/bash", "/usr/bin/bash", "CMD-SHELL")
 SERVER_IMAGE_VAR = "${HONUA_SERVER_IMAGE"
 
@@ -39,7 +41,8 @@ def _uses_shell(argv: list[str]) -> bool:
     return any(token in SHELLS or token.startswith(("sh ", "bash ", "/bin/sh ")) for token in argv)
 
 
-@pytest.mark.parametrize("compose", [SEAM, FULL, JOURNEY], ids=["seam", "full-platform", "terminal-journey"])
+@pytest.mark.parametrize("compose", [SEAM, FULL, JOURNEY, CANDIDATE, CONSOLE_S4],
+                         ids=["seam", "full-platform", "terminal-journey", "harness-candidate", "console-s4"])
 def test_no_service_runs_a_shell_on_the_server_image(compose):
     for name, service in _services(compose).items():
         if not str(service.get("image", "")).startswith(SERVER_IMAGE_VAR):
