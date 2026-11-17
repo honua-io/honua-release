@@ -48,6 +48,7 @@ class State:
         self.requests: list[dict[str, Any]] = []
         self.proposals: dict[str, dict[str, Any]] = {}
         self.sessions: set[str] = set()
+        self.echo_refused_password = False   # a careless server that quotes the rejected body back
 
     def new_proposal(self) -> tuple[str, str]:
         with self.lock:
@@ -196,7 +197,7 @@ def tls_post(h: Handler) -> None:
 def tls_sign_in(h: Handler) -> None:
     body = json.loads(h.body or "{}")
     if not h.state.session_works or body.get("password") != PASSWORD:
-        h.reply(401)
+        h.reply(401, {"detail": f"password {body.get('password')} rejected"} if h.state.echo_refused_password else None)
         return
     session = secrets.token_hex(8)
     h.state.sessions.add(session)
@@ -230,6 +231,7 @@ class FakeCandidate:
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
         if tls:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(f"{self.tls_dir}/tls.crt", f"{self.tls_dir}/tls.key")
             server.socket = context.wrap_socket(server.socket, server_side=True)
         threading.Thread(target=server.serve_forever, daemon=True).start()

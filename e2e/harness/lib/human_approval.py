@@ -126,7 +126,10 @@ class HumanSession:
 
     def sign_in(self, password: str) -> None:
         self.refresh_csrf()
-        self.request("session", "POST /api/v1/admin/auth/session", {"password": password}, {CSRF_HEADER: self.csrf})
+        try:
+            self.request("session", "POST /api/v1/admin/auth/session", {"password": password}, {CSRF_HEADER: self.csrf})
+        except Refused as exc:   # a server that quotes the rejected body must not put the password in our output
+            raise Refused(exc.stage, exc.status, exc.detail.replace(password, "[redacted]")) from None
         if SESSION_COOKIE not in self.cookies:
             raise Refused("session", 204, f"sign-in set no {SESSION_COOKIE} cookie")
         # The antiforgery token is bound to the identity it was issued for, so take a fresh one.

@@ -48,6 +48,14 @@ class HumanApprovalTest(unittest.TestCase):
         self.assertEqual((result["result"], result["stage"], result["httpStatus"]), ("refused", "session", 401))
         self.assertNotIn("wrong", output)
 
+    def test_a_server_that_echoes_the_password_does_not_leak_it(self) -> None:
+        with fake_candidate.FakeCandidate() as fake:
+            fake.state.echo_refused_password = True
+            proposal, _ = fake.state.new_proposal()
+            code, result, output = run_helper(fake, proposal, password="wrong-but-secret")
+        self.assertEqual((code, result["stage"], result["httpStatus"]), (1, "session", 401))
+        self.assertNotIn("wrong-but-secret", output)
+
     def test_unknown_proposal_is_refused_at_review(self) -> None:
         with fake_candidate.FakeCandidate() as fake:
             code, result, _ = run_helper(fake, "proposal-missing")
