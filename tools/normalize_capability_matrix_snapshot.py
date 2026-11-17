@@ -74,7 +74,9 @@ def normalize_vendored(text: str) -> str:
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
         raise SystemExit(f"usage: {Path(argv[0]).name} SOURCE DEST")
-    Path(argv[2]).write_text(normalize(Path(argv[1]).read_text(encoding="utf-8")), encoding="utf-8")
+    # Same rule as convergence vendoring: a producer without the legacy field (server
+    # 532565bc renamed it) is compared byte for byte.
+    Path(argv[2]).write_text(normalize_vendored(Path(argv[1]).read_text(encoding="utf-8")), encoding="utf-8")
     return 0
 
 

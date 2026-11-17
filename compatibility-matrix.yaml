@@ -42,7 +42,7 @@ contracts:
     # narrowed; no SDK negotiates on the geoservices contract version today.
     version: "2.0.0"
     clients:
-      # 2026-11-17 (release#1448): ceilings widened to the next minor of the re-pinned clients.
+      # 2026-11-17: ceilings widened to the next minor of the re-pinned clients.
       # sdk-js 0.4.0 (9d078e17) Integration + Conformance run 44149261184 green; honua-sdk 0.3.2
       # (5594bf0f) source CI accepted by the resolver. Floors unchanged.
       honua-sdk-js:     ">=0.0.14-alpha.0 <0.5.0"   # floor sealed by the SDK 0.2.2 GeoServices run 38492974391

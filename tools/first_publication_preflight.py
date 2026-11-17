@@ -601,14 +601,36 @@ def _pypi_files(transport, package: str, version: str | None) -> tuple[str, list
     return selected, files
 
 
-def _npm_publisher_source(row: str, artifact: dict, body: bytes) -> None:
-    """Without gitHead, only the allowlisted publisher's verified npm SLSA bundle binds the source."""
-    import verify_client_artifacts
+def _npm_publisher_source(transport, row: str, artifact: dict, body: bytes) -> None:
+    """Without gitHead, the public npm SLSA statement must name these bytes and sourceSha.
 
+    This probe stays anonymous: it reads the statement, not its signature. The
+    manifest-validate step after it (verify_client_artifacts --ecosystem npm) verifies the
+    publisher bundle cryptographically with gh before the job can pass.
+    """
+    package, version = str(artifact["package"]), str(artifact["version"])
+    url = ("https://registry.npmjs.org/-/npm/v1/attestations/"
+           + urllib.parse.quote(package, safe="") + "@" + urllib.parse.quote(version, safe=""))
+    response = transport.get(url)
+    if response.status != 200:
+        raise PreflightError(f"{package}@{version} has no gitHead and its npm attestations returned HTTP {response.status}")
+    rows = _parse_json(response.body, response.url).get("attestations")
+    bundles = [row_.get("bundle") for row_ in rows if isinstance(row_, dict)
+               and row_.get("predicateType") == "https://slsa.dev/provenance/v1"] if isinstance(rows, list) else []
+    if len(bundles) != 1:
+        raise PreflightError(f"{package}@{version} has no gitHead and not exactly one npm SLSA publisher statement")
+    subject = {"name": f"pkg:npm/{urllib.parse.quote(package, safe='/')}@{version}",
+               "digest": {"sha512": hashlib.sha512(body).hexdigest()}}
     try:
-        verify_client_artifacts._verify_npm_provenance(f"clientArtifacts.{row}", artifact, body)
-    except verify_client_artifacts.VerificationError as exc:
-        raise PreflightError(str(exc)) from exc
+        statement = json.loads(base64.b64decode(bundles[0]["dsseEnvelope"]["payload"], validate=True))
+        sources = [dependency["digest"]["gitCommit"]
+                   for dependency in statement["predicate"]["buildDefinition"]["resolvedDependencies"]]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise PreflightError(f"{package}@{version} npm SLSA publisher statement is unreadable") from exc
+    if statement.get("subject") != [subject]:
+        raise PreflightError(f"{package}@{version} npm SLSA publisher statement names other bytes")
+    if sources != [artifact.get("sourceSha")]:
+        raise PreflightError(f"{package}@{version} npm SLSA publisher source is {sources}, not clientArtifacts.{row}.sourceSha")
 
 
 def _npm_published(transport, row: str, artifact: dict) -> dict:
@@ -642,7 +664,7 @@ def _npm_published(transport, row: str, artifact: dict) -> dict:
     if _sha512_sri(tarball.body) != integrity:
         raise PreflightError(f"{package}@{version} tarball does not match the npm integrity")
     if git_head is None:
-        _npm_publisher_source(row, artifact, tarball.body)
+        _npm_publisher_source(transport, row, artifact, tarball.body)
     try:
         with tarfile.open(fileobj=io.BytesIO(tarball.body), mode="r:gz") as archive:
             member = archive.extractfile("package/package.json")

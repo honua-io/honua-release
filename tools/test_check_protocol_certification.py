@@ -1453,6 +1453,16 @@ def _pinned_matrix():
     return keys, implemented
 
 
+def _catalog_available_capabilities():
+    """The generator's catalog_capability_available: implemented, or preview under the GP floor ruling."""
+    matrix_keys, implemented = _pinned_matrix()
+    sources = cert.REQUIREMENTS_PATH.parent / "sources"
+    gp_floor = set(json.loads((sources / "gp-preview-floor.v1.json").read_text(encoding="utf-8"))["capability_keys"])
+    preview = {row["key"] for row in json.loads((sources / "server" / "capability-matrix.v1.json")
+               .read_text(encoding="utf-8"))["capabilities"] if row.get("maturity", {}).get("preview")}
+    return matrix_keys, implemented | (gp_floor & preview)
+
+
 def _ui_must_fix(source, field):
     """Must-fix UI cells for capabilities the pinned matrix has implemented."""
     matrix_keys, implemented = _pinned_matrix()
@@ -1611,15 +1621,8 @@ def test_pyqgis_is_the_full_surface_function_grid():
         (Path(__file__).parents[1] / "certification" / "sources" / "pyqgis-function-grid.v1.json")
         .read_text(encoding="utf-8")
     )
-    matrix_keys, implemented = _pinned_matrix()
+    matrix_keys, available = _catalog_available_capabilities()
     operations = [item["operation"] for item in grid["functions"]]
-    # The generator's catalog_capability_available: preview GP capabilities under the
-    # gp-preview-floor ruling stay in the catalog (server 532565bc made them preview).
-    sources = Path(__file__).parents[1] / "certification" / "sources"
-    gp_floor = set(json.loads((sources / "gp-preview-floor.v1.json").read_text(encoding="utf-8"))["capability_keys"])
-    preview = {row["key"] for row in json.loads((sources / "server" / "capability-matrix.v1.json")
-               .read_text(encoding="utf-8"))["capabilities"] if row.get("maturity", {}).get("preview")}
-    available = implemented | (gp_floor & preview)
 
     def withheld(capability_key: str) -> bool:
         return capability_key in matrix_keys and capability_key not in available

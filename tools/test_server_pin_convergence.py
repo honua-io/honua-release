@@ -46,16 +46,15 @@ def test_experimental_realtime_streams_drop_their_licensed_js_rows(certification
     assert not [row for row in rows if row["client_lane"] == "sdk-js-certification" and row["licensed"]]
 
 
-def test_renamed_geoservices_rest_stub_lane_keeps_its_disposition(certification):
+@pytest.mark.parametrize("lane", [RENAMED, "arcgis-stub"])
+def test_renamed_geoservices_rest_stub_lane_keeps_its_disposition(certification, lane):
+    # The 532565bc snapshot already names the new lane; the older id keeps its disposition too.
     path = certification / MATRIX
     text = path.read_text()
-    legacy = {lane for lane in re.findall(r'"clientLane": "([^"]+-stub)"', text) if lane != RENAMED}
-    assert len(legacy) == 1
-    old = legacy.pop()
-    path.write_text(text.replace(f'"{old}"', f'"{RENAMED}"'))
+    assert set(re.findall(r'"clientLane": "([^"]+-stub)"', text)) == {RENAMED}
+    path.write_text(text.replace(f'"{RENAMED}"', f'"{lane}"'))
 
     rows = regenerate_and_validate(certification)
 
     lanes = {row["client_lane"] for row in rows if row["addressable_by_client"]}
-    assert RENAMED in lanes
-    assert old not in lanes
+    assert lane in lanes

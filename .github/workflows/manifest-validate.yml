@@ -187,11 +187,7 @@ jobs:
       # honua-release#57: re-probe the public registries with no credential. A published row
       # must be bytes this probe downloaded. A missing coordinate stays a named blocker; drift
       # from the committed receipt fails. This does not publish, rebind, or invent a digest.
-      # Registry probes stay anonymous; GH_TOKEN only lets gh verify the npm publisher
-      # bundle for a trusted-publishing release that has no gitHead.
       - name: Check anonymous first-publication preflight
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: python3 tools/first_publication_preflight.py --check
 
       - name: Verify every declared required npm client artifact

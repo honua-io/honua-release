@@ -114,4 +114,4 @@ def test_cite_fixture_mapping_is_closed_and_preserves_unrelated_catalog_fields(t
     # The closed map still names every suite. A suite whose capability the pinned
     # matrix has not implemented is not a catalog row; an implemented suite must move.
     assert set(changed) == implemented_suites
-    assert withheld_suites - implemented_suites == {'WMTS 1.0'}
+    assert withheld_suites - implemented_suites == {'WMTS 1.0', 'WPS 2.0'}

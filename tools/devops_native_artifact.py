@@ -295,7 +295,7 @@ def stage(expected, output):
                                                        'candidateQualified': False}) + '\n')
         raise
 
-SDK_LOCK_SHA256 = '5e6b28f4c29b82b799190e9e92083c7aca38b879afc7e242bee4320a711e195f'
+SDK_LOCK_SHA256 = '3c49b180464ac1aef5981791f61a21667a53f797978227696602d372732fa8b3'
 SDK_URL = 'https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.32.1.tgz'
 SDK_ARCHIVE_BOUND = 32 * 1024 * 1024
 
