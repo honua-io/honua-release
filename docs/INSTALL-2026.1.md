@@ -9,7 +9,7 @@ it runs only on Honua's own demo stack and is not offered for customer deploymen
 
 Use the signed platform lock for the server image and component identities. Save
 the following self-contained customer quickstart as `compose.yaml`. The default
-is the server image `platform-manifest.yaml` pins for 2026.1 (`nightly-87966c3`,
+is the server image `platform-manifest.yaml` pins for 2026.1 (`nightly-aot-532565b`,
 by digest); when certifying a newer signed platform
 lock, set `HONUA_SERVER_IMAGE` to its digest-pinned server image.
 
@@ -27,13 +27,15 @@ services:
       POSTGRES_PASSWORD: honua
       POSTGRES_DB: honua
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U honua -d honua"]
+      # Healthy once the final postmaster (PID 1) accepts TCP, after the image's socket-only init
+      # server restarts, so the server's first migration cannot race that restart.
+      test: ["CMD-SHELL", "test \"$$(head -n 1 /var/lib/postgresql/data/postmaster.pid 2>/dev/null)\" = \"1\" && pg_isready -h 127.0.0.1 -U honua -d honua"]
       interval: 3s
       timeout: 3s
       retries: 30
 
   honua:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a}
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9}
     platform: linux/amd64
     depends_on:
       db:
@@ -49,9 +51,9 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      # The server image ships bash but no wget or curl: the authenticated request goes over /dev/tcp.
-      # Only an exact 200 counts; the headers are skipped and the mode is read from the body.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /api/v1/admin/license HTTP/1.0\\r\\nHost: localhost\\r\\nX-API-Key: %s\\r\\nConnection: close\\r\\n\\r\\n' \"$$HONUA_ADMIN_PASSWORD\" >&3 && IFS=' ' read -r proto code rest <&3 && [ \"$$code\" = 200 ] && while IFS= read -r line <&3 && [ $${#line} -gt 1 ]; do :; done && grep -Eq '\"mode\"[[:space:]]*:[[:space:]]*\"disabled\"' <&3"]
+      # The server image has no shell, wget or curl. Its compiled probe requests
+      # GET /healthz/ready on port 8080 and fails unless the answer is 200.
+      test: ["CMD", "/app/honua-healthcheck", "--ready"]
       interval: 5s
       timeout: 5s
       retries: 60
@@ -59,8 +61,7 @@ services:
 ```
 
 Set unique secrets, then start the database and server. `--wait` returns nonzero
-unless both services become healthy, including the authenticated disabled-mode
-check in the `honua` healthcheck.
+unless both services become healthy.
 
 ```sh
 export HONUA_ADMIN_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -84,14 +85,23 @@ the supported disabled mode works in Production and needs no development grant.
 Retain the template's required authentication, database and encryption secrets.
 
 After readiness, authenticate with the installer-provisioned admin key and
-repeat the same assertion through the server container:
+assert the disabled mode from the host. Only an HTTP 200 whose body reports
+the mode counts; the server image has no shell to run the check inside it:
 
 ```sh
-docker compose exec -T honua bash -c \
-  'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /api/v1/admin/license HTTP/1.0\r\nHost: localhost\r\nX-API-Key: %s\r\nConnection: close\r\n\r\n" "$HONUA_ADMIN_PASSWORD" >&3 &&
-   IFS=" " read -r proto code rest <&3 && [ "$code" = 200 ] &&
-   while IFS= read -r line <&3 && [ ${#line} -gt 1 ]; do :; done && cat <&3' \
-  | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"disabled"'
+python3 - <<'PY'
+import os, re, urllib.request
+
+request = urllib.request.Request("http://localhost:8080/api/v1/admin/license",
+                                 headers={"X-API-Key": os.environ["HONUA_ADMIN_PASSWORD"]})
+# Ignore proxy settings: the admin key goes only to this host.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+with opener.open(request, timeout=10) as response:
+    status, body = response.status, response.read().decode()
+if status != 200 or not re.search(r'"mode"\s*:\s*"disabled"', body):
+    raise SystemExit(f"licensing is not disabled: HTTP {status}")
+print("licensing mode: disabled")
+PY
 ```
 
 Missing `mode`, an enabled mode or an HTTP failure is non-passing. A pre-ruling
