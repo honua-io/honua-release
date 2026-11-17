@@ -62,7 +62,10 @@ DRIVER_CLIENTS = {
     "interop": ("interop", None),
 }
 # The workflow principals the harness mints for the proposal steps: the proposer may publish, the
-# approver may only approve. Their keys travel in the driver's environment, never in the plan.
+# approver key may only approve and read proposals. The server refuses every API key approval, so the
+# approver key proves that refusal and reads the outcome; the approval itself is a person's Console
+# password session (e2e/harness/lib/human_approval.py). Keys travel in the driver's environment, never
+# in the plan.
 PRINCIPAL_GRANTS = {"proposer": ["admin:write"], "approver": ["admin:approve"]}
 BEARER_ISSUER = "https://sdk-regression.invalid"
 BEARER_AUDIENCE = "sdk-regression"
@@ -70,7 +73,7 @@ BEARER_TENANT = "default"
 # The only fields a driver observation may carry into evaluation. Anything else is dropped.
 OBSERVATION_KEYS = {"scenario", "step", "api", "observed", "error", "unsupported", "skipped"}
 # Oracles that judge the whole observation, because the expected outcome is an error.
-ERROR_ORACLES = {"refused", "not-found", "self-approval-refused", "mcp-permission-denied"}
+ERROR_ORACLES = {"refused", "not-found", "self-approval-refused", "key-approval-refused", "mcp-permission-denied"}
 SECRET_SHAPES = re.compile(
     r"(?i)(authorization|x-api-key|password|secret|token|apikey|api_key)(\s*[=:]\s*)\S+|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+"
 )
@@ -466,7 +469,8 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "buffer-result": lambda o, f, p, obs, s: oracles.oracle_buffer(o, f),
     "proposal-pending": lambda o, f, p, obs, s: oracles.oracle_proposal_pending(o),
     "self-approval-refused": lambda o, f, p, obs, s: oracles.oracle_self_approval_refused(o),
-    "proposal-approved": lambda o, f, p, obs, s: oracles.oracle_proposal_approved(o),
+    "key-approval-refused": lambda o, f, p, obs, s: oracles.oracle_key_approval_refused(o),
+    "human-approved": lambda o, f, p, obs, s: oracles.oracle_human_approved(o),
     "proposal-resolved": lambda o, f, p, obs, s: oracles.oracle_proposal_resolved(o, p.get("principals") or {}),
     "approved-features": lambda o, f, p, obs, s: oracles._compare_features(o, f["proposal"]["features"], ["gid", "name"], "approved publication"),
     "mcp-initialized": lambda o, f, p, obs, s: oracles.oracle_mcp_initialized(o, f),

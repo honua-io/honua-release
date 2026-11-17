@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { requestJson } from './request.mjs';
+import { publishedStorageId, fixtureTarget } from './layer-identity.mjs';
 import { McpClient } from '@honua/sdk-js/studio-agent';
 
 const [stage, root] = process.argv.slice(2);
@@ -52,7 +53,7 @@ try {
       serviceName: 'installer-qualified-fixture', geometryColumn: 'geometry', geometryType: 'Polygon',
       srid: 4326, primaryKey: 'parcel_id', enabled: true,
     }, 201);
-    assert.ok(Number.isInteger(published.data.layerId));
+    const storageLayerId = publishedStorageId(published.data);
     const rows = [];
     let offset = 0;
     for (let page = 0; page < 20; page++) {
@@ -63,17 +64,15 @@ try {
       assert.ok(Number.isInteger(listing.nextOffset) && listing.nextOffset > offset && page < 19);
       offset = listing.nextOffset;
     }
-    const matches = rows.filter(row => row.layerId === published.data.layerId && row.serviceName === 'installer-qualified-fixture');
-    assert.equal(matches.length, 1);
-    const target = { serviceId: matches[0].serviceId, layerId: matches[0].layerId };
-    assert.equal(typeof target.serviceId, 'string');
+    const { serviceId, serviceLayerIndex } = fixtureTarget(rows, 'installer-qualified-fixture', storageLayerId);
+    const target = { serviceId, serviceLayerIndex };
     const styleId = 'installer-qualified-parcels';
     const style = await request('/ogc/styles', {
       version: 8, name: 'Installer qualification polygon fixture',
-      sources: { parcels: { type: 'vector', url: `${baseUrl}/ogc/tiles/collections/${target.layerId}` } },
+      sources: { parcels: { type: 'vector', url: `${baseUrl}/ogc/tiles/collections/${storageLayerId}` } },
       layers: [
-        { id: 'parcel-fill', type: 'fill', source: 'parcels', 'source-layer': String(target.layerId), paint: { 'fill-color': '#e45826', 'fill-opacity': 0.8 } },
-        { id: 'parcel-outline', type: 'line', source: 'parcels', 'source-layer': String(target.layerId), paint: { 'line-color': '#213547', 'line-width': 3 } },
+        { id: 'parcel-fill', type: 'fill', source: 'parcels', 'source-layer': String(storageLayerId), paint: { 'fill-color': '#e45826', 'fill-opacity': 0.8 } },
+        { id: 'parcel-outline', type: 'line', source: 'parcels', 'source-layer': String(storageLayerId), paint: { 'line-color': '#213547', 'line-width': 3 } },
       ],
     }, 201, { 'X-Style-Id': styleId });
     assert.equal(style.id, styleId);
@@ -84,7 +83,7 @@ try {
     const confirmed = await call('honua_get_style', { ...target, includeStylesheet: true });
     assert.equal(confirmed.styleId, styleId);
     assert.ok(Number.isInteger(confirmed.styleVersion) && confirmed.styleVersion >= 1);
-    await save('fixture.json', { scope: 'harness-owned installer seed publication', ...target, styleId,
+    await save('fixture.json', { scope: 'harness-owned installer seed publication', ...target, storageLayerId, styleId,
       bbox: [-157.865, 21.295, -157.845, 21.315], connectionHealthy: true,
       sourceTable: 'public.zero_to_map_parcels', dryRunApplied: preview.applied, baselineStyleVersion: confirmed.styleVersion });
   }

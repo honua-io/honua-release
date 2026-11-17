@@ -1,0 +1,26 @@
+# HTTPS overlay on compose.candidate.yml: the server also listens on TLS, next to plain HTTP.
+#
+# Human approval of an operation proposal needs a builtin password session (honua_admin_session
+# cookie). The server mints that session only over HTTPS (RequireHttpsEndpointFilter, and the browser
+# CSRF token endpoint answers HTTPS only), so the approval lane of S3 and of the installed-client
+# cells signs in here. Everything else keeps using http://localhost:8080 unchanged.
+#
+# - Kestrel serves the TLS endpoint itself from a throwaway self-signed certificate that
+#   lib/tls-cert.sh writes into E2E_TLS_DIR for this run. No proxy and no forwarded-header trust:
+#   Request.IsHttps is true on the TLS connection itself.
+# - HTTPS redirection is turned off. With an HTTPS endpoint present, the middleware would otherwise
+#   redirect every plain HTTP request to TLS, and every other driver talks plain HTTP. Without this
+#   overlay the server has no HTTPS port, so the redirection never fired there either.
+services:
+  server:
+    environment:
+      Kestrel__Endpoints__Https__Url: "https://+:8443"
+      Kestrel__Endpoints__Https__Protocols: "Http1"
+      Kestrel__Endpoints__Https__Certificate__Path: "/certs/tls.crt"
+      Kestrel__Endpoints__Https__Certificate__KeyPath: "/certs/tls.key"
+      Security__DisableHttpsRedirection: "true"
+    volumes:
+      - "${E2E_TLS_DIR:?lib/tls-cert.sh writes the run certificate and sets E2E_TLS_DIR}:/certs:ro"
+    ports:
+      # 8443 on the host is the S4 IdP's port, so the default host port is 8444.
+      - "${E2E_HTTPS_PORT:-8444}:8443"

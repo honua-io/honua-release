@@ -49,7 +49,7 @@ jobs:
         run: dotnet build certification/sdk-local-setup/catalog-export/CatalogExport.csproj --configuration Release
       - run: python -m unittest discover -s certification/sdk-local-setup -p 'test_*.py' -v
       - run: node --check certification/sdk-local-setup/fixture.mjs
-      - run: node --test certification/sdk-local-setup/request.test.mjs
+      - run: node --test certification/sdk-local-setup/request.test.mjs certification/sdk-local-setup/layer-identity.test.mjs
 
   installed:
     if: github.event_name == 'workflow_dispatch' && inputs.execute

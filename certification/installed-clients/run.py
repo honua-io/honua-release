@@ -38,6 +38,10 @@ SUITE_STEP_FIELDS = {"step", "client", "api", "status", "oracle", "blockedBy"}
 DRIVERS |= SUITE_DRIVERS
 COMPOSE_BASE = ROOT / "e2e/harness/compose.candidate.yml"
 COMPOSE_OVERLAY = HERE / "compose.sdk-regression.yml"
+# The candidate's TLS endpoint next to plain HTTP: a person's Console password session (the only
+# approval the server accepts) is minted over HTTPS only.
+COMPOSE_HTTPS = ROOT / "e2e/harness/compose.https.yml"
+TLS_CERT_SCRIPT = ROOT / "e2e/harness/lib/tls-cert.sh"
 DEFAULT_ADMIN_KEY = "honua-console-dev-key"
 FIXTURE_DB_PASSWORD = "honua"
 # How each declared package executable is exercised. `--help` only proves anything for a CLI that
@@ -198,7 +202,8 @@ def boot_candidate(manifest: dict[str, Any], *, overlay: Path | None = None) -> 
     os.environ["HONUA_SERVER_IMAGE"] = server_image_ref(manifest)
     # A per-run issuer key for the operator-bearer scenarios; it never outlives the stack.
     os.environ.setdefault("SDKREG_SIGNING_KEY", secrets.token_urlsafe(48))
-    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(overlay or COMPOSE_OVERLAY)]
+    prepare_https()
+    compose = ["docker", "compose", "-f", str(COMPOSE_BASE), "-f", str(overlay or COMPOSE_OVERLAY), "-f", str(COMPOSE_HTTPS)]
     os.environ["SDKREG_COMPOSE"] = " ".join(compose)
     if subprocess.run([*compose, "pull", "server"], cwd=ROOT).returncode:
         raise CertificationError(f"could not pull {os.environ['HONUA_SERVER_IMAGE']}")
@@ -214,6 +219,29 @@ def boot_candidate(manifest: dict[str, Any], *, overlay: Path | None = None) -> 
         subprocess.run([*compose, "down", "-v"], cwd=ROOT, capture_output=True)
         raise CertificationError("the candidate must report licensing mode: disabled")
     return compose
+
+
+def prepare_https() -> None:
+    """Write the run's throwaway TLS certificate and name the HTTPS endpoint the human approval uses."""
+    tls_dir = os.environ.setdefault("E2E_TLS_DIR", tempfile.mkdtemp(prefix="honua-e2e-tls-"))
+    if subprocess.run(["bash", str(TLS_CERT_SCRIPT), tls_dir], cwd=ROOT, capture_output=True).returncode:
+        raise CertificationError("could not write the candidate's TLS certificate")
+    os.environ.setdefault("HONUA_SERVER_HTTPS_URL", f"https://localhost:{os.environ.get('E2E_HTTPS_PORT', '8444')}")
+    os.environ.setdefault("HONUA_SERVER_CAFILE", str(Path(tls_dir) / "tls.crt"))
+
+
+def human_approval_target(server: str | None) -> dict[str, Any]:
+    """The HTTPS endpoint (and verifying certificate) of the candidate a person approves on."""
+    https = os.environ.get("HONUA_SERVER_HTTPS_URL") or (server if server and server.startswith("https://") else None)
+    return {"baseUrl": https, "cafile": os.environ.get("HONUA_SERVER_CAFILE")}
+
+
+def grant_human_approval(plan: dict[str, Any], child_env: dict[str, str], server: str | None) -> None:
+    """Let a workflow driver approve as a person: the session endpoint goes in the plan (never a
+    credential), and the administrator password only in the environment the helper's child inherits.
+    The local candidate's administrator password is its admin key (compose.candidate.yml)."""
+    plan["humanApproval"] = human_approval_target(server)
+    child_env["SDKREG_ADMIN_PASSWORD"] = os.environ.get("E2E_ADMIN_PASSWORD") or os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY)
 
 
 def server_image_ref(manifest: dict[str, Any]) -> str:
@@ -820,10 +848,12 @@ def run_suite(manifest: dict[str, Any], matrix: dict[str, Any], base: Path, endp
             plan = regression.build_plan(fixture, published, slug, [cell["scenario"] for cell in group], scenarios, server,
                                          principals=workflow)
         plan_path = work / "plan.json"
+        child_env = regression.driver_env(env, api_key=os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY), bearer=bearer,
+                                          db_password=db_password, plan_path=plan_path, principals=workflow)
+        if workflow:
+            grant_human_approval(plan, child_env, server)
         plan_path.write_text(json.dumps(plan, indent=2))
-        code, stdout, stderr = regression.run_driver(command, work, regression.driver_env(
-            env, api_key=os.environ.get("E2E_API_KEY", DEFAULT_ADMIN_KEY), bearer=bearer,
-            db_password=db_password, plan_path=plan_path, principals=workflow))
+        code, stdout, stderr = regression.run_driver(command, work, child_env)
         diagnostic = f"== {client} driver exited {code} ==\n{stderr[-6000:]}"
         if endpoint_context is not None:
             import endpoint

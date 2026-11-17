@@ -15,12 +15,23 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 COMPOSE_FILE="$HERE/compose.candidate.yml"
 MANIFEST="$REPO_ROOT/platform-manifest.yaml"
 COMPOSE=(docker compose -f "$COMPOSE_FILE")
-# E2E_REDIS=off boots the Redis-off topology: compose.no-redis.yml drops redis and unsets
-# ConnectionStrings__Redis. Any other value than on/off is a harness error, never a silent default.
+# E2E_HTTPS=on adds the server's TLS endpoint next to plain HTTP (compose.https.yml): the human approval
+# lane signs in a builtin password session, which the server mints only over HTTPS. The certificate is
+# a throwaway written for this run, kept outside E2E_OUT so no report artifact carries its key.
+E2E_HTTPS="${E2E_HTTPS:-off}"
+case "$E2E_HTTPS" in
+  on)
+    export E2E_TLS_DIR="${E2E_TLS_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/honua-e2e-tls}"
+    export E2E_HTTPS_BASE="${E2E_HTTPS_BASE:-https://localhost:${E2E_HTTPS_PORT:-8444}}"
+    COMPOSE+=(-f "$HERE/compose.https.yml") ;;
+  off) ;;
+  *) echo "boot.sh: E2E_HTTPS must be on or off, got '${E2E_HTTPS}'" >&2; exit 2 ;;
+esac
+# One local topology (the durable control plane on PostgreSQL). The retired "off" cell is a harness
+# error, never a silent default.
 case "${E2E_REDIS:-on}" in
   on) ;;
-  off) COMPOSE+=(-f "$HERE/compose.no-redis.yml") ;;
-  *) echo "boot.sh: E2E_REDIS must be on or off, got '${E2E_REDIS}'" >&2; exit 2 ;;
+  *) echo "boot.sh: the local stack has a single durable topology; E2E_REDIS must be on, got '${E2E_REDIS}'" >&2; exit 2 ;;
 esac
 
 E2E_BASE="${E2E_BASE:-http://localhost:${E2E_SERVER_PORT:-8080}}"
@@ -120,6 +131,10 @@ cmd_up() {
   [ -z "$img" ] && img="ghcr.io/honua-io/honua-server:nightly-aot"
   export HONUA_SERVER_IMAGE="$img"
   echo "== booting candidate server image: $HONUA_SERVER_IMAGE =="
+  if [ "$E2E_HTTPS" = on ] && ! bash "$HERE/lib/tls-cert.sh" "$E2E_TLS_DIR" >/dev/null; then
+    record_boot_failure "tls-certificate-failed" "could not write the run certificate into $E2E_TLS_DIR"
+    return 5
+  fi
   if ! "${COMPOSE[@]}" pull server 2>/dev/null; then
     record_boot_failure "image-pull-failed" \
       "could not pull $HONUA_SERVER_IMAGE (unauthenticated / placeholder pin)"
@@ -132,12 +147,28 @@ cmd_up() {
   cmd_wait
 }
 
+# https_ready - the TLS endpoint answers, verified against the run certificate. Same container as
+# the HTTP endpoint, so a few seconds of grace is all it needs once HTTP is ready.
+https_ready() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    [ "$(curl -sS --cacert "$E2E_TLS_DIR/tls.crt" -o /dev/null -w '%{http_code}' \
+      "${E2E_HTTPS_BASE}/healthz/ready" 2>/dev/null || echo 000)" = "200" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
 cmd_wait() {
   local timeout="${E2E_BOOT_TIMEOUT:-180}" deadline
   deadline=$(( $(date +%s) + timeout ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     if [ "$(curl -sS -o /dev/null -w '%{http_code}' "${E2E_BASE}/healthz/ready" 2>/dev/null || echo 000)" = "200" ]; then
       echo "== server READY at ${E2E_BASE} =="
+      if [ "$E2E_HTTPS" = on ] && ! https_ready; then
+        record_boot_failure "https-not-ready" "the TLS endpoint ${E2E_HTTPS_BASE}/healthz/ready did not answer 200"
+        return 1
+      fi
       if ! HONUA_ADMIN_PASSWORD="${E2E_API_KEY:-honua-console-dev-key}" python3 "$REPO_ROOT/e2e/licensing.py" --base-url "$E2E_BASE" \
           --output "$E2E_OUT/licensing.json"; then
         record_boot_failure "licensing-mode-mismatch" "candidate must report mode: disabled"

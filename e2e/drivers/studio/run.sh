@@ -11,8 +11,12 @@
 #    the Enterprise edition DefaultGuardrailLadder maps mutating classes to
 #    GuardrailTier.RequiresApproval, so `POST /studio/package-drafts` answers 202 with an operation
 #    handle and a control-plane proposal instead of 201 with a draft. That is CORRECT product
-#    behaviour; the seam has to drive it. Approval is separation-of-duties enforced, so the seam
-#    provisions a SECOND identity (an `admin:approve` key) and approves as the approver, then polls
+#    behaviour; the seam has to drive it. The server accepts an approval only from a person: a builtin
+#    password session over HTTPS that opens the proposal's approval review and approves with its review
+#    capability (harness/lib/human_approval.py, the Console path). Every API key, even one holding
+#    `admin:approve`, is refused with 403 "Human approval requires a live interactive browser session
+#    ...". The seam first makes the requester's key try to approve and requires exactly that 403 (a
+#    regression back to key approval fails S3), then approves through the human session, then polls
 #    the operation handle to Completed and reads the typed result. On an edition that direct-executes
 #    (Community/Pro) the same steps answer 200/201 and the approval lane is simply not entered.
 #    Licensing:Mode=Disabled -- the 2026.1 posture compose.candidate.yml deploys -- splits the two:
@@ -102,25 +106,23 @@ fi
 lane_name() { if [ "$1" = true ]; then echo operator-gated; else echo direct-execute; fi; }
 
 # --- the approval lane ------------------------------------------------------------------------------
-# api_json (common.sh) always carries the AUTHOR key. The approver is a distinct principal, so it gets
-# its own minimal helper here rather than widening the shared wrapper.
-APPROVER_KEY=""
-approver_post() { # path json -> sets AP_CODE, AP_BODY
-  local tmp; tmp="$(mktemp)"
-  AP_CODE="$(curl -sS -o "$tmp" -w '%{http_code}' -X POST "${E2E_BASE}$1" \
-    -H "Content-Type: application/json" -H "X-API-Key: ${APPROVER_KEY}" --data "$2" || echo 000)"
-  AP_BODY="$(cat "$tmp")"; rm -f "$tmp"
+# api_json (common.sh) always carries the AUTHOR key, which is what the negative control needs. The
+# approval itself is a person's: lib/human_approval.py signs in the builtin administrator over HTTPS
+# (E2E_HTTPS_BASE, the TLS endpoint run_all.sh boots) and approves with the review capability. The
+# password reaches only that child's environment.
+HUMAN_APPROVAL="$HERE/../../harness/lib/human_approval.py"
+HUMAN_REFUSAL="Human approval requires a live interactive browser session and a valid review capability"
+human_approve() { # proposal -> echoes the helper's typed JSON result
+  local cafile=()
+  [ -n "${E2E_TLS_DIR:-}" ] && cafile=(--cafile "$E2E_TLS_DIR/tls.crt")
+  HONUA_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$E2E_API_KEY}" \
+    python3 "$HUMAN_APPROVAL" --base "${E2E_HTTPS_BASE:-}" --proposal "$1" "${cafile[@]}" || true
 }
 
-# provision_approver — mint the second identity the operator gate requires. Empty APPROVER_KEY means
-# the server refused; the caller turns that into a fail (the server answered, and wrongly).
-provision_approver() {
-  api_post "/api/v1/admin/api-keys" \
-    '{"name":"e2e-s3-studio-approver","permissions":["admin:approve"]}'
-  [ "$HTTP_CODE" = "201" ] || { APPROVER_REASON="POST /admin/api-keys -> HTTP $HTTP_CODE"; return 1; }
-  APPROVER_KEY="$(jget '.data.key')"
-  [ -n "$APPROVER_KEY" ] && [ "$APPROVER_KEY" != "null" ] \
-    || { APPROVER_REASON="minted approver key carried no secret"; return 1; }
+# key_approval_refused PROPOSAL -> 0 when the author key's approve is exactly the human-approval 403.
+key_approval_refused() {
+  api_post "/api/v1/admin/proposals/$1/approve" '{}'
+  [ "$HTTP_CODE" = "403" ] && [[ "$(jget '.detail // ""')" == *"$HUMAN_REFUSAL"* ]]
 }
 
 # Gate telemetry lives in a FILE, not in shell variables: studio_step is called through a command
@@ -132,7 +134,7 @@ GATE_STATE="$E2E_OUT/s3-gate-state.json"
 jq -nc --arg ed "$EDITION" --arg lm "$LICENSE_MODE" \
   --arg compose "$(lane_name "$COMPOSE_GATE")" --arg governed "$(lane_name "$GOVERNED_GATE")" \
   '{edition:$ed, licenseMode:$lm, requiredLane:{composition:$compose, publication:$governed},
-    mode:"direct-execute", proposalsApproved:0, separationOfDuties:"not-exercised"}' > "$GATE_STATE"
+    mode:"direct-execute", proposalsApproved:0, keyApproval:"not-exercised", humanApprovals:[]}' > "$GATE_STATE"
 gate_get() { jq -r --arg k "$1" '.[$k]' "$GATE_STATE"; }
 gate_set() { # key json-value
   local tmp; tmp="$(mktemp)"
@@ -142,7 +144,8 @@ gate_set() { # key json-value
 # studio_step PATH BODY LABEL EXPECT_GATE -> echoes "ok:<result-json>" | "fail:<reason>"
 #
 # 200/201 is the direct-execute answer and its `data` IS the result. 202 is the operator gate: assert
-# the handle+proposal, approve as the approver, then poll the operation handle for the typed result.
+# the handle+proposal, require the key approval refusal, approve as a person, then poll the operation
+# handle for the typed result.
 # EXPECT_GATE is the lane the ladder mandates for this step; an answer on the other lane fails.
 studio_step() {
   local path="$1" body="$2" label="$3" expect_gate="$4"
@@ -174,28 +177,25 @@ studio_step() {
     printf 'fail:%s 202 without an operation handle + proposal id (%s)\n' "$label" \
       "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"; return
   fi
-  # Separation of duties: the requester must NOT be able to approve its own proposal. Asserted once --
-  # it is a property of the gate, not of each step -- and only on a proposal that is then approved by
-  # the real approver, so the check costs no extra lifecycle work.
-  if [ "$(gate_get separationOfDuties)" = "not-exercised" ]; then
-    api_post "/api/v1/admin/proposals/$proposal/approve" '{}'
-    if [ "$HTTP_CODE" = "403" ]; then
-      gate_set separationOfDuties '"enforced"'
-    else
-      gate_set separationOfDuties "$(jq -nc --arg c "$HTTP_CODE" '"NOT-enforced (self-approve -> HTTP " + $c + ")"')"
-      printf 'fail:%s separation of duties not enforced: the proposal requester self-approved (HTTP %s)\n' \
-        "$label" "$HTTP_CODE"; return
-    fi
+  # Negative control, on every proposal: an API key must not approve. Anything but the server's
+  # human-approval 403 -- a 200, or a 403 for another reason -- fails the step.
+  if ! key_approval_refused "$proposal"; then
+    gate_set keyApproval "$(jq -nc --arg c "$HTTP_CODE" '"NOT refused with the human-approval 403 (HTTP " + $c + ")"')"
+    printf 'fail:%s an API key approval was not refused with the human-approval 403: HTTP %s %s\n' "$label" "$HTTP_CODE" \
+      "$(printf '%s' "$HTTP_BODY" | tr -d '\n' | cut -c1-180)"; return
   fi
+  gate_set keyApproval '"refused: human session required"'
 
-  approver_post "/api/v1/admin/proposals/$proposal/approve" '{}'
-  if [ "$AP_CODE" != "200" ]; then
-    printf 'fail:%s approve proposal -> HTTP %s %s\n' "$label" "$AP_CODE" \
-      "$(printf '%s' "$AP_BODY" | tr -d '\n' | cut -c1-180)"; return
+  local approval
+  approval="$(human_approve "$proposal")"
+  if [ "$(printf '%s' "$approval" | jq -r '.result // ""' 2>/dev/null)" != approved ]; then
+    printf 'fail:%s human approval session -> %s\n' "$label" "$(printf '%s' "$approval" | tr -d '\n' | cut -c1-200)"; return
   fi
-  # Counted only HERE: a proposal that was raised but never approved (self-approve refused the
-  # requester, the approver got 403/500) must not show up in the failure evidence as approved.
+  # Counted only HERE: a proposal that was raised but never approved (the key was not refused, the
+  # session was refused) must not show up in the failure evidence as approved.
   gate_set proposalsApproved "$(( $(gate_get proposalsApproved) + 1 ))"
+  gate_set humanApprovals "$(jq -c --argjson a "$approval" \
+    '.humanApprovals + [$a | {proposalId, status, approvalChannel, requestedBy, resolvedBy}]' "$GATE_STATE")"
 
   # The approval executes the operation. Poll the handle rather than trusting the approval response.
   local deadline=$(( $(date +%s) + 60 )) status=""
@@ -449,12 +449,10 @@ if [ "$TOPOLOGY_DECLARED" = off ] && [ "$TOPOLOGY" = redis-off ]; then
   exit 0
 fi
 
-APPROVER_REASON=""
-if ! provision_approver; then
-  # The server is up and refused to mint the approver identity the operator gate requires. That is the
-  # server answering, and wrongly -- a fail, not a blocked.
+if { [ "$COMPOSE_GATE" = true ] || [ "$GOVERNED_GATE" = true ]; } && [ -z "${E2E_HTTPS_BASE:-}" ]; then
+  # The operator gate needs a person's approval, and the server mints that session only over HTTPS.
   emit_scenario "$SCENARIO" fail \
-    "could not provision the admin:approve identity the Studio operator gate requires: $APPROVER_REASON"
+    "the Studio operator gate needs a human approval session, which the server mints only over HTTPS; E2E_HTTPS_BASE is not set (run_all.sh boots the TLS endpoint)"
   exit 0
 fi
 
@@ -471,9 +469,9 @@ evidence="$(jq -nc --argjson fam "$results" --slurpfile lane "$GATE_STATE" --arg
   '{topology:$t, families:$fam, approvalLane:$lane[0]}')"
 
 if [ "$any_fail" = false ] && [ "$GOVERNED_GATE" = true ] \
-    && [ "$(gate_get separationOfDuties)" != "enforced" ]; then
-  # The query family's publish-request is gated on this ladder, so a pass that never approved a
-  # proposal did not exercise the operator gate it claims.
+    && { [ "$(gate_get keyApproval)" = "not-exercised" ] || [ "$(gate_get proposalsApproved)" = 0 ]; }; then
+  # The query family's publish-request is gated on this ladder, so a pass that never refused a key
+  # approval and never approved a proposal as a person did not exercise the operator gate it claims.
   any_fail=true
   evidence="$(printf '%s' "$evidence" | jq -c '.gateNotExercised = true')"
 fi

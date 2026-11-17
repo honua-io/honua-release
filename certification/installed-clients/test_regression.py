@@ -4,6 +4,7 @@ import copy
 import hashlib
 import hmac
 import importlib.util
+import io
 import json
 import math
 import os
@@ -167,7 +168,9 @@ class ContractTests(unittest.TestCase):
                 # An interop step names its own client (one of the family's) and its API.
                 self.assertNotIn("clients", scenario)
                 for step in scenario["steps"]:
-                    self.assertIn(step["client"], regression.FAMILIES[family], (scenario["id"], step["id"]))
+                    # A person's Console session is the one performer that is not a published client.
+                    self.assertIn(step["client"], (*regression.FAMILIES[family], regression.interop_judge().HUMAN_SESSION),
+                                  (scenario["id"], step["id"]))
                     self.assertTrue(step["api"], (scenario["id"], step["id"]))
                 continue
             self.assertEqual(set(scenario["clients"]), set(regression.FAMILIES[family]), scenario["id"])
@@ -520,6 +523,8 @@ class HarnessTests(unittest.TestCase):
 
 
 PRINCIPALS = {"proposer": {"id": "key-proposer", "key": "secret-proposer"}, "approver": {"id": "key-approver", "key": "secret-approver"}}
+# The actor a builtin administrator's Console password session resolves a proposal as.
+HUMAN_ACTOR = "adminsession:subject:-:00000000-0000-0000-0000-000000000002"
 WORKFLOW_PUBLISHED = {"sites": {"service": "sdkreg-sites", "layerId": 1}, "area": {"service": "sdkreg-area", "layerId": 2}, "edits": {}}
 
 
@@ -552,9 +557,11 @@ def passing_cli_observations():
         "propose-publication": {"observed": {"status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-1",
                                              "servedBeforeApproval": False}},
         "self-approval-refused": {"error": {"type": "CommandFailed (exit 1)", "status": 403}, "observed": {"status": "AwaitingApproval"}},
-        "approve": {"observed": {"status": "Succeeded"}},
+        "key-approval-refused": {"error": {"type": "CommandFailed (exit 1)", "status": 403},
+                                 "observed": {"status": "AwaitingApproval", "humanSessionRequired": True}},
+        "approve": {"observed": {"result": "approved", "status": "Succeeded", "approvalChannel": "console-interactive-password"}},
         "proposal-resolved": {"observed": {"status": "Succeeded", "kind": "ServicePublish",
-                                           "requestedBy": "apikey:api-key:key-proposer", "resolvedBy": "key-approver"}},
+                                           "requestedBy": "apikey:api-key:key-proposer", "resolvedBy": HUMAN_ACTOR}},
         "approved-served": {"observed": {"features": rows(proposal["features"], ("gid", "name"))}},
         "unpublish": {"observed": {"layerId": 12, "enabled": False}},
         "unpublished-refused": {"error": {"type": "CommandFailed (exit 1)", "status": 404}},
@@ -606,11 +613,15 @@ class WorkflowTests(unittest.TestCase):
     def test_cli_workflow_passes_only_with_a_separately_approved_proposal(self):
         cell_, plan = workflow_cell("npm-cli-workflow"), cli_plan()
         status, detail, rows = evaluate_workflow(cell_, passing_cli_observations(), "honua-sdk-js", plan)
-        self.assertEqual((status, len(rows)), ("pass", 14), detail)
+        self.assertEqual((status, len(rows)), ("pass", 15), detail)
         cases = {
             "proposal-resolved": ({"observed": {"status": "Succeeded", "kind": "ServicePublish",
-                                                "requestedBy": "apikey:api-key:key-proposer", "resolvedBy": "key-proposer"}},
-                                  "resolved by the approver"),
+                                                "requestedBy": "apikey:api-key:key-proposer", "resolvedBy": "key-approver"}},
+                                  "resolved by a human session"),
+            "key-approval-refused": ({"observed": {"status": "Succeeded", "humanSessionRequired": False}},
+                                     "an API key approved the proposal"),
+            "approve": ({"observed": {"result": "refused", "stage": "review", "httpStatus": 403}},
+                        "human approval session was 'refused' at 'review'"),
             "propose-publication": ({"observed": {"status": "Completed", "requiresApproval": False, "proposalId": None}},
                                     "requires a proposal"),
             "self-approval-refused": ({"observed": {"status": "Succeeded"}}, "approved its own proposal"),

@@ -1,4 +1,4 @@
-# S4 - the honua-console live suite's own stack: Keycloak + honua-server + PostGIS + Redis.
+# S4 - the honua-console live suite's own stack: Keycloak + honua-server + PostGIS.
 #
 # Why a second stack (honua-console#403 / #405): the Console strips X-API-Key and only forwards a
 # server-bound operator bearer, minted by the server after a real OIDC code exchange whose
@@ -30,22 +30,6 @@ services:
       retries: 60
     expose: ["5432"]
 
-  redis:
-    image: redis:7-alpine
-    # The pinned server (3ecd214 onward) composes the durable job substrate and the governed
-    # proposal control plane only on a Redis that attests the durable policy: AOF on,
-    # appendfsync everysec|always, maxmemory-policy noeviction. A stock redis:7-alpine runs with
-    # appendonly no, so the server reports jobs.runner and operations.proposals
-    # dependency-unavailable and this Redis-on cell reads as Redis-off (honua-server
-    # docs/guides/deploy/troubleshooting.md, "Start it with the durable policy").
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 3s
-      timeout: 3s
-      retries: 40
-    expose: ["6379"]
-
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: ["start", "--import-realm"]
@@ -69,7 +53,6 @@ services:
     image: ${HONUA_SERVER_IMAGE:?the gate-pinned honua-server image}
     depends_on:
       db: { condition: service_healthy }
-      redis: { condition: service_healthy }
       keycloak: { condition: service_started }
     extra_hosts:
       - "${S4_IDP_HOSTNAME:-host.docker.internal}:host-gateway"
@@ -80,7 +63,6 @@ services:
       PUBLIC_BASE_URL: "${S4_CONSOLE_ORIGIN:-http://127.0.0.1:5176}"
       Public__BaseUrl: "${S4_CONSOLE_ORIGIN:-http://127.0.0.1:5176}"
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
-      ConnectionStrings__Redis: "redis:6379"
       # Verifier only: the suite's admin-api.ts calls the server directly with it. The Console host
       # never receives it.
       HONUA_ADMIN_PASSWORD: "${S4_ADMIN_KEY:?minted per run by e2e/drivers/console/run.sh}"
