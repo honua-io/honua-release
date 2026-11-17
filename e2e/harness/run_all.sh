@@ -51,30 +51,28 @@ rm -rf "$E2E_OUT" 2>/dev/null || true; mkdir -p "$E2E_OUT"
 # shellcheck source=lib/report.sh
 source "$HERE/lib/report.sh"
 
+# The local stack has one topology: the durable control plane on PostgreSQL. The drivers still read
+# E2E_REDIS for the cloud cells, so the local harness pins it and refuses the retired "off" cell.
 export E2E_REDIS="${E2E_REDIS:-on}"
 case "$E2E_REDIS" in
   on)  DRIVERS=(mcp protocols studio gp formats console demos) ;;
-  # Redis-off runs every driver that talks to the slice-1 server. S4 is excluded because it boots its
-  # own Console stack (compose.console-s4.yml) rather than this one, and S9 because the demos read
-  # the same protocol surfaces S-protocol-parity already covers on this stack.
-  off) DRIVERS=(mcp protocols studio gp formats) ;;
-  *) echo "run_all.sh: E2E_REDIS must be on or off, got '$E2E_REDIS'" >&2; exit 2 ;;
+  *) echo "run_all.sh: the local stack has a single durable topology; E2E_REDIS must be on, got '$E2E_REDIS'" >&2; exit 2 ;;
 esac
 
 cmd_check() {
   echo "== static checks =="
   docker compose -f "$HERE/compose.candidate.yml" config >/dev/null && echo "compose config: OK"
-  # The Redis-off override must remove the redis service and the server's Redis connection string,
-  # or the Redis-off slice would silently boot the Redis-on topology.
+  # The product runs without the retired cache, so the candidate stack must not compose it: no cache
+  # service, no dependency on one and no cache connection string on the server.
   # `|| exit 1`, not `&& echo`: a failed command on the left of && never trips set -e.
-  docker compose -f "$HERE/compose.candidate.yml" -f "$HERE/compose.no-redis.yml" config --format json \
+  docker compose -f "$HERE/compose.candidate.yml" config --format json \
     | jq -e '(.services | has("redis") | not)
              and (.services.server.depends_on | has("redis") | not)
              and (.services.server.depends_on | has("db"))
              and (.services.server.environment | has("ConnectionStrings__Redis") | not)
              and (.services.server.environment | has("ConnectionStrings__DefaultConnection"))' >/dev/null \
-    || { echo "compose config (redis-off): the override does not remove Redis from the server" >&2; exit 1; }
-  echo "compose config (redis-off): OK"
+    || { echo "compose config: the candidate stack composes the retired cache" >&2; exit 1; }
+  echo "compose config (cache-free): OK"
   bash -n "$HERE/boot.sh" "$HERE/run_all.sh" "$HERE/seed/seed.sh"
   for d in "${DRIVERS[@]}"; do bash -n "$E2E_DIR/drivers/$d/run.sh"; done
   python3 -m py_compile "$E2E_DIR/drivers/formats/formats.py"

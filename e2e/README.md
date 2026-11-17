@@ -51,6 +51,12 @@ and is `workflow_call`-able by the release train's `gate_e2e`.
 
 ### Redis-on and Redis-off are two topologies, not one broken one
 
+> **Local harness: one topology (17 November 2026).** The server no longer depends on the retired cache: its
+> control plane is durable on PostgreSQL. So `harness/compose.candidate.yml` and `compose.console-s4.yml`
+> compose no cache, `run_all.sh check` refuses a stack that does, and `boot.sh`/`run_all.sh` refuse
+> `E2E_REDIS=off`. The local `slice1-redis-off` cell is gone. The refusal expectations below describe
+> the historical topology ruling, and the drivers keep them only for cloud cells that still declare it.
+
 honua-server composes the operation proposal store, its gateway and the admin executors only when Redis
 is connected and entitled (`Program.cs:628`). On a Redis-off install the 20 projected
 `honua_admin_layer_*`/`honua_admin_services_*` MCP tools are not registered (the full view is 104 tools,

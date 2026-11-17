@@ -15,12 +15,11 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 COMPOSE_FILE="$HERE/compose.candidate.yml"
 MANIFEST="$REPO_ROOT/platform-manifest.yaml"
 COMPOSE=(docker compose -f "$COMPOSE_FILE")
-# E2E_REDIS=off boots the Redis-off topology: compose.no-redis.yml drops redis and unsets
-# ConnectionStrings__Redis. Any other value than on/off is a harness error, never a silent default.
+# One local topology (the durable control plane on PostgreSQL). The retired "off" cell is a harness
+# error, never a silent default.
 case "${E2E_REDIS:-on}" in
   on) ;;
-  off) COMPOSE+=(-f "$HERE/compose.no-redis.yml") ;;
-  *) echo "boot.sh: E2E_REDIS must be on or off, got '${E2E_REDIS}'" >&2; exit 2 ;;
+  *) echo "boot.sh: the local stack has a single durable topology; E2E_REDIS must be on, got '${E2E_REDIS}'" >&2; exit 2 ;;
 esac
 
 E2E_BASE="${E2E_BASE:-http://localhost:${E2E_SERVER_PORT:-8080}}"
