@@ -41,13 +41,12 @@
     "geocoding.batch",
     "geocoding.forward",
     "geocoding.reverse",
-    "process.geoprocessing",
-    "process.ogc-api-processes",
     "routing.solve",
     "serve.elevation",
     "serve.geoservices-featureserver",
     "serve.geoservices-geocodeserver",
     "serve.geoservices-geometry-service",
+    "serve.geoservices-imageserver",
     "serve.geoservices-mapserver",
     "serve.geoservices-root",
     "serve.geoservices-vectortileserver",
@@ -62,7 +61,6 @@
     "serve.wcs",
     "serve.wfs",
     "serve.wms",
-    "serve.wps",
     "styling.auto-suggest",
     "styling.ogc-api-styles"
   ]
