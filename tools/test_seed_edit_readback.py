@@ -12,7 +12,8 @@ spec.loader.exec_module(proof)
 
 
 def exercise(*, storage="managed", capabilities="Query,Create,Update,Delete", success=True,
-             persists=True, restores=True, changes_geometry=False, missing_geometry=False):
+             persists=True, restores=True, changes_geometry=False, missing_geometry=False,
+             id_field="storageLayerId"):
     calls = []
     attributes = {"objectid": 42, "id": 1, "name": "Kahului Harbor pier 2", "note": "fixture"}
     stored = dict(attributes)
@@ -35,7 +36,8 @@ def exercise(*, storage="managed", capabilities="Query,Create,Update,Delete", su
                                    "geometry": None if missing_geometry else dict(geometry)}]}
         return {"objectIdField": "objectid", "capabilities": capabilities}
 
-    result = proof.verify({"data": {"serviceName": "maui-inspections", "storageMode": storage, "layerId": 7}}, request)
+    publication = {"serviceName": "maui-inspections", "storageMode": storage, id_field: 7}
+    result = proof.verify({"data": publication}, request)
     return result, calls
 
 
@@ -45,6 +47,20 @@ def test_actual_managed_identity_is_used_and_mutation_is_read_back_then_restored
     assert result["mutationReadBack"] is True and result["originalNoteRestored"] is True
     assert result["geometryReadBackUnchanged"] is True
     assert len(calls) == 6 and calls[-1][1]["objectIds"] == 42
+
+
+@pytest.mark.parametrize("id_field", ["storageLayerId", "layerId"])
+def test_current_and_legacy_publication_handle_address_the_featureserver_layer(id_field):
+    result, calls = exercise(id_field=id_field)
+    assert result["layerId"] == 7
+    assert {call[0] for call in calls} == {"/rest/services/maui-inspections/FeatureServer/7",
+                                          "/rest/services/maui-inspections/FeatureServer/7/query",
+                                          "/rest/services/maui-inspections/FeatureServer/7/applyEdits"}
+
+
+def test_publication_without_a_handle_cannot_pass():
+    with pytest.raises(ValueError, match="no positive layer id"):
+        exercise(id_field="serviceLayerIndex")
 
 
 @pytest.mark.parametrize("kwargs", [{"storage": "source"}, {"capabilities": "Query"},

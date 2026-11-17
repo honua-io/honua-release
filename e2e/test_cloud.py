@@ -3178,7 +3178,9 @@ def test_seed_failure_names_the_call_status_instance_and_a_masked_body():
     {"storageMode": "source", "capabilities": ["Query", "Create", "Update", "Delete"]},
     {"storageMode": "managed", "capabilities": ["Query", "Create", "Delete"]},
 ])
-def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement):
+# honua-server 5edec5d4 renamed the publish handle storageLayerId; older candidates sent layerId.
+@pytest.mark.parametrize("id_field", ["storageLayerId", "layerId"])
+def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgement, id_field):
     published = 0
 
     def answers(method, path):
@@ -3187,7 +3189,7 @@ def test_cloud_editing_fixture_requires_actual_managed_publication(acknowledgeme
             return 201, b'{"data":{"connectionId":"c1"}}', "task-a"
         if method == "POST":
             published += 1
-            data = {"layerId": published}
+            data = {id_field: published}
             if published == 7:
                 data.update(acknowledgement)
             return 201, json.dumps({"data": data}).encode(), "task-a"

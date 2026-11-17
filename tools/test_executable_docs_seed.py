@@ -51,6 +51,7 @@ def run_seed(tmp_path: Path, **extra: str) -> subprocess.CompletedProcess[str]:
         "E2E_OUT": str(out),
         "SEED_DRY_SQL": str(out / "applied.sql"),
         "SEED_DRY_REQUESTS": str(out / "requests.ndjson"),
+        "SEED_DRY_PATHS": str(out / "paths.txt"),
     })
     env.update(extra)
     return subprocess.run(
@@ -120,8 +121,11 @@ def test_require_http_and_manifest_fail_closed():
     assert "permission refused" in proc.stderr
 
 
-def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path):
-    proc = run_seed(tmp_path)
+# honua-server 5edec5d4 renamed the publish acknowledgement's global handle from layerId to
+# storageLayerId. The seed reads the current name and still accepts the old one.
+@pytest.mark.parametrize("id_field", ["storageLayerId", "layerId"])
+def test_dry_run_publishes_stable_ids_and_scratch_edit_contract(tmp_path: Path, id_field: str):
+    proc = run_seed(tmp_path, SEED_DRY_ID_FIELD=id_field)
     assert proc.returncode == 0, proc.stderr
     bodies = request_bodies(tmp_path)
     published = plan.publish_bodies()
@@ -172,3 +176,25 @@ def test_failed_publish_or_permission_update_writes_no_manifest(tmp_path: Path, 
     if mode == "publish":
         assert request_bodies(tmp_path)[1]["serviceName"] == "maui-parcels"
         assert "maui-buildings" not in (tmp_path / "out" / "requests.ndjson").read_text(encoding="utf-8")
+
+
+def test_layer_metadata_route_uses_the_service_layer_index_the_featureserver_lists(tmp_path: Path):
+    # The admin layer-metadata route takes the per-service FeatureServer layer index, not the
+    # global storage handle. The dry run lists every layer at index 0 so the two cannot coincide.
+    proc = run_seed(tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    paths = (tmp_path / "out" / "paths.txt").read_text(encoding="utf-8").splitlines()
+    metadata = [line for line in paths if line.endswith("/metadata")]
+    services = [row["serviceName"] for row in plan.access_plan()]
+    assert metadata == [f"PUT /api/v1/admin/services/{svc}/layers/0/metadata" for svc in services]
+    roots = [line for line in paths if "/FeatureServer" in line]
+    assert roots == [f"GET /rest/services/{svc}/FeatureServer?f=json" for svc in services]
+    manifest = json.loads((tmp_path / "out" / "seed-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["demo"]["maui-zoning"]["layerId"] == 2
+
+
+def test_service_without_its_published_layer_writes_no_manifest(tmp_path: Path):
+    proc = run_seed(tmp_path, SEED_DRY_FAIL="index-missing")
+    assert proc.returncode != 0
+    assert "maui-parcels lists no FeatureServer layer named maui-parcels" in proc.stderr
+    assert not (tmp_path / "out" / "seed-manifest.json").exists()
