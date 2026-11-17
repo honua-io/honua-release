@@ -16,7 +16,7 @@
     "@bufbuild/protobuf": "2.17.0",
     "@connectrpc/connect": "2.3.0",
     "@connectrpc/connect-web": "2.3.0",
-    "@honua/sdk-js": "^0.3.4",
+    "@honua/sdk-js": "^0.3.6",
     "@turf/area": "7.4.0",
     "@turf/bbox": "7.4.0",
     "@turf/boolean-contains": "7.4.0",
