@@ -354,11 +354,14 @@ def _retirement_helper_ref(workflow):
     return refs[0]
 
 
-def test_ordinary_teardown_and_recovery_pin_the_same_reviewed_helper():
-    # The ordinary teardown kept the 1587c8a helper after recovery moved to eeca056 (honua-iac#299);
-    # the old helper's ListVersionsByFunction on guardrail-denied standing functions failed every
-    # Lambda teardown with AccessDenied and stranded each cell's VPC, NAT gateway and EIP.
-    assert _retirement_helper_ref("e2e-cloud-aws-cell.yml") == _retirement_helper_ref("cloud-cell-retirement.yml")
+def test_manual_recovery_keeps_a_pinned_helper_after_producers_are_retired():
+    import re
+    import yaml
+    root = Path(__file__).resolve().parents[1] / ".github/workflows"
+    cell = yaml.safe_load((root / "e2e-cloud-aws-cell.yml").read_text())
+    assert set(cell["jobs"]) == {"retired"}
+    assert "_retirement-tools" not in json.dumps(cell["jobs"])
+    assert re.fullmatch(r"[0-9a-f]{40}", _retirement_helper_ref("cloud-cell-retirement.yml"))
 
 
 def _request(run_id="111", attempt="1", redis="off"):
