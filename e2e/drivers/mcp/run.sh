@@ -151,19 +151,28 @@ DEF_ACTUAL_COUNT="$(jq_or -1 "$DEF_NAMES" 'length')"
 [ "$DEF_ACTUAL_COUNT" = "$WANT_COUNT" ] || note_failure "default view served $DEF_ACTUAL_COUNT tools, expected $WANT_COUNT"
 [ "$DEF_STAGES" = "$WANT_STAGES" ] || note_failure "default view stage membership drifted: got $DEF_STAGES"
 
-# (b) The bound is a DISCOVERY bound, not a credential artifact: an unauthenticated client sees the
-#     same bounded view, not more and not less.
+# (b) An unauthenticated client is GUIDED, not served: since honua-server #7112 ("guide
+#     unauthenticated clients without exposing tools", McpAuthenticationGuidanceTests) it receives
+#     the same default view identity (view, revision, revisionDigest) with ZERO tools and
+#     toolCount 0. Any advertised tool here is a leak of the authenticated surface.
 anon_rpc tools/list '{}'
 ANON_BODY="$HTTP_BODY"
 ANON_NAMES="$(jq_or '[]' "$ANON_BODY" -c '[.result.tools[].name] | sort')"
 ANON_VIEW="$(jq_or '' "$ANON_BODY" -r '.result._meta.view // ""')"
+ANON_REVISION="$(jq_or '' "$ANON_BODY" -r '.result._meta.revision // ""')"
+ANON_REVISION_DIGEST="$(jq_or '' "$ANON_BODY" -r '.result._meta.revisionDigest // ""')"
+ANON_COUNT="$(jq_or '' "$ANON_BODY" -r '.result._meta.toolCount // ""')"
 ANON_CURSOR="$(jq_or '' "$ANON_BODY" -r '.result.nextCursor // empty')"
+DEF_REVISION_DIGEST="$(jq_or '' "$DEF_META_DIGESTS" -r '.revisionDigest // ""')"
 [ "$ANON_VIEW" = "$WANT_VIEW" ] || note_failure "unauthenticated tools/list served view '$ANON_VIEW', expected '$WANT_VIEW'"
-[ "$ANON_NAMES" = "$WANT_DEFAULT" ] || note_failure "unauthenticated default roster differs from the bounded snapshot: $(jq_or '{}' "$(jq -nc --argjson a "$ANON_NAMES" --argjson w "$WANT_DEFAULT" '{missing:($w-$a),extra:($a-$w)}')" -c '.')"
-# Same one-page bound as the authenticated default view. Without this an auth-specific regression
-# could hand an anonymous client the expected 12 names PLUS a cursor into the rest, and both the
-# roster check above and the `view: "full"` denial below would still pass while an unauthenticated
-# caller enumerated past the bound.
+[ "$ANON_REVISION" = "$WANT_REVISION" ] || note_failure "unauthenticated tools/list served revision '$ANON_REVISION', expected '$WANT_REVISION'"
+{ [ -n "$ANON_REVISION_DIGEST" ] && [ "$ANON_REVISION_DIGEST" = "$DEF_REVISION_DIGEST" ]; } \
+  || note_failure "unauthenticated revisionDigest '$ANON_REVISION_DIGEST' differs from the authenticated default view's '$DEF_REVISION_DIGEST'"
+[ "$ANON_NAMES" = "[]" ] || note_failure "unauthenticated tools/list advertised tools without a credential: $ANON_NAMES"
+[ "$ANON_COUNT" = "0" ] || note_failure "unauthenticated _meta.toolCount '$ANON_COUNT', expected 0"
+# No cursor either: an auth-specific regression could hand an anonymous client an empty first
+# page PLUS a cursor into the catalog, and the `view: "full"` denial below would still pass while
+# an unauthenticated caller enumerated the tools.
 [ -z "$ANON_CURSOR" ] || note_failure "unauthenticated default view returned nextCursor '$ANON_CURSOR'; an unauthenticated client must not be able to page past the bounded view"
 
 # (c) The complete catalog is an ADMIN operation. Without a credential it must be denied — if an

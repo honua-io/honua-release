@@ -42,6 +42,7 @@ DRIVER_SOURCES = {
 }
 SUITE_CELLS = [cell for cell in MATRIX["cells"] if cell["driver"] in run.SUITE_DRIVERS]
 PINNED_DEFAULT_VIEW = json.loads(regression.TOOL_ROSTER.read_text())["defaultView"]["tools"]
+PINNED_DEFAULT_REVISION = json.loads(regression.TOOL_ROSTER.read_text())["defaultView"]["revision"]
 
 
 def load_driver(name, plan_path):
@@ -577,7 +578,7 @@ def passing_mcp_observations(setup=None):
     return workflow_observations("mcp-workflow", "honua-mcp-server", {
         "initialize-setup": {"observed": {"protocolVersion": "2025-06-18", "serverName": "honua.operator.mcp", "serverVersion": "v1"}},
         "setup-tools-list": {"observed": setup or setup_view("setup", setup_names, "setup.v2")},
-        "default-tools-list": {"observed": setup_view("default", default_names, "default.v1")},
+        "default-tools-list": {"observed": setup_view("default", default_names, PINNED_DEFAULT_REVISION)},
         "full-catalog-refused": {"error": {"type": "permission_denied", "status": None}},
         "full-catalog": {"observed": {"names": regression.load_tool_roster(), "pages": 5, "restoredView": "default"}},
         "read": {"observed": {"features": [{"attributes": {k: r[k] for k in ("gid", "name", "rank")}, "x": r["x"], "y": r["y"]}
@@ -701,7 +702,7 @@ class WorkflowTests(unittest.TestCase):
         ok, detail = judge(swapped, FIXTURE, {}, {}, {})
         self.assertFalse(ok)
         self.assertIn("honua_admin_role_list", detail)
-        self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v2"), FIXTURE, {}, {}, {})[0])
+        self.assertFalse(judge(setup_view("default", list(PINNED_DEFAULT_VIEW), "default.v1"), FIXTURE, {}, {}, {})[0])
 
     def test_gp_release_steps_reject_missing_and_corrupted_observations(self):
         cell_, plan = workflow_cell("npm-mcp-workflow"), cli_plan()
@@ -789,7 +790,7 @@ class WorkflowTests(unittest.TestCase):
         cell_ = {**committed, "status": "blocked", "blockedBy": ["https://github.com/honua-io/honua-sdk-js/issues/1875"],
                  "blockedSteps": {"setup-tools-list": {
                      "blockedBy": "https://github.com/honua-io/honua-sdk-js/issues/1875",
-                     "signature": r"returned view 'default' \(default\.v1\) with 12 tools"}}}
+                     "signature": rf"returned view 'default' \({re.escape(PINNED_DEFAULT_REVISION)}\) with 12 tools"}}}
         default = passing_mcp_observations()[("mcp-workflow", "default-tools-list")]["observed"]
         status, detail, rows = evaluate_workflow(cell_, passing_mcp_observations(setup=default), "honua-mcp-server", plan)
         self.assertEqual(status, "blocked", detail)

@@ -3581,7 +3581,11 @@ _REDIS_OFF_DETAIL = ("The operation proposal and approval control plane requires
                      "listed, inspected, approved, or rejected.")
 
 
-def test_durable_control_plane_roster_is_the_26_redis_gated_admin_tools():
+_FOLDER_TOOLS = {"honua_create_folder", "honua_delete_folder", "honua_list_folders", "honua_move_service",
+                 "honua_update_folder"}
+
+
+def test_durable_control_plane_roster_is_the_redis_gated_admin_and_folder_tools():
     # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
     # 24 durable-control-plane names (+honua_admin_import_upload_object).
     # RC re-pin #4 (53bb94a, unchanged at a4bde4b): 134 tools (+honua_get_job_results, honua_ingest_job_artifact);
@@ -3591,10 +3595,14 @@ def test_durable_control_plane_roster_is_the_26_redis_gated_admin_tools():
     # rc.2 final candidate (86286687): 137 tools and 26 durable-control-plane names
     # (+honua_admin_connection_tables_list, honua_admin_connections_list; honua-server #6889, read from
     # the booted candidate's full view).
-    assert len(_FULL_ROSTER) == 137 and len(set(_FULL_ROSTER)) == 137
-    assert len(_DURABLE_ONLY) == 26 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+    # rc.2 re-pin 532565b: 161 tools and 41 durable-control-plane names, regenerated from the server's
+    # roster at the pin (+connection layer listing, table validation, import preview/limits/formats,
+    # layer display/spatial and the service folder tools).
+    assert len(_FULL_ROSTER) == 161 and len(set(_FULL_ROSTER)) == 161
+    assert len(_DURABLE_ONLY) == 41 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
-                             "honua_admin_connection_tables_", "honua_admin_import_")) for n in _DURABLE_ONLY)
+                             "honua_admin_connection_tables_", "honua_admin_connection_layers_",
+                             "honua_admin_import_")) or n in _FOLDER_TOOLS for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
 
@@ -3659,11 +3667,13 @@ def _common_routes(method, path, topology, signal, environment="Production"):
     return None
 
 
-def _mcp_handler(catalog, topology, signal):
+def _mcp_handler(catalog, topology, signal, anonymous_leak=False):
     dv = _EXPECTED_TOOLS["defaultView"]
     page = _EXPECTED_TOOLS["fullCatalog"]["pageSize"]
     meta = {"view": dv["view"], "title": dv["title"], "revision": dv["revision"], "toolCount": dv["toolCount"],
-            "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"]}
+            "fullCatalogView": dv["fullCatalogView"], "stages": dv["stages"], "revisionDigest": "sha256:view"}
+    # honua-server #7112: an unauthenticated client gets the same view identity with zero tools.
+    anonymous_meta = {**meta, "toolCount": 0, "stages": [{**stage, "tools": []} for stage in dv["stages"]]}
 
     def rpc_result(result):
         return 200, {"jsonrpc": "2.0", "id": 1, "result": result}
@@ -3678,7 +3688,9 @@ def _mcp_handler(catalog, topology, signal):
             return rpc_result({"protocolVersion": "2025-06-18", "serverInfo": {"name": "honua.operator.mcp"}})
         if m == "tools/list":
             if params.get("view") != "full":
-                return rpc_result({"tools": [{"name": n} for n in dv["tools"]], "_meta": meta})
+                if authed or anonymous_leak:
+                    return rpc_result({"tools": [{"name": n} for n in dv["tools"]], "_meta": meta})
+                return rpc_result({"tools": [], "_meta": anonymous_meta})
             if not authed:
                 return 200, {"jsonrpc": "2.0", "id": 1,
                              "error": {"code": -32001, "message": "denied", "data": {"code": "permission_denied"}}}
@@ -3719,8 +3731,8 @@ def _run_driver(driver, handler, redis):
         server.shutdown()
 
 
-def _s2(catalog, topology, redis, signal="jobs.runner"):
-    rows = _run_driver("mcp", _mcp_handler(sorted(catalog), topology, signal), redis)
+def _s2(catalog, topology, redis, signal="jobs.runner", anonymous_leak=False):
+    rows = _run_driver("mcp", _mcp_handler(sorted(catalog), topology, signal, anonymous_leak), redis)
     assert [r["scenario"] for r in rows] == ["S1-mcp-handshake", "S2-mcp-tool-catalog"]
     return rows[1]
 
@@ -3732,16 +3744,22 @@ def test_s2_redis_on_full_129_catalog_passes():
     assert row["evidence"]["topology"]["durableControlPlaneTools"]["state"] == "required"
 
 
-def test_s2_redis_off_111_catalog_passes_with_topology_recorded():
+def test_s2_unauthenticated_client_served_the_default_tools_fails():
+    row = _s2(_FULL_ROSTER, "redis-on", None, anonymous_leak=True)
+    assert row["status"] == "fail"
+    assert "unauthenticated tools/list advertised tools without a credential" in row["why"]
+
+
+def test_s2_redis_off_120_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 111
+    assert len(catalog) == 120
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 26}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 41}
         assert "redis-off" in row["why"]
 
 
