@@ -298,8 +298,8 @@ INLINE_TEXT_THRESHOLD = 1024
 def structured_text_content(result, *, summary=None, summary_limit=16384, text_limit=32 * 1024 * 1024):
     """Judge the text projection of one structured tool result (honua-server #6901).
 
-    honua-server McpToolHelpers.BuildStructuredSuccess (86286687) always returns the complete
-    serialized JSON as the LAST text block. Only when that JSON is at least
+    honua-server McpToolHelpers.BuildStructuredSuccess (86286687, unchanged at 532565bc) always
+    returns the complete serialized JSON as the LAST text block. Only when that JSON is at least
     INLINE_TEXT_THRESHOLD characters and the tool supplies a summarizer does exactly one
     non-JSON summary block precede it; error results are never summarized. The only shapes are
     therefore [json] and [summary, json]. A summary-only result, extra or non-text blocks, and
