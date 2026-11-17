@@ -982,7 +982,9 @@ def main() -> None:
         "js": ("Honua SDK JavaScript", "0.1.9-beta.0"),
         "js-cesium": ("CesiumJS", "1.132.0"),
         "cli": ("Honua CLI", f"source@{revisions['server']['commit'][:12]}"),
+        # Server snapshots name the REST stub lane by either id; both map to one client.
         "arcgis-stub": ("ArcGIS REST contract client", "11.3"),
+        "geoservices-rest-stub": ("GeoServices REST contract client", "11.3"),
         "bi-excel": ("Microsoft Excel", "Microsoft 365"),
         "bi-powerbi": ("Microsoft Power BI", "2026.08"),
         "ci-bi": ("Microsoft.OData.Client", "8.3"),

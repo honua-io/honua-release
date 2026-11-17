@@ -331,15 +331,25 @@ def main() -> None:
                 )
         elif policy is not None:
             raise ValueError("Unlicensed requirement cannot claim an entitlement policy.")
+    generator = _generator_module()
+    # The map is closed over capabilities the pinned server advertises; an Experimental one
+    # carries no catalog rows to police.
+    advertised_keys = {
+        capability["key"] for capability in server["capabilities"]
+        if generator.catalog_capability_available(capability)
+    }
     expected_licensed_js_policies = {
-        ("streaming.feature-subscriptions", "realtime", "subscribe"): (
-            "licensed-release", "release", "api-key-protected-v1",
-            "honua-pro-feature-subscriptions-v1",
-        ),
-        ("streaming.feature-subscriptions", "realtime", "resume"): (
-            "licensed-release", "release", "api-key-protected-v1",
-            "honua-pro-feature-subscriptions-v1",
-        ),
+        key: policy for key, policy in {
+            ("streaming.feature-subscriptions", "realtime", "subscribe"): (
+                "licensed-release", "release", "api-key-protected-v1",
+                "honua-pro-feature-subscriptions-v1",
+            ),
+            ("streaming.feature-subscriptions", "realtime", "resume"): (
+                "licensed-release", "release", "api-key-protected-v1",
+                "honua-pro-feature-subscriptions-v1",
+            ),
+        }.items()
+        if key[0] in advertised_keys
     }
     licensed_js_policies = {
         (row["capability_key"], row["surface"], row["operation"]): (
@@ -395,11 +405,7 @@ def main() -> None:
         (cell["canonical_client"], cell["surface"], cell["operation"])
         for cell in bounded_roster["preview_cells"]
     }
-    generator = _generator_module()
-    canonical_keys = {
-        capability["key"] for capability in server["capabilities"]
-        if generator.catalog_capability_available(capability)
-    }
+    canonical_keys = advertised_keys
     for assignment in assignments["assignments"]:
         if assignment["capability_key"] not in canonical_keys:
             continue
