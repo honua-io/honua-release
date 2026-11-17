@@ -23,6 +23,7 @@ this roster.
 | `run.py` | The driver. `--mode build` (contract only) or `--mode live --target …`. |
 | `live_driver.py` | The `terminal-journey-driver-v1` adapter #161 calls, at the path its protocol contract fixes. |
 | `fixtures/smoke-input.synthetic.json` | Synthetic schema and refusal fixture; no installed execution evidence. |
+| `fixtures/pinned-candidate.local-docker.json` | The recorded live pass (11 Nov) on the earlier rc.2 candidate 8628668. It is a historical receipt, not a pin: it stays on 8628668 until a live run on the current manifest pin records a new receipt. |
 
 ## Honesty rules
 

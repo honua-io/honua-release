@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 import pytest
+import yaml
 
 import resolver_dry_run_summary as summary
 
@@ -183,7 +184,6 @@ def test_incomplete_commit_listing_does_not_establish_missing_images():
 
 
 def test_only_resolution_job_is_skipped_while_capture_preserves_evidence():
-    import yaml
     workflow = (Path(__file__).resolve().parents[1] / '.github/workflows/resolver-dry-run.yml').read_text()
     jobs = yaml.safe_load(workflow)['jobs']
     assert jobs['resolve']['needs'] == 'capture'
@@ -192,3 +192,13 @@ def test_only_resolution_job_is_skipped_while_capture_preserves_evidence():
     assert any(step.get('if') == 'always()' and 'upload-artifact@' in step.get('uses', '')
                for step in jobs['capture']['steps'])
     assert 'RESOLVES: ${{ needs.capture.outputs.resolves }}' in workflow
+
+
+def test_dry_run_is_dispatch_only_while_the_resolver_is_retired():
+    # RELEASE-REDESIGN (15 Nov) retires the resolver: the stage-1 candidate binds the
+    # Console by its trunk CI bundle, and honua-console publishes no images since the
+    # static SPA (10 Nov), so a scheduled run can only re-report that refusal.
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[1] / '.github/workflows/resolver-dry-run.yml').read_text())
+    triggers = workflow.get('on', workflow.get(True))
+    assert 'schedule' not in triggers
+    assert 'workflow_dispatch' in triggers
