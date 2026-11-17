@@ -3,13 +3,8 @@ services:
     extends:
       file: ../../../e2e/local-docker/docker-compose.yml
       service: db
-    healthcheck:
-      # The image's temporary initialization server accepts Unix sockets before
-      # the final TCP listener starts. Candidate migrations need that listener.
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U honua -d honua"]
-      interval: 3s
-      timeout: 3s
-      retries: 30
+    # Inherits the seam's healthcheck: healthy only once the final postmaster (PID 1) accepts TCP,
+    # after the image's socket-only init server restarts. Candidate migrations need that listener.
   redis:
     image: redis:7.2-alpine
     healthcheck:
@@ -87,7 +82,8 @@ services:
         condition: service_started
   replica:
     image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server:TBD}
-    entrypoint: ["/bin/sh", "-c", "sleep 5; exec /app/Honua.Server"]
+    # No entrypoint override: from honua-server 532565bc the image ships no shell, so the replica
+    # starts through the image's own entrypoint, like the server it extends.
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
@@ -110,9 +106,9 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # honua-server #6798 dropped runtime wget from the image (absent from daf56db2 on), so probe
-      # readiness with bash /dev/tcp, the shape the product's own docker-compose.yml uses.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /healthz/ready HTTP/1.0\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3 && IFS= read -r status <&3 && case \"$$status\" in *' 200 '*) exit 0 ;; *) exit 1 ;; esac"]
+      # The image has no shell, wget or curl; readiness is its own compiled probe, the HEALTHCHECK
+      # its Dockerfile declares (GET /healthz/ready on 8080, non-zero unless 200).
+      test: ["CMD", "/app/honua-healthcheck", "--ready"]
       interval: 5s
       timeout: 5s
       retries: 60

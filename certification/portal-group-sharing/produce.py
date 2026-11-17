@@ -107,6 +107,18 @@ def error_code(document: Any) -> int | None:
     return code if type(code) is int else None
 
 
+def publication_handle(published: dict[str, Any]) -> int:
+    """The global layer id the FeatureServer routes address.
+
+    honua-server 5edec5d4 renamed it storageLayerId; older candidates sent layerId. The new
+    serviceLayerIndex is the position inside the service, not the route id.
+    """
+    handle = published.get("storageLayerId", published.get("layerId"))
+    if not isinstance(handle, int) or isinstance(handle, bool):
+        raise ProducerError("publish returned no storageLayerId")
+    return handle
+
+
 def item_visible(document: Any, item: str) -> bool:
     if isinstance(document, dict) and document.get("id") == item and error_code(document) is None:
         return True
@@ -309,7 +321,7 @@ class Producer:
         published = self.admin("publish layer", "POST", f"/api/v1/admin/connections/{connection_id}/layers", {
             "schema": "honua_data", "table": TABLE, "layerName": "sites", "serviceName": SERVICE,
             "geometryColumn": "geom", "geometryType": "Point", "primaryKey": "gid", "srid": 4326, "enabled": True})
-        self.layer = published["layerId"]
+        self.layer = publication_handle(published)
         # Private to the publisher role: an org_user reads it only through a group share.
         self.admin("restrict service", "PUT", f"/api/v1/admin/services/{SERVICE}/access-policy",
                    {"allowAnonymous": False, "allowAnonymousWrite": False, "allowedRoles": ["publisher"],

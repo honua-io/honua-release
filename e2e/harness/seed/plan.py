@@ -126,6 +126,7 @@ def access_plan() -> list[dict[str, Any]]:
     return [
         {
             "serviceName": publication.service_name,
+            "layerName": publication.layer_name,
             "allowAnonymous": True,
             "allowAnonymousWrite": publication.anonymous_write,
         }

@@ -114,3 +114,17 @@ def test_running_image_is_bound_by_reference_revision_and_registry_digest():
     ):
         with pytest.raises(produce.ProducerError):
             produce.verify_running_image(broken_container, broken_image, pin, "server")
+
+
+@pytest.mark.parametrize("field", ["storageLayerId", "layerId"])
+def test_publication_handle_reads_the_current_and_the_older_name(field):
+    assert produce.publication_handle({field: 7, "serviceLayerIndex": 0}) == 7
+
+
+def test_publication_handle_prefers_the_current_name():
+    assert produce.publication_handle({"storageLayerId": 7, "layerId": 0}) == 7
+
+
+def test_publication_without_a_handle_fails_the_run():
+    with pytest.raises(produce.ProducerError, match="storageLayerId"):
+        produce.publication_handle({"serviceLayerIndex": 0})

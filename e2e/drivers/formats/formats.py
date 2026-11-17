@@ -213,6 +213,12 @@ def do_read(fmt, path, extra=None, ctype="application/octet-stream", expect=2):
     return "fail", cnt, f"detected={det} {note}"
 
 
+def read_csv():
+    """Committed CSV with a WKT geometry column. WKT carries no CRS, so since honua-server cac74b17
+    the import refuses it with import.source_srid_required unless SourceSrid names the CRS."""
+    return do_read("CSV", FIX / "sample.csv", {"SourceSrid": "4326"}, "text/csv")
+
+
 def do_writer(fmt_key, gdal_reimport_driver=None):
     """write + roundtrip for a server-supported export format."""
     data = export_layer(fmt_key)
@@ -246,9 +252,9 @@ def main():
     emit("GeoJSON", r, "na", "na", n); passed += r == "pass"
 
     # CSV (committed, WKT geometry column) — also a writer
-    r, _, n = do_read("CSV", FIX / "sample.csv", ctype="text/csv")
+    r, _, n = read_csv()
     w, rt, wn = do_writer("csv") if r == "pass" else ("na", "na", "read failed")
-    emit("CSV", r, w, rt, f"{n}; {wn}"); passed += r == "pass"
+    emit("CSV", r, w, rt, f"{n} (requires SourceSrid); {wn}"); passed += r == "pass"
 
     # WKT (committed; requires SourceSrid)
     r, _, n = do_read("WKT", FIX / "sample.wkt", {"SourceSrid": "4326"}, "text/plain")

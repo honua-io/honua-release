@@ -132,7 +132,10 @@ def seed(endpoint, key, target, out):
         if write and (result["data"].get("storageMode") != "managed" or
                       not {"Create", "Update", "Delete"} <= set(result["data"].get("capabilities") or [])):
             raise ValueError("editing fixture did not publish managed storage with explicit edit capabilities")
-        layer = result["data"]["layerId"]
+        # honua-server 5edec5d4 renamed the publish handle storageLayerId; older candidates sent layerId.
+        layer = result["data"].get("storageLayerId", result["data"].get("layerId"))
+        if isinstance(layer, bool) or not isinstance(layer, int) or layer < 1:
+            raise ValueError(f"publish {service} returned no storageLayerId")
         ids[table] = layer
         if service != "e2e":
             policy = {"allowAnonymous": True, "allowAnonymousWrite": write}

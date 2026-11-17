@@ -15,7 +15,8 @@ def verify(publication: dict[str, Any], request: Callable[..., dict[str, Any]]) 
     layer = publication.get("data", publication)
     if layer.get("storageMode") != "managed" or layer.get("serviceName") != "maui-inspections":
         raise ValueError("Scratch publication must report managed storage for maui-inspections")
-    layer_id = layer.get("layerId")
+    # honua-server 5edec5d4 renamed the publish handle storageLayerId; older servers sent layerId.
+    layer_id = layer.get("storageLayerId", layer.get("layerId"))
     if isinstance(layer_id, bool) or not isinstance(layer_id, int) or layer_id < 1:
         raise ValueError("Scratch publication has no positive layer id")
     route = f"/rest/services/maui-inspections/FeatureServer/{layer_id}"
