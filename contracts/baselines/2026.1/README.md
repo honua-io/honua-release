@@ -191,3 +191,34 @@ terminology exception preserves that source record; it does not restore the
 retired product or change the supported certification denominator. Retiring an
 entry point from the extracted surface requires a manifest pin that no longer
 publishes it. The extractor and its fail-on-drift policy remain unchanged.
+
+## 2026.1 SDK re-pin review (2026-11-17)
+
+honua-release#1450 re-pinned the published clients to the rc.2 candidate set: `@honua/sdk-js`
+0.4.0 (`9d078e17abf7`) and `honua-sdk` / `honua-admin` 0.3.2 (`5594bf0f43db`). It did not refresh
+these baselines, so `contract-rest-sdk` failed on the candidate-bound gate-contract run
+44191260889. Both SDKs were re-extracted at the manifest pins with `contract_surface.py update`
+against exact checkouts; nothing was hand-edited. `honua-server` (532565bc) and `honua-sdk-dotnet`
+extract byte-identically. What moved:
+
+- `honua-sdk-js` 7,932 → 5,773 exports. 0.4.0 moves the application-layer entry points out of
+  `@honua/sdk-js` into `@honua/app-platform` 0.4.0, which the manifest pins as a client artifact.
+  The moved entry points are `./app`, `./app-controller`, `./app-workspace`, `./collaboration`,
+  `./control-plane`, `./controls`, `./generated-app`, `./operate`, `./operator` (and its
+  `controllers`, `i18n`, `theming` and `workspace` subpaths), `./replica-sync`, `./scene-workspace`,
+  `./share`, `./studio` and `./web-components`. That accounts for 1,716 of the 2,373 removed
+  exports. The legacy compatibility entry point (526 exports) was a duplicate alias of
+  `./client-compat`, which already carried the same names, and 0.4.0 drops the alias. The other
+  removals are type and value renames inside `./runtime`, `./honua`, `./client-compat`, `./geometry`,
+  `./webmap`, `./map` and `./kepler`; each of these entry points also gains exports. New entry
+  points: `./publication` (41 exports) and `./geoparquet/node` (2).
+- `honua-sdk-python`: `honua_admin` drops the 12-symbol desktop-scripting inventory API (the script
+  scanner, its result types and its summary). It adds `Folder`, `FolderMetadata`, `LayerListQuery`,
+  `PublishedLayerPage`, `ServiceListPage` and `ServiceListQuery`; `honua_sdk` adds `ServiceAddress`.
+  One reviewed behavioural change (sdk-python 0.2.0 changelog): a client built with credentials
+  and a plain `http://` base URL on a non-loopback host now raises `ValueError`, unless the caller
+  opts in with `allow_insecure_http=True` or `HONUA_ALLOW_INSECURE_HTTP=1`. The `honua` CLI also
+  stops forwarding unknown commands.
+
+Both SDKs are 0.x, where a minor release may remove surface. This refresh records reviewed release
+movement; the gate keeps failing on any unreviewed change at the next pin.
