@@ -159,16 +159,19 @@ def test_a_malformed_predecessor_declaration_refuses(entries, problem):
     assert errors and problem in errors[0]
 
 
-def test_the_reviewed_policy_binds_both_the_frozen_pin_and_post_rename_candidates():
+def test_the_reviewed_policy_binds_both_the_frozen_pin_and_pre_rename_candidates():
+    # Since the 2026-11-17 532565b pin the frozen candidate advertises the post-rename id; a
+    # candidate that still advertises the legacy id must stay admissible too.
     policy = ego.load_json(ego.POLICY_PATH)
     pinned = ego.load_json(ego.OBSERVATION_PATH)
     assert ego.policy_errors(policy, pinned) == []
     legacy = ego.legacy_ids(policy)["format.read.geoservicesjson"]
-    assert legacy in {c["id"] for c in pinned["capabilities"]}
+    assert "format.read.geoservicesjson" in {c["id"] for c in pinned["capabilities"]}
+    assert legacy not in {c["id"] for c in pinned["capabilities"]}
     renamed = copy.deepcopy(pinned)
     for cap in renamed["capabilities"]:
-        if cap["id"] == legacy:
-            cap["id"] = "format.read.geoservicesjson"
+        if cap["id"] == "format.read.geoservicesjson":
+            cap["id"] = legacy
     assert ego.policy_errors(policy, renamed) == []
 
 

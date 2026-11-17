@@ -6,15 +6,15 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:8560994f1e8680d9161858ccdd098c8be4615bc0af37436503bb5ad0741af146
+    sha256: sha256:60e1f310eb0ccb0fda550807081cab821ac1a67b4296aaa0e52932858d7ddba5
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:61dd97c3d2bd3a0969371c3eecbc1802e35e184c835ffc31aa5ab445267e7614
+    sha256: sha256:bf82f334655223f100dda9e585b365b44a9f53b2c276c3b49817148bc8c14015
 components:
   honua-server:
     source:
       repository: https://github.com/honua-io/honua-server
-      revision: 8628668794df9f0c22a490e59cedaee409cc1bdd
+      revision: 532565bc7215d4b9ce9657bc110cbd0366076e31
     contractVersions:
       admin: v1
       metadata: metadata.honua.io/v2alpha1
@@ -30,26 +30,26 @@ components:
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-server
-      sourceRevision: 8628668794df9f0c22a490e59cedaee409cc1bdd
-      digest: sha256:24d20a8647f6dafcfc1bef683a31f4dddf6ef4476ebb33456afa8a96b11288da
+      sourceRevision: 532565bc7215d4b9ce9657bc110cbd0366076e31
+      digest: sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9
       architectures:
       - amd64
       - arm64
       platformDigests:
-        amd64: sha256:c0e22d44cf3b01d0d3f8c6f455dec9beeda41fb527d5c6816fb4170bbe8ce5d1
-        arm64: sha256:e40b5463edb3b58082eb70996c3c9df09a67e23a945e029a6ca3c3af36c9f334
+        amd64: sha256:dbfd0cb4e3eecf2342f466d62a58d2abdc0f33daac6d2deb57f3d975d186efab
+        arm64: sha256:671122ca779141f969c03620abeba7647619083d4f5d8d37de754d2a55ebc615
       version: 2026.1.0-rc.2
     - kind: executor-image
       coordinate: ghcr.io/honua-io/honua-server
       version: 2026.1.0-rc.2
-      sourceRevision: 8628668794df9f0c22a490e59cedaee409cc1bdd
-      digest: sha256:817079be768b1a6f6c6265ff2809c2e39f17c319240bb90148af7449e4fecede
+      sourceRevision: 532565bc7215d4b9ce9657bc110cbd0366076e31
+      digest: sha256:5043183c5d90e28ee59a248589385cfe3532eb556b93faf89a5515f4e9b234fa
       architectures:
       - amd64
       - arm64
       platformDigests:
-        amd64: sha256:cb18a062975083bf002781470c455c73e74bf7d9c58c42269534ab3203e2f77c
-        arm64: sha256:678573ffdefa0773410077e1a0dc4550da502d3cab57386d7c692a883d82a560
+        amd64: sha256:f900ef765cac1ccb7d9479a6aeaf85bf3ea9c4aaf752b9039fc3c83e514a01e5
+        arm64: sha256:be0c8ed3a30db2ef3e2fdb8a970b3037bef2dea1d5018b4f4f899cefa7e70870
     artifactIdentityModel: published
     migrationJournalSha256: sha256:16dcbe69b949b5eb14ec8c48646cb5d0b293a706bc1df2e973512488205267d3
     lifecycleStatus: GA
@@ -565,8 +565,8 @@ components:
     supportTier: experimental
 contentDigests:
   geospatialMcp: sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c
-  catalog: sha256:b431b88a6941345732fa5a18d5a9c01374adb117ea09c98006e891a0253fda1f
-  okf: sha256:f3e514b3bb6b447679731777dd52a74c1332c9bb5aa504fa03b91a5847901144
+  catalog: sha256:a32ec832c1f98f449cd53276f2f210fce1db9bc5ea88e5cfdd10f0a311f823e1
+  okf: sha256:d23aab64bb5ae88274c85bd87f2a8a535761fcff804e8dae0c4c9d154b04ca26
 fixtures: []
 sbom: []
 provenance: []
