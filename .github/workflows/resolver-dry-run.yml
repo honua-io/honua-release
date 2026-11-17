@@ -1,21 +1,24 @@
-# Scheduled read-only candidate resolution. RELEASE_GH_TOKEN reads the other component
-# repositories. Only refs/heads/trunk receives it: workflow_dispatch --ref runs this
-# workflow file and the checkout from that ref, so any other branch would hand the
-# cross-repository token to unmerged code. The schedule fires on the default branch.
+# Read-only candidate resolution, run by dispatch. RELEASE_GH_TOKEN reads the other
+# component repositories. Only refs/heads/trunk receives it: workflow_dispatch --ref runs
+# this workflow file and the checkout from that ref, so any other branch would hand the
+# cross-repository token to unmerged code.
 
 name: resolver-dry-run
 
+# Dispatch-only since 2026-11-17. The release redesign retires the resolver
+# (RELEASE-REDESIGN): the stage-1 candidate binds the Console by its trunk CI bundle, and
+# honua-console has published no SHA-bound image since it became a static SPA (honua-console
+# 47cba9a3, 2026-11-10). Every scheduled run could only re-report that true refusal
+# (runs 44013848235, 44122830557). Dispatch still runs the full read-only resolution.
 on:
-  schedule:
-    - cron: "17 */3 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: resolver-dry-run-${{ github.event_name == 'schedule' && 'scheduled' || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'schedule' }}
+  group: resolver-dry-run-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   capture:
