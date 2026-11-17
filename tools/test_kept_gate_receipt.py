@@ -181,3 +181,53 @@ def test_capacity_preserves_original_time(tmp_path):
     observed = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=6)).isoformat()
     doc, = run(tmp_path, gate='capacity-soak', proof={'window': {'endedAt': observed}})
     assert doc['sourceObservedAt'] == observed
+
+
+def test_absent_lock_is_regenerated_from_the_consumed_manifest(tmp_path):
+    manifest, lock, digest = binding(tmp_path)
+    expected = lock.read_bytes()
+    lock.unlink()
+    (tmp_path / 'compatibility-matrix.yaml').write_text('contracts: {}\n')
+    calls = []
+
+    def generate(manifest_path, matrix_path):
+        calls.append((manifest_path, matrix_path))
+        return expected
+
+    k.ensure_lock(lock, manifest, generate)
+    assert calls == [(manifest, tmp_path / 'compatibility-matrix.yaml')]
+    doc, = k.emit(k.Verdict('gate-security', 'pass', manifest, digest, lock=lock), tmp_path / 'receipt')
+    assert (doc['row'], doc['platformLockDigest']) == ('supply-scan', digest)
+
+
+def test_regenerated_lock_for_another_candidate_cannot_emit(tmp_path):
+    manifest, lock, digest = binding(tmp_path)
+    lock.unlink()
+    k.ensure_lock(lock, manifest, lambda manifest_path, matrix_path: b'{"other": "candidate"}')
+    with pytest.raises(ValueError, match='lock'):
+        k.emit(k.Verdict('gate-security', 'pass', manifest, digest, lock=lock), tmp_path / 'receipt')
+    assert not (tmp_path / 'receipt').exists()
+
+
+def test_present_lock_bytes_are_never_regenerated(tmp_path):
+    manifest, lock, _ = binding(tmp_path)
+    before = lock.read_bytes()
+
+    def refuse(manifest_path, matrix_path):
+        raise AssertionError('present lock must be used as given')
+
+    k.ensure_lock(lock, manifest, refuse)
+    assert lock.read_bytes() == before
+
+
+def test_default_regeneration_is_the_qualification_lock_of_the_repo_manifest(tmp_path):
+    import generate_platform_lock as generator
+    from platform_lock_bundle import canonical_bytes
+    root = Path(__file__).resolve().parents[1]
+    manifest = tmp_path / 'platform-manifest.yaml'
+    manifest.write_bytes((root / 'platform-manifest.yaml').read_bytes())
+    lock = tmp_path / 'platform-lock.json'
+    k.ensure_lock(lock, manifest)  # no matrix beside the manifest: the repository matrix is used
+    draft = generator.generate(root / 'platform-manifest.yaml', root / 'compatibility-matrix.yaml',
+                               qualification=True, image_inspector=None)
+    assert lock.read_bytes() == canonical_bytes(draft.lock)

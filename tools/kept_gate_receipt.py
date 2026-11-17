@@ -117,6 +117,31 @@ def validate_capacity(proof):
     return proof['window']['endedAt']
 
 
+def ensure_lock(lock, manifest, generate=None):
+    """Regenerate absent qualification-lock bytes from the exact manifest and matrix the gate read.
+
+    Producers receive only the lock digest; release-train freezes the same canonical bytes from
+    these inputs. candidate_document still requires sha256(lock) == the supplied digest and that
+    the lock binds the manifest pins, so regeneration cannot admit another candidate.
+    """
+    if lock.exists() or manifest is None:
+        return
+    beside = manifest.parent / 'compatibility-matrix.yaml'
+    matrix = beside if beside.exists() else Path(__file__).resolve().parents[1] / 'compatibility-matrix.yaml'
+    if generate is None:
+        import generate_platform_lock as generator
+        from platform_lock_bundle import canonical_bytes
+
+        def generate(manifest_path, matrix_path):
+            # No registry inspection: it only re-checks values the digest comparison already binds,
+            # and a registry timeout would surface as a misleading digest mismatch.
+            draft = generator.generate(manifest_path, matrix_path, qualification=True, image_inspector=None)
+            if draft.unresolved:
+                raise ValueError(f'cannot regenerate the qualification lock: {draft.unresolved}')
+            return canonical_bytes(draft.lock)
+    lock.write_bytes(generate(manifest, matrix))
+
+
 def emit(verdict, out):
     doc = candidate_document(verdict)
     documents = [doc]
@@ -148,6 +173,8 @@ def main():
     p.add_argument('--proof', type=Path)
     p.add_argument('--out', type=Path, required=True)
     a = p.parse_args()
+    if a.status == 'pass':
+        ensure_lock(a.lock, a.manifest)
     emit(Verdict(gate=a.gate, status=a.status, manifest=a.manifest, lock_digest=a.lock_digest,
                  server_sha=a.server_sha, image_digest=a.image_digest, lock=a.lock,
                  proof=json.loads(a.proof.read_text()) if a.proof else None), a.out)

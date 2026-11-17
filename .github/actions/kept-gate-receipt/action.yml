@@ -41,6 +41,11 @@ runs:
         PROOF: ${{ inputs.proof }}
       run: |
         set -euo pipefail
+        # An absent lock is regenerated from the consumed manifest (kept_gate_receipt.ensure_lock),
+        # which needs the validation toolchain; producer report jobs install only PyYAML.
+        if [ "$STATUS" = "pass" ] && [ ! -f "$LOCK" ]; then
+          python -m pip install --quiet -r tools/requirements-validation.txt
+        fi
         args=()
         if [ -n "$MANIFEST" ]; then args+=(--manifest "$MANIFEST"); fi
         if [ -n "$PROOF" ]; then args+=(--proof "$PROOF"); fi
