@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {readFileSync,writeFileSync,realpathSync} from 'node:fs';
-import {validateInstalledPin} from './client-identity.mjs';
+import {attestedCommit,validateInstalledPin} from './client-identity.mjs';
 const lock=JSON.parse(readFileSync('package-lock.json'));
 const fromConsumer=createRequire(new URL('./package.json',import.meta.url));
 const fromMcp=createRequire(new URL('./node_modules/@honua/mcp-server/package.json',import.meta.url));
@@ -20,8 +20,9 @@ for(const [name,pin] of Object.entries(expected)) {
  const {version}=pin;
  const installed=lock.packages[`node_modules/${name}`];
  const metadata=await fetch(`https://registry.npmjs.org/${encodeURIComponent(name)}/${version}`).then(r=>{assert(r.ok);return r.json()});
- validateInstalledPin(name,pin,installed,metadata);
- records.push({name,version,integrity:installed.integrity,tarball:installed.resolved,sourceSha:metadata.gitHead});
+ const attested=metadata.gitHead?'':attestedCommit(await fetch(`https://registry.npmjs.org/-/npm/v1/attestations/${encodeURIComponent(name)}@${version}`).then(r=>{assert(r.ok);return r.json()}));
+ validateInstalledPin(name,pin,installed,{...metadata,attestedCommit:attested});
+ records.push({name,version,integrity:installed.integrity,tarball:installed.resolved,sourceSha:metadata.gitHead||attested});
 }
 const receipt={kind:'public-npm-default-resolution',clientPackages:records,sharedSdkModule:sdkPath,peerWorkarounds:false,lifecycleScripts:false,scope:'Installed registry clients; no server or command replay yet'};
 writeFileSync('provenance.json',JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt));

@@ -61,7 +61,7 @@ def npm_provenance_commit(fetch: Callable[..., bytes], package: str, version: st
     except (InventoryError, json.JSONDecodeError, UnicodeError, TypeError):
         return ""
     found: list[str] = []
-    marker = f"github.com/{repo}"
+    source = f"git+https://github.com/{repo}@"
     for attestation in body.get("attestations") or []:
         if not isinstance(attestation, dict):
             continue
@@ -79,7 +79,7 @@ def npm_provenance_commit(fetch: Callable[..., bytes], package: str, version: st
                 continue
             uri = str(dep.get("uri") or "")
             commit = str((dep.get("digest") or {}).get("gitCommit") or "")
-            if marker in uri and re.fullmatch(r"[0-9a-f]{40}", commit) and commit not in found:
+            if uri.startswith(source) and re.fullmatch(r"[0-9a-f]{40}", commit) and commit not in found:
                 found.append(commit)
     if len(found) == 1:
         return found[0]

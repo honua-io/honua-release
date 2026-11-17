@@ -16,13 +16,25 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
+from inventory import _get, npm_provenance_commit
+
+SDK_PACKAGE = "@honua/sdk-js"
+SDK_REPOSITORY = "honua-io/honua-sdk-js"
+
+
+def published_source_commit(metadata, fetch=_get):
+    """The registry's gitHead, else the one commit npm provenance attests for a trusted publish."""
+    if metadata.get("gitHead"):
+        return str(metadata["gitHead"])
+    return npm_provenance_commit(fetch, SDK_PACKAGE, str(metadata.get("version") or ""), SDK_REPOSITORY)
+
 
 def install_published_sdk(root, destination):
     pin = yaml.safe_load((root / "platform-manifest.yaml").read_text())["clientArtifacts"]["honua-sdk-js"]
     metadata_url = f"https://registry.npmjs.org/@honua%2fsdk-js/{pin['version']}"
     with urllib.request.urlopen(metadata_url, timeout=30) as response:
         metadata = json.loads(response.read(1024 * 1024))
-    assert metadata["gitHead"] == pin["sourceSha"]
+    assert published_source_commit(metadata) == pin["sourceSha"]
     assert metadata["dist"]["integrity"] == pin["integrity"]
     url = f"https://registry.npmjs.org/@honua/sdk-js/-/{pin['filename']}"
     assert metadata["dist"]["tarball"] == url
