@@ -601,6 +601,16 @@ def _pypi_files(transport, package: str, version: str | None) -> tuple[str, list
     return selected, files
 
 
+def _npm_publisher_source(row: str, artifact: dict, body: bytes) -> None:
+    """Without gitHead, only the allowlisted publisher's verified npm SLSA bundle binds the source."""
+    import verify_client_artifacts
+
+    try:
+        verify_client_artifacts._verify_npm_provenance(f"clientArtifacts.{row}", artifact, body)
+    except verify_client_artifacts.VerificationError as exc:
+        raise PreflightError(str(exc)) from exc
+
+
 def _npm_published(transport, row: str, artifact: dict) -> dict:
     """Download a pinned npm tarball and bind it to the clientArtifacts integrity and sourceSha."""
     package = str(artifact.get("package") or "")
@@ -618,9 +628,11 @@ def _npm_published(transport, row: str, artifact: dict) -> dict:
     if dist.get("integrity") != integrity:
         raise PreflightError(f"npm integrity for the pinned {package} version does not match clientArtifacts")
     # gitHead is the commit npm publish ran from; the published bytes are that source, not the tag.
-    if meta.get("gitHead") != source_sha:
+    # Trusted publishing omits it; the publisher's SLSA bundle then binds the bytes to sourceSha.
+    git_head = meta.get("gitHead")
+    if git_head is not None and git_head != source_sha:
         raise PreflightError(
-            f"npm gitHead for {package}@{version} is {meta.get('gitHead')}, not clientArtifacts.{row}.sourceSha"
+            f"npm gitHead for {package}@{version} is {git_head}, not clientArtifacts.{row}.sourceSha"
         )
     tarball_url = str(dist.get("tarball") or "")
     _require_host(tarball_url)
@@ -629,6 +641,8 @@ def _npm_published(transport, row: str, artifact: dict) -> dict:
         raise PreflightError(f"{package}@{version} tarball returned HTTP {tarball.status}")
     if _sha512_sri(tarball.body) != integrity:
         raise PreflightError(f"{package}@{version} tarball does not match the npm integrity")
+    if git_head is None:
+        _npm_publisher_source(row, artifact, tarball.body)
     try:
         with tarfile.open(fileobj=io.BytesIO(tarball.body), mode="r:gz") as archive:
             member = archive.extractfile("package/package.json")

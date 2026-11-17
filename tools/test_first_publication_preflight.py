@@ -517,6 +517,28 @@ def test_npm_git_head_other_than_the_pinned_source_fails_closed():
         _receipt(sdk_git_head="c" * 40)
 
 
+def test_npm_without_git_head_requires_the_verified_publisher_bundle(monkeypatch):
+    import verify_client_artifacts
+
+    calls = []
+    monkeypatch.setattr(verify_client_artifacts, "_verify_npm_provenance",
+                        lambda name, artifact, data: calls.append((name, artifact["sourceSha"], data)))
+    receipt = _receipt(sdk_git_head=None)
+    assert _channel(receipt, "npm:@honua/sdk-js")["source_sha"] == SDK_SOURCE
+    assert calls == [("clientArtifacts.honua-sdk-js", SDK_SOURCE, SDK_TARBALL)]
+
+
+def test_npm_without_git_head_and_an_unverified_bundle_fails_closed(monkeypatch):
+    import verify_client_artifacts
+
+    def refuse(name, artifact, data):
+        raise verify_client_artifacts.VerificationError(f"{name}: npm publisher provenance verification failed")
+
+    monkeypatch.setattr(verify_client_artifacts, "_verify_npm_provenance", refuse)
+    with pytest.raises(preflight.PreflightError, match="honua-sdk-js: npm publisher provenance verification failed"):
+        _receipt(sdk_git_head=None)
+
+
 def test_npm_tarball_bytes_other_than_the_integrity_fail_closed():
     with pytest.raises(preflight.PreflightError, match="tarball does not match the npm integrity"):
         _receipt(sdk_tarball=_npm_tarball("@honua/sdk-js", "0.1.10-beta.0"))

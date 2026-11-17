@@ -9,7 +9,7 @@
       "publication": "QGIS plugin honua_gis_assistant"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.3.4 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.3.4 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.3.4': 200}; the platform manifest pins @honua/sdk-js 0.2.10. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.3.4 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.3.4 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.3.4': 200}; the platform manifest pins @honua/sdk-js 0.4.0. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
       "channels": [
         "npm:create-honua-app"
       ],
@@ -87,42 +87,42 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "mcp-server-0.2.10.tgz",
-          "registry_integrity": "sha512-D3j29U5BfyhUN38SQ1NvzqiCTSWwepXubOXzRLzziqA/4Z6PyEjP0Jmv2b9hMJsvABy1EERsNDp6FUdpO0qQJg==",
-          "sha256": "345bbf457b444a851771746035eec1bf6169e27426e4bce258f0972845b8ef9a",
-          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.10.tgz"
+          "filename": "mcp-server-0.4.0.tgz",
+          "registry_integrity": "sha512-0ClKQIZy0BKCLx8PTQpITN4GYQdMCzZME7cNDfDl+r02jPGXgB/Nq7lCIeOfEQqS+MWK40hWNOCBYCEgPmbriw==",
+          "sha256": "5d5f68aabe3573deaef70707b6c406f491725870ce6ce9c7924ae73d5702d2c9",
+          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.4.0.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/mcp-server",
-      "publication": "npm @honua/mcp-server@0.2.10",
-      "source_sha": "64173dd6a5101736655a8737c4adc592c9989595",
+      "publication": "npm @honua/mcp-server@0.4.0",
+      "source_sha": "caff3a94848ff4bf202c9f890bf3555d28fbbcd8",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fmcp-server/0.2.10",
-        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.2.10.tgz"
+        "https://registry.npmjs.org/@honua%2Fmcp-server/0.4.0",
+        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.4.0.tgz"
       ],
-      "version": "0.2.10"
+      "version": "0.4.0"
     },
     {
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "sdk-js-0.2.10.tgz",
-          "registry_integrity": "sha512-luqpr9Xn8A7e0wUFRdSh4wTYdpVFSVQT5YxYPRSJiNu9CM/m8vAPKvkLvAy6u0Mjvl1hBKFJI0E2YMGZr/jicA==",
-          "sha256": "f6733e3b8545ef065b0839ce9994bf6df784e8d88a76d0fd9eb55e4bc23053a4",
-          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.10.tgz"
+          "filename": "sdk-js-0.4.0.tgz",
+          "registry_integrity": "sha512-+TEAO1LJvLB92LqGsDruOG4glLBJVWzhsdvhqAjlKf6t8nFpNpehGBG5ufYRR8WBNg1Zp6m//37YHaQj8Z+fxA==",
+          "sha256": "1f3ce29bf037500b2223f4c302d30991336ebbf845f9c9c2615668642b19130b",
+          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.4.0.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/sdk-js",
-      "publication": "npm @honua/sdk-js@0.2.10",
-      "source_sha": "965c013637722cb70d1a781c3d2d4f6537e6bf44",
+      "publication": "npm @honua/sdk-js@0.4.0",
+      "source_sha": "9d078e17abf7c90cecd000df6fcda4f3d5d9548f",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fsdk-js/0.2.10",
-        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.2.10.tgz"
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.4.0",
+        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.4.0.tgz"
       ],
-      "version": "0.2.10"
+      "version": "0.4.0"
     },
     {
       "disposition": "blocked-on-republish",
@@ -137,7 +137,7 @@
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
-      "manifest_sdk_pin": "0.2.10",
+      "manifest_sdk_pin": "0.4.0",
       "maplibre_pins": [
         "6.4.1"
       ],
@@ -831,25 +831,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_admin-0.1.12-py3-none-any.whl",
-          "registry_sha256": "359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
-          "sha256": "359e7e5a3426a79c11c4ce5d8412351187e86b0a5b9bf4766c5a644987c2c759",
-          "url": "https://files.pythonhosted.org/packages/b6/37/fb02fbdf3114f9f59f885bcff0b3a7e628d93b55f60aa02dd13aa19c06cf/honua_admin-0.1.12-py3-none-any.whl"
+          "filename": "honua_admin-0.3.2-py3-none-any.whl",
+          "registry_sha256": "02e02aa3d9002180a293cabdf7ea772f1f90154ddd76e141ed9ff4809d238d5a",
+          "sha256": "02e02aa3d9002180a293cabdf7ea772f1f90154ddd76e141ed9ff4809d238d5a",
+          "url": "https://files.pythonhosted.org/packages/1e/9e/9bf01fe4718813a4086240dddb4d50dbf3d01f37a422cff16b9c85707a23/honua_admin-0.3.2-py3-none-any.whl"
         },
         {
-          "filename": "honua_admin-0.1.12.tar.gz",
-          "registry_sha256": "a1d7652dbc9b092da55a893760285c7d5da353091f35d9aa62ea8fe6e849a05e",
-          "sha256": "a1d7652dbc9b092da55a893760285c7d5da353091f35d9aa62ea8fe6e849a05e",
-          "url": "https://files.pythonhosted.org/packages/d5/54/d68f289a574074e43861894f3d147c1d88947f6477cb995b59b015ba12c9/honua_admin-0.1.12.tar.gz"
+          "filename": "honua_admin-0.3.2.tar.gz",
+          "registry_sha256": "d66e23b89fb18db348cf4d3e379481524fc928be30f1022fa85bb1eadc84c817",
+          "sha256": "d66e23b89fb18db348cf4d3e379481524fc928be30f1022fa85bb1eadc84c817",
+          "url": "https://files.pythonhosted.org/packages/1e/d0/b65a0821741b665b144298432da3f97a98429a16b7b92b2496e61b8b87a5/honua_admin-0.3.2.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-admin",
-      "publication": "PyPI honua-admin 0.1.12",
+      "publication": "PyPI honua-admin 0.3.2",
       "urls": [
         "https://pypi.org/pypi/honua-admin/json"
       ],
-      "version": "0.1.12"
+      "version": "0.3.2"
     },
     {
       "disposition": "absent-retired",
@@ -890,25 +890,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_sdk-0.1.19-py3-none-any.whl",
-          "registry_sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
-          "sha256": "01c55950b5e3e485f76d19cb3216882a121c6d99c534c4e9c5c6dc5c764706a7",
-          "url": "https://files.pythonhosted.org/packages/1c/ff/2590f0ae061ac726991a428cee5d1c1fcf6aa2da063843345f225ebb445f/honua_sdk-0.1.19-py3-none-any.whl"
+          "filename": "honua_sdk-0.3.2-py3-none-any.whl",
+          "registry_sha256": "a8a65d7e188b7a778dbe93e30eb68efe9eed054c4b7097bbc1e113ae8fa2ec43",
+          "sha256": "a8a65d7e188b7a778dbe93e30eb68efe9eed054c4b7097bbc1e113ae8fa2ec43",
+          "url": "https://files.pythonhosted.org/packages/0e/b1/4103260b0c50bbeab4bd6d1b53f54547a2dd70e01f6ad2f62631308b3ee5/honua_sdk-0.3.2-py3-none-any.whl"
         },
         {
-          "filename": "honua_sdk-0.1.19.tar.gz",
-          "registry_sha256": "77ed2ba519f1ae509031173ecd29b962068aeb2f82577014e4d33b0d0f6dd013",
-          "sha256": "77ed2ba519f1ae509031173ecd29b962068aeb2f82577014e4d33b0d0f6dd013",
-          "url": "https://files.pythonhosted.org/packages/cd/cc/3baa9d0abed7040d259940c8bb023a60074b52a0a29e01afa110263282bf/honua_sdk-0.1.19.tar.gz"
+          "filename": "honua_sdk-0.3.2.tar.gz",
+          "registry_sha256": "516fd0587de00659a6e7fe4242f91c20d29a9a0d3ea81c6efed7b1049dcc6483",
+          "sha256": "516fd0587de00659a6e7fe4242f91c20d29a9a0d3ea81c6efed7b1049dcc6483",
+          "url": "https://files.pythonhosted.org/packages/b9/f5/495ffa53160709102943ff5b2ba562e9dd5282a8483faaa38ad3afd70363/honua_sdk-0.3.2.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-sdk",
-      "publication": "PyPI honua-sdk 0.1.19",
+      "publication": "PyPI honua-sdk 0.3.2",
       "urls": [
         "https://pypi.org/pypi/honua-sdk/json"
       ],
-      "version": "0.1.19"
+      "version": "0.3.2"
     },
     {
       "disposition": "blocked-on-operator",
@@ -958,6 +958,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-17T17:22:17Z",
+  "observed_at": "2026-11-17T20:04:01Z",
   "schema": "honua.first-publication-preflight/v1"
 }

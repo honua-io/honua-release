@@ -1613,9 +1613,16 @@ def test_pyqgis_is_the_full_surface_function_grid():
     )
     matrix_keys, implemented = _pinned_matrix()
     operations = [item["operation"] for item in grid["functions"]]
+    # The generator's catalog_capability_available: preview GP capabilities under the
+    # gp-preview-floor ruling stay in the catalog (server 532565bc made them preview).
+    sources = Path(__file__).parents[1] / "certification" / "sources"
+    gp_floor = set(json.loads((sources / "gp-preview-floor.v1.json").read_text(encoding="utf-8"))["capability_keys"])
+    preview = {row["key"] for row in json.loads((sources / "server" / "capability-matrix.v1.json")
+               .read_text(encoding="utf-8"))["capabilities"] if row.get("maturity", {}).get("preview")}
+    available = implemented | (gp_floor & preview)
 
     def withheld(capability_key: str) -> bool:
-        return capability_key in matrix_keys and capability_key not in implemented
+        return capability_key in matrix_keys and capability_key not in available
 
     expected = {
         (surface["surface"], operation): surface["not_applicable"].get(operation)
