@@ -236,7 +236,7 @@ def main():
             raise RuntimeError('reviewed setup manifest must preserve the exact shipped image string for published qualifier equality')
         if installed['mcp'] != '@honua/mcp-server@' + expected_packages[1]['version']:
             raise RuntimeError('generated MCP client pin differs from reviewed installed pair')
-        for name in ['fixture.mjs', 'request.mjs']:
+        for name in ['fixture.mjs', 'request.mjs', 'layer-identity.mjs']:
             shutil.copyfile(HERE/name, consumer/name)
         write(root/'state.json', {'schemaVersion':'honua.sdk1401-replay-preparation/v1',
             'platformSha256':args.platform_sha256, 'setupSha256':args.setup_sha256,
@@ -251,6 +251,7 @@ def main():
             'publishedSourceVerification':verified, 'defaultPeerResolution':True,
             'fixtureProducerSha256':digest(HERE/'fixture.mjs'),
             'requestProducerSha256':digest(HERE/'request.mjs'),
+            'layerIdentityProducerSha256':digest(HERE/'layer-identity.mjs'),
             'scope':'bounded-setup-style-only', 'port':19819})
         print('PREPARED: verified published pair and exact installer pin; no server started')
         return
@@ -319,10 +320,11 @@ def main():
         print('CATALOG PASS: actual HTTP/installed stdio parity receipt retained; style proof pending')
         return
     fixture = json.loads((root/'fixture.json').read_text())
+    # The MCP map tools address a layer by serviceId + serviceLayerIndex; --layer-id carries that index.
     run([str(honua),'admin','qualify','--directory',str(stack),
          '--manifest',str(root/'setup-manifest.json'),'--manifest-sha256',state['setupSha256'],
          '--catalog-receipt',str(root/'setup-catalog-receipt.json'),
-         '--service-id',fixture['serviceId'],'--layer-id',str(fixture['layerId']),
+         '--service-id',fixture['serviceId'],'--layer-id',str(fixture['serviceLayerIndex']),
          '--bbox',','.join(map(str,fixture['bbox'])),
          '--yes','--output',str(root/'qualification.json')],env=env,cwd=consumer,timeout=180,
         log=root/'private-qualification.log')
