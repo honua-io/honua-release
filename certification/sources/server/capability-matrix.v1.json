@@ -29,17 +29,16 @@
       "category": "ControlPlane",
       "edition": "Community",
       "status": null,
-      "entryCount": 388,
-      "provingTestCount": 1419,
+      "entryCount": 430,
+      "provingTestCount": 1885,
       "maturity": {
-        "implemented": 385,
-        "preview": 2,
-        "experimental": 1
+        "implemented": 427,
+        "experimental": 3
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "cli",
@@ -60,13 +59,14 @@
       "edition": "Enterprise",
       "status": "internal",
       "entryCount": 7,
-      "provingTestCount": 12,
+      "provingTestCount": 13,
       "maturity": {
         "internal": 7
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -88,7 +88,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -110,7 +110,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -128,7 +128,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -139,14 +139,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 4,
-      "provingTestCount": 136,
+      "provingTestCount": 177,
       "maturity": {
         "implemented": 4
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -164,7 +164,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -182,7 +182,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -204,7 +204,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -226,7 +226,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -237,14 +237,14 @@
       "edition": "Pro",
       "status": "preview",
       "entryCount": 18,
-      "provingTestCount": 106,
+      "provingTestCount": 110,
       "maturity": {
         "preview": 18
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -266,7 +266,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -284,7 +284,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -302,7 +302,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -313,14 +313,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 13,
-      "provingTestCount": 21,
+      "provingTestCount": 22,
       "maturity": {
         "implemented": 13
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -338,7 +338,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -356,6 +356,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -373,7 +374,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -391,7 +392,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -409,7 +410,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -427,7 +428,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -445,7 +446,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -463,7 +464,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -485,29 +486,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
-      "interop": [],
-      "geobench": []
-    },
-    {
-      "key": "caching.redis",
-      "displayName": "Redis Distributed Cache",
-      "category": "Caching",
-      "edition": "Pro",
-      "status": null,
-      "entryCount": 0,
-      "provingTestCount": 0,
-      "maturity": {},
-      "noSurface": {
-        "capability": "caching.redis",
-        "reasonCode": "config-flag",
-        "reason": "Redis distributed cache is a deployment configuration setting, not a distinct route.",
-        "category": "Caching",
-        "edition": "Pro"
-      },
-      "cite": [],
-      "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -529,7 +508,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -551,7 +530,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -573,7 +552,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -595,7 +574,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -617,7 +596,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -639,7 +618,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -661,7 +640,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -670,16 +649,16 @@
       "displayName": "Map Collaboration Sessions",
       "category": "Collaboration",
       "edition": "Community",
-      "status": null,
+      "status": "experimental",
       "entryCount": 9,
       "provingTestCount": 67,
       "maturity": {
-        "implemented": 9
+        "experimental": 9
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoservicesAssess": [
         "dashboards-apps"
       ],
       "interop": [],
@@ -699,7 +678,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -710,14 +689,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 51,
+      "provingTestCount": 57,
       "maturity": {
         "implemented": 2
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -739,7 +718,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -761,7 +740,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -783,7 +762,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -805,7 +784,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -816,7 +795,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 20,
-      "provingTestCount": 92,
+      "provingTestCount": 94,
       "maturity": {
         "experimental": 20
       },
@@ -829,7 +808,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -840,14 +819,14 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 6,
-      "provingTestCount": 174,
+      "provingTestCount": 181,
       "maturity": {
         "implemented": 6
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoservicesAssess": [
         "editing"
       ],
       "interop": [],
@@ -857,17 +836,17 @@
       "key": "enrichment.datasets",
       "displayName": "Data Enrichment Datasets",
       "category": "Enrichment",
-      "edition": "Community",
+      "edition": "Pro",
       "status": null,
       "entryCount": 7,
-      "provingTestCount": 24,
+      "provingTestCount": 29,
       "maturity": {
         "implemented": 7
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -878,14 +857,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 21,
-      "provingTestCount": 35,
+      "provingTestCount": 36,
       "maturity": {
         "implemented": 21
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoservicesAssess": [
         "survey123"
       ],
       "interop": [],
@@ -898,14 +877,14 @@
       "edition": "Pro",
       "status": "preview",
       "entryCount": 18,
-      "provingTestCount": 198,
+      "provingTestCount": 200,
       "maturity": {
         "preview": 18
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -927,6 +906,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -937,14 +917,14 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 3,
-      "provingTestCount": 20,
+      "provingTestCount": 21,
       "maturity": {
         "implemented": 3
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -966,7 +946,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -984,7 +964,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoservicesAssess": [
         "geocoding"
       ],
       "interop": [],
@@ -1004,7 +984,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1026,7 +1006,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1037,14 +1017,14 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 13,
-      "provingTestCount": 26,
+      "provingTestCount": 35,
       "maturity": {
         "experimental": 13
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1054,15 +1034,15 @@
       "category": "Identity",
       "edition": "Pro",
       "status": null,
-      "entryCount": 6,
-      "provingTestCount": 24,
+      "entryCount": 9,
+      "provingTestCount": 40,
       "maturity": {
-        "implemented": 6
+        "implemented": 9
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1084,7 +1064,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1095,7 +1075,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 25,
-      "provingTestCount": 108,
+      "provingTestCount": 118,
       "maturity": {
         "implemented": 25
       },
@@ -1108,7 +1088,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoservicesAssess": [
         "web-map"
       ],
       "interop": [],
@@ -1121,14 +1101,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 33,
+      "provingTestCount": 34,
       "maturity": {
         "implemented": 2
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1146,7 +1126,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1164,7 +1144,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1175,14 +1155,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 79,
-      "provingTestCount": 261,
+      "provingTestCount": 293,
       "maturity": {
         "implemented": 79
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1193,14 +1173,14 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 5,
-      "provingTestCount": 19,
+      "provingTestCount": 18,
       "maturity": {
         "implemented": 5
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1211,14 +1191,14 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 10,
-      "provingTestCount": 49,
+      "provingTestCount": 53,
       "maturity": {
         "implemented": 10
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1240,6 +1220,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1261,6 +1242,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1270,15 +1252,15 @@
       "category": "Ops",
       "edition": "Community",
       "status": null,
-      "entryCount": 15,
-      "provingTestCount": 78,
+      "entryCount": 20,
+      "provingTestCount": 89,
       "maturity": {
-        "implemented": 15
+        "implemented": 20
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1296,7 +1278,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1318,7 +1300,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1340,7 +1322,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1351,14 +1333,14 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 13,
-      "provingTestCount": 28,
+      "provingTestCount": 29,
       "maturity": {
         "implemented": 13
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1367,11 +1349,11 @@
       "displayName": "Geoprocessing Task Execution",
       "category": "Process",
       "edition": "Community",
-      "status": null,
+      "status": "preview",
       "entryCount": 18,
-      "provingTestCount": 243,
+      "provingTestCount": 255,
       "maturity": {
-        "implemented": 18
+        "preview": 18
       },
       "noSurface": null,
       "cite": [],
@@ -1382,7 +1364,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoservicesAssess": [
         "geoprocessing"
       ],
       "interop": [],
@@ -1393,16 +1375,16 @@
       "displayName": "OGC API Processes",
       "category": "Process",
       "edition": "Community",
-      "status": null,
+      "status": "preview",
       "entryCount": 10,
-      "provingTestCount": 197,
+      "provingTestCount": 198,
       "maturity": {
-        "implemented": 10
+        "preview": 10
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1424,6 +1406,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1445,6 +1428,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1466,6 +1450,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1476,14 +1461,14 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 8,
-      "provingTestCount": 29,
+      "provingTestCount": 35,
       "maturity": {
         "implemented": 8
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1505,7 +1490,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1516,14 +1501,14 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 12,
-      "provingTestCount": 25,
+      "provingTestCount": 26,
       "maturity": {
         "implemented": 12
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1545,7 +1530,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1563,7 +1548,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1587,7 +1572,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1598,14 +1583,14 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 6,
+      "provingTestCount": 7,
       "maturity": {
         "experimental": 1
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1616,14 +1601,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 3,
-      "provingTestCount": 4,
+      "provingTestCount": 15,
       "maturity": {
         "deferred": 3
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1634,14 +1619,14 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 10,
+      "provingTestCount": 11,
       "maturity": {
         "experimental": 1
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1652,14 +1637,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 6,
-      "provingTestCount": 71,
+      "provingTestCount": 78,
       "maturity": {
         "experimental": 6
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1677,7 +1662,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1688,7 +1673,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 49,
-      "provingTestCount": 565,
+      "provingTestCount": 606,
       "maturity": {
         "implemented": 49
       },
@@ -1701,7 +1686,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoservicesAssess": [
         "feature-service"
       ],
       "interop": [
@@ -1724,7 +1709,7 @@
           }
         },
         {
-          "clientLane": "arcgis-stub",
+          "clientLane": "geoservices-rest-stub",
           "protocol": "featureserver",
           "freshness": {
             "state": "stale",
@@ -1776,7 +1761,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1787,7 +1772,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 48,
-      "provingTestCount": 142,
+      "provingTestCount": 155,
       "maturity": {
         "implemented": 48
       },
@@ -1800,7 +1785,7 @@
           "parity": "complete"
         }
       ],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1809,11 +1794,12 @@
       "displayName": "ImageServer",
       "category": "Serve",
       "edition": "Community",
-      "status": "preview",
+      "status": null,
       "entryCount": 143,
-      "provingTestCount": 485,
+      "provingTestCount": 490,
       "maturity": {
-        "preview": 143
+        "implemented": 139,
+        "preview": 4
       },
       "noSurface": null,
       "cite": [],
@@ -1824,7 +1810,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoservicesAssess": [
         "image-service"
       ],
       "interop": [],
@@ -1837,7 +1823,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 47,
-      "provingTestCount": 434,
+      "provingTestCount": 456,
       "maturity": {
         "implemented": 45,
         "preview": 2
@@ -1851,7 +1837,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoservicesAssess": [
         "map-service"
       ],
       "interop": [
@@ -1874,7 +1860,7 @@
           }
         },
         {
-          "clientLane": "arcgis-stub",
+          "clientLane": "geoservices-rest-stub",
           "protocol": "mapserver",
           "freshness": {
             "state": "stale",
@@ -1903,10 +1889,10 @@
       "category": "Serve",
       "edition": "Community",
       "status": null,
-      "entryCount": 15,
-      "provingTestCount": 98,
+      "entryCount": 21,
+      "provingTestCount": 135,
       "maturity": {
-        "implemented": 15
+        "implemented": 21
       },
       "noSurface": null,
       "cite": [],
@@ -1917,7 +1903,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1928,7 +1914,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 9,
-      "provingTestCount": 38,
+      "provingTestCount": 43,
       "maturity": {
         "implemented": 9
       },
@@ -1941,7 +1927,7 @@
           "parity": "partial"
         }
       ],
-      "esriAssess": [
+      "geoservicesAssess": [
         "vector-tiles"
       ],
       "interop": [],
@@ -1965,6 +1951,7 @@
       },
       "cite": [],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -1982,7 +1969,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [
+      "geoservicesAssess": [
         "scene-service"
       ],
       "interop": [],
@@ -1995,14 +1982,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 30,
-      "provingTestCount": 239,
+      "provingTestCount": 252,
       "maturity": {
         "implemented": 30
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "cli",
@@ -2057,7 +2044,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2075,7 +2062,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2086,7 +2073,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 19,
-      "provingTestCount": 327,
+      "provingTestCount": 364,
       "maturity": {
         "implemented": 19
       },
@@ -2101,7 +2088,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2153,14 +2140,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 12,
-      "provingTestCount": 150,
+      "provingTestCount": 152,
       "maturity": {
         "implemented": 12
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2190,14 +2177,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 7,
-      "provingTestCount": 52,
+      "provingTestCount": 60,
       "maturity": {
         "implemented": 7
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2208,7 +2195,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 13,
-      "provingTestCount": 70,
+      "provingTestCount": 79,
       "maturity": {
         "implemented": 13
       },
@@ -2223,7 +2210,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js-cesium",
@@ -2244,14 +2231,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 64,
-      "provingTestCount": 231,
+      "provingTestCount": 250,
       "maturity": {
         "preview": 64
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2261,15 +2248,15 @@
       "category": "Serve",
       "edition": "Community",
       "status": null,
-      "entryCount": 12,
-      "provingTestCount": 146,
+      "entryCount": 11,
+      "provingTestCount": 151,
       "maturity": {
-        "implemented": 12
+        "implemented": 11
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2279,15 +2266,15 @@
       "category": "Serve",
       "edition": "Community",
       "status": null,
-      "entryCount": 7,
-      "provingTestCount": 53,
+      "entryCount": 11,
+      "provingTestCount": 110,
       "maturity": {
-        "implemented": 7
+        "implemented": 11
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2308,7 +2295,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 29,
+      "provingTestCount": 33,
       "maturity": {
         "implemented": 2
       },
@@ -2323,7 +2310,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": [
         "wcs"
@@ -2336,7 +2323,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 141,
+      "provingTestCount": 162,
       "maturity": {
         "implemented": 2
       },
@@ -2365,7 +2352,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2407,7 +2394,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 10,
+      "provingTestCount": 30,
       "maturity": {
         "implemented": 1
       },
@@ -2422,7 +2409,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2466,7 +2453,7 @@
       "edition": "Community",
       "status": "preview",
       "entryCount": 1,
-      "provingTestCount": 9,
+      "provingTestCount": 16,
       "maturity": {
         "preview": 1
       },
@@ -2481,7 +2468,7 @@
         }
       ],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [
         {
           "clientLane": "js",
@@ -2520,11 +2507,11 @@
       "displayName": "WPS 2.0",
       "category": "Serve",
       "edition": "Community",
-      "status": null,
+      "status": "preview",
       "entryCount": 3,
       "provingTestCount": 31,
       "maturity": {
-        "implemented": 3
+        "preview": 3
       },
       "noSurface": null,
       "cite": [
@@ -2537,6 +2524,7 @@
         }
       ],
       "parity": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2558,7 +2546,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2580,7 +2568,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2602,7 +2590,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2611,17 +2599,16 @@
       "displayName": "Real-Time Feature Streams",
       "category": "Streaming",
       "edition": "Pro",
-      "status": null,
-      "entryCount": 5,
-      "provingTestCount": 118,
+      "status": "experimental",
+      "entryCount": 7,
+      "provingTestCount": 150,
       "maturity": {
-        "implemented": 3,
-        "preview": 2
+        "experimental": 7
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2639,7 +2626,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2661,7 +2648,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2672,14 +2659,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 8,
-      "provingTestCount": 70,
+      "provingTestCount": 71,
       "maturity": {
         "implemented": 8
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2701,7 +2688,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2719,7 +2706,7 @@
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2730,14 +2717,14 @@
       "edition": "Community",
       "status": null,
       "entryCount": 6,
-      "provingTestCount": 16,
+      "provingTestCount": 24,
       "maturity": {
         "implemented": 6
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2748,14 +2735,14 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 8,
+      "provingTestCount": 9,
       "maturity": {
         "implemented": 2
       },
       "noSurface": null,
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     },
@@ -2777,7 +2764,7 @@
       },
       "cite": [],
       "parity": [],
-      "esriAssess": [],
+      "geoservicesAssess": [],
       "interop": [],
       "geobench": []
     }

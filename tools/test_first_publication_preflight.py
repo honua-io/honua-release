@@ -140,13 +140,15 @@ def _manifest() -> dict:
 
 class World:
     def __init__(self, *, nuget_versions=None, dependencies=None, grpc_body=GRPC, bsr_body=BSR, sdk_next_status=404,
-                 sdk_git_head=SDK_SOURCE, sdk_tarball=SDK_TARBALL, oci_private=(), oci_manifest_status=200):
+                 sdk_git_head=SDK_SOURCE, sdk_tarball=SDK_TARBALL, oci_private=(), oci_manifest_status=200,
+                 sdk_attestation=None):
         self.oci_private = set(oci_private)
         self.oci_manifest_status = oci_manifest_status
         self.headers = {}
         self.sdk_next_status = sdk_next_status
         self.sdk_git_head = sdk_git_head
         self.sdk_tarball = sdk_tarball
+        self.sdk_attestation = sdk_attestation
         self.nuget_versions = nuget_versions or ["1.6.4", "1.10.0"]
         self.dependencies = dependencies or dict(TARBALL_DEPS)
         self.grpc_body = grpc_body
@@ -225,6 +227,8 @@ class World:
                 "integrity": _sri(SDK_TARBALL),
                 "tarball": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.9-beta.0.tgz",
             }}).encode()
+        if url == "https://registry.npmjs.org/-/npm/v1/attestations/%40honua%2Fsdk-js@0.1.9-beta.0":
+            return (200, json.dumps(self.sdk_attestation).encode()) if self.sdk_attestation else (404, b"{}")
         if url == "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.1.9-beta.0.tgz":
             return 200, self.sdk_tarball
         if url == preflight.npm_version_url("@honua/mcp-server", "0.1.4-beta.0"):
@@ -515,6 +519,33 @@ def test_pinned_npm_companion_is_downloaded_too():
 def test_npm_git_head_other_than_the_pinned_source_fails_closed():
     with pytest.raises(preflight.PreflightError, match="gitHead .* not clientArtifacts.honua-sdk-js.sourceSha"):
         _receipt(sdk_git_head="c" * 40)
+
+
+def _slsa(source=SDK_SOURCE, body=SDK_TARBALL, name="pkg:npm/%40honua/sdk-js@0.1.9-beta.0"):
+    statement = {"subject": [{"name": name, "digest": {"sha512": hashlib.sha512(body).hexdigest()}}],
+                 "predicate": {"buildDefinition": {"resolvedDependencies": [
+                     {"uri": "git+https://github.com/honua-io/honua-sdk-js@refs/tags/js-sdk-v0.1.9-beta.0",
+                      "digest": {"gitCommit": source}}]}}}
+    payload = base64.b64encode(json.dumps(statement).encode()).decode()
+    return {"attestations": [{"predicateType": "https://slsa.dev/provenance/v1",
+                              "bundle": {"dsseEnvelope": {"payload": payload}}}]}
+
+
+def test_npm_without_git_head_binds_the_source_through_the_public_slsa_statement():
+    receipt = _receipt(sdk_git_head=None, sdk_attestation=_slsa())
+    assert _channel(receipt, "npm:@honua/sdk-js")["source_sha"] == SDK_SOURCE
+
+
+@pytest.mark.parametrize("attestation,message", [
+    (None, "attestations returned HTTP 404"),
+    ({"attestations": []}, "not exactly one npm SLSA publisher statement"),
+    (_slsa(source="c" * 40), "SLSA publisher source is"),
+    (_slsa(body=b"other bytes"), "names other bytes"),
+    (_slsa(name="pkg:npm/%40honua/sdk@0.1.9-beta.0"), "names other bytes"),
+])
+def test_npm_without_git_head_and_no_matching_statement_fails_closed(attestation, message):
+    with pytest.raises(preflight.PreflightError, match=message):
+        _receipt(sdk_git_head=None, sdk_attestation=attestation)
 
 
 def test_npm_tarball_bytes_other_than_the_integrity_fail_closed():

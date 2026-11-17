@@ -16,7 +16,7 @@ CERTIFICATION = ROOT / "certification"
 CATALOG = "protocol-certification-requirements.v1.json"
 DEMOTED = ("alerts.evaluation", "fieldops.offline-sync", "serve.sensorthings")
 PYTHON_CLIENT = "Honua SDK Python"
-PYTHON_VERSION = "0.1.19"
+PYTHON_VERSION = "0.3.2"
 
 
 def load(path: Path) -> dict:
@@ -117,11 +117,11 @@ def test_moving_an_included_dotnet_operation_out_of_the_profile_omits_it(copied:
     ("maturity", "preview"),
 ])
 def test_unassigned_gap_drift_fails_validation(copied: Path, field: str, value: object) -> None:
-    # Server 8cb074f7 assigns harness rows for serve.wps and analytics.h3, so the
+    # Server 532565bc assigns harness rows for serve.wfs (WPS is preview there), so the
     # catalog carries no real gap row; inject the governed one, then drift it.
     path = copied / CATALOG
     catalog = load(path)
-    row = governed_gap_row(copied, "serve.wps")
+    row = governed_gap_row(copied, "serve.wfs")
     row[field] = value
     catalog["requirements"].append(row)
     write(path, catalog)
@@ -129,7 +129,7 @@ def test_unassigned_gap_drift_fails_validation(copied: Path, field: str, value: 
     result = run(copied, "validate-protocol-requirements.py")
 
     assert result.returncode != 0
-    assert "serve.wps" in result.stderr
+    assert "serve.wfs" in result.stderr
     assert field in result.stderr
 
 
@@ -145,14 +145,14 @@ def test_assigned_harness_capability_cannot_also_carry_a_gap_row(copied: Path) -
     catalog = load(path)
     assert not [row for row in catalog["requirements"]
                 if row["operation"].startswith("UNASSIGNED PROTOCOL HARNESS CONTRACT:")]
-    catalog["requirements"].append(governed_gap_row(copied, "serve.wps"))
+    catalog["requirements"].append(governed_gap_row(copied, "serve.wfs"))
     write(path, catalog)
 
     result = run(copied, "validate-protocol-requirements.py")
 
     assert result.returncode != 0
     assert "coexist with explicit unassigned contracts" in result.stderr
-    assert "serve.wps" in result.stderr
+    assert "serve.wfs" in result.stderr
 
 
 def test_demoted_matrix_capabilities_have_no_supported_rows() -> None:

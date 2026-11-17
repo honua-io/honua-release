@@ -41,13 +41,20 @@ def reinject(text: str) -> str:
 
 
 def test_committed_snapshot_omits_only_the_ten_empty_arrays():
+    # Server 532565bc renamed the legacy field, so the committed snapshot is the producer's
+    # bytes; the legacy reinjection still normalises back to exactly those bytes.
     text = MATRIX.read_text(encoding="utf-8")
     rows = {row["key"]: row for row in json.loads(text)["capabilities"]}
-    for key in snap.KEYS:
-        assert snap.FIELD not in rows[key]
-    assert rows["admin.control-plane"][snap.FIELD] == []
-    assert rows["collaboration.map-sessions"][snap.FIELD]
+    assert not any(snap.FIELD in row for row in rows.values())
+    assert snap.normalize_vendored(text) == text
     assert snap.normalize(reinject(text)) == text
+
+
+def test_cli_compares_a_producer_without_the_legacy_field_byte_for_byte(tmp_path):
+    source, dest = tmp_path / "producer.json", tmp_path / "compared.json"
+    source.write_text(MATRIX.read_text(encoding="utf-8"), encoding="utf-8")
+    assert snap.main(["normalize", str(source), str(dest)]) == 0
+    assert dest.read_bytes() == source.read_bytes()
 
 
 def test_a_populated_array_on_those_rows_is_refused():

@@ -9,7 +9,7 @@ const clientRoot = new URL('../certification/sources/geospatial-mcp/', import.me
 const require = createRequire(new URL('package.json', clientRoot));
 const { Client } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/index.js')));
 const { StreamableHTTPClientTransport } = await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/streamableHttp.js')));
-const LOCK = '5e6b28f4c29b82b799190e9e92083c7aca38b879afc7e242bee4320a711e195f';
+const LOCK = '3c49b180464ac1aef5981791f61a21667a53f797978227696602d372732fa8b3';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function outputs(result) {
