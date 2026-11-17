@@ -3585,7 +3585,7 @@ _FOLDER_TOOLS = {"honua_create_folder", "honua_delete_folder", "honua_list_folde
                  "honua_update_folder"}
 
 
-def test_durable_control_plane_roster_is_the_redis_gated_admin_and_folder_tools():
+def test_durable_control_plane_roster_is_the_41_redis_gated_admin_tools():
     # 4709145 re-pin: 132 tools (+honua_admin_import_upload_object, honua_diagnose_job, honua_job_evidence),
     # 24 durable-control-plane names (+honua_admin_import_upload_object).
     # RC re-pin #4 (53bb94a, unchanged at a4bde4b): 134 tools (+honua_get_job_results, honua_ingest_job_artifact);
@@ -3595,9 +3595,9 @@ def test_durable_control_plane_roster_is_the_redis_gated_admin_and_folder_tools(
     # rc.2 final candidate (86286687): 137 tools and 26 durable-control-plane names
     # (+honua_admin_connection_tables_list, honua_admin_connections_list; honua-server #6889, read from
     # the booted candidate's full view).
-    # rc.2 re-pin 532565b: 161 tools and 41 durable-control-plane names, regenerated from the server's
-    # roster at the pin (+connection layer listing, table validation, import preview/limits/formats,
-    # layer display/spatial and the service folder tools).
+    # rc.2 candidate 532565bc: 161 tools and 41 durable-control-plane names, read from the server's
+    # generated MCP roster at the pin (+import preview/formats/limits, layer display/spatial, connection
+    # layers and table validation, and the folder tools).
     assert len(_FULL_ROSTER) == 161 and len(set(_FULL_ROSTER)) == 161
     assert len(_DURABLE_ONLY) == 41 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
@@ -3737,7 +3737,7 @@ def _s2(catalog, topology, redis, signal="jobs.runner", anonymous_leak=False):
     return rows[1]
 
 
-def test_s2_redis_on_full_129_catalog_passes():
+def test_s2_redis_on_full_161_catalog_passes():
     row = _s2(_FULL_ROSTER, "redis-on", None)
     assert row["status"] == "pass", row["why"]
     assert row["evidence"]["topology"]["topology"] == "redis-on"

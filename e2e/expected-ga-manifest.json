@@ -97,7 +97,7 @@
     {
       "id": "format.read.geoservicesjson",
       "legacyId": "format.read.esrijson",
-      "reason": "honua-server#6831 (feat!, 2026-11-04, first in trunk d2ab05f) gave this file-import read capability its neutral GeoServices JSON id. The frozen rc.2 pin 8628668 predates the rename and advertises only legacyId; every later candidate advertises id. legacyId answers only when id is absent. Drop this entry once the bound candidate is past d2ab05f."
+      "reason": "honua-server#6831 (feat!, 2026-11-04, first in trunk d2ab05f) gave this file-import read capability its neutral GeoServices JSON id. The rc.2 candidate 532565bc advertises id; the previous rc.2 pin 8628668 predates the rename and advertises only legacyId. legacyId answers only when id is absent. The entry stays while an 8628668 observation can still be judged (rollback and before/after comparisons for rc.2) and is dropped after rc.2 ships."
     }
   ]
 }

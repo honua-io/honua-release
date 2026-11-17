@@ -81,9 +81,9 @@ def test_fixture_is_the_s4_roster_shape():
     # Re-copied verbatim at the rc.2 final candidate (86286687; roster body last changed at daf56db2):
     # projectedAdmin and requiresDurableControlPlane gained honua_admin_connection_tables_list and
     # honua_admin_connections_list (honua-server #6889, read-only connection discovery).
-    # Re-copied verbatim at the 532565b re-pin (roster body last changed at 95de72df): the default view
-    # moved to default.v2 (honua_get_job_results replaced honua_render_map, honua-server #7190), a
-    # `folders` view was added, and 24 tools joined the catalog, 15 of them durable-control-plane.
+    # Re-copied verbatim at the rc.2 candidate 532565bc (roster body last changed at a4ffb51f): static
+    # gained folder/studio/op-stage tools, projectedAdmin and requiresDurableControlPlane gained the
+    # import-preview, layer display/spatial and folder tools, and a `folders` view was added.
     assert len(r['static']) == 66 and len(r['projectedAdmin']) == 95
     assert len(r['requiresDurableControlPlane']) == 41
     assert set(r['views']) == {'analyze', 'configure', 'default', 'folders', 'operate', 'review', 'setup'}
@@ -106,7 +106,8 @@ def test_committed_expected_tools_matches_the_roster_in_both_topologies():
     durable = committed['fullCatalog']['requiresDurableControlPlane']['tools']
     # 24 since the 4709145 re-pin added honua_admin_import_upload_object (fixture re-copied at a4bde4b);
     # 26 since the rc.2 final candidate 86286687 added honua_admin_connections_list and
-    # honua_admin_connection_tables_list (honua-server #6889); 41 since the 532565b re-pin.
+    # honua_admin_connection_tables_list; 41 since the rc.2 candidate 532565bc
+    # added the import-preview, layer display/spatial and folder tools.
     assert CONNECT_IMPORT <= set(durable) and len(durable) == 41
 
 
