@@ -725,7 +725,12 @@ components:
       certification-evidence-receipt: "2.0"
       inspector-pagination-observer: "v2"
       metadata: "2.0.0-alpha.1"
-      database: "143"
+      operation-initiation: "v1"
+      operation-human-approval: "v1"
+      coordinated-release-human-approval: "v1"
+      normalization-envelope: "v3"
+      publication-descriptor: "1.0"
+      database: "214"
     # DB schema floor = highest applied migration in the PINNED source (src/Honua.Server/Migrations/,
     # NNN_ prefix). RE-VERIFIED at 6b6d3b8, not carried forward: none of #3347/#3349/#3352/#3353 adds
     # a migration, so the max is still 106.
@@ -792,11 +797,15 @@ components:
     # (git diff daf56db2..86286687 -- src/Honua.Server/Migrations/ is empty); the tree's highest is
     # still src/Honua.Server/Migrations/143_PromoteImportTypedColumns.sql, and the journal digest
     # below is unchanged.
-    dbSchema: "143"
+    # RE-CHECKED AT 532565bc (2026-11-17 RC2 RE-PIN): migration_floor over the pinned tree is 214
+    # (src/Honua.Server/Migrations/214_StageFeatureChangePrefixPublisher.sql); the declared
+    # default-deployment journal has 215 scripts. The schema declaration was re-copied from
+    # eng/release/component-versions.v1.json at 532565bc (five new schemaVersions; contracts unchanged).
+    dbSchema: "214"
     # Digest of the exact declared migration set at `sha` (upgrade_lock_binding.journal_digest over
     # resolve_trunk_candidate.migration_journal). gate-upgrade and the platform lock bind this set;
     # it moves in lockstep with `sha` and dbSchema.
-    migrationJournalSha256: "sha256:16dcbe69b949b5eb14ec8c48646cb5d0b293a706bc1df2e973512488205267d3"
+    migrationJournalSha256: "sha256:5588b3f3717273b73ce918e6b418d2f237221658b776bb013d73a6448cdbee7d"
 
   honua-console:
     repository: "https://github.com/honua-io/honua-console"

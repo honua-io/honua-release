@@ -20,6 +20,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SEAM = ROOT / "e2e/local-docker/docker-compose.yml"
 FULL = ROOT / "e2e/dr-drill/compose.full-platform.yml"
+JOURNEY = ROOT / "certification/terminal-journey/targets/build-compose.yml"
 SHELLS = ("sh", "/bin/sh", "bash", "/bin/bash", "/usr/bin/bash", "CMD-SHELL")
 SERVER_IMAGE_VAR = "${HONUA_SERVER_IMAGE"
 
@@ -38,7 +39,7 @@ def _uses_shell(argv: list[str]) -> bool:
     return any(token in SHELLS or token.startswith(("sh ", "bash ", "/bin/sh ")) for token in argv)
 
 
-@pytest.mark.parametrize("compose", [SEAM, FULL], ids=["seam", "full-platform"])
+@pytest.mark.parametrize("compose", [SEAM, FULL, JOURNEY], ids=["seam", "full-platform", "terminal-journey"])
 def test_no_service_runs_a_shell_on_the_server_image(compose):
     for name, service in _services(compose).items():
         if not str(service.get("image", "")).startswith(SERVER_IMAGE_VAR):
@@ -113,3 +114,13 @@ def test_volume_helpers_never_run_a_shell_in_the_server_image(monkeypatch):
         assert stack.image not in args, "a shell snippet was sent to the shell-less server image"
         assert helper in args
         assert args[args.index("--entrypoint") + 1] == "/bin/sh"
+
+
+def test_terminal_journey_replica_starts_like_the_server_and_inherits_the_db_gate():
+    services = _services(JOURNEY)
+    replica = services["replica"]
+    assert "entrypoint" not in replica, "the replica must start through the image's own entrypoint"
+    assert replica["healthcheck"]["test"] == ["CMD", "/app/honua-healthcheck", "--ready"]
+    # The db service extends the seam's db; overriding its healthcheck would drop the post-restart
+    # postmaster check that replaced the server's `sleep 5`.
+    assert "healthcheck" not in services["db"]
