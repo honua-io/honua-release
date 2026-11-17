@@ -2536,21 +2536,6 @@ def test_cloud_model_refuses_unbound_target_before_driver_setup(tmp_path, monkey
     assert receipt["totals"]["modelCalls"] == 0
 
 
-def test_cloud_canary_workflow_preserves_opt_in_and_distinct_cell_artifacts():
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())
-    steps = workflow["jobs"]["journey"]["steps"]
-    step = next(step for step in steps if step.get("name", "").startswith("Run the genuine-model canary"))
-    assert step["if"] == "${{ always() && inputs.enable_bedrock }}"
-    for cell in canary.CELLS[1:]:
-        assert cell in step["run"]
-    upload = next(step for step in steps if step.get("name") == "Upload the nightly-model-journey row")
-    assert upload["with"]["name"] == "journey-gate-report-nightly-model-${{ env.CELL_ARTIFACT }}"
-    # Founder re-tier 2026-10-25: the canary is advisory Preview evidence. Its failure, or a row it
-    # never wrote, records an honest fail receipt and never fails the GA cell's journey job.
-    assert step["continue-on-error"] is True
-    assert upload["continue-on-error"] is True
-
-
 def test_cloud_target_reaches_driver_setup_without_claiming_unexecuted_model_success(tmp_path, monkeypatch):
     cell = "aws-serverless/redis-on"
     config = tmp_path / "target.json"

@@ -31,9 +31,7 @@ permissions:
   actions: read
 
 concurrency:
-  # Retirements stay serialized with each other and the reaper; e2e-cloud-aws now runs per-target
-  # lanes, so the job also refuses while any e2e run is active (below), and e2e refuses while a
-  # retirement is active.
+  # Serialize manual recovery of retained state from retired cells.
   group: e2e-cloud-aws
   cancel-in-progress: false
 
