@@ -1,4 +1,4 @@
-"""Check the two customer Compose probes after real Compose and shell expansion."""
+"""Check the customer guides' Compose healthcheck and post-start licensing assertion."""
 
 import http.server
 import io
@@ -17,6 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 GUIDES = ("docs/INSTALL-2026.1.md", "docs/CUSTOMER-INSTALL.md")
 DUMMY_KEY = "dummy-install-healthcheck-key"
+DEAD_PROXY = "http://127.0.0.1:9"
 
 
 def _compose_example(path: Path) -> str:
@@ -147,7 +148,9 @@ def test_post_start_assertion_requires_authenticated_disabled_mode(guide: str, t
         try:
             local = command.replace("http://localhost:8080/", f"http://127.0.0.1:{server.server_port}/")
             assert local != command, "the assertion no longer targets the published port 8080"
-            result = subprocess.run(["sh", "-c", local], cwd=tmp_path, env=_probe_env(tmp_path),
+            # A configured proxy must not receive the admin key; this one would refuse the request.
+            env = {**_probe_env(tmp_path), "http_proxy": DEAD_PROXY, "HTTP_PROXY": DEAD_PROXY}
+            result = subprocess.run(["sh", "-c", local], cwd=tmp_path, env=env,
                                     capture_output=True, text=True, timeout=15, check=False)
             return result.returncode, list(_LicenseStub.requests)
         finally:

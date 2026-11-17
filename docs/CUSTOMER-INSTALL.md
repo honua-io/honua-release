@@ -7,11 +7,13 @@ URL publishes the file successfully, use the manifest in this repository; do not
 represent the site copy as available.
 
 This is an explicitly **pre-cut rehearsal** profile, not a signed release lock
-or a change to `components.honua-server` / the certification ledger. The server
-image is the one `platform-manifest.yaml` pins as `components.honua-server`
-(`nightly-87966c3`, by digest), which contains the licensing-disabled mode
-([release issue #416](https://github.com/honua-io/honua-release/issues/416)). Its
-anonymous OCI index digest and amd64 source label were rechecked on 2026-10-05.
+or a change to `components.honua-server` / the certification ledger. The guide's
+default server image is the one `platform-manifest.yaml` pins as
+`components.honua-server` (`nightly-aot-532565b`, by digest), which contains the
+licensing-disabled mode
+([release issue #416](https://github.com/honua-io/honua-release/issues/416)) and the
+compiled health probe the Compose example uses. The manifest's preserved rehearsal
+record still names `nightly-87966c3`; that older image has no such probe.
 The licensing-disabled runtime assertion has not been run against this profile,
 so it does not claim candidate or clean-Windows qualification. Both Honua Python clients are pinned in `platform-manifest.yaml`; their wheel identities
 and the MCP transport wheel come from the linked version-specific PyPI JSON.
@@ -55,7 +57,7 @@ services:
       retries: 30
 
   honua:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a}
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9}
     platform: linux/amd64
     depends_on:
       db:
@@ -99,7 +101,9 @@ import os, re, urllib.request
 
 request = urllib.request.Request("http://localhost:8080/api/v1/admin/license",
                                  headers={"X-API-Key": os.environ["HONUA_ADMIN_PASSWORD"]})
-with urllib.request.urlopen(request, timeout=10) as response:
+# Ignore proxy settings: the admin key goes only to this host.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+with opener.open(request, timeout=10) as response:
     status, body = response.status, response.read().decode()
 if status != 200 or not re.search(r'"mode"\s*:\s*"disabled"', body):
     raise SystemExit(f"licensing is not disabled: HTTP {status}")

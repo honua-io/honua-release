@@ -9,7 +9,7 @@ it runs only on Honua's own demo stack and is not offered for customer deploymen
 
 Use the signed platform lock for the server image and component identities. Save
 the following self-contained customer quickstart as `compose.yaml`. The default
-is the server image `platform-manifest.yaml` pins for 2026.1 (`nightly-87966c3`,
+is the server image `platform-manifest.yaml` pins for 2026.1 (`nightly-aot-532565b`,
 by digest); when certifying a newer signed platform
 lock, set `HONUA_SERVER_IMAGE` to its digest-pinned server image.
 
@@ -35,7 +35,7 @@ services:
       retries: 30
 
   honua:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:069f196bfa5c7201223d4d89868934242c4ace8805a6e48c122a88d84fa6eb1a}
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9}
     platform: linux/amd64
     depends_on:
       db:
@@ -94,7 +94,9 @@ import os, re, urllib.request
 
 request = urllib.request.Request("http://localhost:8080/api/v1/admin/license",
                                  headers={"X-API-Key": os.environ["HONUA_ADMIN_PASSWORD"]})
-with urllib.request.urlopen(request, timeout=10) as response:
+# Ignore proxy settings: the admin key goes only to this host.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+with opener.open(request, timeout=10) as response:
     status, body = response.status, response.read().decode()
 if status != 200 or not re.search(r'"mode"\s*:\s*"disabled"', body):
     raise SystemExit(f"licensing is not disabled: HTTP {status}")
