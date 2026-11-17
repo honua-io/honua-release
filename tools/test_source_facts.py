@@ -182,9 +182,14 @@ def test_workflow_binds_the_candidate_checkout_and_uploads_the_contract_receipt(
     assert workflow['permissions'] == {'contents': 'read'}
     job = workflow['jobs']['facts']
     assert job['if'] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
-    server = next(step for step in job['steps'] if step.get('name') == 'Check out the candidate server source')
-    assert server['with']['repository'] == 'honua-io/honua-server'
-    assert server['with']['ref'] == '${{ inputs.server_sha }}'
+    server = next(step for step in job['steps'] if step.get('name') == 'Fetch the candidate server source')
+    assert server['env'] == {'SERVER_SHA': '${{ inputs.server_sha }}', 'GH_TOKEN': '${{ github.token }}'}
+    assert '^[0-9a-f]{40}$' in server['run']
+    trunk_check = server['run'].index('compare/${SERVER_SHA}...trunk')
+    assert '"$status" == ahead || "$status" == identical' in server['run']
+    assert trunk_check < server['run'].index('git init')
+    assert 'https://github.com/honua-io/honua-server.git "$SERVER_SHA"' in server['run']
+    assert not any(step.get('with', {}).get('repository') == 'honua-io/honua-server' for step in job['steps'])
     assert {'run': 'python -m pip install PyYAML'} in job['steps']
     upload = job['steps'][-1]
     assert upload['if'] == 'always()'

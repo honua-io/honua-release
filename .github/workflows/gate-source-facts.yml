@@ -17,17 +17,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check out the candidate server source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: honua-io/honua-server
-          ref: ${{ inputs.server_sha }}
-          path: server
-          persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
       - run: python -m pip install PyYAML
+      # The candidate source is fetched as git objects, never built or installed. The producer
+      # loads one file from it, the candidate's retired-cache checker, so only commits already
+      # merged to honua-server trunk are accepted: a fork or pull request head is refused.
+      - name: Fetch the candidate server source
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$SERVER_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "server_sha must be a full commit SHA" >&2; exit 1; }
+          status=$(gh api "repos/honua-io/honua-server/compare/${SERVER_SHA}...trunk" --jq .status)
+          [[ "$status" == ahead || "$status" == identical ]] || { echo "server_sha is not on honua-server trunk ($status)" >&2; exit 1; }
+          git init -q server
+          git -C server fetch -q --depth 1 --no-tags https://github.com/honua-io/honua-server.git "$SERVER_SHA"
+          git -C server -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
       - name: Count retired-cache packages and source references
         env:
           SERVER_SHA: ${{ inputs.server_sha }}
