@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MATRIX = "sources/server/capability-matrix.v1.json"
 CATALOG = "protocol-certification-requirements.v1.json"
 REALTIME = "streaming.feature-subscriptions"
+RENAMED = "geoservices-rest-stub"
 
 
 @pytest.fixture
@@ -46,11 +48,14 @@ def test_experimental_realtime_streams_drop_their_licensed_js_rows(certification
 
 def test_renamed_geoservices_rest_stub_lane_keeps_its_disposition(certification):
     path = certification / MATRIX
-    assert '"arcgis-stub"' in path.read_text()
-    path.write_text(path.read_text().replace('"arcgis-stub"', '"geoservices-rest-stub"'))
+    text = path.read_text()
+    legacy = {lane for lane in re.findall(r'"clientLane": "([^"]+-stub)"', text) if lane != RENAMED}
+    assert len(legacy) == 1
+    old = legacy.pop()
+    path.write_text(text.replace(f'"{old}"', f'"{RENAMED}"'))
 
     rows = regenerate_and_validate(certification)
 
     lanes = {row["client_lane"] for row in rows if row["addressable_by_client"]}
-    assert "geoservices-rest-stub" in lanes
-    assert "arcgis-stub" not in lanes
+    assert RENAMED in lanes
+    assert old not in lanes
