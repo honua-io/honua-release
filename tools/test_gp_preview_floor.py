@@ -148,15 +148,13 @@ def test_validator_refuses_a_relabeled_gp_row(certification_copy: Path, operatio
 
 
 def test_candidate_preview_matrix_keeps_the_reviewed_gp_floor(certification_copy: Path):
-    matrix_path = certification_copy / "sources/server/capability-matrix.v1.json"
-    matrix = _load(matrix_path)
+    # Server 532565bc moved process.ogc-api-processes to preview and the official
+    # assignments dropped it; the reviewed GP floor rows must survive regeneration.
+    matrix = _load(certification_copy / "sources/server/capability-matrix.v1.json")
     capability = next(row for row in matrix["capabilities"] if row["key"] == "process.ogc-api-processes")
-    capability.update(status="preview", maturity={"preview": 10})
-    matrix_path.write_text(json.dumps(matrix, indent=2) + "\n", encoding="utf-8")
-    assignment_path = certification_copy / "sources/official-sdk-protocol-assignments.v1.json"
-    assignments = _load(assignment_path)
-    assignments["capabilities"].remove("process.ogc-api-processes")
-    assignment_path.write_text(json.dumps(assignments, indent=2) + "\n", encoding="utf-8")
+    assert capability["status"] == "preview"
+    assignments = _load(certification_copy / "sources/official-sdk-protocol-assignments.v1.json")
+    assert "process.ogc-api-processes" not in assignments["capabilities"]
     original = _load(certification_copy / CATALOG)["requirements"]
 
     generated = _run(certification_copy, "generate-protocol-requirements.py")

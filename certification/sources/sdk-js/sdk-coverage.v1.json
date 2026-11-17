@@ -4,7 +4,7 @@
   "schemaVersion": 1,
   "sdk": {
     "package": "@honua/sdk-js",
-    "version": "0.2.10"
+    "version": "0.4.0"
   },
   "generatedFrom": [
     "config/sdk-coverage-crosswalk.v1.json",
@@ -82,13 +82,13 @@
       "status": "partial",
       "sinceVersion": "0.1.0-beta.0",
       "entrypoints": [
-        "@honua/sdk-js/collaboration"
+        "@honua/app-platform/collaboration"
       ],
       "evidence": [
         "test/collaboration.test.ts"
       ],
       "source": "support-manifest",
-      "note": "The SDK entrypoint is a temporary shim; new code imports @honua/app-platform/collaboration."
+      "note": "Removed from @honua/sdk-js in 0.4.0; import @honua/app-platform/collaboration."
     },
     {
       "key": "discovery.capability-manifest",
@@ -191,7 +191,7 @@
       "status": "covered",
       "sinceVersion": "0.1.0-beta.0",
       "entrypoints": [
-        "PortalCompat.getItem (src/esri-compat/portal.ts)",
+        "PortalCompat.getItem (src/client-compat/portal.ts)",
         "PortalCompat.search"
       ],
       "evidence": [
@@ -204,7 +204,7 @@
       "status": "covered",
       "sinceVersion": "0.1.0-beta.0",
       "entrypoints": [
-        "PortalCompat.generateToken (src/esri-compat/portal.ts)"
+        "PortalCompat.generateToken (src/client-compat/portal.ts)"
       ],
       "evidence": [
         "test/portal-compat.test.ts"

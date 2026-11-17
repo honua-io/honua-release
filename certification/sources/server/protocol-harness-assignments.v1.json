@@ -234,7 +234,9 @@
       "surface": "printing-tools",
       "operation": "POST /rest/services/Utilities/PrintingTools/GPServer/Export Web Map Task/execute",
       "test_ids": ["PrintingToolsEndpointTests.Execute_PdfFormat_ReturnsPdfDocument"],
-      "scenario_facets": ["positive", "media-schema"]
+      "scenario_facets": ["positive", "media-schema"],
+      "maturity": "preview",
+      "required_tier": "release"
     },
     {
       "capability_key": "serve.geoservices-vectortileserver",
@@ -247,7 +249,7 @@
       "capability_key": "serve.geoservices-vectortileserver",
       "surface": "vector-tile-server",
       "operation": "GET /rest/services/{serviceId}/VectorTileServer/tile/{z}/{y}/{x}.pbf",
-      "test_ids": ["VectorTileServerEndpointTests.VectorTileServer_Tile_InRange_ReturnsMvtBytesWithCacheHeader"],
+      "test_ids": ["VectorTileServerEndpointTests.VectorTileServer_Tile_InRange_ReturnsMvtBytesNeverStoredForACredentialedCaller"],
       "scenario_facets": ["positive", "media-schema"]
     },
     {
@@ -360,7 +362,7 @@
       "capability_key": "styling.auto-suggest",
       "catalog_capability_key": "admin.control-plane",
       "surface": "control-plane-admin",
-      "operation": "POST /api/v1/admin/metadata/layers/{layerId}/suggest-style",
+      "operation": "POST /api/v1/admin/metadata/layers/{storageLayerId}/suggest-style",
       "test_ids": ["StyleSuggestionEndpointsTests.SuggestStyle_ReturnsStyleSuggestion"],
       "scenario_facets": ["positive", "media-schema"]
     },

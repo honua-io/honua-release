@@ -10,14 +10,14 @@
   "clients": [
     {
       "name": "@honua/sdk-js",
-      "version": "0.2.10",
+      "version": "0.4.0",
       "lane": "sdk-js-protocol",
       "source": "sdk-js",
       "auth_policy_revision": "anonymous-public-v1"
     },
     {
       "name": "Honua SDK Python",
-      "version": "0.1.19",
+      "version": "0.3.2",
       "lane": "sdk-python-protocol",
       "source": "sdk-python",
       "auth_policy_revision": "anonymous-public-v1"
@@ -41,13 +41,12 @@
     "geocoding.batch",
     "geocoding.forward",
     "geocoding.reverse",
-    "process.geoprocessing",
-    "process.ogc-api-processes",
     "routing.solve",
     "serve.elevation",
     "serve.geoservices-featureserver",
     "serve.geoservices-geocodeserver",
     "serve.geoservices-geometry-service",
+    "serve.geoservices-imageserver",
     "serve.geoservices-mapserver",
     "serve.geoservices-root",
     "serve.geoservices-vectortileserver",
@@ -62,7 +61,6 @@
     "serve.wcs",
     "serve.wfs",
     "serve.wms",
-    "serve.wps",
     "styling.auto-suggest",
     "styling.ogc-api-styles"
   ]
