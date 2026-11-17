@@ -116,6 +116,11 @@ on:
         required: false
         type: string
         default: candidate-manifest
+      launch_stack_proof:
+        description: "Path to candidate-bound Launch Stack upgrade and rollback proof. Empty skips the promise receipt; Compose and kind evidence cannot certify operates-8-upgrade."
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
@@ -127,6 +132,11 @@ on:
       lock_run_id: { required: false, type: string, default: "" }
       lock_digest: { required: false, type: string, default: "" }
       lock_artifact: { required: false, type: string, default: candidate-manifest }
+      launch_stack_proof:
+        description: "Path to candidate-bound Launch Stack upgrade and rollback proof. Empty skips the promise receipt."
+        required: false
+        type: string
+        default: ""
     secrets:
       RELEASE_GH_TOKEN: { required: false }
     outputs:
@@ -1573,11 +1583,12 @@ jobs:
           echo "upgrade gate: $OVERALL (enforcement=${{ inputs.enforcement }})"
           [ "$OVERALL" = "fail" ] && { echo "::error::upgrade gate FAILED"; exit 1; } || echo "not red"
       - name: Emit candidate-bound release promise receipt
-        if: ${{ success() && (inputs.platform_lock_digest || inputs.lock_digest) }}
+        # Compose and kind reports cannot certify operates-8-upgrade. An empty
+        # launch_stack_proof skips this step so a green gate stays green.
+        if: ${{ success() && (inputs.platform_lock_digest || inputs.lock_digest) && inputs.launch_stack_proof != '' }}
         uses: ./.github/actions/kept-gate-receipt
         with:
           gate: gate-upgrade
           status: ${{ steps.assemble.outputs.overall_status }}
           lock_digest: ${{ inputs.platform_lock_digest || inputs.lock_digest }}
-          # Kind/Compose success cannot stand in for Launch Stack evidence.
-          proof: out/gate-report.json
+          proof: ${{ inputs.launch_stack_proof }}
