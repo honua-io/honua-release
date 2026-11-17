@@ -92,8 +92,6 @@ def test_workflow_preserves_first_attempts_and_isolates_trials():
     local = workflow['jobs']['local-docker']
     script = '\n'.join(str(step.get('run', '')) for step in local['steps'])
     assert 'verify_lock_binding' in script and 'docker image inspect' in script
-    cell = yaml.safe_load((root / '.github/workflows/e2e-cloud-aws-cell.yml').read_text())
-    assert 'inputs.trial_id' in cell['env']['CELL_ARTIFACT']
 
 
 def test_ecs_readback_records_each_running_task_digest_and_refuses_mismatch():
@@ -215,16 +213,10 @@ def test_lambda_readback_rejects_an_unexpected_ecr_digest():
         cloud.observe_lambda(Target(), manifest, run=response(source))
 
 
-def test_cloud_lock_transfer_uses_isolated_read_only_job_and_aggregate_budget():
+def test_terminal_trials_apply_aggregate_budget():
     import yaml
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
-    cell = yaml.safe_load((root / '.github/workflows/e2e-cloud-aws-cell.yml').read_text())
-    job = cell['jobs']['candidate-lock']
-    assert job['permissions'] == {'actions': 'read'}
-    assert all('RELEASE_GH_TOKEN' not in json.dumps(step) for step in job['steps'])
-    assert 'candidate-lock' in cell['jobs']['journey']['needs']
-    assert all('RELEASE_GH_TOKEN' not in json.dumps(step) for step in cell['jobs']['journey']['steps'])
     wf = yaml.safe_load((root / '.github/workflows/terminal-model-canary.yml').read_text())
     assert 'cost_ceiling_usd' not in wf['jobs']['aws-ecs']['with']
     aggregate = wf['jobs']['aggregate']

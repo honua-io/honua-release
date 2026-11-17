@@ -319,21 +319,15 @@ def test_credentials_environment_uses_contract_and_explicit_mutation_policy(harn
     assert 'GITHUB_TOKEN' not in env and 'AWS_PROFILE' not in env
 
 
-def test_workflow_guard_pins_oidc_export_and_teardown_order():
+def test_protocol_workflow_uses_the_pinned_shipped_binary():
     text = (ROOT / '.github/workflows/agent-e2e-aws-install.yml').read_text()
     workflow = yaml.safe_load(text)
-    job = workflow['jobs']['install']
-    assert job['if'] == "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/trunk'"
-    assert job['environment'] == 'aws-cell-provision'
-    assert job['permissions']['id-token'] == 'write'
-    assert job['concurrency'] == {'group': 'e2e-cloud-aws', 'cancel-in-progress': False}
-    assert workflow['jobs']['protocol']['concurrency']['group'].startswith('agent-aws-install-protocol-')
-    steps = job['steps']
-    names = [s.get('name', '') for s in steps]
-    assert names.index('Preflight the release cell and the product gaps') < names.index('Assume the release-cell provision role')
-    assert names.index('Teardown the release-cell slot with the controller session') < names.index('Upload the redacted receipt')
+    job = workflow['jobs']['protocol']
+    assert job['if'] == "github.event_name == 'pull_request'"
+    assert job['permissions'] == {'contents': 'read'}
+    assert job['concurrency']['group'].startswith('agent-aws-install-protocol-')
     assert 'sha256sum -c honua-devops-linux-x64.tar.gz.sha256' in text
-    assert 'DEVOPS_ARCHIVE_SHA256' in text and 'export-bootstrap' in text
+    assert 'DEVOPS_ARCHIVE_SHA256' in text
     assert 'repository: honua-io/honua-devops' not in text
     assert '--ref feat/' not in text
 

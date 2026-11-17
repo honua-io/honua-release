@@ -13,21 +13,6 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize('target,allowed', [('all', True), ('aws-ecs', True), ('aws-serverless', False)])
-def test_cloud_pin_step_handles_absent_preview_lambda(tmp_path, target, allowed):
-    manifest = yaml.safe_load((REPO_ROOT / 'platform-manifest.yaml').read_text())
-    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
-        manifest['components']['honua-server'].pop(field, None)
-    (tmp_path / 'platform-manifest.yaml').write_text(yaml.safe_dump(manifest))
-    shutil.copy(REPO_ROOT / 'compatibility-matrix.yaml', tmp_path)
-    workflow = _workflow('e2e-cloud-aws.yml')
-    step = next(step for job in workflow['jobs'].values() for step in job.get('steps', []) if step.get('id') == 'pins')
-    code = step['run'].split("python - <<'PY'\n", 1)[1].rsplit('\nPY', 1)[0]
-    env = {**os.environ, 'GITHUB_OUTPUT': str(tmp_path / 'outputs'), 'REQUESTED_TARGET': target,
-           'PYTHONPATH': str(REPO_ROOT / 'tools')}
-    result = subprocess.run([sys.executable, '-c', code], cwd=tmp_path, env=env, capture_output=True, text=True)
-    assert (result.returncode == 0) == allowed, result.stderr
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_contract_suppression as ccs  # noqa: E402
 import check_release_promotion_approval as cpa  # noqa: E402
@@ -103,42 +88,6 @@ def test_real_release_cut_verifies_published_bytes_and_producer_trust():
     assert "verify_evidence_sources.py" in commands
     assert "generate_evidence_index.py" in commands
     assert 'DRY_RUN" = "false' in commands
-
-
-def test_release_train_cloud_budget_excludes_supplemental_iac():
-    caller = _workflow("release-train.yml")["jobs"]["gate_cloud_parity"]
-    assert caller["with"]["run_iac_live"] is False
-    assert caller["with"]["cost_ceiling_usd"] == "20"
-    cloud = _workflow("e2e-cloud-aws.yml")
-    assert cloud["jobs"]["parity"]["strategy"]["max-parallel"] == 1
-    # Serialization changes neither the required cell set nor failure/cleanup execution.
-    assert cloud["jobs"]["parity"]["strategy"]["fail-fast"] is False
-    assert cloud["jobs"]["parity"]["uses"] == "./.github/workflows/e2e-cloud-aws-cell.yml"
-
-
-@pytest.mark.parametrize("event,caller,requested,expected", [
-    ("schedule", "nightly-certification", False, False),
-    ("schedule", "release-train", False, False),
-    ("schedule", "e2e-cloud-aws", False, True),
-    ("workflow_dispatch", "e2e-cloud-aws", False, False),
-    ("workflow_dispatch", "e2e-cloud-aws", True, True),
-    ("workflow_dispatch", "release-train", False, False),
-])
-def test_cloud_iac_schedule_does_not_override_reusable_caller(event, caller, requested, expected):
-    workflow = _workflow("e2e-cloud-aws.yml")
-    condition = workflow["jobs"]["iac-live"]["if"]
-    reporting = next(step["env"]["REQUESTED_IAC_LIVE"]
-                     for step in workflow["jobs"]["cloud-report"]["steps"]
-                     if "REQUESTED_IAC_LIVE" in step.get("env", {}))
-    assert reporting == condition
-    # Evaluate the checked-in boolean expression against both scheduled caller identities.
-    # Reusable workflows inherit github.event_name from the caller, not workflow_call.
-    expression = condition.removeprefix("${{").removesuffix("}}").strip()
-    for token, value in {"github.event_name": event, "github.workflow": caller,
-                         "inputs.run_iac_live": requested}.items():
-        expression = expression.replace(token, repr(value))
-    expression = expression.replace("&&", " and ").replace("||", " or ")
-    assert eval(expression, {"__builtins__": {}}) is expected
 
 
 def _run_with_refusing_generator(command: str, root: Path, variables: dict) -> tuple[subprocess.CompletedProcess, bool]:
@@ -227,13 +176,6 @@ def test_live_release_aggregate_fails_on_any_skipped_required_gate():
     assert train_report.strict_overall(["pass", "skipped"]) == "fail"
     assert "best-effort" not in commands
     assert not any(_neutralised(step) for step in report["steps"])
-
-
-def test_required_cloud_cell_cannot_self_skip_on_real_cut():
-    workflow = _workflow("e2e-cloud-aws.yml")
-    run = next(step["run"] for step in workflow["jobs"]["iac-live"]["steps"] if step.get("id") == "iac")
-    assert '[ "$REQUIRE_REAL" = "true" ]' in run
-    assert 'STATUS=fail; WHY="required cloud certification evidence missing' in run
 
 
 def test_fail_closed_demo_deliberately_skips_required_cell_and_goes_red():
@@ -1095,100 +1037,6 @@ def test_workflows_point_their_checkers_at_the_shipped_register(workflow_name: s
         )
 
 
-def _cloud_cell_jobs() -> dict:
-    return _workflow("e2e-cloud-aws-cell.yml")["jobs"]
-
-
-def _uses_aws_credentials(job: dict) -> bool:
-    return any(str(step.get("uses", "")).startswith("aws-actions/configure-aws-credentials")
-               for step in job.get("steps", []))
-
-
-def test_cloud_journey_job_holds_no_aws_credentials_or_oidc_token():
-    # honua-release#381: scrubbing the environment cannot hide /proc/$PPID/environ, so the job that
-    # installs and runs the manifest-pinned clients must never have had a cloud credential at all.
-    caller = _workflow("e2e-cloud-aws.yml")["jobs"]["parity"]
-    assert caller["uses"] == "./.github/workflows/e2e-cloud-aws-cell.yml"
-    cell = _workflow("e2e-cloud-aws-cell.yml")
-    assert cell["permissions"] == {"contents": "read"}
-    jobs = cell["jobs"]
-    journey = jobs["journey"]
-    assert journey["permissions"] == {"contents": "read"}
-    assert "id-token" not in yaml.safe_dump(journey)
-    assert not _uses_aws_credentials(journey)
-    assert "aws-actions/configure-aws-credentials" not in yaml.safe_dump(journey)
-    commands = "\n".join(_step_text(step) for step in journey["steps"])
-    assert "--phase journey" in commands and "--ignore-scripts" in commands
-    assert "AWS_" not in commands and "HONUA_AWS_ROLE_ARN" not in commands
-    assert "secrets." not in yaml.safe_dump(journey)
-    assert all(step.get("with", {}).get("persist-credentials") is False
-               for step in journey["steps"] if str(step.get("uses", "")).startswith("actions/checkout"))
-    # Every pinned client, npm package and browser lives in that job; none in a credentialed one.
-    for name in ("provision", "admit", "teardown"):
-        job = jobs[name]
-        assert job["permissions"].get("id-token") == "write"
-        text = "\n".join(_step_text(step) for step in job["steps"])
-        assert "npm " not in text and "playwright" not in text and "--phase journey" not in text
-    assert "--phase provision" in "\n".join(_step_text(step) for step in jobs["provision"]["steps"])
-    # Job outputs and step env are printed in the public job log: no credential may travel that way.
-    assert set(jobs["provision"]["outputs"]) == {"endpoint", "admission"}
-    for job in jobs.values():
-        for step in job["steps"]:
-            assert "needs.provision.outputs" not in str(step.get("env", {}))
-
-
-def test_cloud_teardown_reaper_is_fail_closed():
-    # honua-iac#142: a cell that provisioned real AWS infrastructure and could not clean it up must
-    # redden the run. A swallowed reaper turns a stranded VPC/cluster into a silent monthly bill.
-    jobs = _cloud_cell_jobs()
-    provision, teardown = jobs["provision"]["steps"], jobs["teardown"]
-    run = next(step for step in provision if step.get("id") == "provision")
-    seal = next(step for step in provision if step.get("name") == "Seal the Terraform state for teardown")
-    restore = next(step for step in teardown["steps"] if step.get("name") == "Restore the Terraform state")
-    destroy = next(step for step in teardown["steps"] if "--phase teardown" in _step_text(step))
-
-    marker = run["env"]["HONUA_CLOUD_PROVISION_MARKER"]
-    assert marker and seal["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
-    assert restore["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
-    assert destroy["env"]["HONUA_CLOUD_PROVISION_MARKER"] == marker
-    assert seal["if"] == "always()"
-    assert seal["run"].index('-f "$HONUA_CLOUD_PROVISION_MARKER"') < seal["run"].index("--phase seal-state")
-    # Teardown runs whatever the journey did, after it, and its destroy step runs after any failure.
-    assert teardown["if"] == "always()"
-    assert set(teardown["needs"]) == {"provision", "journey", "admit"}
-    assert destroy["if"] == "always()"
-    assert _uses_aws_credentials(teardown)
-    # The journey's upload is verified, never merged into provision's evidence directory unchecked.
-    journey_download = next(step for step in teardown["steps"]
-                            if step.get("name") == "Download the journey receipts")
-    assert journey_download["with"]["path"] == "${{ runner.temp }}/journey-upload"
-    assert '--journey-dir "$RUNNER_TEMP/journey-upload"' in destroy["run"]
-    for step in (seal, restore, destroy):
-        assert "|| true" not in step["run"] and not _neutralised(step)
-
-
-def test_cloud_parity_resolves_the_runner_cidr_for_every_target():
-    # The EKS cell publishes its API server and its load balancer to the runner's /32 and nothing
-    # else, so the address has to be resolved for every cell, not just the RDS-backed ones.
-    steps = _cloud_cell_jobs()["provision"]["steps"]
-    ingress = next(step for step in steps if str(step.get("name", "")).startswith("Resolve the ephemeral runner"))
-
-    assert "inputs.target" not in str(ingress.get("if", ""))
-    assert "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" in ingress["run"]
-    assert "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" in ingress["run"]
-
-
-def test_cloud_parity_installs_the_declared_runner_dependencies_before_self_test():
-    steps = _cloud_cell_jobs()["provision"]["steps"]
-    install_index = next(index for index, step in enumerate(steps)
-                         if step.get("name") == "Install cloud runner dependencies")
-    self_test_index = next(index for index, step in enumerate(steps)
-                           if step.get("name") == "Self-test the cloud parity logic")
-
-    assert "-r e2e/requirements.txt" in steps[install_index]["run"]
-    assert install_index < self_test_index
-
-
 def test_manifest_validate_gates_committed_compatibility_ledger():
     job = _workflow("manifest-validate.yml")["jobs"]["validate"]
     step = next(step for step in job["steps"]
@@ -1222,7 +1070,6 @@ def test_capacity_envelope_contains_exactly_eight_ga_dimensions():
     }
 
 
-
 def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt():
 
     NIGHTLY_EXPECTED = ('build-test', 'contract', 'sbom', 'security', 'upgrade', 'capacity-soak', 'dr',
@@ -1243,7 +1090,6 @@ def test_train_report_emits_every_r21_declaration_and_mint_uploads_each_receipt(
     assert uploads['certified-candidate']['path'] == 'final-certified/'
     assert uploads['certified-candidate']['if-no-files-found'] == 'error'
     assert any(step.get('with', {}).get('name') == 'qualified-candidate' for step in mint)
-
 
 
 def test_report_declaration_command_emits_all_seventeen_classes(tmp_path):
@@ -1463,50 +1309,6 @@ def test_contract_live_request_timeout_still_tears_down_and_records_failure(tmp_
     assert output.read_text() == "why=GET /api/v1/admin/capabilities returned HTTP 000\n"
 
 
-def test_cloud_matrix_is_the_ecs_ga_set_and_threads_the_batch_image():
-    # rc.3 fix units C2/C6: aws-mixed has no IaC root (honua-iac#209), so it is not dispatched; the
-    # Lambda+Batch cell gets the manifest's amd64 server child; Bedrock is opt-in on ECS (and an explicit Lambda dispatch).
-    # October 16 amendment: EKS is Preview. Founder re-tier 2026-10-25: Lambda is Preview too and the
-    # two AWS ECS cells are the only required cloud cells.
-    workflow = _workflow("e2e-cloud-aws.yml")
-    text = (REPO_ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml").read_text(encoding="utf-8")
-    cell = _workflow("e2e-cloud-aws-cell.yml")
-    triggers = _triggers(workflow)
-    assert triggers["workflow_dispatch"]["inputs"]["target"]["options"] == [
-        "all", "aws-serverless", "aws-ecs", "aws-eks"]
-    # Operator ruling 2026-10-22: `all` dispatches the GA targets only; Preview targets (aws-serverless,
-    # aws-eks) run only on an explicit dispatch and are reported "not certified (preview)".
-    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-ecs\"]'" in text
-    assert "inputs.update_rollback_run_id != '' && '[\"aws-ecs\"]'" in text
-    assert '"aws-serverless","aws-ecs"' not in text
-    for preview_cell in ("aws-serverless/redis-off", "aws-eks/redis-off"):
-        assert f'{{cell:"{preview_cell}", status:"not certified (preview)"}}' in text
-    assert 'TARGETS="aws-ecs";' in text
-    assert "aws-mixed\"" not in text and "'aws-mixed'" not in text
-    parity = workflow["jobs"]["parity"]["with"]
-    assert parity["preview"] == "${{ matrix.target == 'aws-eks' || matrix.target == 'aws-serverless' }}"
-    assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
-    assert "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless')" in parity["enable_bedrock"]
-    assert "matrix.redis" not in parity["enable_bedrock"]
-    for trigger in ("workflow_dispatch", "workflow_call"):
-        assert triggers[trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
-    assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
-    assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
-    # The receipt checker and the cloud journey agree with the matrix: Lambda and EKS are Preview, no aws-mixed row.
-    # Read as text: this suite also runs where the checkers' own dependencies are not installed.
-    receipts = (REPO_ROOT / "tools" / "check_journey_receipts.py").read_text(encoding="utf-8")
-    journey = (REPO_ROOT / "e2e" / "cloud_journey.py").read_text(encoding="utf-8")
-    ga = 'GA_CELLS = ("aws-ecs/redis-off",)'
-    assert ga in receipts and ga in journey
-    assert ('PREVIEW_CELLS: tuple[str, ...] = tuple(f"{target}/redis-{redis}" for target in ("aws-serverless", "aws-eks")'
-            in receipts)
-    assert 'PREVIEW_TARGETS: tuple[str, ...] = ("aws-serverless", "aws-eks")' in journey
-    assert '"aws-mixed"' not in receipts and '"aws-mixed"' not in journey
-    teardown = [step.get("name") for step in cell["jobs"]["teardown"]["steps"]]
-    assert teardown.index("Capture cell readiness diagnostics") < next(
-        i for i, name in enumerate(teardown) if (name or "").startswith("Tear down"))
-
-
 def test_manifest_validate_verifies_all_required_npm_artifacts_after_anonymous_preflight():
     job = _workflow("manifest-validate.yml")["jobs"]["validate"]
     steps = job["steps"]
@@ -1539,132 +1341,10 @@ def test_update_rollback_authentication_admits_both_builds_before_cloud_identity
     assert cloud["needs"] == "admit" and cloud["with"]["target"] == "all" and cloud["with"]["redis_mode"] == "off"
 
 
-def test_release_cell_reaper_runs_nightly_under_its_dedicated_role_and_never_skips_green():
-    # Seven aws-serverless cells stranded 10-23..25 and filled the VPC quota: no reaper covered
-    # release cells (honua-iac's covers Owner=terraform-validation and was itself skipped).
-    workflow = _workflow("release-cell-reaper.yml")
-    triggers = _triggers(workflow)
-    assert triggers.get("schedule"), "the reaper must run on a schedule"
-    dispatch = triggers["workflow_dispatch"]["inputs"]
-    assert dispatch["dry_run"]["default"] is True
-    job = workflow["jobs"]["reap"]
-    assert job["environment"] == "aws-cell-reaper"          # the role's OIDC trust subject
-    assert job["permissions"]["id-token"] == "write"
-    assert "if" not in job, "an unconfigured reaper must fail visibly, not skip green"
-    steps = job["steps"]
-    require = _step_text(steps[0])
-    assert "HONUA_AWS_CELL_REAPER_ROLE_ARN" in str(job["env"]) and "exit 1" in require and "::error" in require
-    assert "role/honua-release-cell-reaper" in require
-    assume = next(step for step in steps if "configure-aws-credentials" in str(step.get("uses", "")))
-    assert assume["with"]["role-to-assume"] == "${{ vars.HONUA_AWS_CELL_REAPER_ROLE_ARN }}"
-    checkout = next(step for step in steps if step.get("with", {}).get("repository") == "honua-io/honua-iac")
-    assert re.fullmatch(r"[0-9a-f]{40}", checkout["with"]["ref"])
-    commands = "\n".join(_step_text(step) for step in steps)
-    assert "merge-base --is-ancestor HEAD origin/trunk" in commands
-    assert "cloud-cell-retirement.yml/runs?status=" in commands
-    sweep = next(step for step in steps if step.get("name") == "Sweep orphaned release cells")
-    text = _step_text(sweep)
-    for arg in ("--owner-tag release-cell", '--repo "$GITHUB_REPOSITORY"', "--workflow e2e-cloud-aws.yml",
-                "--max-delete", "--dry-run"):
-        assert arg in text
-    assert "GRACE_HOURS >= 4" in text
-    assert sweep["env"]["DRY_RUN"] == "${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}"
-
-
-def test_release_cells_carry_the_owner_the_reaper_sweeps():
-    sys.path.insert(0, str(REPO_ROOT / "e2e"))
-    from targets import terraform_target
-    sweep = _step_text(next(step for step in _workflow("release-cell-reaper.yml")["jobs"]["reap"]["steps"]
-                            if step.get("name") == "Sweep orphaned release cells"))
-    assert f"--owner-tag {terraform_target.RELEASE_CELL_OWNER}" in sweep
-
-
-def test_release_cell_reaper_holds_the_cell_lock_for_the_whole_sweep():
-    # Review of #973: a one-time "is a recovery active?" check cannot stop a cloud-cell-retirement
-    # recovery from starting mid-sweep and racing native deletion against a Terraform-state
-    # retirement. The reaper and retirement share one concurrency group.
-    groups = {name: _workflow(name).get("concurrency", {}).get("group")
-              for name in ("release-cell-reaper.yml", "cloud-cell-retirement.yml")}
-    assert set(groups.values()) == {"e2e-cloud-aws"}, groups
-    assert _workflow("release-cell-reaper.yml")["concurrency"]["cancel-in-progress"] is False
-
-
-def test_cloud_cell_lanes_keep_retirement_and_prefix_exclusion():
-    # #1084: e2e-cloud-aws runs one lane per target. Retirement, the reaper and same-prefix runs are
-    # excluded explicitly instead of by the shared group.
-    assert _workflow("e2e-cloud-aws.yml")["concurrency"] == {
-        "group": "e2e-cloud-aws-${{ inputs.target || 'all' }}", "cancel-in-progress": False}
-    provision = _workflow("e2e-cloud-aws-cell.yml")["jobs"]["provision"]["steps"]
-    guard = next(step for step in provision if step.get("name") ==
-                 "Refuse while a cell retirement or a same-prefix cloud run is active")
-    assert provision.index(guard) < next(i for i, step in enumerate(provision) if step.get("id") == "provision")
-    assert "cloud-cell-retirement.yml" in guard["run"] and "e2e-cloud-aws.yml" in guard["run"]
-    assert "${id:0:6}" in guard["run"] and "--arg" not in guard["run"]
+def test_manual_recovery_refuses_active_legacy_cloud_runs():
     retire = _step_text(next(step for step in _workflow("cloud-cell-retirement.yml")["jobs"]["retire"]["steps"]
                              if step.get("name") == "Refuse while any cloud e2e run is active"))
     assert "e2e-cloud-aws.yml" in retire and "exit 1" in retire
-    defer = _step_text(next(step for step in _workflow("release-cell-reaper.yml")["jobs"]["reap"]["steps"]
-                            if step.get("id") == "defer"))
-    assert "e2e-cloud-aws.yml" in defer and "cloud-cell-retirement.yml" in defer
-
-
-def test_cloud_candidate_pins_take_the_coordinate_of_a_digest_pinned_server_image(tmp_path):
-    """The nightly resolver pins the server as <coordinate>@sha256:<index>. The cloud candidate job
-    must hand the cells `<coordinate>@<digest>` images, never `...@sha256@sha256:` (Lambda/Batch)."""
-    step = next(step for step in _workflow("e2e-cloud-aws.yml")["jobs"]["candidate"]["steps"]
-                if step.get("id") == "pins")
-    script = step["run"].split("<<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-    index, amd64 = "sha256:" + "1" * 64, "sha256:" + "2" * 64
-    manifest = {"platformRelease": "2026.1-rc.3", "components": {
-        "honua-iac": {"sha": "a" * 40}, "honua-helm": {"sha": "b" * 40},
-        "honua-server": {"sha": "c" * 40, "image": f"ghcr.io/honua-io/honua-server@{index}", "digest": index,
-                         "awsEcsArchitecture": "x86_64", "platformDigests": {"amd64": amd64},
-                         "awsLambdaImage": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-ccccccc-amd64",
-                         "awsLambdaDigest": "sha256:" + "3" * 64, "awsLambdaEcrDigest": "pending-ecr-mirror",
-                         "awsLambdaArchitecture": "x86_64"}}}
-    (tmp_path / "platform-manifest.yaml").write_text(yaml.safe_dump(manifest))
-    (tmp_path / "compatibility-matrix.yaml").write_text((REPO_ROOT / "compatibility-matrix.yaml").read_text())
-    output = tmp_path / "out"
-    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, check=True,
-                   env={**os.environ, "GITHUB_OUTPUT": str(output), "PYTHONPATH": str(REPO_ROOT / "tools")})
-    pins = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert pins["server_image"] == f"ghcr.io/honua-io/honua-server@{index}"
-    assert pins["gp_batch_image"] == f"ghcr.io/honua-io/honua-server@{amd64}"
-
-
-@pytest.mark.skipif(os.name == "nt", reason="executes the Linux runner's bash step")
-@pytest.mark.parametrize("runs,retiring,expect_ok", [
-    (None, 0, False),                                               # the cloud-run lookup fails
-    ({"in_progress": ["41005085470"]}, 0, True),                    # only itself
-    ({"in_progress": ["41005085470", "41004840275"]}, 0, True),     # another lane, different prefix
-    ({"in_progress": ["41005085470"], "queued": ["41005099999"]}, 0, False),  # same six-digit prefix
-    ({"in_progress": ["41005085470"]}, 1, False),                   # a retirement is active
-])
-def test_cell_provision_guard_runs_against_gh(tmp_path, runs, retiring, expect_ok):
-    # #1084 shipped this step with `gh api --jq --arg`, which gh rejects ("accepts 1 arg(s)"), and every
-    # lane run failed before provisioning. Execute the step's script with a stub gh.
-    import subprocess
-    step = next(s for s in _workflow("e2e-cloud-aws-cell.yml")["jobs"]["provision"]["steps"]
-                if s.get("name") == "Refuse while a cell retirement or a same-prefix cloud run is active")
-    stub = tmp_path / "gh"
-    stub.write_text("#!/usr/bin/env python3\n"
-                    "import json, re, sys\n"
-                    f"RUNS = {json.dumps(runs) if runs is not None else 'None'}\n"
-                    f"RETIRING = {retiring}\n"
-                    "args = sys.argv[1:]\n"
-                    "assert args[0] == 'api' and '--arg' not in args, args\n"
-                    "url = args[1]; state = re.search(r'status=([a-z_]+)', url).group(1)\n"
-                    "if 'cloud-cell-retirement.yml' in url:\n"
-                    "    print(RETIRING if state == 'in_progress' else 0)\n"
-                    "elif RUNS is None:\n"
-                    "    sys.exit('HTTP 503')\n"
-                    "else:\n"
-                    "    print('\\n'.join(RUNS.get(state, [])))\n")
-    stub.chmod(0o755)
-    env = {"PATH": f"{tmp_path}:/usr/bin:/bin", "GITHUB_REPOSITORY": "honua-io/honua-release",
-           "RUN_ID": "41005085470", "GH_TOKEN": "x"}
-    result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
-    assert (result.returncode == 0) is expect_ok, result.stdout + result.stderr
 
 
 def _proto_baseline_command() -> str:

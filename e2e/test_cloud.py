@@ -83,7 +83,7 @@ def test_self_test_clears_every_cell_workflow_env_var():
     import yaml
     workflow = E2E_DIR.parent / ".github/workflows/e2e-cloud-aws-cell.yml"
     cell = yaml.safe_load(workflow.read_text(encoding="utf-8"))
-    leaked = {name for name in cell["env"] if name.startswith(("HONUA_", "CELL_"))} - set(_CELL_WORKFLOW_ENV)
+    leaked = {name for name in cell.get("env", {}) if name.startswith(("HONUA_", "CELL_"))} - set(_CELL_WORKFLOW_ENV)
     assert not leaked, f"cell workflow env reaches the self-test unreset: {sorted(leaked)}"
 
 
@@ -1607,54 +1607,14 @@ def _cloud_workflows():
             yaml.safe_load((workflows / "e2e-cloud-aws-cell.yml").read_text()))
 
 
-def test_cloud_workflow_requires_two_ecs_ga_cells_and_keeps_lambda_and_eks_preview():
-    # October16 owner amendment explicitly supersedes the prior EKS GA scope; the founder re-tier of
-    # 2026-10-25 moves Lambda (aws-serverless) to Preview and keeps AWS ECS as the only GA cloud target.
+def test_retained_cloud_driver_keeps_ecs_ga_and_lambda_and_eks_preview():
+    # Historical driver policy remains available for state-bound recovery tooling;
+    # automatic provisioning entry points are retired (test_retired_cloud_cells.py).
     cj = run_cloud.cloud_journey
-    workflow, cell = _cloud_workflows()
-    job = workflow["jobs"]["parity"]
     assert set(cj.GA_CELLS) == {"aws-ecs/redis-off"}
     assert cj.PREVIEW_TARGETS == ("aws-serverless", "aws-eks")
-    # Operator ruling 2026-10-22: target=all is the GA targets only; a Preview target runs only on
-    # an explicit dispatch, and the report names it "not certified (preview)".
-    matrix = job["strategy"]["matrix"]["target"]
-    assert "(inputs.target == '' || inputs.target == 'all') && '[\"aws-ecs\"]'" in matrix
-    assert '"aws-eks"' not in matrix and '"aws-serverless"' not in matrix
-    assert "aws-serverless" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert "aws-eks" in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    # rc.3: examples/aws-mixed does not exist; the cell is out of the matrix until honua-iac#209.
-    assert "aws-mixed" not in job["strategy"]["matrix"]["target"]
-    assert "aws-mixed" not in workflow[True]["workflow_dispatch"]["inputs"]["target"]["options"]
-    assert job["with"]["preview"] == "${{ matrix.target == 'aws-eks' || matrix.target == 'aws-serverless' }}"
-    assert job["strategy"]["fail-fast"] is False and job["strategy"]["max-parallel"] == 1
-    # Preview tolerance lives on the called cell's jobs; a reusable-workflow call cannot carry it.
-    assert all(cell_job["continue-on-error"] == "${{ inputs.preview }}"
-               for name, cell_job in cell["jobs"].items() if name != "teardown")
-    assert cell["jobs"]["teardown"]["continue-on-error"] is False
-    assembly = next(step["run"] for step in workflow["jobs"]["cloud-report"]["steps"] if step.get("id") == "assemble")
-    assert "python e2e/cloud_journey.py --reports reports" in assembly
-    assert "PARITY_RESULT" not in assembly and "IAC_LIVE_RESULT" not in assembly
 
 
-def test_cloud_driver_clients_install_without_scripts_root_or_cloud_credentials():
-    _, cell = _cloud_workflows()
-    journey = cell["jobs"]["journey"]
-    steps = journey["steps"]
-    names = [step.get("name") for step in steps]
-    script = steps[names.index("Install pinned extended driver clients")]["run"]
-    # npm code never runs lifecycle scripts or as root; root installs only the reviewed distro
-    # package list. The job itself holds no OIDC permission and no AWS credential (#381).
-    assert journey["permissions"] == {"contents": "read"}
-    assert not any("configure-aws-credentials" in str(step.get("uses", "")) for step in steps)
-    assert "--with-deps" not in script and "install-deps" not in script
-    assert all("sudo" not in line for line in script.splitlines() if "npm" in line or "node" in line)
-    assert "npm install" in script and "--ignore-scripts" in script
-    # The admit job opens the cell to this runner's address and seals the application key to this
-    # runner's own public key; both are published before any pip/npm code runs.
-    publish = names.index("Upload this runner's address and public key")
-    assert publish < names.index("Install journey runner dependencies")
-    assert publish < names.index("Install pinned extended driver clients")
-    assert publish < names.index("Run the ${{ inputs.target }} / redis-${{ inputs.redis }} journey")
 
 
 def test_demo_csp_block_cites_the_cell_hostname_issue_not_format_samples():
@@ -1755,19 +1715,6 @@ def test_cloud_report_names_a_missing_final_meter_reading_and_fails_it_only_when
             assert str(missing) in report["why"]
 
 
-def test_cloud_report_validates_receipts_against_the_candidate_overlay():
-    workflow, cell = _cloud_workflows()
-    jobs = [("cloud-report", workflow["jobs"]["cloud-report"])] + [
-        (name, cell["jobs"][name]) for name in ("provision", "journey", "teardown")]
-    for name, job in jobs:
-        steps = job["steps"]
-        uses = [step.get("uses") for step in steps]
-        overlay = uses.index("./.github/actions/candidate-input")
-        assert steps[overlay]["with"]["candidate_ref"] == "${{ inputs.candidate_ref }}"
-        if name == "cloud-report":
-            assemble = next(i for i, step in enumerate(steps) if step.get("id") == "assemble")
-            assert overlay < assemble and "--final-cost-after" in steps[assemble]["run"]
-    assert workflow["jobs"]["parity"]["with"]["candidate_ref"] == "${{ inputs.candidate_ref }}"
 
 
 def test_self_test_receipts_never_enter_the_uploaded_evidence_tree():
@@ -2697,11 +2644,10 @@ def test_application_key_reaches_the_journey_only_sealed_to_its_own_key():
         run_cloud.seal_key("cell-app-key", root / "public.pem", root / "key.sealed", run=run)
         assert b"application-key" not in (root / "key.sealed").read_bytes()
         assert run_cloud.open_key(root / "key.sealed", root / "private.pem") == "Honua-Gate-Aa1!application-key"
-    # No job output carries it: outputs and step env are printed in the public job log.
-    import yaml
-    provision = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())[
-        "jobs"]["provision"]
-    assert set(provision["outputs"]) == {"endpoint", "admission"}
+    # Retired entry points cannot expose an application key through job outputs.
+    _, cell = _cloud_workflows()
+    assert set(cell["jobs"]) == {"retired"}
+    assert set(cell["jobs"]["retired"]["outputs"]) == {"status"}
 
 
 class _PhaseStub(_ServingStub):
@@ -4257,18 +4203,6 @@ def test_redis_on_serverless_refuses_without_the_key_ring_secret_but_destroy_sti
         assert "operation_key_ring_certificate_secret_arn" not in _tf_vars(serverless(run_id="r1")._vars(False))
 
 
-def test_cell_provision_and_teardown_export_the_key_ring_repository_variables():
-    _, cell = _cloud_workflows()
-    steps = {step.get("name", ""): step for job in cell["jobs"].values() for step in job.get("steps", [])}
-    provision = next(step for name, step in steps.items() if name.startswith("Provision "))
-    teardown = next(step for name, step in steps.items() if name.startswith("Tear down "))
-    for step in (provision, teardown):
-        for var in ("HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN", "HONUA_AWS_OPERATION_KEY_RING_SECRET_KMS_KEY_ARN",
-                    "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN", "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_KMS_KEY_ARN"):
-            assert step["env"][var] == "${{ vars." + var + " }}"
-    # Step-scoped, not workflow-level: the self-test never sees them.
-    assert "HONUA_AWS_OPERATION_KEY_RING_SECRET_ARN" not in cell["env"]
-    assert "HONUA_AWS_AUDIT_CHAIN_KEY_SECRET_ARN" not in cell["env"]
 
 
 AUDIT_KEY_ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:honua/audit-chain-AbCdEf"
@@ -4390,34 +4324,8 @@ def test_ecs_bedrock_model_is_passed_only_when_set_valid_and_declared(monkeypatc
             ecs(run_id="r1")._vars(False)
 
 
-def test_cloud_workflow_threads_the_bedrock_model_to_the_cell_and_its_canary():
-    workflow, cell = _cloud_workflows()
-    assert "bedrock_model" in (workflow.get("on") or workflow[True])["workflow_dispatch"]["inputs"]
-    cell_call = next(job for job in workflow["jobs"].values() if "bedrock_model" in (job.get("with") or {}))
-    assert cell_call["with"]["bedrock_model"] == "${{ inputs.bedrock_model || '' }}"
-    assert cell["env"]["HONUA_BEDROCK_AI_MODEL"] == "${{ inputs.bedrock_model }}"
-    canary = next(step for job in cell["jobs"].values() for step in job.get("steps", [])
-                  if str(step.get("name", "")).startswith("Run the genuine-model canary"))
-    assert canary["env"]["TERMINAL_MODEL_NAME"].startswith("${{ inputs.bedrock_model || ")
 
 
-def test_cloud_workflow_threads_the_batch_image_and_scopes_bedrock_to_the_genuine_model_cell():
-    workflow, cell = _cloud_workflows()
-    candidate = workflow["jobs"]["candidate"]
-    assert candidate["outputs"]["gp_batch_image"] == "${{ steps.pins.outputs.gp_batch_image }}"
-    pins = next(step["run"] for step in candidate["steps"] if step.get("id") == "pins")
-    assert 'server.get("platformDigests")' in pins and '"amd64"' in pins
-    assert 'pins["gp_batch_image"] = f"{repository}@{amd64}"' in pins
-    parity = workflow["jobs"]["parity"]["with"]
-    assert parity["gp_batch_image"] == "${{ needs.candidate.outputs.gp_batch_image }}"
-    assert parity["enable_bedrock"] == ("${{ (inputs.genuine_model_bedrock || false) && "
-                                        "(matrix.target == 'aws-ecs' || matrix.target == 'aws-serverless') }}")
-    for trigger in ("workflow_dispatch", "workflow_call"):
-        assert workflow[True][trigger]["inputs"]["genuine_model_bedrock"]["default"] is False
-    assert cell["env"]["HONUA_GP_BATCH_IMAGE"] == "${{ inputs.gp_batch_image }}"
-    assert cell["env"]["HONUA_MIGRATE_IMAGE"] == "${{ inputs.gp_batch_image }}"
-    assert cell["env"]["HONUA_ENABLE_BEDROCK_AI"] == "${{ inputs.enable_bedrock }}"
-    assert cell[True]["workflow_call"]["inputs"]["enable_bedrock"]["default"] is False
 
 
 def test_manifest_batch_image_is_the_ecs_amd64_child_by_digest():
@@ -5153,24 +5061,6 @@ def test_diagnose_phase_runs_for_every_cell_and_prints_the_log_tail(monkeypatch,
         shutil.rmtree(cj.EVIDENCE / "diag-c2", ignore_errors=True)
 
 
-def test_cell_teardown_captures_cell_diagnostics_before_destroy_and_uploads_them():
-    _, cell = _cloud_workflows()
-    steps = cell["jobs"]["teardown"]["steps"]
-    names = [step.get("name", "") for step in steps]
-    diagnose = names.index("Capture cell readiness diagnostics")
-    destroy = next(i for i, name in enumerate(names) if name.startswith("Tear down"))
-    restore = names.index("Restore the Terraform state")
-    assert restore < diagnose < destroy
-    step = steps[diagnose]
-    # Both GA cell kinds: a Lambda cell's log groups are destroyed with it just like an ECS cell's.
-    assert step["continue-on-error"] is True
-    assert "inputs.target == 'aws-ecs'" in step["if"] and "inputs.target == 'aws-serverless'" in step["if"]
-    assert "--phase diagnose" in step["run"]
-    # Each kind initialises its own Terraform root before reading outputs.
-    assert "aws-ecs) ROOT=examples/aws ;;" in step["run"]
-    assert "aws-serverless) ROOT=examples/aws-serverless ;;" in step["run"]
-    upload = next(s for s in steps if s.get("name") == "Upload cloud gate-report (per cell)")
-    assert "e2e/cloud-evidence/**/diagnostics-*.json" in upload["with"]["path"]
 
 
 @pytest.mark.parametrize("line, secret, kept", [
@@ -5785,54 +5675,8 @@ def test_provision_report_records_the_endpoint_transport(monkeypatch):
         "scheme": "https", "host": "38038433205-aws-ecs-redis-off.cert.demo.honua.io"}
 
 
-def test_cell_workflow_threads_the_cell_dns_repository_variables():
-    _, cell = _cloud_workflows()
-    steps = {step.get("name", ""): step for job in cell["jobs"].values() for step in job.get("steps", [])}
-    provision = next(step for name, step in steps.items() if name.startswith("Provision "))
-    teardown = next(step for name, step in steps.items() if name.startswith("Tear down "))
-    admit = next(step for name, step in steps.items() if name.startswith("Admit the journey runner"))
-    for step in (provision, teardown):
-        for var in ("HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT"):
-            assert step["env"][var] == "${{ vars." + var + " }}"
-    assert admit["env"]["HONUA_AWS_CELL_DNS_ZONE_ID"] == "${{ vars.HONUA_AWS_CELL_DNS_ZONE_ID }}"
-    # Step-scoped, never workflow-level, and the credential-free journey job never sees them.
-    assert not {"HONUA_AWS_CELL_DNS_ZONE_ID", "HONUA_AWS_CELL_DNS_PARENT"} & set(cell["env"])
-    assert "HONUA_AWS_CELL_DNS" not in json.dumps(cell["jobs"]["journey"])
 
 
-@pytest.mark.parametrize("change,expected", [
-    ("qualification-only", 0), ("never-provisioned", 0), ("destroy-failed", 1),
-    ("lost-state", 1), ("unknown-obligation", 1), ("missing-report", 1),
-    ("secret-cleanup", 1), ("staged-fixture", 1), ("cost-failed", 1),
-])
-def test_preview_workflow_cannot_tolerate_failed_cleanup(tmp_path, change, expected):
-    workflow, cell = _cloud_workflows()
-    teardown = cell["jobs"]["teardown"]
-    assert teardown["continue-on-error"] is False
-    steps = teardown["steps"]
-    destroy = next(step for step in steps if (step.get("name") or "").startswith("Tear down"))
-    assert "continue-on-error" not in destroy
-    guard = next(step for step in steps if step.get("name") == "Refuse incomplete cleanup on every topology")
-    assert guard["if"] == "always()" and steps.index(guard) > steps.index(destroy)
-    # Execute the actual workflow guard against retained reports. Qualification failure alone
-    # remains informational; lost state, failed destroy, leaked secrets and spend remain fatal.
-    report = {"status": "fail", "provisionAttempted": True,
-              "teardown": {"attempted": True, "completed": True}, "cost": {"status": "pass"}}
-    if change == "never-provisioned":
-        report.update(provisionAttempted=False, teardown={"attempted": False, "completed": False})
-    elif change == "destroy-failed": report["teardown"]["completed"] = False
-    elif change == "lost-state": report["teardown"].update(attempted=False, completed=False)
-    elif change == "unknown-obligation": del report["provisionAttempted"]
-    elif change == "secret-cleanup": report["cleanupFailures"] = ["owned-secret-delete-failed"]
-    elif change == "staged-fixture": report["s10Cleanup"] = {"status": "failed"}
-    elif change == "cost-failed": report["cost"]["status"] = "fail"
-    directory = tmp_path / "e2e"
-    directory.mkdir()
-    if change != "missing-report":
-        (directory / "gate-report-cloud.json").write_text(json.dumps(report))
-    result = subprocess.run(["bash", "-c", guard["run"]], cwd=tmp_path,
-                            env={**os.environ, "PYTHONPATH": str(E2E_DIR)}, capture_output=True, text=True)
-    assert result.returncode == expected, result.stderr
 
 
 @pytest.mark.parametrize("handoff", ["missing", "stale", "confirmed-no-provision"])
@@ -6343,20 +6187,16 @@ def test_teardown_deletes_the_bedrock_cells_transcript_signer(monkeypatch):
             shutil.rmtree(cj.EVIDENCE / "phase1060", ignore_errors=True)
 
 
-def test_cell_workflow_hands_the_signing_seed_only_to_the_bedrock_provision_step():
-    import yaml
-    workflow = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws-cell.yml").read_text())
+def test_retired_cell_workflow_never_hands_the_signing_seed_to_a_job():
+    _, cell = _cloud_workflows()
     seed = run_cloud.TRANSCRIPT_SIGNER_SEED_ENV
-    assert seed in workflow[True]["workflow_call"]["secrets"]
-    assert seed not in json.dumps(workflow.get("env", {}))
-    holders = [(job, step.get("name")) for job, body in workflow["jobs"].items() for step in body.get("steps", [])
-               if seed in json.dumps(step.get("env", {})) or seed in json.dumps(step.get("with", {}))]
-    assert holders == [("provision", "Provision ${{ inputs.target }} / redis-${{ inputs.redis }}")]
-    provision = next(step for step in workflow["jobs"]["provision"]["steps"] if step.get("id") == "provision")
-    assert provision["env"][seed] == ("${{ inputs.enable_bedrock && secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED "
-                                      "|| '' }}")
-    caller = yaml.safe_load((E2E_DIR.parent / ".github/workflows/e2e-cloud-aws.yml").read_text())
-    assert caller["jobs"]["parity"]["secrets"][seed] == "${{ secrets.TERMINAL_MODEL_TRANSCRIPT_SIGNING_SEED }}"
+    # Preserve caller compatibility without evaluating or forwarding any secret.
+    assert seed in cell[True]["workflow_call"]["secrets"]
+    assert seed not in json.dumps(cell.get("env", {}))
+    workflow, _ = _cloud_workflows()
+    for document in (workflow, cell):
+        assert set(document["jobs"]) == {"retired"}
+        assert seed not in json.dumps(document["jobs"])
 
 
 def test_ecs_bedrock_cell_raises_studio_proxy_limits_only_when_declared(monkeypatch):

@@ -4,8 +4,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "gate-artifact-consume.yml"
 CONTRACT_WORKFLOW = ROOT / ".github" / "workflows" / "gate-contract.yml"
-CLOUD_WORKFLOW = ROOT / ".github" / "workflows" / "e2e-cloud-aws.yml"
-CLOUD_CELL_WORKFLOW = ROOT / ".github" / "workflows" / "e2e-cloud-aws-cell.yml"
 
 
 def test_artifact_consume_never_uses_floating_staging_or_source_refs():
@@ -75,54 +73,6 @@ def test_contract_gate_checks_out_manifest_pins_and_records_nonzero_results():
     assert 'git clone --quiet "https://x-access-token:' not in workflow
     assert 'if OUT="$(python tools/contract_surface.py check' in workflow
     assert "RC=$?" in workflow
-
-
-def test_iac_live_receives_exact_manifest_server_candidate():
-    workflow = CLOUD_WORKFLOW.read_text(encoding="utf-8")
-    cell = CLOUD_CELL_WORKFLOW.read_text(encoding="utf-8")
-
-    assert '"server_ref": str(server.get("sha", ""))' in workflow
-    # The module refuses `repo:tag@digest` (a mutable reference): the tag is stripped first.
-    assert 'repository = re.sub(r":[^/@]+$", "", image.split("@", 1)[0])' in workflow
-    assert 'pins["server_image"] = f"{repository}@{digest}"' in workflow
-    assert 'pins["lambda_source"] = f"{lambda_image}@{lambda_digest}"' in workflow
-    assert "ECR Lambda digest $RESOLVED does not match manifest ECR digest $EXPECTED_ECR_DIGEST" in workflow
-    assert "ECR Lambda config $ECR_CONFIG does not match source config $SOURCE_CONFIG" in workflow
-    assert 'crane copy "$SOURCE_IMAGE" "$TARGET"' in workflow
-    assert "docker tag" not in workflow
-    assert "docker push" not in workflow
-    assert "must be x86_64 for the 2026.1 Lambda GA target" in workflow
-    assert '.lambdaGaQualification = "pending"' in workflow
-    # Each cell (e2e-cloud-aws-cell.yml) deploys exactly what the candidate job resolved.
-    assert "lambda_image: ${{ needs.candidate.outputs.lambda_image }}" in workflow
-    assert "server_image: ${{ needs.candidate.outputs.server_image }}" in workflow
-    assert 'ecs_architecture = str(server.get("awsEcsArchitecture", ""))' in workflow
-    assert "ecs_architecture: ${{ needs.candidate.outputs.ecs_architecture }}" in workflow
-    assert "HONUA_LAMBDA_IMAGE_URI: ${{ inputs.lambda_image }}" in cell
-    assert "HONUA_ECS_IMAGE: ${{ inputs.server_image }}" in cell
-    assert "HONUA_ECS_ARCHITECTURE: ${{ inputs.ecs_architecture }}" in cell
-    # The runner's own /32 is resolved for EVERY cell: serverless/ECS use it for RDS ingress, and the
-    # EKS cell publishes both its API server and its load balancer to that address and nothing else.
-    assert "HONUA_AWS_DB_INGRESS_CIDR=${RUNNER_IP}/32" in cell
-    assert "HONUA_AWS_RUNNER_CIDR=${RUNNER_IP}/32" in cell
-    for text in (workflow, cell):
-        assert "HONUA_LAMBDA_IMAGE_URI: ${{ vars.HONUA_LAMBDA_IMAGE_URI }}" not in text
-        assert "HONUA_ECS_IMAGE: ${{ vars.HONUA_ECS_IMAGE }}" not in text
-    assert "inputs.target == '' || inputs.target == 'all'" in workflow
-    assert "inputs.redis_mode == '' || inputs.redis_mode == 'off'" in workflow
-    assert "(github.event_name == 'schedule' && github.workflow == 'e2e-cloud-aws') || inputs.run_iac_live" in workflow
-    assert "needs: [candidate, parity, iac-live]" in workflow
-    assert "CANDIDATE_RESULT: ${{ needs.candidate.result }}" in workflow
-    assert 'candidate prerequisite ended $CANDIDATE_RESULT' in workflow
-    assert 'certifyingScope:($full == "true")' in workflow
-    assert '.certifying = ($full == "true" and $enf == "true" and .status == "pass")' in workflow
-    assert "focused dispatch is diagnostic only" in workflow
-    assert "python e2e/cloud_journey.py --reports reports --output merged.json" in workflow
-    aggregator = (ROOT / "e2e/cloud_journey.py").read_text()
-    assert "full-scope cloud reports missing required cells" in aggregator
-    assert "full-scope cloud reports did not all pass" in aggregator
-    assert '-f honua_server_ref="$SERVER_REF"' in workflow
-    assert '-f aws_ecs_image="$ECS_IMAGE"' in workflow
 
 
 def _load_pins():

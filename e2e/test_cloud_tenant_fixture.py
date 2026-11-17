@@ -250,31 +250,3 @@ def test_runtime_secret_commitments_are_keyed_field_bound_and_fresh():
     assert all(value.startswith("hmac-sha256:") and len(value) == 76 for value in committed.values())
     assert "low-entropy-example" not in json.dumps(committed)
     assert key.hex() not in json.dumps(committed)
-
-
-def test_strict_cells_provision_the_run_owned_issuer_the_installed_client_lane_needs():
-    """A strict Redis-on cell needs the run-owned issuer twice: S11 mints its bearer from it
-    (endpoint.prepare refuses without it) and the journey's 8.tenant-isolation denial needs its
-    second principal (#377). require_real must provision it exactly as the RC train's candidate_ref
-    does. Gated on candidate/prepared refs alone, a strict trunk dispatch reported both BLOCKED and
-    failed aws-ecs/redis-on after a full paid cell (run 40435209970)."""
-    import yaml
-    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/e2e-cloud-aws-cell.yml"
-    expression = yaml.safe_load(workflow.read_text(encoding="utf-8"))["env"]["HONUA_CLOUD_TENANT_FIXTURE"]
-    assert expression.startswith("${{") and expression.endswith("}}")
-    terms = {term.strip() for term in expression[3:-2].split("||")}
-    assert terms == {"inputs.prepared_ref != ''", "inputs.candidate_ref != ''", "inputs.require_real",
-                     "inputs.target == 'aws-eks'"}
-
-
-def test_the_preview_eks_cells_provision_the_issuer_without_require_real():
-    """The GA single-tenant ruling covers only the aws-ecs cells, so an EKS journey needs the
-    second-tenant principal for 8.tenant-isolation (#377). Run 40832572972 (no require_real) recorded
-    it BLOCKED on aws-eks/redis-on. The fixture is enabled for aws-eks on every dispatch, without
-    require_real's promotion of tracked blocks to FAIL."""
-    import yaml
-    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/e2e-cloud-aws-cell.yml"
-    expression = yaml.safe_load(workflow.read_text(encoding="utf-8"))["env"]["HONUA_CLOUD_TENANT_FIXTURE"]
-    terms = {term.strip() for term in expression[3:-2].split("||")}
-    assert "inputs.target == 'aws-eks'" in terms
-    assert not any("aws-ecs" in term or "aws-serverless" in term for term in terms)
