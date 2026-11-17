@@ -7,6 +7,13 @@ customer types it. The proposal step goes through the co-installed ``honua-mcp-p
 terminal journey governed proposals come from the agent surface and a separate operator approves
 them with ``honua admin operate approveOperationProposal``.
 
+The server takes a proposal approval only from a person: a Console password session with the
+proposal's review capability. No published command can hold that session, so the cell asserts that
+the typed approval command is refused for the approver's ``admin:approve`` key with the server's
+human-approval 403, has the approval made through ``e2e/harness/lib/human_approval.py`` (run as a
+child process that alone holds the administrator password), and reads the outcome back through the
+command line.
+
 ``--client pypi`` runs the ``honua`` console script that the pinned ``honua-sdk`` wheel installs, with
 the operator commands (``honua datasource|layer|proposal``) that the co-installed ``honua-admin``
 wheel mounts on it. ``HONUA_PYTHON_CLI=1`` keeps the script in Python even if a JavaScript ``honua``
@@ -30,8 +37,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[4]
-# The shared stdio MCP session the installed-client MCP cells use.
-sys.path.insert(0, str(ROOT / "certification" / "terminal-journey"))
+# The shared stdio MCP session the installed-client MCP cells use, and the human approval session.
+sys.path[:0] = [str(ROOT / "certification" / "terminal-journey"), str(ROOT / "e2e" / "harness" / "lib")]
+import human_approval  # noqa: E402
 import probes  # noqa: E402
 
 PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
@@ -54,7 +62,8 @@ API = {
         "served": "honua query --count",
         "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
         "self-approval-refused": "honua admin operate approveOperationProposal --profile proposer --yes",
-        "approve": "honua admin operate approveOperationProposal --profile approver --yes",
+        "key-approval-refused": "honua admin operate approveOperationProposal --profile approver --yes",
+        "approve": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
         "proposal-resolved": "honua admin operate getOperationProposal --profile approver (until terminal)",
         "approved-served": "honua query --format geojson",
         "unpublish": "honua admin publish setLayerEnabled --yes",
@@ -70,7 +79,8 @@ API = {
         "served": "honua query <service> <layer> --count --json",
         "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
         "self-approval-refused": "honua proposal approve (proposer key)",
-        "approve": "honua proposal approve (approver key)",
+        "key-approval-refused": "honua proposal approve (approver key)",
+        "approve": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
         "proposal-resolved": "honua proposal read --wait (approver key)",
         "approved-served": "honua query <service> <layer>",
         "unpublish": "honua layer unpublish --service-name",
@@ -91,6 +101,10 @@ class CommandFailed(Exception):
         self.code, self.status = code, status
 
 
+class HumanSessionRequired(CommandFailed):
+    """A command failed with the server's refusal of any approval that is not a person's Console session."""
+
+
 class Cli:
     def __init__(self, client: str, honua: str, proxy: str | None, workdir: Path):
         self.client, self.honua, self.proxy, self.workdir = client, honua, proxy, workdir
@@ -108,8 +122,10 @@ class Cli:
                               timeout=COMMAND_TIMEOUT, check=False)
         print(f"[cli-driver] exit {proc.returncode}\n{proc.stdout[-1500:]}{proc.stderr[-1500:]}", file=sys.stderr)
         if proc.returncode:
-            match = HTTP_STATUS.search(proc.stdout + proc.stderr)
-            raise CommandFailed(proc.returncode, int(match.group(1)) if match else None)
+            output = proc.stdout + proc.stderr
+            match = HTTP_STATUS.search(output)
+            failed = HumanSessionRequired if human_approval.HUMAN_APPROVAL_REQUIRED in output else CommandFailed
+            raise failed(proc.returncode, int(match.group(1)) if match else None)
         return proc.stdout
 
     def json(self, args: list[str], credentials: dict[str, str]) -> Any:
@@ -165,6 +181,46 @@ def until_terminal(read: Callable[[], dict[str, Any]], timeout: float = PROPOSAL
         if record.get("status") in TERMINAL_PROPOSAL_STATES or time.monotonic() >= deadline:
             return record
         time.sleep(1)
+
+
+def attempt(command: Callable[[], Any]) -> BaseException | None:
+    """Run a command that must be refused; returns its failure, or None when it succeeded."""
+    try:
+        command()
+    except Exception as exc:  # noqa: BLE001 - the refusal (or any failure) is the observation
+        return exc
+    return None
+
+
+class Refusals:
+    """Approvals that must be refused: each one's failure, and the proposal status read afterwards."""
+
+    def __init__(self, client: str, read_status: Callable[[], Any], state: dict[str, Any]):
+        self.client, self.read_status, self.state = client, read_status, state
+
+    def expect(self, name: str, command: Callable[[], Any]) -> None:
+        if "proposal" not in self.state:
+            emit(self.client, name, skipped="depends on ['proposal'], which did not complete")
+            return
+        failure = attempt(command)
+        try:
+            observed = {"status": self.read_status(), "humanSessionRequired": isinstance(failure, HumanSessionRequired)}
+        except Exception as exc:  # noqa: BLE001 - the follow-up read failed
+            traceback.print_exc(file=sys.stderr)
+            observed = {"status": None, "readError": error_of(exc)}
+        emit(self.client, name, **({"error": error_of(failure)} if failure else {}), observed=observed)
+
+
+def approve_as_person(state: dict[str, Any]) -> dict[str, Any]:
+    """The approval a person makes in a Console password session, which no installed command can hold."""
+    human = PLAN.get("humanApproval") or {}
+    password = os.environ.get("SDKREG_ADMIN_PASSWORD", "")
+    if not human.get("baseUrl") or not password:
+        raise Unsupported("the human approval session needs the candidate's HTTPS endpoint and the administrator password")
+    result = human_approval.approve_in_child(human["baseUrl"], state["proposal"], password, human.get("cafile"))
+    if result.get("result") == "approved":
+        state["approved"] = True
+    return {key: result.get(key) for key in ("result", "status", "approvalChannel", "stage", "httpStatus")}
 
 
 def geojson_rows(document: dict[str, Any]) -> dict[str, Any]:
@@ -278,30 +334,16 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
         return cli.json(["admin", "operate", "getOperationProposal", "--path", f"id={state['proposal']}",
                          "--profile", profile, "--json"], {"HONUA_ADMIN_KEY": key})
 
-    def self_approval() -> None:
-        try:
-            cli.run(["admin", "operate", "approveOperationProposal", "--path", f"id={state['proposal']}",
-                     "--profile", "proposer", "--yes", "--json"], {"HONUA_ADMIN_KEY": proposer})
-        except CommandFailed as exc:
-            after = read_proposal(approver, "approver")
-            emit("npm", "self-approval-refused", error=error_of(exc), observed={"status": after.get("status")})
-            return
-        emit("npm", "self-approval-refused", observed={"status": read_proposal(approver, "approver").get("status")})
-    if "proposal" in state:
-        try:
-            self_approval()
-        except Exception as exc:  # noqa: BLE001 - the follow-up read failed
-            traceback.print_exc(file=sys.stderr)
-            emit("npm", "self-approval-refused", observed={"status": None, "readError": error_of(exc)})
-    else:
-        emit("npm", "self-approval-refused", skipped="depends on ['proposal'], which did not complete")
+    def approve_with(key: str, profile: str) -> Callable[[], Any]:
+        return lambda: cli.run(["admin", "operate", "approveOperationProposal", "--path", f"id={state['proposal']}",
+                                "--profile", profile, "--yes", "--json"], {"HONUA_ADMIN_KEY": key})
 
-    def approve() -> dict[str, Any]:
-        approved = cli.json(["admin", "operate", "approveOperationProposal", "--path", f"id={state['proposal']}",
-                             "--profile", "approver", "--yes", "--json"], {"HONUA_ADMIN_KEY": approver})
-        state["approved"] = True
-        return {"status": approved.get("status")}
-    step("npm", "approve", approve, state, ("proposal",))
+    def status_now() -> Any:
+        return read_proposal(approver, "approver").get("status")
+    refusals = Refusals("npm", status_now, state)
+    refusals.expect("self-approval-refused", approve_with(proposer, "proposer"))
+    refusals.expect("key-approval-refused", approve_with(approver, "approver"))
+    step("npm", "approve", lambda: approve_as_person(state), state, ("proposal",))
 
     def resolved() -> dict[str, Any]:
         record = until_terminal(lambda: read_proposal(approver, "approver"))
@@ -334,7 +376,8 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
 
 def run_pypi(cli: Cli, state: dict[str, Any]) -> None:
     # The same principals as the npm cell: the root key reads data (HONUA_API_KEY) and runs the operator
-    # commands (HONUA_ADMIN_KEY); the proposer and approver keys reach the proposal commands one at a time.
+    # commands (HONUA_ADMIN_KEY); the proposer and approver keys reach the proposal commands one at a time,
+    # and a person approves in a Console password session.
     root = os.environ["SDKREG_API_KEY"]
     proposer, approver = os.environ.get("SDKREG_PROPOSER_KEY", ""), os.environ.get("SDKREG_APPROVER_KEY", "")
     sites, life, proposal = PLAN["sites"], PLAN["lifecycle"], PLAN["proposal"]
@@ -400,27 +443,12 @@ def run_pypi(cli: Cli, state: dict[str, Any]) -> None:
     def read_proposal(*extra: str) -> dict[str, Any]:
         return cli.json(["proposal", "read", state["proposal"], *extra, "--json"], {"HONUA_ADMIN_KEY": approver})
 
-    def self_approval() -> None:
-        try:
-            cli.run(["proposal", "approve", state["proposal"], "--json"], {"HONUA_ADMIN_KEY": proposer})
-        except CommandFailed as exc:
-            emit("pypi", "self-approval-refused", error=error_of(exc), observed={"status": read_proposal().get("status")})
-            return
-        emit("pypi", "self-approval-refused", observed={"status": read_proposal().get("status")})
-    if "proposal" in state:
-        try:
-            self_approval()
-        except Exception as exc:  # noqa: BLE001 - the follow-up read failed
-            traceback.print_exc(file=sys.stderr)
-            emit("pypi", "self-approval-refused", observed={"status": None, "readError": error_of(exc)})
-    else:
-        emit("pypi", "self-approval-refused", skipped="depends on ['proposal'], which did not complete")
-
-    def approve() -> dict[str, Any]:
-        approved = cli.json(["proposal", "approve", state["proposal"], "--json"], {"HONUA_ADMIN_KEY": approver})
-        state["approved"] = True
-        return {"status": approved.get("status")}
-    step("pypi", "approve", approve, state, ("proposal",))
+    def approve_with(key: str) -> Callable[[], Any]:
+        return lambda: cli.run(["proposal", "approve", state["proposal"], "--json"], {"HONUA_ADMIN_KEY": key})
+    refusals = Refusals("pypi", lambda: read_proposal().get("status"), state)
+    refusals.expect("self-approval-refused", approve_with(proposer))
+    refusals.expect("key-approval-refused", approve_with(approver))
+    step("pypi", "approve", lambda: approve_as_person(state), state, ("proposal",))
 
     def resolved() -> dict[str, Any]:
         # --wait polls to a terminal status (exit 1 at the deadline, which the oracle reports).

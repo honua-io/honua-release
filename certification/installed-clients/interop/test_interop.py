@@ -44,6 +44,9 @@ SOURCES = {
 }
 LABELS = {"honua-sdk-python-wheel": "honua-sdk 0.1.12", "honua-sdk-js": "@honua/sdk-js 0.1.12",
           "honua-sdk-dotnet": "Honua.Sdk 1.10.1", "honua-mcp-server": "@honua/mcp-server 0.1.12"}
+# A person's Console password session, as the server records it.
+PERSON = "adminsession:subject:-:00000000-0000-0000-0000-000000000002"
+HUMAN_APPROVED = {"result": "approved", "status": "Succeeded", "approvalChannel": "console-interactive-password"}
 # The SDK call each SDK step goes through, as it appears in that SDK's runner.
 RUNNER_CALLS = {
     "IHonuaAdminClient.PublishLayerAsync": ("honua-sdk-dotnet", "IHonuaAdminClient>().PublishLayerAsync("),
@@ -169,10 +172,11 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(all(clients("interop-import-render-buffer", s)[1].startswith("honua-mcp-proxy")
                             for s in ("read", "render", "buffer-submit")))
         self.assertEqual(clients("interop-import-render-buffer", "job-result")[0], "honua-sdk-python-wheel")
-        # (c) JS proposes -> the admin CLI approves as a separate principal (self-approval refused) -> .NET verifies.
+        # (c) JS proposes -> the admin CLI's key approvals are refused -> a person approves in Console -> .NET verifies.
         self.assertEqual(clients("interop-proposal-approval", "request-publication")[0], "honua-sdk-js")
         self.assertIn("--profile proposer", clients("interop-proposal-approval", "self-approval-refused")[1])
-        self.assertIn("--profile approver", clients("interop-proposal-approval", "approve")[1])
+        self.assertIn("--profile approver", clients("interop-proposal-approval", "key-approval-refused")[1])
+        self.assertEqual(clients("interop-proposal-approval", "approve")[0], judge.HUMAN_SESSION)
         self.assertEqual({clients("interop-proposal-approval", s)[0] for s in ("published-pointer", "published-content", "published-url")},
                          {"honua-sdk-dotnet"})
         # (d) one key minted by the admin CLI, used and then refused by all three SDKs and the proxy.
@@ -191,6 +195,10 @@ class ContractTests(unittest.TestCase):
     def test_every_sdk_step_goes_through_the_named_call_in_its_client_runner(self):
         for sid, scenario in SCENARIOS.items():
             for step in scenario["steps"]:
+                if step["client"] == judge.HUMAN_SESSION:
+                    # A person's Console session, driven by the harness helper rather than a client runner.
+                    self.assertIn("e2e/harness/lib/human_approval.py", step["api"], (sid, step["id"]))
+                    continue
                 if step["client"] == "honua-mcp-server" or step["api"].startswith("honua "):
                     # The orchestrator drives the proxy over stdio and the installed honua command line.
                     self.assertTrue(step["api"].startswith(("honua-mcp-proxy ", "honua admin ")), (sid, step["id"]))
@@ -400,9 +408,12 @@ class OracleTests(unittest.TestCase):
         self.assertFalse(judge.oracle_version_saved(saved, {"itemId": "other"})[0])
         self.assertTrue(judge.oracle_publication_proposed({"proposalId": "proposal-1", "requestId": None})[0])
         self.assertFalse(judge.oracle_publication_proposed({"proposalId": None})[0])
-        resolved = {"status": "Succeeded", "kind": "StudioDraftMutation", "requestedBy": "x:p-id", "resolvedBy": "x:a-id"}
+        resolved = {"status": "Succeeded", "kind": "StudioDraftMutation", "requestedBy": "apikey:api-key:p-id",
+                    "resolvedBy": PERSON}
         self.assertTrue(judge.oracle_proposal_resolved(resolved, p["principals"])[0])
         self.assertFalse(judge.oracle_proposal_resolved(dict(resolved, resolvedBy="x:p-id"), p["principals"])[0])
+        # The approver's API key is not a person: a key actor as resolver is red.
+        self.assertFalse(judge.oracle_proposal_resolved(dict(resolved, resolvedBy="apikey:api-key:a-id"), p["principals"])[0])
         self.assertFalse(judge.oracle_proposal_resolved(dict(resolved, kind="ServicePublish"), p["principals"])[0])
         ok, summary = judge.oracle_publication_active({"requestId": None}, p)
         self.assertFalse(ok)
@@ -567,9 +578,11 @@ class SeamTests(unittest.TestCase):
                 "proposalId": "proposal-1", "requestId": "r", "requestIdSource": "handle.resourceIds", "status": "RequiresApproval"}),
             (sid, "self-approval-refused"): obs(sid, "self-approval-refused", error={"type": "CommandFailed", "status": 403},
                                                observed={"status": "AwaitingApproval"}),
-            (sid, "approve"): obs(sid, "approve", observed={"status": "Succeeded"}),
+            (sid, "key-approval-refused"): obs(sid, "key-approval-refused", error={"type": "CommandFailed", "status": 403},
+                                              observed={"status": "AwaitingApproval", "humanSessionRequired": True}),
+            (sid, "approve"): obs(sid, "approve", observed=HUMAN_APPROVED),
             (sid, "proposal-resolved"): obs(sid, "proposal-resolved", observed={
-                "status": "Succeeded", "kind": "StudioDraftMutation", "requestedBy": "x:p-id", "resolvedBy": "x:a-id"}),
+                "status": "Succeeded", "kind": "StudioDraftMutation", "requestedBy": "x:p-id", "resolvedBy": PERSON}),
             (sid, "publication-url"): obs(sid, "publication-url", observed={
                 "requestId": "r", "state": "Active", "active": True, "publicationUrl": url, "status": "accepted"}),
             (sid, "published-pointer"): obs(sid, "published-pointer", observed={"publishedVersionId": "v"}),
@@ -795,7 +808,8 @@ class RunnerTests(unittest.TestCase):
         interop = self.orchestrator.Interop.__new__(self.orchestrator.Interop)
         interop.js, interop.dotnet, interop.cli = Fake(js.get), Fake(lambda op: {"publishedVersionId": "v"}), Cli()
         interop.proposer = interop.approver = "key"
-        with mock.patch.object(self.orchestrator, "emit"):
+        with mock.patch.object(self.orchestrator, "emit"), \
+                mock.patch.object(self.orchestrator, "approve_as_person", side_effect=lambda state: state.update(approved=True)):
             interop.proposal_approval()
         self.assertIn(("studio-published-url", {"url": polled}), calls)
         self.assertNotIn(route, [kwargs.get("route") for op, kwargs in calls if op == "studio-published-url"])

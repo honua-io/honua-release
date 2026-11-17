@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "cli-workflow",
-  "title": "Terminal workflow: discover, create and test a datasource, publish, query, propose, approve as a separate principal, unpublish",
-  "promise": "An operator runs the whole publication workflow from the installed command-line clients. The proposal comes from the agent surface (the installed MCP proxy, as in the terminal journey) and a different principal approves it with the typed approval command. The server's state after every command matches the fixture.",
+  "title": "Terminal workflow: discover, create and test a datasource, publish, query, propose, see API-key approval refused, approve as a person, unpublish",
+  "promise": "An operator runs the whole publication workflow from the installed command-line clients. The proposal comes from the agent surface (the installed MCP proxy, as in the terminal journey). The typed approval command cannot approve with an API key: the proposer's own key and the approver's admin:approve key are both refused with 403, the latter with the server's human-approval refusal. A person approves in a Console password session, and the command-line client then reads the resolved proposal and the published layer. The server's state after every command matches the fixture.",
   "steps": [
     {
       "id": "discover",
@@ -50,14 +50,19 @@
       "description": "The proposer tries to approve its own proposal; the command fails with 403 and the proposal is still awaiting approval."
     },
     {
+      "id": "key-approval-refused",
+      "oracle": "key-approval-refused",
+      "description": "The approver principal tries to approve with its admin:approve API key through the typed approval command; the command fails with the server's 403 that requires a live interactive browser session, and the proposal is still awaiting approval."
+    },
+    {
       "id": "approve",
-      "oracle": "proposal-approved",
-      "description": "The separate approver principal approves the proposal with the typed approval command."
+      "oracle": "human-approved",
+      "description": "A person approves the proposal in a Console password session over HTTPS: approval review, then approve with the review capability. The server records the console-interactive-password channel."
     },
     {
       "id": "proposal-resolved",
       "oracle": "proposal-resolved",
-      "description": "Read the proposal until its status is terminal (bounded deadline): it succeeded, was requested by the proposer and resolved by the approver."
+      "description": "Read the proposal until its status is terminal (bounded deadline): it succeeded, was requested by the proposer and resolved by the person's Console session."
     },
     {
       "id": "approved-served",
@@ -96,7 +101,8 @@
       "served": "honua query --count",
       "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
       "self-approval-refused": "honua admin operate approveOperationProposal --profile proposer --yes",
-      "approve": "honua admin operate approveOperationProposal --profile approver --yes",
+      "key-approval-refused": "honua admin operate approveOperationProposal --profile approver --yes",
+      "approve": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
       "proposal-resolved": "honua admin operate getOperationProposal --profile approver (until terminal)",
       "approved-served": "honua query --format geojson",
       "unpublish": "honua admin publish setLayerEnabled --yes",
@@ -112,7 +118,8 @@
       "served": "honua query <service> <layer> --count --json",
       "propose-publication": "honua-mcp-proxy tools/list {view: setup} + tools/call honua_publish_service (proposer)",
       "self-approval-refused": "honua proposal approve (proposer key)",
-      "approve": "honua proposal approve (approver key)",
+      "key-approval-refused": "honua proposal approve (approver key)",
+      "approve": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
       "proposal-resolved": "honua proposal read --wait (approver key)",
       "approved-served": "honua query <service> <layer>",
       "unpublish": "honua layer unpublish --service-name",

@@ -22,11 +22,15 @@ import oracles
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixture.v1.json"
-# The client artifacts an interop step may name.
-CLIENTS = ("honua-sdk-python-wheel", "honua-sdk-js", "honua-sdk-dotnet", "honua-mcp-server")
+# The client artifacts an interop step may name, and the one step performer that is not a published
+# client: a person approving in a Console password session (e2e/harness/lib/human_approval.py). The
+# server takes a proposal approval from nobody else.
+HUMAN_SESSION = "console-session"
+HUMAN_SESSION_LABEL = "Console password session"
+CLIENTS = ("honua-sdk-python-wheel", "honua-sdk-js", "honua-sdk-dotnet", "honua-mcp-server", HUMAN_SESSION)
 RECEIPT_FIELDS = ["client", "version", "integrity", "scenario", "step", "api", "status", "oracle"]
 # Oracles that judge the whole observation, because the expected outcome is an error.
-ERROR_ORACLES = {"self-approval-refused"}
+ERROR_ORACLES = {"self-approval-refused", "key-approval-refused"}
 REFUSED_STATUSES = oracles.REFUSED_STATUSES
 # MCP refusal codes: an authentication or authorization denial, as a JSON-RPC error or a tool error.
 MCP_REFUSALS = {"permission_denied", "unauthenticated", "unauthorized", "forbidden"}
@@ -363,19 +367,8 @@ def oracle_publication_proposed(observed: dict[str, Any]) -> tuple[bool, str]:
 
 
 def oracle_proposal_resolved(observed: dict[str, Any], principals: dict[str, Any]) -> tuple[bool, str]:
-    """The Studio publication proposal names the proposer as requester and the separate approver as resolver."""
-    proposer, approver = principals.get("proposerId"), principals.get("approverId")
-    requested, resolved = str(observed.get("requestedBy") or ""), str(observed.get("resolvedBy") or "")
-    checks = {
-        "status Succeeded": observed.get("status") == "Succeeded",
-        "kind StudioDraftMutation": observed.get("kind") == "StudioDraftMutation",
-        "requested by the proposer": bool(proposer) and requested.endswith(str(proposer)),
-        "resolved by the approver": bool(approver) and resolved.endswith(str(approver)),
-        "two principals": bool(requested) and bool(resolved) and requested != resolved,
-    }
-    failed = [name for name, ok in checks.items() if not ok]
-    return not failed, ("proposal succeeded, requested by the proposer and resolved by the separate approver" if not failed
-                        else f"proposal status {observed.get('status')!r} kind {observed.get('kind')!r}; failed: {', '.join(failed)}")
+    """The Studio publication proposal names the proposer as requester and a person's session as resolver."""
+    return oracles.resolved_by_person(observed, principals, "StudioDraftMutation")
 
 
 def oracle_publication_active(observed: dict[str, Any], plan: dict[str, Any]) -> tuple[bool, str]:
@@ -569,7 +562,8 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
     "interop-version-saved": lambda o, f, p, obs, s: oracle_version_saved(o, _draft(obs, s)),
     "interop-publication-proposed": lambda o, f, p, obs, s: oracle_publication_proposed(o),
     "self-approval-refused": lambda o, f, p, obs, s: oracles.oracle_self_approval_refused(o),
-    "proposal-approved": lambda o, f, p, obs, s: oracles.oracle_proposal_approved(o),
+    "key-approval-refused": lambda o, f, p, obs, s: oracles.oracle_key_approval_refused(o),
+    "human-approved": lambda o, f, p, obs, s: oracles.oracle_human_approved(o),
     "interop-proposal-resolved": lambda o, f, p, obs, s: oracle_proposal_resolved(o, p.get("principals") or {}),
     "interop-publication-active": lambda o, f, p, obs, s: oracle_publication_active(o, p),
     "interop-published-pointer": lambda o, f, p, obs, s: oracle_published_pointer(o, _saved(obs, s)),
@@ -585,6 +579,11 @@ ORACLES: dict[str, Callable[..., tuple[bool, str]]] = {
 # ── evaluation ───────────────────────────────────────────────────────────────────────────────
 
 
+def client_label(labels: dict[str, str], client: str) -> str:
+    """The published client's name and version, or the label of the person's Console session."""
+    return HUMAN_SESSION_LABEL if client == HUMAN_SESSION else labels[client]
+
+
 def seam(scenario: dict[str, Any], step: dict[str, Any], labels: dict[str, str]) -> str:
     """The hand-offs into a step whose producer is a different client, named client and API on both sides."""
     parts = []
@@ -592,10 +591,10 @@ def seam(scenario: dict[str, Any], step: dict[str, Any], labels: dict[str, str])
         producer = scenario_step(scenario, item["step"])
         if producer["client"] == step["client"]:
             continue
-        parts.append(f"{item['handoff']} from {labels[producer['client']]} `{producer['api']}` ({producer['id']})")
+        parts.append(f"{item['handoff']} from {client_label(labels, producer['client'])} `{producer['api']}` ({producer['id']})")
     if not parts:
         return ""
-    return f"seam {' and '.join(parts)} -> {labels[step['client']]} `{step['api']}`: "
+    return f"seam {' and '.join(parts)} -> {client_label(labels, step['client'])} `{step['api']}`: "
 
 
 def judge_step(scenario_id: str, step: dict[str, Any], observation: dict[str, Any] | None, fixture: dict[str, Any],
@@ -635,7 +634,7 @@ def evaluate_cell(cell: dict[str, Any], scenario: dict[str, Any], observations: 
         if not passed:
             summary = seam(scenario, step, labels) + summary
         status = "pass" if passed else "fail"
-        row = {"step": step["id"], "client": labels[step["client"]], "api": step["api"], "status": status}
+        row = {"step": step["id"], "client": client_label(labels, step["client"]), "api": step["api"], "status": status}
         entry = blocked.get(step["id"])
         if entry:
             row["blockedBy"] = entry["blockedBy"]

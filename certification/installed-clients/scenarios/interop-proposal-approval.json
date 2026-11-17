@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "id": "interop-proposal-approval",
-  "title": "Governed publication across clients: the JS SDK proposes, the honua admin CLI approves as a separate principal, the .NET SDK verifies",
-  "promise": "A publication the JS SDK proposes is only published after a different principal approves it with the typed admin CLI (the proposer's own approval is refused with 403), and the .NET SDK then sees exactly the approved version and content at the final publication.",
+  "title": "Governed publication across clients: the JS SDK proposes, the honua admin CLI's API-key approval is refused, a person approves in a Console session, the .NET SDK verifies",
+  "promise": "A publication the JS SDK proposes is only published after a person approves it in a Console password session with the proposal's review capability. The typed admin CLI cannot approve with an API key: the proposer's own approval and the approver key's approval are both refused with 403, the latter with the server's human-approval refusal. The CLI then reads the proposal resolved by that person's session, and the .NET SDK sees exactly the approved version and content at the final publication.",
   "steps": [
     {
       "id": "create-draft",
@@ -52,17 +52,30 @@
       "description": "The proposer tries to approve its own proposal with the typed admin CLI; the command fails with 403 and the proposal is still awaiting approval."
     },
     {
-      "id": "approve",
+      "id": "key-approval-refused",
       "client": "honua-sdk-js",
       "api": "honua admin operate approveOperationProposal --profile approver --yes",
-      "oracle": "proposal-approved",
+      "oracle": "key-approval-refused",
       "consumes": [
         {
           "step": "request-publication",
           "handoff": "proposal"
         }
       ],
-      "description": "The separate approver approves the proposal with the typed admin CLI."
+      "description": "The approver tries to approve with its admin:approve API key through the typed admin CLI; the command fails with the server's 403 that requires a live interactive browser session, and the proposal is still awaiting approval."
+    },
+    {
+      "id": "approve",
+      "client": "console-session",
+      "api": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
+      "oracle": "human-approved",
+      "consumes": [
+        {
+          "step": "request-publication",
+          "handoff": "proposal"
+        }
+      ],
+      "description": "A person signs in to a Console password session over HTTPS, opens the proposal's approval review and approves with its review capability; the server records the console-interactive-password channel."
     },
     {
       "id": "proposal-resolved",
@@ -75,7 +88,7 @@
           "handoff": "proposal"
         }
       ],
-      "description": "Read the proposal until it is terminal (bounded): it succeeded, was requested by the proposer and resolved by the approver."
+      "description": "Read the proposal with the typed admin CLI until it is terminal (bounded): it succeeded, was requested by the proposer and resolved by the person's Console session."
     },
     {
       "id": "publication-url",

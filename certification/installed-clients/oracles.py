@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import math
+from http import HTTPStatus
 from typing import Any
 
 from render_png import decode_png, oracle_map_render, render_expectations
@@ -18,6 +19,10 @@ from mcp_plan_validation import oracle_mcp_plan_invalid, oracle_mcp_plan_valid
 
 COORDINATE_TOLERANCE = 1e-9
 REFUSED_STATUSES = {401, 403, 499}
+# A person's approval: the channel the server records for a Console password session, and the actor
+# prefix of an administrator session (an API key actor never carries it).
+HUMAN_APPROVAL_CHANNEL = "console-interactive-password"
+HUMAN_SESSION_ACTOR_PREFIX = "adminsession:"
 
 
 # ── fixture-derived expectations ─────────────────────────────────────────────────────────────
@@ -464,24 +469,46 @@ def oracle_self_approval_refused(observation: dict[str, Any]) -> tuple[bool, str
     return ok, f"{_error_summary(observation)}; the proposal is {after!r} afterwards (expected 403 and 'AwaitingApproval')"
 
 
-def oracle_proposal_approved(observed: dict[str, Any]) -> tuple[bool, str]:
-    status = observed.get("status")
-    return status in {"Succeeded", "Approved", "Applied"}, f"approval returned proposal status {status!r}"
+def oracle_key_approval_refused(observation: dict[str, Any]) -> tuple[bool, str]:
+    """An API key that may approve is still refused: the server takes an approval only from a person."""
+    if "error" not in observation:
+        return False, "an API key approved the proposal; the server must require a human approval session"
+    status = observation["error"].get("status")
+    observed = observation.get("observed") or {}
+    after, human = observed.get("status"), observed.get("humanSessionRequired")
+    ok = status == HTTPStatus.FORBIDDEN and human is True and after == "AwaitingApproval"
+    return ok, (f"{_error_summary(observation)}, human approval refusal named: {human!r}; the proposal is {after!r} afterwards "
+                "(expected the 403 that requires a live interactive browser session, and 'AwaitingApproval')")
+
+
+def oracle_human_approved(observed: dict[str, Any]) -> tuple[bool, str]:
+    """A person approved through a Console password session with the proposal's review capability."""
+    result, status, channel = observed.get("result"), observed.get("status"), observed.get("approvalChannel")
+    ok = result == "approved" and status in {"Succeeded", "Approved", "Applied"} and channel == HUMAN_APPROVAL_CHANNEL
+    if result != "approved":
+        return False, (f"the human approval session was {result!r} at {observed.get('stage')!r} "
+                       f"(HTTP {observed.get('httpStatus')!r})")
+    return ok, f"approval returned proposal status {status!r} on channel {channel!r} (expected {HUMAN_APPROVAL_CHANNEL!r})"
 
 
 def oracle_proposal_resolved(observed: dict[str, Any], principals: dict[str, Any]) -> tuple[bool, str]:
-    """The proposal names the proposer as requester and the separate approver as resolver."""
-    proposer, approver = principals.get("proposerId"), principals.get("approverId")
+    """The proposal names the proposer as requester and a person's session as resolver."""
+    return resolved_by_person(observed, principals, "ServicePublish")
+
+
+def resolved_by_person(observed: dict[str, Any], principals: dict[str, Any], kind: str) -> tuple[bool, str]:
+    proposer = principals.get("proposerId")
     requested, resolved = str(observed.get("requestedBy") or ""), str(observed.get("resolvedBy") or "")
     checks = {
         "status Succeeded": observed.get("status") == "Succeeded",
-        "kind ServicePublish": observed.get("kind") == "ServicePublish",
+        f"kind {kind}": observed.get("kind") == kind,
         "requested by the proposer": bool(proposer) and requested.endswith(str(proposer)),
-        "resolved by the approver": bool(approver) and resolved.endswith(str(approver)),
-        "two principals": bool(requested) and bool(resolved) and requested != resolved,
+        "resolved by a human session": resolved.startswith(HUMAN_SESSION_ACTOR_PREFIX),
+        "two principals": bool(requested) and bool(resolved) and requested != resolved
+        and not resolved.endswith(str(proposer)),
     }
     failed = [name for name, ok in checks.items() if not ok]
-    return not failed, ("proposal succeeded, requested by the proposer and resolved by the separate approver" if not failed
+    return not failed, ("proposal succeeded, requested by the proposer and resolved by a separate person's session" if not failed
                         else f"proposal status {observed.get('status')!r} kind {observed.get('kind')!r}; failed: {', '.join(failed)}")
 
 
