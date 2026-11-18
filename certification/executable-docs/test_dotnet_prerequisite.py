@@ -66,3 +66,13 @@ def test_sdk_is_copied_once_from_the_pinned_image(tmp_path, monkeypatch):
     calls.clear()
     run.copy_dotnet_sdk(image, tmp_path)
     assert calls == []
+
+
+def test_samples_readme_xvfb_prerequisite_installs_xvfb_and_xauth(tmp_path, monkeypatch):
+    doc = next(d for d in SOURCES["documents"] if d["repo"] == "honua-io/honua-samples" and d["path"] == "README.md")
+    calls = _record(monkeypatch)
+    session = _session(tmp_path, set(doc["prerequisites"]))
+    session.container("node")
+    installs = [args[-1] for args in calls if args[:3] == ("exec", "--user", "0")]
+    assert len(installs) == 1 and installs[0].split(" && ")[1].endswith("jq python-is-python3 python3-venv sudo xauth xvfb")
+    session.close()
