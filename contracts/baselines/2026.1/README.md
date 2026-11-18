@@ -231,13 +231,13 @@ re-extracted at the manifest pin with `contract_surface.py update` against an ex
 was hand-edited. `honua-server`, `honua-sdk-js` and `honua-sdk-python` extract byte-identically.
 `public-api.json` goes from 5,349 to 5,476 declarations: 145 added, 18 removed.
 
-- Renames (14 of the removals): the vendor-named FeatureServer credential handler, credential
+- Renames (13 of the removals): the vendor-named FeatureServer credential handler, credential
   record, credential mode, service type and service root move to `GeoServicesSourceCredentialHandler`,
   `GeoServicesSourceCredential`, `GeoServicesCredentialMode`, `GeoServicesServiceType` and
   `GeoServicesServiceRoot` with the same members. The vector payload reader moves to
   `GeoServicesJsonVectorPayloadReader`. The release's import-fidelity consumer is ported to the new
   names. Every Honua.Sdk consumer in this repository builds against 2.2.0.
-- Declaration-only changes (3): `HonuaAdminClient` and `HonuaProcessesClient` become partial classes,
+- Declaration-only changes (4): `HonuaAdminClient` and `HonuaProcessesClient` become partial classes,
   and `ListLayersAsync` / `ListServicesAsync` keep their parameters but are no longer `async`.
 - One behavioural change: `HonuaAdminCompatibility.MinimumSupportedServerVersion` moves from `0.1.0`
   to `2026.1.0-0`. Only an explicit `CheckCompatibilityAsync` call reads it, and the candidate's

@@ -936,6 +936,7 @@ components:
     artifactVersion: 2.2.0
     artifactSourceRevision: 1c745cee6ff698988fc0a3f2e6c5c8fae7645df9
     artifactSha256: sha256:cceb83dc7dc0779f4573bc6a42894e7b71cc5134b479535051a270ba6b07f25b
+
   honua-sdk-js:
     repository: https://github.com/honua-io/honua-sdk-js
     lifecycleStatus: GA

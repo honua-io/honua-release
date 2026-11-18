@@ -204,7 +204,7 @@ Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `H
 
 | Cell | Blocked steps | Blocker | Owner | Target |
 |---|---|---|---|---|
-| `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): the .NET driver has no OGC API Tiles steps (`Honua.Sdk` 2.2.0 adds a Tiles client the driver does not call yet). OGC API Tiles is not certified for the .NET SDK in 2026.1. | `mikemcdougall` | `2026.1.x` |
+| `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): the .NET driver's tile steps do not call the `Honua.Sdk` 2.2.0 Tiles client yet ([honua-release#1467](https://github.com/honua-io/honua-release/issues/1467)). OGC API Tiles is not certified for the .NET SDK in 2026.1. | `mikemcdougall` | `2026.1.x` |
 | `nuget-service-layer-import-fidelity` | the cell | [honua-release#418](https://github.com/honua-io/honua-release/issues/418): no producer emits the published-.NET-SDK import-fidelity receipt | `mikemcdougall` | `2026.1.x` |
 
 Every other cell is active. The .NET interop runner uses `PublishLayerRequest.StorageMode`,
@@ -248,7 +248,7 @@ output and scrubbed SDK error messages go to stderr; the receipt is the JSON fil
    with an oracle kind registered in `regression.ORACLES`), the promise, the receipt allowlist, and for
    **every** client of the family (`regression.FAMILIES`) the exact SDK API, command or MCP request
    each step goes through. If a client has no API for a step, write it as such, for example
-   `(no OGC API Tiles client in Honua.Sdk)`.
+   `(no <surface> client in <package>)`.
 3. Implement the steps in each driver of the family (`drivers/python/driver.py`, `drivers/js/driver.mjs`,
    `drivers/dotnet/Program.cs`; `drivers/cli/driver.py`; `drivers/mcp/driver.py`) through the client
    under test. A missing client API is reported as

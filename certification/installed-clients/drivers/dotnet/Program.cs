@@ -66,9 +66,9 @@ var api = new Dictionary<string, Dictionary<string, string>>
     },
     ["sdk-ogc-tiles"] = new()
     {
-        ["vector-tile"] = "(no OGC API Tiles client in Honua.Sdk)",
-        ["raster-tile"] = "(no OGC API Tiles client in Honua.Sdk)",
-        ["empty-tile"] = "(no OGC API Tiles client in Honua.Sdk)",
+        ["vector-tile"] = "(no OGC API Tiles client call in the driver; honua-release#1467)",
+        ["raster-tile"] = "(no OGC API Tiles client call in the driver; honua-release#1467)",
+        ["empty-tile"] = "(no OGC API Tiles client call in the driver; honua-release#1467)",
     },
     ["sdk-ogc-processes"] = new()
     {
@@ -444,10 +444,11 @@ async Task RunOgcFeatures(Dictionary<string, object> state)
 
 Task RunTiles(Dictionary<string, object> state)
 {
-    // Honua.Sdk has no OGC API Tiles client; every tile step is a finding, not a skip.
+    // Honua.Sdk 2.2.0 has an OGC API Tiles client, but this driver does not call it yet
+    // (honua-release#1467); every tile step is a finding, not a skip.
     foreach (var step in new[] { "vector-tile", "raster-tile", "empty-tile" })
     {
-        Emit("sdk-ogc-tiles", step, "unsupported", "Honua.Sdk has no OGC API Tiles client (no tile fetch API in any Honua.Sdk.* package)");
+        Emit("sdk-ogc-tiles", step, "unsupported", "the driver makes no OGC API Tiles client call yet (Honua.Sdk 2.2.0 IHonuaOgcTilesClient, honua-release#1467)");
     }
     return Task.CompletedTask;
 }
