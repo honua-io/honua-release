@@ -80,9 +80,9 @@ def _candidate_compose_services():
 
 
 def test_compose_up_requests_only_services_the_candidate_file_declares():
-    # gate-upgrade 44206854773: `up db redis` prints "no such service: redis" and never starts
-    # PostGIS, then the driver reports PostGIS as unreachable. The caller is under `||`, so a
-    # failed `up` must die itself rather than falling through.
+    # `up db redis` names a service the candidate file does not declare, so Compose exits
+    # before PostGIS starts and the driver reports PostGIS as unreachable. The caller is under
+    # `||`, so a failed `up` must die itself rather than falling through.
     services = set(_candidate_compose_services())
     assert "db" in services and "server" in services and "redis" not in services
     text = DRIVER.read_text(encoding="utf-8")

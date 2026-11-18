@@ -158,8 +158,8 @@ sigkill_server() {
 
 start_db() {
   # compose.candidate.yml has no redis service. Naming one makes `up` exit before PostGIS
-  # starts (gate-upgrade 44206854773). Callers run under `||`, which suppresses set -e, so a
-  # failed up has to die itself. `up --wait` can still return while PostgreSQL is accepting
+  # starts. Callers run under `||`, which suppresses set -e, so a failed up has to die
+  # itself. `up --wait` can still return while PostgreSQL is accepting
   # its first socket but is completing image initialization; the server's one-shot startup
   # migration then records a transient connection failure and remains unready forever.
   compose up -d --wait db >/dev/null || die "PostGIS service did not start"
