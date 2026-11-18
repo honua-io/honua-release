@@ -200,11 +200,11 @@ target, ruling), and the nightly lock accepts the `installed-clients` row. Any o
 makes the gate report `blocked`, and any failure makes it `fail`: neither is a pass, and no lock is
 minted. Declared cells still execute. One that starts passing, or fails for another reason, is red.
 
-Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `Honua.Sdk 1.12.0`):
+Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `Honua.Sdk 2.2.0` since #1465):
 
 | Cell | Blocked steps | Blocker | Owner | Target |
 |---|---|---|---|---|
-| `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): `Honua.Sdk` has no OGC API Tiles client. OGC API Tiles is not supported in the .NET SDK for 2026.1. | `mikemcdougall` | `2026.1.x` |
+| `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): the .NET driver has no OGC API Tiles steps (`Honua.Sdk` 2.2.0 adds a Tiles client the driver does not call yet). OGC API Tiles is not certified for the .NET SDK in 2026.1. | `mikemcdougall` | `2026.1.x` |
 | `nuget-service-layer-import-fidelity` | the cell | [honua-release#418](https://github.com/honua-io/honua-release/issues/418): no producer emits the published-.NET-SDK import-fidelity receipt | `mikemcdougall` | `2026.1.x` |
 
 Every other cell is active. The .NET interop runner uses `PublishLayerRequest.StorageMode`,

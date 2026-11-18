@@ -222,3 +222,30 @@ extract byte-identically. What moved:
 
 Both SDKs are 0.x, where a minor release may remove surface. This refresh records reviewed release
 movement; the gate keeps failing on any unreviewed change at the next pin.
+
+## .NET SDK re-pin review (2026-11-18)
+
+honua-release#1465 re-pinned `honua-sdk-dotnet` to `Honua.Sdk` 2.2.0 (`1c745cee6ff6`, from
+`aada6d8987db` / 1.12.0), the NuGet release candidate-532565b names. `honua-sdk-dotnet` was
+re-extracted at the manifest pin with `contract_surface.py update` against an exact checkout; nothing
+was hand-edited. `honua-server`, `honua-sdk-js` and `honua-sdk-python` extract byte-identically.
+`public-api.json` goes from 5,349 to 5,476 declarations: 145 added, 18 removed.
+
+- Renames (14 of the removals): the vendor-named FeatureServer credential handler, credential
+  record, credential mode, service type and service root move to `GeoServicesSourceCredentialHandler`,
+  `GeoServicesSourceCredential`, `GeoServicesCredentialMode`, `GeoServicesServiceType` and
+  `GeoServicesServiceRoot` with the same members. The vector payload reader moves to
+  `GeoServicesJsonVectorPayloadReader`. The release's import-fidelity consumer is ported to the new
+  names. Every Honua.Sdk consumer in this repository builds against 2.2.0.
+- Declaration-only changes (3): `HonuaAdminClient` and `HonuaProcessesClient` become partial classes,
+  and `ListLayersAsync` / `ListServicesAsync` keep their parameters but are no longer `async`.
+- One behavioural change: `HonuaAdminCompatibility.MinimumSupportedServerVersion` moves from `0.1.0`
+  to `2026.1.0-0`. Only an explicit `CheckCompatibilityAsync` call reads it, and the candidate's
+  2026.1.0 pre-release versions satisfy it.
+- Added: admin folders (`IHonuaAdminFoldersClient`), paged service and layer lists
+  (`ListServicesPageAsync`, `ListLayersPageAsync`), the migration inventory scan, an OGC API Tiles
+  client (`Honua.Sdk.OgcFeatures.Tiles`) and synchronous process execution
+  (`ExecuteSyncAsync`, `WaitForTerminalAsync`).
+
+1.x to 2.x is a major release, which may remove surface. This refresh records reviewed release
+movement; the gate keeps failing on any unreviewed change at the next pin.

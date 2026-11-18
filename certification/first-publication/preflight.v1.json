@@ -923,20 +923,20 @@
     },
     {
       "client_artifact_registry": "nuget.org",
-      "client_artifact_version": "1.12.0",
-      "component_version": "1.12.0",
+      "client_artifact_version": "2.2.0",
+      "component_version": "2.2.0",
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.1.12.0.nupkg",
-          "sha256": "45e63f896a524ae4c620bef4065b632a270a79e4cfa274a349f2ffbccb8f051d",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.12.0/honua.sdk.1.12.0.nupkg"
+          "filename": "honua.sdk.2.2.0.nupkg",
+          "sha256": "cceb83dc7dc0779f4573bc6a42894e7b71cc5134b479535051a270ba6b07f25b",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/2.2.0/honua.sdk.2.2.0.nupkg"
         },
         {
-          "filename": "honua.sdk.studio.1.12.0.nupkg",
-          "sha256": "ec23fbaf289505c9a399f5f6a07c6135cf1774a983d38412c261685afd9d1d39",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.12.0/honua.sdk.studio.1.12.0.nupkg"
+          "filename": "honua.sdk.studio.2.2.0.nupkg",
+          "sha256": "53ade88867bde9e6d699c3f3001e67b8847b25552e063c36cee9d161a713d2bc",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/2.2.0/honua.sdk.studio.2.2.0.nupkg"
         }
       ],
       "http_status": 200,
@@ -945,10 +945,10 @@
         "Honua.Sdk": 200,
         "Honua.Sdk.Studio": 200
       },
-      "publication": "nuget.org Honua.Sdk 1.12.0",
+      "publication": "nuget.org Honua.Sdk 2.2.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/1.12.0/honua.sdk.1.12.0.nupkg",
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/1.12.0/honua.sdk.studio.1.12.0.nupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/2.2.0/honua.sdk.2.2.0.nupkg",
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk.studio/2.2.0/honua.sdk.studio.2.2.0.nupkg"
       ]
     }
   ],
@@ -958,6 +958,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-18T00:47:01Z",
+  "observed_at": "2026-11-18T04:42:20Z",
   "schema": "honua.first-publication-preflight/v1"
 }

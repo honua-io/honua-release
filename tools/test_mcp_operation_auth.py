@@ -89,7 +89,8 @@ def test_complete_catalog_keeps_all_governed_rows():
     catalog = json.loads((ROOT / "certification/protocol-certification-requirements.v1.json").read_text())
     VALIDATOR.validate_mcp_authorization(catalog)
     # Server 532565bc: realtime streams are Experimental, so their two licensed rows left.
-    assert len(catalog["requirements"]) == 1996
+    # Honua.Sdk 2.2.0 adds 14 .NET rows.
+    assert len(catalog["requirements"]) == 2010
     assert sum(row["licensed"] for row in catalog["requirements"]) == 0
     rows = [row for row in catalog["requirements"] if row["surface"] == "mcp"]
     assert len(rows) == 82

@@ -2,32 +2,32 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:a88024ec3a874d3712cfe8b2340c50cf053cb36de9e5e7cc54f7fdacbb2cffe5",
+  "requirements_digest": "sha256:8514d901a4bab13adc6286890402abc1a5dfcdc050d93bbdbd313a4876d332d5",
   "production_digest": "sha256:8eb8b6de76f4c70a3cbb467871ea55ec1ccc05690fbeca12b6b663d07286d412",
   "audit_digest": "sha256:324ea9f8b8d6f9609ea97f49a49300bb1c12dcac458b46e3c8047e51c733f8e6",
-  "rows_digest": "sha256:75afde45b475b239b4cf3d1be81afd7ded205a36ca02d4bdc11a10e73a798751",
-  "rows": 1996,
-  "non_licensed_rows": 1996,
+  "rows_digest": "sha256:d90c680568e74ba0a7f6cd4d8948c661cd5ddbef3b5476037f8c08c31ec8c82a",
+  "rows": 2010,
+  "non_licensed_rows": 2010,
   "external_licensed_rows": 0,
   "non_licensed_registration": {
     "not-addressable": 394,
-    "registered": 509,
-    "unproduced": 1093
+    "registered": 522,
+    "unproduced": 1094
   },
   "non_licensed_assertion_review": {
     "findings-recorded": 335,
-    "not-reviewed": 1661
+    "not-reviewed": 1675
   },
   "finding_matches": {
     "NC-01": 82,
     "NC-02": 1,
-    "NC-04": 388,
-    "NC-05": 1996,
+    "NC-04": 401,
+    "NC-05": 2010,
     "NC-06": 95,
     "NC-07": 45,
     "NC-08": 1,
-    "NC-09": 1996,
-    "NC-10": 1996,
+    "NC-09": 2010,
+    "NC-10": 2010,
     "NC-11": 82,
     "NC-12": 16,
     "NC-17": 118,
@@ -36,7 +36,7 @@
     "NC-20": 66,
     "NC-21": 1,
     "NC-22": 1,
-    "NC-23": 108,
+    "NC-23": 111,
     "NC-24": 66
   },
   "source_comparison": [
@@ -108,7 +108,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-dotnet",
-        "commit": "aada6d8987db0802a3c9de0d976f471afa943c0a"
+        "commit": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9"
       },
       "same_revision": false
     },
