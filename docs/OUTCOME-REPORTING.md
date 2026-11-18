@@ -53,6 +53,20 @@ This consistency check does not authenticate the supplied pins or prove that
 readbacks came from that deployment; the protected producer must establish that
 through the installed-stack harness and Actions provenance.
 
+`tools/authenticated_producers.py` is that producer. `gate-ai-native.yml` and
+`gate-release-outcomes.yml` run it on trunk in the protected `gate` environment,
+with the workflow's server SHA, image digest and platform-lock digest. It writes
+`honua.release-promise-receipt/v1` receipts only after `gate.verify_installed`
+confirms the installed stack and the pinned cohort agrees: every planned trial
+is still present, successful readbacks name that stack and candidate, the three
+hostile-input channels were blocked, and recovery and unattended timings are
+recomputed from pinned evidence. Sentence and click values are medians of the
+successful trials only; censored trials stay in the denominator and out of that
+median. A missing harness, missing file, changed byte, identity mismatch or
+dropped trial removes any receipt and fails the job. The producer does not call
+a model or create a stack. Until the shared harness is importable, a dispatch
+fails closed and leaves the promise rows without a receipt.
+
 List every identity exactly once: ordered plan `trials` followed by `baselines`.
 Eligibility is explicit, including for eligible trials not yet attempted. Missing
 recordings require a reason and retain NOT RUN status. Recorded exclusions must
