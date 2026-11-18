@@ -4,8 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { importExecutionRow, assertExecutionCredential } from './import-audit.mjs';
-import { snapshotPackageState, assertNoPackageMutation } from './package-refusal.mjs';
+import { importExecutionRow, assertExecutionCredential, executionCredentialQuery } from './import-audit.mjs';
+import { snapshotPackageState, assertNoPackageMutation, queryDurableJson } from './package-refusal.mjs';
 const consumer=process.env.HONUA_PARITY_CONSUMER;
 const root=`${consumer}/node_modules/@honua/sdk-js`;
 const publishedClients=JSON.parse(await readFile(`${consumer}/provenance.json`,'utf8'));
@@ -124,9 +124,8 @@ async function invokeAll(user,connectionId){
   if(importing){
    const originalActor=`operatorbearer:subject:honua-operator-bearer:${identity.actor}`;
    const execution=importExecutionRow(persisted,item.governedJoin,originalActor,identity.tenantId);
-   const redis=(...args)=>{const result=spawnSync('docker',['exec','honua-sdk1424-fixed-redis-1','redis-cli','--raw',...args],{encoding:'utf8',timeout:30000,maxBuffer:1024*1024});assert.equal(result.status,0);return result.stdout.trim();};
-   const record=JSON.parse(redis('GET',`honua:auth:admin-api-key:${execution.credentialId}`));
-   const active=Number(redis('SISMEMBER','honua:auth:admin-api-key:active-ids',execution.credentialId));
+   const credential=queryDurableJson(executionCredentialQuery(execution.credentialId));assert(credential,'execution credential row missing (the expired-key sweeper deletes it about ten minutes after minting)');
+   const record=credential.record,active=credential.active;
    item.executionCredential=assertExecutionCredential(record,active,execution,item.governedJoin,originalActor,identity.tenantId);
    await save(`${user}-execution-credential`,item.executionCredential);
   }else{

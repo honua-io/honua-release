@@ -29,6 +29,17 @@ export function importExecutionRow(rows, join, originalActor, tenant) {
   return { row, credentialId: match[1] };
 }
 
+// Reads the admin_api_keys row in the shape assertExecutionCredential checks. The key is
+// usable for authentication only while it is neither revoked nor expired, as the server decides.
+export function executionCredentialQuery(credentialId) {
+  assert.match(credentialId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'execution credential id must be a UUID');
+  const record = "json_build_object('Id', id, 'Name', name, 'CreatedBy', created_by, 'Permissions', permissions, "
+    + "'CreatedAt', created_at, 'RevokedAt', revoked_at, 'ExpiresAt', expires_at)";
+  const usable = '(revoked_at is null and (expires_at is null or expires_at > now()))::int';
+  return `select coalesce((select json_build_object('record', ${record}, 'active', ${usable}) `
+    + `from honua.admin_api_keys where id = '${credentialId}'::uuid)::text, 'null')`;
+}
+
 export function assertExecutionCredential(record, activeMembership, execution, join, originalActor, tenant) {
   assert.equal(record.Id, execution.credentialId);
   assert.equal(record.Name, `import-operation:${join.operationInstanceId}`);

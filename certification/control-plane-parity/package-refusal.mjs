@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 export const packageTables = ['studio_content_items', 'studio_package_drafts', 'studio_content_versions',
@@ -11,19 +10,18 @@ function docker(args) {
   return result.stdout.trim();
 }
 
+// Proposals and package state are durable PostgreSQL rows; read them straight from the database.
+export function queryDurableJson(query) {
+  return JSON.parse(docker(['exec', 'honua-sdk1424-fixed-db-1', 'psql', '-U', 'honua', '-d', 'honua', '-Atc', query]));
+}
+
 export function snapshotPackageState() {
   // Read every fixture row, including creations under unexpected IDs. Retain only counts and hashes.
   const selects = packageTables.map(table => `select '${table}' as name, count(*) as count, encode(sha256(convert_to(coalesce(string_agg(to_jsonb(t)::text,E'\\n' order by to_jsonb(t)::text),''),'UTF8')),'hex') as sha256 from honua.${table} t`);
-  const query = `select json_agg(s order by name) from (${selects.join(' union all ')}) s`;
-  const tables = JSON.parse(docker(['exec', 'honua-sdk1424-fixed-db-1', 'psql', '-U', 'honua', '-d', 'honua', '-Atc', query]));
-  const redis = (...args) => docker(['exec', 'honua-sdk1424-fixed-redis-1', 'redis-cli', '--raw', ...args]);
-  const keys = [...new Set(redis('--scan', '--pattern', 'controlplane:proposal:*').split('\n').filter(key => /^controlplane:proposal:[^:]+$/.test(key) && !key.endsWith(':active')))].sort();
-  const proposals = keys.map(key => {
-    const raw = redis('GET', key), record = JSON.parse(raw);
-    assert.equal(key, `controlplane:proposal:${record.proposalId}`);
-    return { id: record.proposalId, sha256: createHash('sha256').update(raw).digest('hex') };
-  });
-  const activeProposalIds = redis('SMEMBERS', 'controlplane:proposal:active').split('\n').filter(Boolean).sort();
+  const tables = queryDurableJson(`select json_agg(s order by name) from (${selects.join(' union all ')}) s`);
+  // Each proposal hash covers the whole row: record, version, active flag and timestamps.
+  const proposals = queryDurableJson(`select coalesce(json_agg(json_build_object('id', p.proposal_id, 'sha256', encode(sha256(convert_to(row_to_json(p)::text,'UTF8')),'hex')) order by p.proposal_id), '[]') from honua.operation_proposals p`);
+  const activeProposalIds = queryDurableJson(`select coalesce(json_agg(proposal_id order by proposal_id), '[]') from honua.operation_proposals where active`);
   return { tables, proposals, activeProposalIds };
 }
 

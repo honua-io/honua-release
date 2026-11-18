@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { importExecutionRow, assertExecutionCredential } from './import-audit.mjs';
+import { importExecutionRow, assertExecutionCredential, executionCredentialQuery } from './import-audit.mjs';
 
 const actor = 'operatorbearer:subject:honua-operator-bearer:fixture-subject';
 const tenant = 'fixture-tenant';
@@ -41,4 +41,13 @@ for (const [name, change] of [
   const value = fixture();
   change(value);
   assert.throws(() => verify(value));
+});
+test('accepts PostgreSQL timestamptz JSON with microseconds and offsets', () => {
+  const value = fixture();
+  Object.assign(value.record, { CreatedAt: '2026-10-13T08:00:00.123456+00:00', RevokedAt: '2026-10-13T08:00:01.5+00:00', ExpiresAt: '2026-10-13T10:04:59.999999+02:00' });
+  assert.equal(verify(value).id, id);
+});
+test('credential query reads admin_api_keys by UUID only', () => {
+  assert.match(executionCredentialQuery(id), new RegExp(`from honua\\.admin_api_keys where id = '${id}'::uuid\\)::text, 'null'\\)$`));
+  for (const bad of ["x' or '1'='1", `${id}'; drop table x; --`, '']) assert.throws(() => executionCredentialQuery(bad));
 });

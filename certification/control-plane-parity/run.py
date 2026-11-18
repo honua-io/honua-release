@@ -74,6 +74,15 @@ def make_idp_mounts_readable(run: Path) -> None:
         (run / name).chmod(0o755)
 
 
+def assert_durable_store():
+    """Proposals, admin keys and audit live only in PostgreSQL: require crash-safe commits on the persistent volume."""
+    durability = json.loads(subprocess.check_output(["docker", "exec", PROJECT + "-db-1", "psql", "-U", "honua", "-d", "honua", "-Atc", "select json_object_agg(name, setting) from pg_settings where name in ('fsync', 'synchronous_commit', 'full_page_writes')"]))
+    assert durability == {"fsync": "on", "synchronous_commit": "on", "full_page_writes": "on"}
+    mounts = json.loads(subprocess.check_output(["docker", "inspect", PROJECT + "-db-1"]))[0]["Mounts"]
+    assert any(x["Type"] == "volume" and x["Name"].endswith("parity-postgres") and x["Destination"] == "/var/lib/postgresql/data" for x in mounts), "PostgreSQL data is not on the persistent volume"
+    return durability
+
+
 def main() -> int:
     os.umask(0o077)
     image, source = os.environ["HONUA_SERVER_IMAGE"], os.environ["HONUA_SERVER_SOURCE"]
@@ -162,7 +171,7 @@ def main() -> int:
         report["imageId"] = inspected["Id"]
         # Compose can create containers and then fail while waiting for readiness.
         stores_started = True
-        stage("start persistent stores and IdP", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "db", "redis", "keycloak"], timeout=600))
+        stage("start persistent stores and IdP", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "db", "keycloak"], timeout=600))
         stage("real IdP discovery readiness", lambda: call(["curl", "--fail", "--silent", "--show-error", "--cacert", str(run / "certs/kc.crt"), "--resolve", "host.docker.internal:19808:127.0.0.1", "--noproxy", "*", "--retry", "60", "--retry-all-errors", "--retry-delay", "2", "--max-time", "5", "https://host.docker.internal:19808/realms/honua/.well-known/openid-configuration"], timeout=300))
         stage("start Production server", lambda: call([*compose, "up", "-d", "--wait", "--wait-timeout", "300", "server"], timeout=600))
         consumer = run / "consumer"
@@ -182,12 +191,11 @@ def main() -> int:
         integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
         integrity.raise_for_status()
         assert integrity.json()["verified"] and integrity.json()["unhashedRows"] == 0
-        redis = json.loads(subprocess.check_output(["docker", "exec", PROJECT + "-redis-1", "redis-cli", "--json", "CONFIG", "GET", "appendonly", "appendfsync", "maxmemory-policy"]))
-        assert redis == {"appendonly": "yes", "appendfsync": "everysec", "maxmemory-policy": "noeviction"}
+        durability = assert_durable_store()
         runtime = json.loads(subprocess.check_output(["docker", "inspect", PROJECT + "-server-1"]))[0]
         running_env = dict(x.split("=", 1) for x in runtime["Config"]["Env"] if "=" in x)
         assert runtime["Image"] == inspected["Id"] and running_env["ASPNETCORE_ENVIRONMENT"] == "Production"
-        (run / "runtime-proof.json").write_text(json.dumps({"sourceCommit": source, "immutableImage": image, "imageId": runtime["Image"], "environment": "Production", "licensingMode": running_env["Licensing__Mode"], "durableRedisConfiguration": redis, "auditIntegrity": integrity.json(), "persistentVolumes": [{"name": x.get("Name"), "destination": x["Destination"]} for x in runtime["Mounts"] if x["Type"] == "volume"], "keyRingCertificateConfigured": bool(running_env.get("Operations__SecretChannel__KeyRingCertificatePath")), "auditChainKeyConfigured": bool(running_env.get("AuditLog__ChainVerification__Key")), "qualification": "engineering replay, not release certification"}, indent=2))
+        (run / "runtime-proof.json").write_text(json.dumps({"sourceCommit": source, "immutableImage": image, "imageId": runtime["Image"], "environment": "Production", "licensingMode": running_env["Licensing__Mode"], "durablePostgresConfiguration": durability, "auditIntegrity": integrity.json(), "persistentVolumes": [{"name": x.get("Name"), "destination": x["Destination"]} for x in runtime["Mounts"] if x["Type"] == "volume"], "keyRingCertificateConfigured": bool(running_env.get("Operations__SecretChannel__KeyRingCertificatePath")), "auditChainKeyConfigured": bool(running_env.get("AuditLog__ChainVerification__Key")), "qualification": "engineering replay, not release certification"}, indent=2))
         stage("owned connection", lambda: call([sys.executable, "create-connection.py"]))
         stage("owned GeoJSON object", lambda: call([sys.executable, "create-import-object.py"]))
         stage("connection.test four adapters", lambda: call(["node", "parity-published.mjs"], extra={"PARITY_MODE": "connection", "PARITY_OUTPUT_DIR": str(run / "parity-connection")}))
@@ -213,7 +221,7 @@ def main() -> int:
             for command in (
                 [*compose, "logs", "--no-color", "--tail", "100"],
                 ["docker", "inspect", "--format", "{{.Name}} {{json .State}}",
-                 *[PROJECT + "-" + name + "-1" for name in ("db", "redis", "keycloak", "server")]],
+                 *[PROJECT + "-" + name + "-1" for name in ("db", "keycloak", "server")]],
             ):
                 try:
                     subprocess.run(command, env=env, stdout=log, stderr=log, timeout=30, check=False)
