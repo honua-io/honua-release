@@ -146,14 +146,22 @@ class Resolver:
         if rule.get("defaultBranch"):
             # The last commit that changed this file on the default branch. The branch
             # tip moves on unrelated merges; those merges do not change the document.
+            # A document that runs from a checkout of its repository also executes the
+            # files under its cwd (lockfiles, project files), so its revision is the last
+            # commit under that cwd; an empty cwd is the whole repository.
             repo = document["repo"]
-            key = (repo, document["path"])
+            checkout = document.get("checkout")
+            path = str(checkout.get("cwd") or "") if isinstance(checkout, dict) else document["path"]
+            key = (repo, path)
             if key not in self._documents:
                 if repo not in self._branches:
                     meta = json.loads(self.fetch(f"https://api.github.com/repos/{repo}", token=self.token))
                     self._branches[repo] = str(meta["default_branch"])
                 branch = self._branches[repo]
-                query = urllib.parse.urlencode({"sha": branch, "path": document["path"], "per_page": 1})
+                params = {"sha": branch, "per_page": 1}
+                if path:
+                    params["path"] = path
+                query = urllib.parse.urlencode(params)
                 payload = json.loads(self.fetch(f"https://api.github.com/repos/{repo}/commits?{query}",
                                                 token=self.token))
                 sha = str(payload[0]["sha"]) if isinstance(payload, list) and payload else ""

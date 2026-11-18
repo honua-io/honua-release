@@ -61,14 +61,14 @@ def test_frozen_guide_binds_all_six_blocks_and_only_documented_key():
 
 
 def test_live_geoprocessing_page_is_out_of_scope_for_rc2_with_its_reason():
-    """honua-site #367 (928c005a) moved the page's .NET tab to the newest public Honua.Sdk 1.13.1;
-    rc.2 certifies 1.12.0 and the guarded registry serves only manifest pins, so the page leaves
-    scope whole (release-session ruling) and nothing else moves with it."""
+    """The page's .NET tab installs Honua.Sdk 2.0.0; rc.2 certifies 2.2.0 and the guarded registry
+    serves only manifest pins, so the page leaves scope whole (release-session ruling) and nothing
+    else moves with it."""
     sources = json.loads((HERE / "sources.json").read_text())
     key = ("honua-io/honua-site", "docs/geoprocessing/index.md")
     assert key not in {(d["repo"], d["path"]) for d in sources["documents"]}
     entry = next(o for o in sources["outOfScope"] if (o["repo"], o["path"]) == key)
-    assert "1.13.1" in entry["reason"] and "1.12.0" in entry["reason"] and "honua-io/honua-release#1250" in entry["reason"]
+    assert "2.0.0" in entry["reason"] and "2.2.0" in entry["reason"] and "honua-io/honua-release#1250" in entry["reason"]
     assert [(o["repo"], o["path"]) for o in sources["outOfScope"]] == [
         ("honua-io/honua-server", "docs/get-started/linux-packages.md"),
         ("honua-io/honua-server", "docs/get-started/windows-packages.md"), key]

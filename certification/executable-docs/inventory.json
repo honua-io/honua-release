@@ -1113,11 +1113,11 @@
       "id": "honua-sdk-dotnet-readme",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "README.md",
-      "revision": "aada6d8987db0802a3c9de0d976f471afa943c0a",
+      "revision": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/aada6d8987db0802a3c9de0d976f471afa943c0a/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/1c745cee6ff698988fc0a3f2e6c5c8fae7645df9/README.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1125,7 +1125,7 @@
       "blocks": [
         {
           "index": 0,
-          "line": 69,
+          "line": 71,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1134,7 +1134,7 @@
         },
         {
           "index": 1,
-          "line": 77,
+          "line": 79,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1143,7 +1143,7 @@
         },
         {
           "index": 2,
-          "line": 103,
+          "line": 105,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1152,7 +1152,7 @@
         },
         {
           "index": 3,
-          "line": 116,
+          "line": 118,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1161,7 +1161,7 @@
         },
         {
           "index": 4,
-          "line": 125,
+          "line": 127,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1177,7 +1177,7 @@
         },
         {
           "index": 5,
-          "line": 134,
+          "line": 136,
           "language": "csharp",
           "infoString": "csharp",
           "intent": "file",
@@ -1190,7 +1190,7 @@
         },
         {
           "index": 6,
-          "line": 190,
+          "line": 192,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1199,7 +1199,7 @@
         },
         {
           "index": 7,
-          "line": 204,
+          "line": 206,
           "language": "csharp",
           "infoString": "csharp",
           "intent": "file",
@@ -1212,7 +1212,7 @@
         },
         {
           "index": 8,
-          "line": 240,
+          "line": 242,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1221,7 +1221,7 @@
         },
         {
           "index": 9,
-          "line": 300,
+          "line": 306,
           "language": "",
           "infoString": "",
           "intent": "illustrative",
@@ -1235,11 +1235,11 @@
       "id": "honua-sdk-dotnet-install",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "INSTALL.md",
-      "revision": "aada6d8987db0802a3c9de0d976f471afa943c0a",
+      "revision": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/aada6d8987db0802a3c9de0d976f471afa943c0a/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/1c745cee6ff698988fc0a3f2e6c5c8fae7645df9/INSTALL.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1388,11 +1388,11 @@
       "id": "honua-sdk-dotnet-docs-quickstart",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "docs/quickstart.md",
-      "revision": "aada6d8987db0802a3c9de0d976f471afa943c0a",
+      "revision": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/aada6d8987db0802a3c9de0d976f471afa943c0a/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/1c745cee6ff698988fc0a3f2e6c5c8fae7645df9/docs/quickstart.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1811,11 +1811,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "e102308b6cde630f233e057b6ee04b500d5c7fd4",
+      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/e102308b6cde630f233e057b6ee04b500d5c7fd4/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1903,7 +1903,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "04139bde8b7968be129294ba301173d8c927d216446d48eb77cfbd3d00c94dad"
+          "sha256": "357db8a061c3adeff5c00a8c0fcbf3fd88ed3b79de679087bc3f106ef09a4555"
         },
         {
           "index": 9,
@@ -1958,11 +1958,11 @@
       "id": "honua-server-docs-get-started-first-dataset",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-dataset.md",
-      "revision": "bb65c9c6e7aaf0396cf98a60ce24e2363235df1a",
+      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/bb65c9c6e7aaf0396cf98a60ce24e2363235df1a/docs/get-started/first-dataset.md",
+      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/first-dataset.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1998,7 +1998,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "28c2ffb76b0c15f4e61bd1a4bef023ac05d96898e0cb52deeb77d8db94805fe7"
+          "sha256": "b9beb351072f61b74c5d6e2a68b0b404f6e8e49cb04621ac5f2aa14ae7598b92"
         },
         {
           "index": 3,
@@ -2027,7 +2027,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "a0e10d22e9b7c8113af152d6b691c63151573c6f1becca93dbccc9871de124f7"
+          "sha256": "7cb03555e8316a0c98a87ee9662c8d5f9b984a5320ea5040dcb5fe6fa5369d6b"
         },
         {
           "index": 6,
@@ -2062,11 +2062,11 @@
       "id": "honua-server-docs-get-started-first-map",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-map.md",
-      "revision": "89fe2f24760e2098a9ac0cd718d8a02a8056aed2",
+      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/89fe2f24760e2098a9ac0cd718d8a02a8056aed2/docs/get-started/first-map.md",
+      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/first-map.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -2079,7 +2079,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "47ee4e73646099376f735652af92e372a4aabc03e7266772d4f9326759a9bedc"
+          "sha256": "f15cc20ec98df4f111c45e002bdd4f7abe3b3cc437f33983d4eee56e6ce4078a"
         },
         {
           "index": 1,
@@ -2138,11 +2138,11 @@
       "id": "honua-server-docs-get-started-with-ai",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/with-ai.md",
-      "revision": "89fe2f24760e2098a9ac0cd718d8a02a8056aed2",
+      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/89fe2f24760e2098a9ac0cd718d8a02a8056aed2/docs/get-started/with-ai.md",
+      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/with-ai.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2155,7 +2155,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "a709263c7689adbaa202805b3fcfc9ae8f3bac507603b69e35556cde1152bbc3"
+          "sha256": "12926032a54a3b5d7c406316851fbf871eaa9a0030c04207a782c5e89218fd2e"
         },
         {
           "index": 1,
@@ -2501,11 +2501,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "1147b13e389be2c9ed4345f8d34803b54a0043d6",
+      "revision": "888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/1147b13e389be2c9ed4345f8d34803b54a0043d6/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2788,11 +2788,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "fae6fb36d8bbcdbc2a09fefa992a8a4269e19f5b",
+      "revision": "888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/fae6fb36d8bbcdbc2a09fefa992a8a4269e19f5b/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2865,11 +2865,11 @@
       "id": "honua-site-docs-playbooks-install-with-docker-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/install-with-docker/index.md",
-      "revision": "b6b38d55a1ec860ac8c8b3f59d05d40a6dad1f91",
+      "revision": "18a6d07a479f0859d65ec98819c3a2c31c093337",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b6b38d55a1ec860ac8c8b3f59d05d40a6dad1f91/docs/playbooks/install-with-docker/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/18a6d07a479f0859d65ec98819c3a2c31c093337/docs/playbooks/install-with-docker/index.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2944,7 +2944,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "bbf369565b8c0fb229c0b348e3d03823cffc93860b3e38b2e2b8456e356794a6"
+          "sha256": "e82365ff5696eb34804b40314c0af457c198d10e42d16876fcb6c329ab3dfc93"
         },
         {
           "index": 7,
@@ -2978,7 +2978,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "a0ade43209299130b5d5787b0e590d792345b242c91d53f114b4b1487bdc2be9"
+          "sha256": "dfd9ba29389e8c8086517d63fc41acc1ee177f5f9598ec1f237c6fe57118d1e4"
         },
         {
           "index": 10,
@@ -3060,11 +3060,11 @@
       "id": "honua-site-docs-playbooks-publish-a-service-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/publish-a-service/index.md",
-      "revision": "89ef060eb66f131e79ab1bee27275be2df9fd78d",
+      "revision": "0b230d72b0be7c142736b579d776c79ee223811a",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/89ef060eb66f131e79ab1bee27275be2df9fd78d/docs/playbooks/publish-a-service/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/0b230d72b0be7c142736b579d776c79ee223811a/docs/playbooks/publish-a-service/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -3091,7 +3091,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "49a9d65b4bd10dd11d67d65a1bee604ad4561f75535e0b5423a0c147992821d4",
+          "sha256": "c4021b418fe9569ec12b58d6a677fae354bb20a54d3c115d866775494055ce54",
           "needs": {
             "placeholders": [
               "<CONNECTION_NAME>",
@@ -3156,7 +3156,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "c84218e974770f46ea0cdda9660788ba6c4ddab5d0585f4dbf0391395a31c521"
+          "sha256": "d1576b51564fab8026bed0f33a5ac25c7bee37821b5ac2c0f6d994ae50d484bc"
         }
       ]
     },
@@ -3164,11 +3164,11 @@
       "id": "honua-site-docs-playbooks-run-a-bounded-gp-job-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/run-a-bounded-gp-job/index.md",
-      "revision": "b6b38d55a1ec860ac8c8b3f59d05d40a6dad1f91",
+      "revision": "69c51cefbc36623d2518a25d8f6137802eb61f8b",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/b6b38d55a1ec860ac8c8b3f59d05d40a6dad1f91/docs/playbooks/run-a-bounded-gp-job/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/69c51cefbc36623d2518a25d8f6137802eb61f8b/docs/playbooks/run-a-bounded-gp-job/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -3181,7 +3181,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "5d22fe751a2c95194736692f7d2d50583cc8903586fb613d8d88853d4830420d",
+          "sha256": "d146cb07c6a7393e09beace9ad66705c47659690c764236d4f5b84a6a2d97214",
           "needs": {
             "optionalEnv": [
               "HONUA_ADMIN_PASSWORD"
@@ -3251,7 +3251,7 @@
     {
       "repo": "honua-io/honua-site",
       "path": "docs/geoprocessing/index.md",
-      "reason": "Preview surface. The page's .NET tab installs the newest public Honua.Sdk (1.13.1), while 2026.1-rc.2 certifies 1.12.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."
+      "reason": "Preview surface. The page's .NET tab installs Honua.Sdk 2.0.0, while 2026.1-rc.2 certifies 2.2.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."
     }
   ],
   "summary": {
