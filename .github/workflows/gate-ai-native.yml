@@ -1,0 +1,48 @@
+name: gate-ai-native
+run-name: AI-native ${{ inputs.server_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      server_sha: { required: true, type: string }
+      server_digest: { required: true, type: string }
+      platform_lock_digest: { required: true, type: string }
+      admission_dir:
+        description: Relative path of the pinned cohort directory inside the workspace
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  produce:
+    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    environment: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      # Receipts are written only when gate.verify_installed confirms this candidate's stack.
+      # A missing harness or a bad cohort fails the step and leaves nothing to upload.
+      - name: Produce receipts or leave none
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          ADMISSION_DIR: ${{ inputs.admission_dir }}
+        run: python tools/authenticated_producers.py ai
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: release-promise-receipts
+          path: |
+            ai-operate.json
+            ai-publish.json
+            ai-build.json
+            ai-migrate.json
+            ai-injection.json
+          if-no-files-found: error
+          retention-days: 7
