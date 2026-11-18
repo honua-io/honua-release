@@ -16,8 +16,8 @@ const out=process.env.PARITY_OUTPUT_DIR??`${run}/parity-${new Date().toISOString
 await mkdir(out,{mode:0o700});
 const load=(specifier)=>import(pathToFileURL(consumerRequire.resolve(specifier)).href);
 const {HonuaClient}=await load('@honua/sdk-js/honua');
-const {createHonuaCommandRuntime,connectionTestCommand,mapPackagePublishCommand,importCreateCommand}=await load('@honua/sdk-js/control-plane');
-const {createHonuaStudioCommandAdapter}=await load('@honua/sdk-js/studio');
+const {createHonuaCommandRuntime,connectionTestCommand,mapDocumentPublishCommand:mapPackagePublishCommand,importCreateCommand}=await load('@honua/app-platform/control-plane');
+const {createHonuaStudioCommandAdapter}=await load('@honua/app-platform/studio');
 const {createServer}=await load('@honua/mcp-server');
 const require=createRequire(`${consumer}/node_modules/@honua/mcp-server/package.json`);
 const {Client}=await import(pathToFileURL(require.resolve('@modelcontextprotocol/sdk/client/index.js')));

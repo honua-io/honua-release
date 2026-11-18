@@ -19,11 +19,14 @@ whose IdP claim limits it to read scope. There are no fabricated tenant headers
 in command calls. The authentication probe separately checks that an attempted
 tenant-header override cannot replace the authenticated identity.
 
-The exact published SDK and independent MCP rows in this checkout's reviewed
-`platform-manifest.yaml` are installed with npm's default peer resolution. The
-canonical artifact verifier checks registry bytes, SRI and publisher provenance
+The exact published SDK, independent MCP and app-platform rows in this checkout's
+reviewed `platform-manifest.yaml` are installed with npm's default peer resolution.
+Since `@honua/sdk-js` 0.4.0 the command runtime, admin and Studio clients are
+imported from `@honua/app-platform/control-plane` and `/studio` (the map publish
+command is exported there as `mapDocumentPublishCommand`, id `map-package.publish`).
+The canonical artifact verifier checks registry bytes, SRI and publisher provenance
 before runtime startup; installation then checks the same versions, sources and
-integrities plus one shared SDK module identity. No override or latest resolution
+integrities plus one shared SDK and app-platform module identity. No override or latest resolution
 is accepted. The selected identities and installed lock are retained in receipts.
 The real terminal executable, an MCP client/server protocol roundtrip, the Studio
 command adapter and the shared SDK execute connection testing, one idempotent

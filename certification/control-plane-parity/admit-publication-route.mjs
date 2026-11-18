@@ -13,7 +13,7 @@ const load = name => import(pathToFileURL(require.resolve(name)).href);
 const provenance = JSON.parse(await readFile(`${consumer}/provenance.json`, 'utf8'));
 assert.equal(provenance.kind, 'public-npm-default-resolution');
 const { HonuaClient } = await load('@honua/sdk-js/honua');
-const { mapPackagePublishCommand, createHonuaCommandRuntime } = await load('@honua/sdk-js/control-plane');
+const { mapDocumentPublishCommand: mapPackagePublishCommand, createHonuaCommandRuntime } = await load('@honua/app-platform/control-plane');
 assertIntentSchema(mapPackagePublishCommand.inputSchema.properties.intent);
 const { createServer } = await load('@honua/mcp-server');
 const mcpRequire = createRequire(`${consumer}/node_modules/@honua/mcp-server/package.json`);

@@ -8,13 +8,18 @@ const fromConsumer=createRequire(new URL('./package.json',import.meta.url));
 const fromMcp=createRequire(new URL('./node_modules/@honua/mcp-server/package.json',import.meta.url));
 const sdkPath=realpathSync(fromConsumer.resolve('@honua/sdk-js'));
 assert.equal(realpathSync(fromMcp.resolve('@honua/sdk-js')),sdkPath);
-for(const entry of ['@honua/sdk-js/control-plane','@honua/sdk-js/studio']) assert.equal(realpathSync(fromMcp.resolve(entry)),realpathSync(fromConsumer.resolve(entry)));
+// app-platform imports @honua/sdk-js without declaring it; its resolution must be the same module.
+const fromAppPlatform=createRequire(new URL('./node_modules/@honua/app-platform/package.json',import.meta.url));
+assert.equal(realpathSync(fromAppPlatform.resolve('@honua/sdk-js')),sdkPath);
+const CONTROL_PLANE='@honua/app-platform/control-plane';
+const appPlatformPath=realpathSync(fromConsumer.resolve(CONTROL_PLANE));
+for(const entry of [CONTROL_PLANE,'@honua/app-platform/studio']) assert.equal(realpathSync(fromMcp.resolve(entry)),realpathSync(fromConsumer.resolve(entry)));
 const load=async(specifier)=>import(pathToFileURL(fromConsumer.resolve(specifier)).href);
 assert.equal(typeof (await load('@honua/mcp-server')).createServer,'function');
-assert.equal(typeof (await load('@honua/sdk-js/control-plane')).createHonuaCommandRuntime,'function');
-assert.equal(typeof (await load('@honua/sdk-js/studio')).createHonuaStudioCommandAdapter,'function');
+assert.equal(typeof (await load(CONTROL_PLANE)).createHonuaCommandRuntime,'function');
+assert.equal(typeof (await load('@honua/app-platform/studio')).createHonuaStudioCommandAdapter,'function');
 const expected=JSON.parse(readFileSync('expected-clients.json'));
-assert.deepEqual(Object.keys(expected).sort(),['@honua/mcp-server','@honua/sdk-js']);
+assert.deepEqual(Object.keys(expected).sort(),['@honua/app-platform','@honua/mcp-server','@honua/sdk-js']);
 const records=[];
 for(const [name,pin] of Object.entries(expected)) {
  const {version}=pin;
@@ -24,5 +29,5 @@ for(const [name,pin] of Object.entries(expected)) {
  validateInstalledPin(name,pin,installed,{...metadata,attestedCommit:attested});
  records.push({name,version,integrity:installed.integrity,tarball:installed.resolved,sourceSha:metadata.gitHead||attested});
 }
-const receipt={kind:'public-npm-default-resolution',clientPackages:records,sharedSdkModule:sdkPath,peerWorkarounds:false,lifecycleScripts:false,scope:'Installed registry clients; no server or command replay yet'};
+const receipt={kind:'public-npm-default-resolution',clientPackages:records,sharedSdkModule:sdkPath,sharedAppPlatformModule:appPlatformPath,peerWorkarounds:false,lifecycleScripts:false,scope:'Installed registry clients; no server or command replay yet'};
 writeFileSync('provenance.json',JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt));
