@@ -54,6 +54,24 @@ def test_compose_or_kind_success_cannot_certify_launch_stack(tmp_path, proof):
         run(tmp_path, gate='gate-upgrade', proof=proof)
 
 
+def test_upgrade_workflow_does_not_certify_compose_report_as_launch_stack():
+    """A green Compose/kind gate must not fail, or mint operates-8-upgrade, on its own report.
+
+    The receipt step used to feed out/gate-report.json to validate_upgrade and fail the job.
+    Launch Stack proof is a separate input.
+    """
+    root = Path(__file__).resolve().parents[1]
+    workflow = yaml.safe_load((root / '.github/workflows/gate-upgrade.yml').read_text())
+    for event in ('workflow_dispatch', 'workflow_call'):
+        proof_input = workflow[True][event]['inputs']['launch_stack_proof']
+        assert proof_input.get('default', '') == ''
+    step = next(s for j in workflow['jobs'].values() for s in j.get('steps', [])
+                if s.get('uses') == './.github/actions/kept-gate-receipt')
+    assert "inputs.launch_stack_proof != ''" in step['if']
+    assert step['with']['proof'] == '${{ inputs.launch_stack_proof }}'
+    assert 'gate-report.json' not in step['with']['proof']
+
+
 @pytest.mark.parametrize('value', [-1, float('nan'), float('inf'), True, None])
 def test_restore_rejects_invalid_measurement(tmp_path, value):
     with pytest.raises(ValueError):
