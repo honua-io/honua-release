@@ -63,6 +63,46 @@ def test_scenario_failures_propagate_to_the_matrix_exit_code():
     assert "if ! assert_state concurrent-app-start" in text
 
 
+def _candidate_compose_services():
+    services = []
+    in_services = False
+    for line in (REPO_ROOT / "e2e/harness/compose.candidate.yml").read_text(encoding="utf-8").splitlines():
+        if line.startswith("services:"):
+            in_services = True
+            continue
+        if not in_services:
+            continue
+        if line and not line.startswith(" "):
+            break
+        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+            services.append(line.strip()[:-1])
+    return services
+
+
+def test_compose_up_requests_only_services_the_candidate_file_declares():
+    # gate-upgrade 44206854773: `up db redis` prints "no such service: redis" and never starts
+    # PostGIS, then the driver reports PostGIS as unreachable. The caller is under `||`, so a
+    # failed `up` must die itself rather than falling through.
+    services = set(_candidate_compose_services())
+    assert "db" in services and "server" in services and "redis" not in services
+    text = DRIVER.read_text(encoding="utf-8")
+    saw_db = False
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not (line.startswith("compose up") or line.startswith("docker compose ")):
+            continue
+        command = line.split("||", 1)[0].replace(">/dev/null", " ").replace("2>&1", " ")
+        tokens = command.split()
+        after = tokens[tokens.index("up") + 1:]
+        names = [token for token in after if not token.startswith("-")]
+        assert names, line
+        assert set(names) <= services, (line, sorted(names), sorted(services))
+        if names == ["db"]:
+            saw_db = True
+            assert '|| die "PostGIS service did not start"' in line
+    assert saw_db
+
+
 # Execute the real Bash functions with controlled external boundaries. These are driver
 # regressions, not substitutes for the separately dispatched real-image chaos matrix.
 import json
