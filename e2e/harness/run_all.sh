@@ -79,6 +79,14 @@ cmd_check() {
              and (.services.server.environment | has("ConnectionStrings__DefaultConnection"))' >/dev/null \
     || { echo "compose config: the candidate stack composes the retired cache" >&2; exit 1; }
   echo "compose config (cache-free): OK"
+  # Drivers share one source address and the interop scenario sends revoked keys on purpose, so
+  # the stack must exempt the container ranges from the failed-authentication lockout.
+  docker compose -f "$HERE/compose.candidate.yml" config --format json \
+    | jq -e '.services.server.environment as $e
+             | [range(4) | $e["Authentication__FailedAttempts__ExemptNetworks__\(.)"]]
+               == ["172.16.0.0/12", "127.0.0.0/8", "10.0.0.0/8", "192.168.0.0/16"]' >/dev/null \
+    || { echo "compose config: the candidate stack must exempt the bridge network from the auth lockout" >&2; exit 1; }
+  echo "compose config (auth lockout exemption): OK"
   # The HTTPS overlay adds TLS next to plain HTTP: 8080 stays published, redirection stays off.
   E2E_TLS_DIR=/nonexistent docker compose -f "$HERE/compose.candidate.yml" -f "$HERE/compose.https.yml" config --format json \
     | jq -e '(.services.server.ports | map(.target) | index(8080) != null and index(8443) != null)

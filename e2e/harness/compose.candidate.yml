@@ -55,6 +55,15 @@ services:
       # the demos on CORS rather than on a real contract break. Comma-separated, merged into
       # Cors:AllowedOrigins by CorsConfiguration.ResolveAllowedOrigins.
       HONUA_ADMIN_UI_CORS_ORIGINS: "${E2E_SITE_CORS_ORIGINS:-http://127.0.0.1:18099,http://localhost:18099}"
+      # Every driver reaches the server from one source address (the Docker bridge gateway), and the
+      # interop scenario checks on purpose that a revoked key is refused by each runner. Those refusals
+      # count toward the failed-authentication limiter (10 per address), so without this exemption the
+      # gate locks itself out and every later driver fails on 429/401 instead of on the contract. No
+      # gate tests the lockout itself; the verification cohort install carries the same override.
+      Authentication__FailedAttempts__ExemptNetworks__0: "172.16.0.0/12"
+      Authentication__FailedAttempts__ExemptNetworks__1: "127.0.0.0/8"
+      Authentication__FailedAttempts__ExemptNetworks__2: "10.0.0.0/8"
+      Authentication__FailedAttempts__ExemptNetworks__3: "192.168.0.0/16"
     ports:
       - "${E2E_SERVER_PORT:-8080}:8080"   # GeoServices / OGC / OData / MCP / admin / studio HTTP
     healthcheck:
