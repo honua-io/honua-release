@@ -249,6 +249,17 @@ class Session:
         shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
 
     # container lifecycle
+    def prerequisite_runtimes(self, runtime: str) -> tuple[list[str], str]:
+        """Mounts and PATH prefix for the node or .NET install a document lists as a prerequisite."""
+        mounts, prefix = [], ""
+        if "node" in self.prerequisites and runtime != "node":
+            mounts += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
+            prefix += "/opt/node/bin:"
+        if "dotnet" in self.prerequisites and runtime != "dotnet":
+            mounts += ["-v", f"{self.tools / 'dotnet'}:/opt/dotnet:ro", "-e", "DOTNET_ROOT=/opt/dotnet"]
+            prefix += "/opt/dotnet:"
+        return mounts, prefix
+
     def container(self, runtime: str) -> str:
         if runtime in self.containers:
             return self.containers[runtime]
@@ -266,12 +277,9 @@ class Session:
                 "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1", "-e", "DOTNET_NOLOGO=1",
                 "--label", f"honua.execdocs.run={self.run_id}"]
         path = f"{self.home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        if "node" in self.prerequisites and runtime != "node":
-            args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
-            path = "/opt/node/bin:" + path
-        if "dotnet" in self.prerequisites and runtime != "dotnet":
-            args += ["-v", f"{self.tools / 'dotnet'}:/opt/dotnet:ro", "-e", "DOTNET_ROOT=/opt/dotnet"]
-            path = "/opt/dotnet:" + path
+        mounts, prefix = self.prerequisite_runtimes(runtime)
+        args += mounts
+        path = prefix + path
         if runtime == "node":
             args += ["-v", f"{self.tools / 'compiler'}:/opt/honua-execdocs-compiler:ro",
                      "-e", "HONUA_EXECDOCS_COMPILER=/opt/honua-execdocs-compiler/node_modules/typescript/lib/typescript.js"]
