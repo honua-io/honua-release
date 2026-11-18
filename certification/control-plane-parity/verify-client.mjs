@@ -8,13 +8,13 @@ const fromConsumer=createRequire(new URL('./package.json',import.meta.url));
 const fromMcp=createRequire(new URL('./node_modules/@honua/mcp-server/package.json',import.meta.url));
 const sdkPath=realpathSync(fromConsumer.resolve('@honua/sdk-js'));
 assert.equal(realpathSync(fromMcp.resolve('@honua/sdk-js')),sdkPath);
-for(const entry of ['@honua/sdk-js/control-plane','@honua/sdk-js/studio']) assert.equal(realpathSync(fromMcp.resolve(entry)),realpathSync(fromConsumer.resolve(entry)));
+for(const entry of ['@honua/app-platform/control-plane','@honua/app-platform/studio']) assert.equal(realpathSync(fromMcp.resolve(entry)),realpathSync(fromConsumer.resolve(entry)));
 const load=async(specifier)=>import(pathToFileURL(fromConsumer.resolve(specifier)).href);
 assert.equal(typeof (await load('@honua/mcp-server')).createServer,'function');
-assert.equal(typeof (await load('@honua/sdk-js/control-plane')).createHonuaCommandRuntime,'function');
-assert.equal(typeof (await load('@honua/sdk-js/studio')).createHonuaStudioCommandAdapter,'function');
+assert.equal(typeof (await load('@honua/app-platform/control-plane')).createHonuaCommandRuntime,'function');
+assert.equal(typeof (await load('@honua/app-platform/studio')).createHonuaStudioCommandAdapter,'function');
 const expected=JSON.parse(readFileSync('expected-clients.json'));
-assert.deepEqual(Object.keys(expected).sort(),['@honua/mcp-server','@honua/sdk-js']);
+assert.deepEqual(Object.keys(expected).sort(),['@honua/app-platform','@honua/mcp-server','@honua/sdk-js']);
 const records=[];
 for(const [name,pin] of Object.entries(expected)) {
  const {version}=pin;

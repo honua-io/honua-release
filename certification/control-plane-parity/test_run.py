@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -18,6 +19,12 @@ from cleanup import validate_owned_object
 spec = importlib.util.spec_from_file_location("parity_run", HERE / "run.py")
 replay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(replay)
+
+CLIENT_KEYS = ("honua-sdk-js", "honua-mcp-server", "honua-app-platform")
+# Entry points @honua/sdk-js 0.4.0 removed in favour of @honua/app-platform.
+MOVED_SDK_SUBPATHS = ("app", "app-controller", "app-workspace", "scene-workspace", "collaboration", "control-plane",
+                      "replica-sync", "share", "operate", "generated-app", "studio", "operator", "controls",
+                      "web-components")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX mount permissions are enforced by the Linux replay")
@@ -53,8 +60,8 @@ def test_immutable_source_and_digest_accepted():
 def test_pair_uses_reviewed_independent_versions_and_full_identities():
     manifest = yaml.safe_load((replay.ROOT / "platform-manifest.yaml").read_text())
     pins = replay.selected_clients(manifest)
-    assert set(pins) == {"@honua/sdk-js", "@honua/mcp-server"}
-    for key in ("honua-sdk-js", "honua-mcp-server"):
+    assert set(pins) == {"@honua/sdk-js", "@honua/mcp-server", "@honua/app-platform"}
+    for key in CLIENT_KEYS:
         row = manifest["clientArtifacts"][key]
         assert pins[row["package"]] == {field: row[field] for field in ("version", "sourceSha", "integrity", "filename")}
     # MCP is independently reviewed, never advanced to SDK's version implicitly.
@@ -69,11 +76,19 @@ def test_pair_uses_reviewed_independent_versions_and_full_identities():
 ])
 def test_pair_rejects_unpublished_mutable_or_foreign_identity(field, value):
     manifest = yaml.safe_load((replay.ROOT / "platform-manifest.yaml").read_text())
-    for key in ("honua-sdk-js", "honua-mcp-server"):
+    for key in CLIENT_KEYS:
         changed = copy.deepcopy(manifest)
         changed["clientArtifacts"][key][field] = value
         with pytest.raises(ValueError):
             replay.selected_clients(changed)
+
+
+def test_scripts_import_moved_entry_points_from_app_platform():
+    # Importing a removed @honua/sdk-js forwarder crashes the whole replay script.
+    imported = re.compile(r"""@honua/sdk-js/([^"'/]+)""")
+    for script in sorted(HERE.glob("*.mjs")):
+        for subpath in imported.findall(script.read_text()):
+            assert subpath not in MOVED_SDK_SUBPATHS, f"{script.name}: @honua/sdk-js/{subpath}"
 
 
 def test_pair_refuses_component_source_mismatch():

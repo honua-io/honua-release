@@ -32,8 +32,13 @@ def check_identity(image: str, source: str) -> None:
 
 
 def selected_clients(manifest: dict) -> dict:
-    """Select only the independently reviewed published pair; never resolve latest."""
-    expected = {"honua-sdk-js": "@honua/sdk-js", "honua-mcp-server": "@honua/mcp-server"}
+    """Select only the independently reviewed published clients; never resolve latest.
+
+    The command runtime, admin and Studio clients moved to @honua/app-platform in
+    @honua/sdk-js 0.4.0, so its manifest pin is installed with the SDK/MCP pair.
+    """
+    expected = {"honua-sdk-js": "@honua/sdk-js", "honua-mcp-server": "@honua/mcp-server",
+                "honua-app-platform": "@honua/app-platform"}
     selected = {}
     for key, name in expected.items():
         pin = manifest["clientArtifacts"][key]
