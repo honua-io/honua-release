@@ -249,6 +249,17 @@ class Session:
         shutil.copy2(HERE / "jsresources.mjs", self.state / "jsresources.mjs")
 
     # container lifecycle
+    def prerequisite_runtimes(self, runtime: str) -> tuple[list[str], str]:
+        """Mounts and PATH prefix for the node or .NET install a document lists as a prerequisite."""
+        mounts, prefix = [], ""
+        if "node" in self.prerequisites and runtime != "node":
+            mounts += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
+            prefix += "/opt/node/bin:"
+        if "dotnet" in self.prerequisites and runtime != "dotnet":
+            mounts += ["-v", f"{self.tools / 'dotnet'}:/opt/dotnet:ro", "-e", "DOTNET_ROOT=/opt/dotnet"]
+            prefix += "/opt/dotnet:"
+        return mounts, prefix
+
     def container(self, runtime: str) -> str:
         if runtime in self.containers:
             return self.containers[runtime]
@@ -266,9 +277,9 @@ class Session:
                 "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1", "-e", "DOTNET_NOLOGO=1",
                 "--label", f"honua.execdocs.run={self.run_id}"]
         path = f"{self.home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-        if "node" in self.prerequisites and runtime != "node":
-            args += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
-            path = "/opt/node/bin:" + path
+        mounts, prefix = self.prerequisite_runtimes(runtime)
+        args += mounts
+        path = prefix + path
         if runtime == "node":
             args += ["-v", f"{self.tools / 'compiler'}:/opt/honua-execdocs-compiler:ro",
                      "-e", "HONUA_EXECDOCS_COMPILER=/opt/honua-execdocs-compiler/node_modules/typescript/lib/typescript.js"]
@@ -1109,6 +1120,7 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
             docker("rm", "-f", cid)
         for command, target in (("npm", "npm-cli.js"), ("npx", "npx-cli.js")):
             (node / "bin" / command).symlink_to(f"../lib/node_modules/npm/bin/{target}")
+    copy_dotnet_sdk(runtimes["dotnet"], tools)
     bootstrap_compiler(tools, node / "bin" / "node", node / "lib" / "node_modules/npm/bin/npm-cli.js")
     docker("pull", runtimes["dockerCli"], timeout=900, check=True)
     cid = docker("create", runtimes["dockerCli"], check=True).stdout.strip()
@@ -1119,6 +1131,17 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
     finally:
         docker("rm", "-f", cid)
     return tools
+
+
+def copy_dotnet_sdk(image: str, tools: Path) -> None:
+    """The pinned SDK image's .NET install, for a document that lists .NET as a prerequisite."""
+    if (tools / "dotnet" / "dotnet").exists():
+        return
+    cid = docker("create", image, check=True).stdout.strip()
+    try:
+        docker("cp", f"{cid}:/usr/share/dotnet", str(tools), check=True)
+    finally:
+        docker("rm", "-f", cid)
 
 
 def client_package_version(manifest: dict[str, Any], package: str) -> str:
