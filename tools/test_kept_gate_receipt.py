@@ -57,8 +57,8 @@ def test_compose_or_kind_success_cannot_certify_launch_stack(tmp_path, proof):
 def test_upgrade_workflow_does_not_certify_compose_report_as_launch_stack():
     """A green Compose/kind gate must not fail, or mint operates-8-upgrade, on its own report.
 
-    Run 44191697591 passed every upgrade fragment and then exited 1 because the receipt step
-    fed out/gate-report.json to validate_upgrade. Launch Stack proof is a separate input.
+    The receipt step used to feed out/gate-report.json to validate_upgrade and fail the job.
+    Launch Stack proof is a separate input.
     """
     root = Path(__file__).resolve().parents[1]
     workflow = yaml.safe_load((root / '.github/workflows/gate-upgrade.yml').read_text())
