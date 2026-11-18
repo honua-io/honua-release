@@ -223,6 +223,15 @@ def approve_as_person(state: dict[str, Any]) -> dict[str, Any]:
     return {key: result.get(key) for key in ("result", "status", "approvalChannel", "stage", "httpStatus")}
 
 
+def page_rows(document: Any) -> list[dict[str, Any]]:
+    """Rows of an admin list reply: the server answers {success, data: {items, page, pageSize, total}}."""
+    body = document.get("data", document) if isinstance(document, dict) else document
+    rows = body.get("items") if isinstance(body, dict) else body
+    if not isinstance(rows, list):
+        raise TypeError(f"admin list reply has no item list: {type(rows).__name__}")
+    return rows
+
+
 def geojson_rows(document: dict[str, Any]) -> dict[str, Any]:
     features = []
     for feature in document["features"]:
@@ -308,8 +317,7 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
     def listed() -> dict[str, Any]:
         layers = cli.json(["admin", "publish", "getPublishedLayers", "--path", f"id={state['connection']}",
                            "--query", f"serviceName={life['service']}", "--json"], admin)
-        layers = layers.get("data", layers) if isinstance(layers, dict) else layers
-        return {"layers": [{"layerId": layer.get("layerId"), "enabled": layer.get("enabled")} for layer in layers or []]}
+        return {"layers": [{"layerId": layer.get("layerId"), "enabled": layer.get("enabled")} for layer in page_rows(layers)]}
     step("npm", "list", listed, state, ("layer",))
 
     step("npm", "query", lambda: geojson_rows(cli.json(

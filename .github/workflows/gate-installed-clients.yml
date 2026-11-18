@@ -86,6 +86,7 @@ jobs:
             certification/installed-clients/test_produce_import_fidelity.py \
             certification/installed-clients/test_import_fidelity_journeys.py \
             certification/installed-clients/test_regression.py certification/installed-clients/interop/test_interop.py \
+            certification/installed-clients/test_driver_pages.py \
             certification/installed-clients/test_regression_human_approval.py \
             certification/installed-clients/interop/test_interop_human_approval.py \
             certification/installed-clients/test_endpoint.py e2e/test_installed_clients_cloud.py \
