@@ -11,7 +11,7 @@ Use only the image emitted by the supported nightly workflow after the exact
 source passed its full certification matrix. The replay checks the downloaded
 digest, OCI source label, and actual running image identity before any proof.
 
-The canonical S4 stack supplies PostGIS, Redis and a real Keycloak authorization
+The canonical S4 stack supplies PostGIS and a real Keycloak authorization
 code plus PKCE flow. A small overlay selects Production, persistent storage,
 encrypted operation keys and durable audit integrity. Each run creates private
 credentials for tenant-a and tenant-b, an ordinary viewer, and a genuine admin
