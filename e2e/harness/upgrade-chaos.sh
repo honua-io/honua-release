@@ -156,16 +156,21 @@ sigkill_server() {
   return 1
 }
 
+start_db() {
+  # compose.candidate.yml has no redis service. Naming one makes `up` exit before PostGIS
+  # starts. Callers run under `||`, which suppresses set -e, so a failed up has to die
+  # itself. `up --wait` can still return while PostgreSQL is accepting
+  # its first socket but is completing image initialization; the server's one-shot startup
+  # migration then records a transient connection failure and remains unready forever.
+  compose up -d --wait db >/dev/null || die "PostGIS service did not start"
+  wait_db || die "PostGIS did not become reachable"
+}
+
 start_image() {
   local image="$1"
   export HONUA_SERVER_IMAGE="$image"
-  # Wait on the same Compose health gates used by the server's depends_on contract. A bare
-  # `up -d db redis` can return while PostgreSQL is accepting its first socket but is still
-  # completing image initialization; the server's one-shot startup migration then records a
-  # transient connection failure and remains unready forever.
-  compose up -d --wait db redis >/dev/null
-  wait_db || die "PostGIS did not become reachable"
-  compose up -d --force-recreate server >/dev/null
+  start_db
+  compose up -d --force-recreate server >/dev/null || die "server service did not start"
 }
 
 restart_image() {
@@ -749,8 +754,8 @@ cu_wait_ready() {
 }
 
 cu_start_server() {
-  # <image> [override file]: recreate only the server; db and redis (and the volume-less database
-  # they hold for this run) stay up, exactly as `docker compose up -d` does for a changed image.
+  # <image> [override file]: recreate only the server; db (and the volume-less database it
+  # holds for this run) stays up, exactly as `docker compose up -d` does for a changed image.
   local image="$1" override="${2:-}"
   export HONUA_SERVER_IMAGE="$image"
   if [ -n "$override" ]; then
@@ -1020,8 +1025,7 @@ elif [ "$SKIP_PREPARE" = true ]; then
   [ -s "$EXPECTED_CHECKSUMS" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected checksum file at $EXPECTED_CHECKSUMS"
   [ -s "$EXPECTED_SCHEMA" ] || die "CHAOS_SKIP_PREPARE=true requires an existing expected schema at $EXPECTED_SCHEMA"
   load_seed_layer
-  compose up -d --wait db redis >/dev/null
-  wait_db || die "PostGIS did not become reachable"
+  start_db
 else
   prepare_fixture
 fi
