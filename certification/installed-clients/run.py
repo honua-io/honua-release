@@ -684,7 +684,8 @@ def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple
     """Install only the manifest-pinned published client bytes and return the driver command."""
     drivers = HERE / "drivers"
     if driver == "npm-sdk":
-        ok, detail = install_npm(pins["honua-sdk-js"], work, sdk_probe=False)
+        # The driver's admin client lives in @honua/app-platform since @honua/sdk-js 0.4.0.
+        ok, detail = install_npm(pins["honua-sdk-js"], work, companion_pin=pins["honua-app-platform"], sdk_probe=False)
         if not ok:
             return False, detail, [], {}
         work.mkdir(parents=True, exist_ok=True)

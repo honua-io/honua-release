@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { HonuaClient } from "@honua/sdk-js";
-import { createHonuaStudioLifecycleClient } from "@honua/sdk-js/studio";
+import { createHonuaStudioLifecycleClient } from "@honua/app-platform/studio";
 
 const base = JSON.parse(readFileSync(process.env.SDKREG_PLAN, "utf8")).baseUrl;
 const root = new HonuaClient({ baseUrl: base, apiKey: process.env.SDKREG_API_KEY });

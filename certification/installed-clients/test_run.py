@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -181,7 +182,16 @@ class MatrixExpectationTests(unittest.TestCase):
         cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
         self.assertEqual(cell["artifact"], "honua-mcp-server")
         self.assertEqual(cell["driver"], "npm-mcp-setup-view")
-        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 43})
+        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 45})
+
+    def test_js_drivers_import_app_platform_entry_points_from_app_platform(self):
+        # @honua/sdk-js 0.4.0 removed these forwarders; importing one crashes a whole JS driver.
+        moved = ("app", "app-controller", "app-workspace", "scene-workspace", "collaboration", "control-plane",
+                 "replica-sync", "share", "operate", "generated-app", "studio", "operator", "controls", "web-components")
+        for script in sorted(HERE.rglob("*.mjs")):
+            for subpath in re.findall(r"""from\s+["']@honua/sdk-js/([^"']+)["']""", script.read_text()):
+                with self.subTest(script=script.relative_to(HERE).as_posix(), subpath=subpath):
+                    self.assertNotIn(subpath.split("/")[0], moved)
 
     def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
         _, matrix = inputs()
@@ -215,6 +225,14 @@ class MatrixExpectationTests(unittest.TestCase):
         self.assertEqual([pin["package"] for pin in companions], ["@honua/mcp-server", "@honua/app-platform"])
         primary, companions = mod.npm_companions(pins, "honua-sdk-js")
         self.assertEqual(companions, [])
+
+    def test_npm_sdk_suite_install_pins_app_platform(self):
+        pins = {"honua-sdk-js": {"package": "@honua/sdk-js"}, "honua-app-platform": {"package": "@honua/app-platform"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(mod, "install_npm", return_value=(True, "ok")) as npm:
+            ok, _, command, _ = mod.install_suite_client("npm-sdk", pins, Path(tmp) / "suite")
+        self.assertTrue(ok)
+        self.assertEqual(npm.call_args.kwargs["companion_pin"], {"package": "@honua/app-platform"})
+        self.assertEqual(Path(command[1]).name, "driver.mjs")
 
     def test_validation_rejects_implicit_expectations(self):
         cases = [
