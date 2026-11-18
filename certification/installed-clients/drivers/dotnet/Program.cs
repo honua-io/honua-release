@@ -444,8 +444,8 @@ async Task RunOgcFeatures(Dictionary<string, object> state)
 
 Task RunTiles(Dictionary<string, object> state)
 {
-    // Honua.Sdk 2.2.0 has an OGC API Tiles client, but this driver does not call it yet
-    // (honua-release#1467); every tile step is a finding, not a skip.
+    // Honua.Sdk 2.2.0 has an OGC API Tiles client, but this driver does not call it yet;
+    // every tile step is a finding, not a skip.
     foreach (var step in new[] { "vector-tile", "raster-tile", "empty-tile" })
     {
         Emit("sdk-ogc-tiles", step, "unsupported", "the driver makes no OGC API Tiles client call yet (Honua.Sdk 2.2.0 IHonuaOgcTilesClient, honua-release#1467)");
