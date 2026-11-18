@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
+      - run: python -m pip install PyYAML
       # Receipts are written only when gate.verify_installed confirms this candidate's stack.
       # A missing harness or a bad cohort fails the step and leaves nothing to upload.
       - name: Produce receipts or leave none

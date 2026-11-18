@@ -277,6 +277,8 @@ def test_workflows_run_on_trunk_in_the_gate_environment_and_upload_contract_rece
         assert job["environment"] == "gate"
         assert job["if"] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
         step = next(item for item in job["steps"] if item.get("name") == "Produce receipts or leave none")
+        install = next(i for i, item in enumerate(job["steps"]) if item.get("run") == "python -m pip install PyYAML")
+        assert install < job["steps"].index(step)
         assert step["env"]["ADMISSION_DIR"] == "${{ inputs.admission_dir }}"
         assert f"python tools/authenticated_producers.py {mode}" in step["run"]
         upload = job["steps"][-1]
