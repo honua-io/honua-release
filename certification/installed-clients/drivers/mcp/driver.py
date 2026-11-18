@@ -2,8 +2,9 @@
 """MCP driver for the installed-client regression suite (mcp-* scenarios).
 
 Speaks JSON-RPC only through the stdio of the manifest-pinned ``honua-mcp-proxy``, launched through
-the npm ``node_modules/.bin`` shim exactly as an MCP host launches it. Discovery runs anonymously;
-the full-catalog override and the tool calls run with the operator key in the proxy's environment.
+the npm ``node_modules/.bin`` shim exactly as an MCP host launches it. The setup and default views
+and the tool calls run with the operator key: the server returns an empty catalog for an anonymous
+named view. The full catalog is refused without a key and listed with the same key.
 The driver never makes an HTTP request itself. Prints one JSON observation per step.
 """
 from __future__ import annotations
@@ -177,7 +178,7 @@ def run(proxy: str) -> None:
     sites, area, processes, render_spec = PLAN["sites"], PLAN["area"], PLAN["processes"], PLAN["mcp"]["render"]
     state: dict[str, Any] = {}
 
-    with session(proxy) as setup:
+    with session(proxy, key) as setup:
         def initialize_setup() -> dict[str, Any]:
             observed = initialized(setup.initialize(workflow_view="setup"))
             state["setup"] = True
@@ -185,7 +186,7 @@ def run(proxy: str) -> None:
         step("initialize-setup", initialize_setup, state)
         step("setup-tools-list", lambda: view_of(result_of(setup.request("tools/list"))), state, ("setup",))
 
-    with session(proxy) as default:
+    with session(proxy, key) as default:
         def default_view() -> dict[str, Any]:
             initialized(default.initialize())
             return view_of(result_of(default.request("tools/list")))

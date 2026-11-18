@@ -425,13 +425,19 @@ def valid_tool_names(tools: list[Any]) -> bool:
     ) and len({tool["name"] for tool in tools}) == len(tools)
 
 
+def _operator_api_key() -> str:
+    """The candidate operator key. An anonymous named workflow view lists no tools."""
+    return os.environ.get("E2E_API_KEY") or os.environ.get("HONUA_API_KEY") or DEFAULT_ADMIN_KEY
+
+
 def mcp_tools_list(shim: Path, contract: str, server: str) -> tuple[bool, str]:
     """initialize + tools/list through the installed npm shim, exactly as a customer launches it."""
     probes = _terminal_probes()
+    key = {"HONUA_API_KEY": _operator_api_key()}
     if contract == "mcp-proxy":
-        remote, env = f"{server}/mcp", {}
+        remote, env = f"{server}/mcp", key
     else:
-        remote, env = "", {"HONUA_BASE_URL": server}
+        remote, env = "", {"HONUA_BASE_URL": server, **key}
     try:
         with probes.McpProxySession([str(shim)], remote, env=env) as session:
             initialized = session.initialize()
@@ -449,7 +455,7 @@ def probe_setup_view(proxy: Path, remote_url: str, expect: dict[str, Any]) -> tu
     probes = _terminal_probes()
     view, count = expect["workflowView"], expect["toolCount"]
     try:
-        with probes.McpProxySession([str(proxy)], remote_url) as session:
+        with probes.McpProxySession([str(proxy)], remote_url, env={"HONUA_API_KEY": _operator_api_key()}) as session:
             initialized = session.initialize(workflow_view=view)
             validate_initialize(initialized)
             payload = session.request("tools/list")
