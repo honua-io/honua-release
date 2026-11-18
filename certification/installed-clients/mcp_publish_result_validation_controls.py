@@ -205,9 +205,14 @@ class PublicationControls(unittest.TestCase):
                 "retryPolicy": None, "failurePolicy": "Fail", "timeoutSeconds": None, "condition": None, "forEach": None}
         graph = {"schemaVersion": "workflow-package.v1", "nodes": [node], "edges": [], "schedule": None, "workerProfile": None, "editorMetadata": {}}
         validation.graph_output(graph, authored)
-        node["failurePolicy"] = "Continue"
-        with self.assertRaises(ValueError):
-            validation.graph_output(graph, authored)
+        for key, changed in (("failurePolicy", "Continue"), ("retryPolicy", {"maxAttempts": 2}),
+                             ("timeoutSeconds", 30), ("condition", "ready"), ("forEach", {"over": "rows"})):
+            broken = copy.deepcopy(node)
+            broken[key] = changed
+            with self.assertRaises(ValueError):
+                validation.graph_output({**graph, "nodes": [broken]}, authored)
+        omitted = {key: value for key, value in node.items() if key not in ("retryPolicy", "timeoutSeconds", "condition", "forEach")}
+        validation.graph_output({**graph, "nodes": [omitted]}, authored)
 
     def test_complete_authored_worker_and_publication(self):
         proof = validation.judge(FIXTURE,bootstrap(),controls())

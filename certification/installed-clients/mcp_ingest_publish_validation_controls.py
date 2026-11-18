@@ -140,6 +140,7 @@ class IngestPublishControls(unittest.TestCase):
             "missing-query": lambda x: x["queries"].pop(),
             "query-truncated": lambda x: replace_output(x["queries"][1], lambda y: y.update(exceededTransferLimit=True)),
             "wrong-query-tuple": lambda x: x["queries"][0]["params"]["arguments"].update(serviceLayerIndex=29),
+            "query-storage-id-as-index": lambda x: replace_output(x["queries"][0], lambda y: y.update(serviceLayerIndex=741)),
             "query-missing-structured": lambda x: x["queries"][0]["result"].pop("structuredContent"),
             "query-missing-projection": lambda x: replace_output(x["queries"][0], lambda y: y.pop("features")),
             "query-conflicting-projection": lambda x: replace_output(x["queries"][0], lambda y: y["features"][0]["attributes"]["properties"].update(rank=999)),

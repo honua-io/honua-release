@@ -128,6 +128,17 @@ class OpsHealthControls(unittest.TestCase):
         with self.assertRaises((ValueError, TypeError, KeyError)):
             validation.judge(FIXTURE, bootstrap(), value)
 
+    def test_task_id_must_be_a_present_bounded_nonblank_string(self):
+        for task in (None, "", "   ", "x" * 201, 7):
+            with self.subTest(task=task if not isinstance(task, str) or len(task) < 20 else "201-chars"):
+                value = controls()
+                def change(body, task=task):
+                    if task is None:
+                        body.pop("taskId")
+                    else:
+                        body["taskId"] = task
+                self.refused(mutate_payload(value, change))
+
     def test_complete_positive_actual_field_shape_and_restart_recomputation(self):
         judged = validation.judge(FIXTURE, bootstrap(), controls())
         self.assertTrue(judged["independentStores"] and judged["restartRecomputed"] and judged["liveNotPersisted"])
