@@ -181,7 +181,7 @@ class MatrixExpectationTests(unittest.TestCase):
         cell = next(c for c in matrix["cells"] if c["id"] == "npm-mcp-setup-view-tools-list")
         self.assertEqual(cell["artifact"], "honua-mcp-server")
         self.assertEqual(cell["driver"], "npm-mcp-setup-view")
-        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 41})
+        self.assertEqual(cell["expect"], {"workflowView": "setup", "toolCount": 43})
 
     def test_workflow_cells_block_only_what_the_pinned_clients_cannot_do(self):
         _, matrix = inputs()
@@ -200,6 +200,21 @@ class MatrixExpectationTests(unittest.TestCase):
             {"honua-agent-gateway": "help", "honua-agent-mcp": "help", "honua-mcp": "mcp-stdio",
              "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
         )
+
+    def test_mcp_install_also_pins_app_platform(self):
+        pins = {
+            "honua-sdk-js": {"package": "@honua/sdk-js"},
+            "honua-mcp-server": {"package": "@honua/mcp-server"},
+            "honua-app-platform": {"package": "@honua/app-platform"},
+        }
+        primary, companions = mod.npm_companions(pins, "honua-mcp-server", "honua-sdk-js")
+        self.assertEqual(primary["package"], "@honua/mcp-server")
+        self.assertEqual([pin["package"] for pin in companions], ["@honua/sdk-js", "@honua/app-platform"])
+        primary, companions = mod.npm_companions(pins, "honua-sdk-js", "honua-mcp-server")
+        self.assertEqual(primary["package"], "@honua/sdk-js")
+        self.assertEqual([pin["package"] for pin in companions], ["@honua/mcp-server", "@honua/app-platform"])
+        primary, companions = mod.npm_companions(pins, "honua-sdk-js")
+        self.assertEqual(companions, [])
 
     def test_validation_rejects_implicit_expectations(self):
         cases = [

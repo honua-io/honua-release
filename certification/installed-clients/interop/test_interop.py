@@ -905,7 +905,10 @@ class WiringTests(unittest.TestCase):
             calls = {}
 
             def npm(pin, path, **kwargs):
-                calls["npm"] = (pin["package"], kwargs["companion_pin"]["package"])
+                companions = kwargs["companion_pin"]
+                if isinstance(companions, dict):
+                    companions = [companions]
+                calls["npm"] = (pin["package"], [extra["package"] for extra in companions])
                 path.mkdir(parents=True)
                 return True, "npm ok"
             with mock.patch.object(run, "install_npm", side_effect=npm), \
@@ -914,7 +917,7 @@ class WiringTests(unittest.TestCase):
                     mock.patch.object(run.shutil, "which", return_value="/usr/bin/dotnet"):
                 ok, detail, command, env = run.install_suite_client("interop", pins, work)
             self.assertTrue(ok, detail)
-            self.assertEqual(calls["npm"], ("@honua/sdk-js", "@honua/mcp-server"))
+            self.assertEqual(calls["npm"], ("@honua/sdk-js", ["@honua/mcp-server", "@honua/app-platform"]))
             self.assertTrue((work / "npm" / "runner.mjs").is_file())
             self.assertTrue((work / "nuget" / "runner" / "Program.cs").is_file())
             self.assertEqual(command[1], str(HERE / "orchestrator.py"))
