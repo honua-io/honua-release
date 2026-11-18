@@ -113,13 +113,42 @@ for line in sys.stdin:
 '
 }
 teardown() {
-  "${COMPOSE[@]}" logs --no-color --timestamps db keycloak server 2>&1 | redact > "$STACK_LOG" || true
+  # `compose logs` is empty when pull or up failed before a container started. Replacing
+  # $STACK_LOG in that case deletes the only registry or engine error the gate uploaded.
+  local logs="$E2E_OUT/console-s4-compose-logs.txt"
+  "${COMPOSE[@]}" logs --no-color --timestamps db keycloak server 2>&1 | redact > "$logs" || true
+  # Keep a failed pull/up line and any container logs. Choosing only one drops
+  # the registry error when logs are non-empty, or the database log when a
+  # later `up` fails after db and keycloak have started.
+  if [ -s "$logs" ] && [ -s "$STACK_LOG" ]; then
+    cat "$logs" >> "$STACK_LOG"
+  elif [ -s "$logs" ]; then
+    mv "$logs" "$STACK_LOG"
+  fi
+  rm -f "$logs"
   "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$S4_RUN_DIR"
 }
 stack_fail() { # stage detail
   emit_scenario "S4-console-studio" fail "S4 stack did not come up ($1): $2 (see $STACK_LOG)"
   exit 0
+}
+# A pull or up that fails has no container logs. Keep its own output, redacted, as the uploaded log
+# and put the last line on the scenario row so the gate report is readable without the artifact.
+compose_or_fail() { # stage fallback compose-args...
+  local stage="$1" fallback="$2"
+  shift 2
+  local log="$E2E_OUT/console-s4-${stage}.log"
+  if "${COMPOSE[@]}" "$@" >"$log" 2>&1; then
+    return 0
+  fi
+  if [ -s "$log" ]; then
+    redact < "$log" > "$STACK_LOG"
+  fi
+  local detail
+  detail="$(grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -n 1 | redact || true)"
+  [ -n "$detail" ] || detail="$fallback"
+  stack_fail "$stage" "$detail"
 }
 
 # Installed before render. render.sh can refuse (set -e would otherwise exit the driver with no
@@ -151,10 +180,11 @@ if ! S4_IDP_HOSTNAME="$IDP_HOSTNAME" S4_CONSOLE_ORIGIN="$CONSOLE_ORIGIN" S4_CLIE
   stack_fail "realm" "$detail"
 fi
 
-echo "== S4: booting IdP + PostGIS + Redis (server image $HONUA_SERVER_IMAGE) ==" >&2
-"${COMPOSE[@]}" pull --quiet db redis keycloak server >/dev/null 2>&1 \
-  || stack_fail "pull" "could not pull the S4 images"
-"${COMPOSE[@]}" up -d db redis keycloak >/dev/null 2>&1 || stack_fail "up" "docker compose up failed for db/redis/keycloak"
+echo "== S4: booting IdP + PostGIS (server image $HONUA_SERVER_IMAGE) ==" >&2
+# Services are exactly those in compose.console-s4.yml. Naming a removed service
+# (redis, after the Redis-free stack) makes compose pull fail before any image moves.
+compose_or_fail pull "could not pull the S4 images" pull db keycloak server
+compose_or_fail up "docker compose up failed for db/keycloak" up -d db keycloak
 
 # PostGIS runs its init scripts on a socket-only server, then stops it and starts the real one.
 # pg_isready over the socket passes before that restart, and a server migrating then loses its
@@ -197,7 +227,7 @@ until [ "$(curl -sk --max-time 5 --resolve "${IDP_HOSTNAME}:${IDP_PORT}:127.0.0.
 done
 
 echo "== S4: starting honua-server against the final database ==" >&2
-"${COMPOSE[@]}" up -d server >/dev/null 2>&1 || stack_fail "up" "docker compose up failed for server"
+compose_or_fail up "docker compose up failed for server" up -d server
 deadline=$(( $(date +%s) + ${E2E_BOOT_TIMEOUT:-180} ))
 until [ "$(curl -sS -o /dev/null -w '%{http_code}' "${SERVER_URL}/healthz/ready" 2>/dev/null || echo 000)" = "200" ]; do
   [ "$(date +%s)" -lt "$deadline" ] || stack_fail "server" "honua-server never became ready at ${SERVER_URL}/healthz/ready"

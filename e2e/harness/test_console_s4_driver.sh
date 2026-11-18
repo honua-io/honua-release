@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Fixture for the S4 driver failure paths that must still produce a scenario row.
-# No images, no Docker daemon: docker/dotnet/npx are stubs. Two cases:
+# No images, no Docker daemon: docker/dotnet/npx are stubs. Three cases:
 #   1. An inherited S4_ACCESS_TOKEN_LIFESPAN below 7200 makes render.sh refuse. The driver
 #      must emit S4-console-studio fail and exit 0. A non-zero exit with no row lets
 #      assemble_report stay green (run_all.sh continues; a missing scenario is not a fail).
 #   2. A listener already bound to the S4 server port must be released by the project
 #      `docker compose down` BEFORE the port check. If the check wins, the row blames the
 #      port and the stale project is never removed.
+#   3. A refused image pull must keep the registry error in the scenario row and in the
+#      uploaded stack log. compose logs are empty when nothing started, and discarding
+#      pull output leaves the gate report pointing at a zero-byte file.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -66,7 +69,15 @@ case " $* " in
     fi
     exit 0
     ;;
-  *" logs "*) exit 0 ;;
+  *" logs "*)
+    # A project that never started still prints this. It must not erase a pull error.
+    echo "no container found for service db"
+    exit 0
+    ;;
+  *" pull "*)
+    echo "error: failed to pull quay.io/keycloak/keycloak:26.0: denied" >&2
+    exit 1
+    ;;
   *) echo "unexpected: $*" >> "$DOCKER_LOG"; exit 1 ;;
 esac
 EOF
@@ -87,7 +98,7 @@ run_driver() { # extra env assignments are already exported by the caller
       HONUA_CONSOLE_E2E_IDP_HOST="host.docker.internal:$IDP_PORT" \
       E2E_CONSOLE_SERVER_PORT="$SERVER_PORT" \
       HONUA_CONSOLE_E2E_LIVE_PORT="$LIVE_PORT" \
-      S4_ACCESS_TOKEN_LIFESPAN=300 \
+      S4_ACCESS_TOKEN_LIFESPAN="${S4_LIFESPAN_FOR_CASE:-300}" \
       RUNNER_TEMP="$RUNNER" \
       DOCKER_LOG="$DOCKER_LOG" \
       HOLDER_PIDFILE="${HOLDER_PIDFILE:-}" \
@@ -154,6 +165,34 @@ first="$(head -n 1 "$DOCKER_LOG")"
 case "$first" in
   *" down "*) printf '  ok   first docker command is down\n' ;;
   *) printf '  FAIL first docker command: %s\n' "$first"; FAILURES=$((FAILURES+1)) ;;
+esac
+
+# --- case 3: a refused pull is visible in the row and the uploaded stack log ---------------
+echo "== case 3: image pull refusal is kept after teardown =="
+prepare_case pull-refused
+IDP_PORT="$(free_port)"
+SERVER_PORT="$(free_port)"
+LIVE_PORT="$(free_port)"
+unset HOLDER_PIDFILE HELD_PORT
+S4_LIFESPAN_FOR_CASE=7200
+run_driver
+rc=$?
+unset S4_LIFESPAN_FOR_CASE
+assert_eq "driver exit" 0 "$rc"
+assert_eq "status" fail "$(jq -r .status "$OUT/scenarios.jsonl" 2>/dev/null)"
+assert_contains "why names the pull" "pull" "$(jq -r .why "$OUT/scenarios.jsonl" 2>/dev/null)"
+assert_contains "why keeps the registry error" "denied" "$(jq -r .why "$OUT/scenarios.jsonl" 2>/dev/null)"
+assert_contains "stack log keeps the registry error" "denied" "$(cat "$OUT/console-s4-stack.log" 2>/dev/null)"
+assert_contains "stack log also keeps compose logs" "no container found" "$(cat "$OUT/console-s4-stack.log" 2>/dev/null)"
+assert_contains "docker saw pull" "pull" "$(cat "$DOCKER_LOG")"
+pull_line="$(grep ' pull ' "$DOCKER_LOG" | head -n 1)"
+case " $pull_line " in
+  *" redis "*) printf '  FAIL pull still names removed redis service: %s\n' "$pull_line"; FAILURES=$((FAILURES+1)) ;;
+  *) printf '  ok   pull does not name redis\n' ;;
+esac
+case "$pull_line" in
+  *' pull db keycloak server') printf '  ok   pull names db keycloak server\n' ;;
+  *) printf '  FAIL pull services: %s\n' "$pull_line"; FAILURES=$((FAILURES+1)) ;;
 esac
 
 if [ "$FAILURES" -eq 0 ]; then
