@@ -44,7 +44,7 @@ def payload(seconds, active=True):
     aggregate.update(observedAt=timestamp(seconds-1), lastSuccessfulAt=timestamp(seconds-1), validUntil=timestamp(seconds+119))
     aggregate["coverage"] = {"expectedComponentIds": sorted(item["sourceId"] for item in components),
         "includedComponentIds": sorted(item["sourceId"] for item in components)}
-    return {"managedTargets": [], "generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
+    return {"taskId": "owned-health-task", "managedTargets": [], "generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
         "entries": [{"name": name, "status": "Healthy", "description": "Controlled actual-dependency shape", "durationMs": 1}
                     for name in REAL_CHECK_NAMES]},
         "geoprocessing": {"available": True, "totalActive": 1 if active else 0,

@@ -97,7 +97,11 @@ def observations():
 
 class RenderControls(unittest.TestCase):
     def test_authored_geometry_and_all_three_requests_pass(self):
-        result = validation.judge(FIXTURE, bootstrap(), observations())
+        observed = observations()
+        layer = observed["cases"][0]["arguments"]["layers"][0]
+        self.assertEqual({"serviceId": "allocated-service-id", "serviceLayerIndex": 3}, layer)
+        self.assertEqual(2147483647, observed["cases"][2]["arguments"]["layers"][0]["serviceLayerIndex"])
+        result = validation.judge(FIXTURE, bootstrap(), observed)
         self.assertTrue(all(result[key] for key in ("positive", "negative", "mediaSchema")))
 
     def test_corrupt_png_conflicting_representations_and_missing_media_refuse(self):
@@ -113,7 +117,7 @@ class RenderControls(unittest.TestCase):
                 elif mutation == "missing": result["content"].pop()
                 elif mutation == "wrong-size": result["structuredContent"]["image"]["width"] += 1
                 elif mutation == "wrong-bbox": result["structuredContent"]["bbox"] = [0, 0, 1, 1]
-                elif mutation == "wrong-layer": result["structuredContent"]["layers"] = [{"serviceId": "other", "layerId": 17}]
+                elif mutation == "wrong-layer": result["structuredContent"]["layers"] = [{"serviceId": "other", "serviceLayerIndex": 17}]
                 elif mutation == "json-conflict": result["content"][0]["text"] = "{}"
                 else: result["structuredContent"]["byteLength"] = True
                 with self.assertRaises((ValueError, TypeError)):
@@ -126,7 +130,7 @@ class RenderControls(unittest.TestCase):
                 if mutation == "typed": value["cases"][1]["result"]["structuredContent"]["code"] = "internal"
                 elif mutation == "accepted": value["cases"][2]["result"]["isError"] = False
                 elif mutation == "conflict": value["cases"][2]["result"]["content"][0]["text"] = "{}"
-                elif mutation == "arguments": value["cases"][2]["arguments"]["layers"][0]["layerId"] -= 1
+                elif mutation == "arguments": value["cases"][2]["arguments"]["layers"][0]["serviceLayerIndex"] -= 1
                 elif mutation == "missing-case": value["cases"].pop()
                 elif mutation == "duplicate-case": value["cases"][2] = copy.deepcopy(value["cases"][1])
                 elif mutation == "bootstrap": binding["candidateSourceSha"] = "d" * 40

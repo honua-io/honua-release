@@ -87,7 +87,7 @@ def controls():
     # The published import layer's fields as honua-server returns them (2026.1 JSON properties contract).
     fields = lambda row: {"id": row["id"], "created_at": "2026-10-26T10:09:56.622386+00:00",
                           "properties": copy.deepcopy(row["properties"]), "objectid": row["id"]}
-    queried = envelope({"serviceId": "metadata-service-7", "features": [{"id": row["id"], "attributes": fields(row), "geometry": row["geometry"]} for row in rows], "layerId": 0, "returnedCount": 6, "exceededTransferLimit": False, "geojson": {"type": "FeatureCollection",
+    queried = envelope({"serviceId": "metadata-service-7", "features": [{"id": row["id"], "attributes": fields(row), "geometry": row["geometry"]} for row in rows], "serviceLayerIndex": 0, "returnedCount": 6, "exceededTransferLimit": False, "geojson": {"type": "FeatureCollection",
         "features": [{"type": "Feature", "id": row["id"], "properties": fields(row), "geometry": row["geometry"]} for row in rows]}})
     queried["content"] = server_content(queried["structuredContent"], QUERY_SUMMARY)
     assert len(queried["content"]) == 2  # a six-feature page is above the 1024-character threshold
@@ -139,7 +139,7 @@ class IngestPublishControls(unittest.TestCase):
             "missing-read": lambda x: x["reads"].pop(1),
             "missing-query": lambda x: x["queries"].pop(),
             "query-truncated": lambda x: replace_output(x["queries"][1], lambda y: y.update(exceededTransferLimit=True)),
-            "wrong-query-tuple": lambda x: x["queries"][0]["params"]["arguments"].update(layerId=29),
+            "wrong-query-tuple": lambda x: x["queries"][0]["params"]["arguments"].update(serviceLayerIndex=29),
             "query-missing-structured": lambda x: x["queries"][0]["result"].pop("structuredContent"),
             "query-missing-projection": lambda x: replace_output(x["queries"][0], lambda y: y.pop("features")),
             "query-conflicting-projection": lambda x: replace_output(x["queries"][0], lambda y: y["features"][0]["attributes"]["properties"].update(rank=999)),

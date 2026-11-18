@@ -165,7 +165,8 @@ def health_output(result, method, before, after, bootstrap):
         if not isinstance(contents, list) or len(contents) != 1 or contents[0].get("uri") != URI or contents[0].get("mimeType") != "application/json":
             raise ValueError("health resource lacks exact JSON media/URI")
         value = wire.strict_json(contents[0]["text"])
-    if not isinstance(value, dict) or set(value) != {"evidencePosture", "generatedAt", "overallStatus", "health", "servingLatency", "geoprocessing", "alertDispatch", "deploy", "managedTargets", "database"}:
+    if (not isinstance(value, dict) or set(value) != {"taskId", "evidencePosture", "generatedAt", "overallStatus", "health", "servingLatency", "geoprocessing", "alertDispatch", "deploy", "managedTargets", "database"}
+            or not isinstance(value.get("taskId"), str) or not value["taskId"].strip() or len(value["taskId"]) > 200):
         raise ValueError("health response lacks server-supported sections")
     # This fixture owns a standalone server and declares no managed Compose
     # targets. Never accept unobserved target health or silently drop the field.

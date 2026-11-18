@@ -39,7 +39,7 @@ for (const mode of ["valid", "conflicting-image", "wrong-mime", "wrong-layer", "
         const result = structuredClone(responses[index]);
         if (index === 0 && mode === "conflicting-image") result.content[1].data = "AA==";
         if (index === 0 && mode === "wrong-mime") result.content[1].mimeType = "image/jpeg";
-        if (index === 0 && mode === "wrong-layer") result.structuredContent.layers[0].layerId += 1;
+        if (index === 0 && mode === "wrong-layer") result.structuredContent.layers[0].serviceLayerIndex += 1;
         if (index === 1 && mode === "negative-accepted") result.isError = false;
         if (index === 2 && mode === "wrong-error") result.structuredContent.code = "internal";
         return result;
@@ -49,9 +49,9 @@ for (const mode of ["valid", "conflicting-image", "wrong-mime", "wrong-layer", "
       }, { candidateSourceSha, candidateImage, results });
       assert.equal(calls.length, 3);
       assert.ok(calls.every(({ tool }) => tool === "honua_render_map"));
-      assert.deepEqual(calls[0].arguments_.layers, [{ serviceId: "allocated-service-id", layerId: 3 }]);
+      assert.deepEqual(calls[0].arguments_.layers, [{ serviceId: "allocated-service-id", serviceLayerIndex: 3 }]);
       assert.equal(calls[1].arguments_.bbox[0], calls[0].arguments_.bbox[2]);
-      assert.equal(calls[2].arguments_.layers[0].layerId, 2147483647);
+      assert.equal(calls[2].arguments_.layers[0].serviceLayerIndex, 2147483647);
       const raw = JSON.parse(readFileSync(`${results}.render-validation.raw.json`));
       assert.equal(raw.cases.length, mode === "transport-failure" ? 2 : 3);
       assert.equal(Boolean(error), mode !== "valid");
@@ -67,7 +67,7 @@ for (const mode of ["valid", "conflicting-image", "wrong-mime", "wrong-layer", "
         assert.equal(api.verifyRenderProof(proof, "d".repeat(40), candidateImage), false);
         assert.equal(api.verifyRenderProof(proof, candidateSourceSha, candidateImage.replace(/c/g, "d")), false);
         const changed = structuredClone(proof);
-        changed.observations.cases[2].arguments.layers[0].layerId -= 1;
+        changed.observations.cases[2].arguments.layers[0].serviceLayerIndex -= 1;
         assert.equal(api.verifyRenderProof(changed, candidateSourceSha, candidateImage), false);
         const bootstrap = JSON.parse(readFileSync(context.bootstrapPath));
         bootstrap.published.area.layerId += 1;

@@ -101,7 +101,7 @@ export function createIngestPublishValidation({ directory, sourceSha, sha256, bo
         const view = JSON.parse(fresh?.contents?.[0]?.text ?? "null");
         if (!view || !Array.isArray(view.servingLayerIds) || view.servingLayerIds.length !== 1
             || !Number.isSafeInteger(view.servingLayerIds[0]) || view.servingLayerIds[0] < 0) throw new Error("fresh resource supplied no public service layer index");
-        const query = { serviceId: published.serviceName, layerId: view.servingLayerIds[0], where: "1=1", outFields: ["*"], outSrid: 4326, returnGeometry: true, limit: 20 };
+        const query = { serviceId: published.serviceName, serviceLayerIndex: view.servingLayerIds[0], where: "1=1", outFields: ["*"], outSrid: 4326, returnGeometry: true, limit: 20 };
         await tool(observed.queries, "before", "honua_query_features", query);
         observed.runtimeRestarted = python("mcp_ingest_publish_state.py", ["--owned-disposable-candidate", "--restart"], observed, 190_000);
         observed.snapshots.after = python("mcp_ingest_publish_state.py", ["--owned-disposable-candidate"], observed, 45_000);
