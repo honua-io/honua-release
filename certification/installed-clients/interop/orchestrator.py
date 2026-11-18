@@ -44,6 +44,7 @@ import probes  # noqa: E402
 # The suite's oracles (installed-clients/oracles.py) shadow the journey's module of the same name.
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
 import judge  # noqa: E402
+import mcp_layer_address  # noqa: E402
 
 PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
 BASE = PLAN["baseUrl"]
@@ -485,8 +486,10 @@ class Interop:
 
             def read() -> dict[str, Any]:
                 initialized()
-                content = mcp_tool(session, "honua_query_features", {"serviceId": area["service"], "layerId": state["layer"],
-                                                                     "where": "1=1", "limit": 100})
+                target = mcp_layer_address.address_for_service(
+                    lambda arguments: mcp_tool(session, "honua_list_layers", arguments), area["service"])
+                content = mcp_tool(session, "honua_query_features", mcp_layer_address.query_arguments(
+                    target, where="1=1", limit=100))
                 features = content.get("features") if isinstance(content.get("features"), list) else []
                 rings: list[Any] = []
                 attributes: list[Any] = []
@@ -509,8 +512,10 @@ class Interop:
             def render() -> dict[str, Any]:
                 initialized()
                 spec = area["render"]
+                target = mcp_layer_address.address_for_service(
+                    lambda arguments: mcp_tool(session, "honua_list_layers", arguments), area["service"])
                 content = mcp_tool(session, "honua_render_map", {
-                    "layers": [{"serviceId": area["service"], "layerId": state["layer"]}], "bbox": spec["bbox"], "bboxSrid": 4326,
+                    "layers": [mcp_layer_address.render_layer(target)], "bbox": spec["bbox"], "bboxSrid": 4326,
                     "width": spec["width"], "height": spec["height"], "transparent": True, "maxInlineBytes": 1024 * 1024})
                 image = content.get("image") or {}
                 return {"png": image.get("base64"), "mimeType": image.get("format")}
@@ -650,8 +655,11 @@ class Interop:
 
             def mcp_count() -> dict[str, Any]:
                 session.initialize()
-                content = mcp_tool(session, "honua_query_features", {"serviceId": sites["service"], "layerId": sites["layerId"],
-                                                                     "where": "1=1", "limit": 1000})
+                target = mcp_layer_address.address_for_service(
+                    lambda arguments: mcp_tool(session, "honua_list_layers", arguments), sites["service"])
+                state["mcpAddress"] = target
+                content = mcp_tool(session, "honua_query_features", mcp_layer_address.query_arguments(
+                    target, where="1=1", limit=1000))
                 state["mcp-use"] = True
                 return {"count": len(content.get("features") or [])}
             step(scenario, "mcp-use", mcp_count, state, ("key",))
@@ -669,6 +677,7 @@ class Interop:
         """Every client probes concurrently, on the client instance (and MCP session) that used the key."""
         revocation, sites = PLAN["identity"]["revocation"], PLAN["sites"]
         probe = {"service": sites["service"], "layerId": sites["layerId"], "revokedAt": state.get("revokedAt"),
+                 "serviceAddress": state.get("mcpAddress"),
                  "observationSeconds": revocation["observationSeconds"], "confirmations": revocation["confirmations"]}
         pending: dict[str, tuple[Runner, int]] = {}
         for runner, name, used in ((self.python, "python-revoked", "python-use"), (self.js, "js-revoked", "js-use"),
@@ -718,7 +727,7 @@ class Interop:
     def _mcp_revoked(self, session: probes.McpProxySession, probe: dict[str, Any]) -> dict[str, Any]:
         """Probe the same proxy session; the per-call deadline is the observation bound."""
         bound = probe["observationSeconds"]
-        arguments = {"serviceId": probe["service"], "layerId": probe["layerId"], "where": "1=1", "limit": 1}
+        arguments = mcp_layer_address.query_arguments(probe["serviceAddress"], where="1=1", limit=1)
         previous, probes.MCP_TIMEOUT_SECONDS = probes.MCP_TIMEOUT_SECONDS, bound
         try:
             def attempt() -> Any:

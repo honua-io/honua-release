@@ -180,9 +180,9 @@ def resource_output(result, published, snapshot):
 
 
 def query_arguments(published, resource):
-    # Service routes use the PUBLIC index exposed by the actual resource read;
-    # publish_service layerId identifies physical storage and remains distinct.
-    return {"serviceId": published["serviceName"], "layerId": resource["servingLayerIds"][0], "where": "1=1",
+    # Service routes use the PUBLIC index exposed by the actual resource read.
+    # The MCP argument is serviceLayerIndex. publish_service layerId stays the physical storage id.
+    return {"serviceId": published["serviceName"], "serviceLayerIndex": resource["servingLayerIds"][0], "where": "1=1",
             "outFields": ["*"], "outSrid": 4326, "returnGeometry": True, "limit": 20}
 
 
@@ -240,7 +240,7 @@ def query_output(result, published, snapshot):
     if (not isinstance(collection, dict) or collection.get("type") != "FeatureCollection"
             or not isinstance(collection.get("features"), list)
             or value.get("serviceId") != snapshot["publication"]["serviceId"]
-            or type(value.get("layerId")) is not int or value["layerId"] != snapshot["publication"]["layerId"]
+            or type(value.get("serviceLayerIndex")) is not int or value["serviceLayerIndex"] != snapshot["publication"]["layerId"]
             or value.get("returnedCount") != len(snapshot["rows"]) or type(value.get("returnedCount")) is not int
             or value.get("exceededTransferLimit") is not False or len(collection["features"]) != len(snapshot["rows"])):
         raise ValueError("fresh query envelope is partial or addresses a different layer")

@@ -36,7 +36,8 @@ def scenario(fixture_bytes, bootstrap, nonce, canonical_client):
             "layers": [{"id": "authored-fill", "type": "fill", "source": "authored",
                         "paint": {"fill-color": color, "fill-opacity": 1, "fill-antialias": False}}]}})
     area = bootstrap["ownedArea"]
-    address = {"serviceId": area["serviceId"], "layerId": area["layerId"]}
+    # serviceLayerIndex is the publication layer index, not the storage layer id.
+    address = {"serviceId": area["serviceId"], "serviceLayerIndex": area["layerId"]}
     return {key: binding[key] for key in ("fixtureSha256", "bootstrapSha256", "candidateSourceSha", "candidateImage", "runtimeBinding")} | {
         "schema": SCHEMA, "nonce": nonce, "canonicalClient": canonical_client, "operations": OPERATIONS,
         "styles": styles, "ownedArea": area, "address": address,
@@ -92,7 +93,7 @@ def apply_output(result, authored, *, dry_run):
             or any(not isinstance(value.get(key), str) or not value[key] for key in ("operationInstanceId", "handleId", "correlationId"))
             or value["handleId"] != value["operationInstanceId"]
             or value.get("serviceId") != authored["address"]["serviceId"]
-            or type(value.get("layerId")) is not int or value["layerId"] != authored["address"]["layerId"]
+            or type(value.get("serviceLayerIndex")) is not int or value["serviceLayerIndex"] != authored["address"]["serviceLayerIndex"]
             or value.get("styleId") != authored["styles"][1 if dry_run else 0]["id"]
             or value.get("title") != authored["styles"][1 if dry_run else 0]["id"]
             or type(value.get("styleVersion")) is not int or value["styleVersion"] != 1
@@ -289,7 +290,7 @@ def judge(fixture_bytes, bootstrap, observed):
         ("replay", "honua_apply_style_preset", {**address, "styleId": a["id"]}, True),
         ("unknown-style", "honua_apply_style_preset", {**address, "styleId": a["id"] + "-unknown"}, True),
         ("invalid-encoding", "honua_get_style", {"styleId": a["id"], "encoding": "unknown"}, True),
-        ("unknown-layer", "honua_apply_style_preset", {**address, "layerId": 2147483647, "styleId": a["id"]}, True),
+        ("unknown-layer", "honua_apply_style_preset", {**address, "serviceLayerIndex": 2147483647, "styleId": a["id"]}, True),
         ("anonymous-get", "honua_get_style", {"styleId": a["id"], "includeStylesheet": True}, False),
         ("anonymous-apply", "honua_apply_style_preset", {**address, "styleId": b["id"]}, False),
         ("restarted-fresh", "honua_get_style", {**address, "includeStylesheet": True}, True),

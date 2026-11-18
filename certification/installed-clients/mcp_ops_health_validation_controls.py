@@ -44,7 +44,7 @@ def payload(seconds, active=True):
     aggregate.update(observedAt=timestamp(seconds-1), lastSuccessfulAt=timestamp(seconds-1), validUntil=timestamp(seconds+119))
     aggregate["coverage"] = {"expectedComponentIds": sorted(item["sourceId"] for item in components),
         "includedComponentIds": sorted(item["sourceId"] for item in components)}
-    return {"managedTargets": [], "generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
+    return {"taskId": "owned-health-task", "managedTargets": [], "generatedAt": timestamp(seconds), "overallStatus": "Healthy", "health": {"status": "Healthy", "totalDurationMs": 7,
         "entries": [{"name": name, "status": "Healthy", "description": "Controlled actual-dependency shape", "durationMs": 1}
                     for name in REAL_CHECK_NAMES]},
         "geoprocessing": {"available": True, "totalActive": 1 if active else 0,
@@ -127,6 +127,17 @@ class OpsHealthControls(unittest.TestCase):
     def refused(self, value):
         with self.assertRaises((ValueError, TypeError, KeyError)):
             validation.judge(FIXTURE, bootstrap(), value)
+
+    def test_task_id_must_be_a_present_bounded_nonblank_string(self):
+        for task in (None, "", "   ", "x" * 201, 7):
+            with self.subTest(task=task if not isinstance(task, str) or len(task) < 20 else "201-chars"):
+                value = controls()
+                def change(body, task=task):
+                    if task is None:
+                        body.pop("taskId")
+                    else:
+                        body["taskId"] = task
+                self.refused(mutate_payload(value, change))
 
     def test_complete_positive_actual_field_shape_and_restart_recomputation(self):
         judged = validation.judge(FIXTURE, bootstrap(), controls())

@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT / "certification" / "terminal-journey"))
 import probes  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "certification" / "installed-clients"))
+from mcp_layer_address import address_for_service, query_arguments, render_layer  # noqa: E402
 from mcp_plan_validation import buffer_plan  # noqa: E402
 
 PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
@@ -204,16 +205,19 @@ def run(proxy: str) -> None:
             return {"names": names, "pages": pages, "restoredView": restored["view"]}
         step("full-catalog", full, state)
 
+        def listed(service_name: str) -> dict[str, Any]:
+            return address_for_service(lambda arguments: tool(operator, "honua_list_layers", arguments), service_name)
+
         def read() -> dict[str, Any]:
-            content = tool(operator, "honua_query_features", {"serviceId": sites["service"], "layerId": sites["layerId"],
-                                                              "where": sites["where"], "limit": 1000})
+            content = tool(operator, "honua_query_features", query_arguments(
+                listed(sites["service"]), where=sites["where"], limit=1000))
             return {"features": [{"attributes": feature["attributes"], "x": feature["geometry"]["coordinates"][0],
                                   "y": feature["geometry"]["coordinates"][1]} for feature in content["features"]]}
         step("read", read, state)
 
         def render() -> dict[str, Any]:
             content = tool(operator, "honua_render_map", {
-                "layers": [{"serviceId": area["service"], "layerId": area["layerId"]}], "bbox": render_spec["bbox"],
+                "layers": [render_layer(listed(area["service"]))], "bbox": render_spec["bbox"],
                 "bboxSrid": 4326, "width": render_spec["width"], "height": render_spec["height"], "transparent": True,
                 "maxInlineBytes": 1024 * 1024})
             image = content.get("image") or {}

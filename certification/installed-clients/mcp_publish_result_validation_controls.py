@@ -152,11 +152,11 @@ def controls():
     mapping = completed["mappings"][0]["publication"]
     fresh = {"serviceId":published["serviceId"],"resourceUri":published["serviceUri"],"metadataServiceId":mapping["serviceId"],"sourceId":mapping["serviceId"],
         "sourceKind":"MetadataV2Graph","targetKind":"FeatureService","layerIds":[0],"servingLayerIds":[0],"featureServerEnabled":True,"serving":True,"status":"Active"}
-    query = {"serviceId":mapping["serviceId"],"layerId":0,"returnedCount":2,"exceededTransferLimit":False,
+    query = {"serviceId":mapping["serviceId"],"serviceLayerIndex":0,"returnedCount":2,"exceededTransferLimit":False,
         "geojson":{"type":"FeatureCollection","features":[{"type":"Feature","id":row["id"],"geometry":row["geometry"],"properties":{"id":row["id"],"attributes":row["properties"]}} for row in completed["rows"]]},
         "features":[{"id":row["id"],"geometry":row["geometry"],"attributes":{"id":row["id"],"attributes":row["properties"]}} for row in completed["rows"]]}
     query_result = {"isError":False,"structuredContent":query,"content":server_content(query,"Returned 2 authored features")}
-    query_args = {"serviceId":published["serviceId"],"layerId":0,"where":"1=1","outFields":["id","attributes"],"outSrid":4326,"returnGeometry":True,"limit":20}
+    query_args = {"serviceId":published["serviceId"],"serviceLayerIndex":0,"where":"1=1","outFields":["id","attributes"],"outSrid":4326,"returnGeometry":True,"limit":20}
     denial = {"status":"error","code":"unauthenticated","message":"Controlled anonymous publication denied","requiresReauthentication":True,
         "error":{"kind":"AuthorizationDenied","message":"Controlled anonymous publication denied"}}
     denied_resource = {"error":{"code":-32000,"message":"Controlled anonymous resource denial","data":{"code":"unauthenticated","requiresReauthentication":True}}}
@@ -197,6 +197,22 @@ class PublicationControls(unittest.TestCase):
     def assert_refused(self,value):
         with self.assertRaises((ValueError,TypeError,KeyError,IndexError,AttributeError)):
             validation.judge(FIXTURE,bootstrap(),value)
+
+    def test_inactive_node_policy_keeps_the_authored_sink(self):
+        authored = {"packageArguments": {"graph": {"schemaVersion": "workflow-package.v1", "nodes": [
+            {"nodeId": "sink", "nodeTypeId": "process:sink.external-postgis", "parameters": {"table": "owned"}}], "edges": []}}}
+        node = {**authored["packageArguments"]["graph"]["nodes"][0], "workerProfile": None, "metadata": {},
+                "retryPolicy": None, "failurePolicy": "Fail", "timeoutSeconds": None, "condition": None, "forEach": None}
+        graph = {"schemaVersion": "workflow-package.v1", "nodes": [node], "edges": [], "schedule": None, "workerProfile": None, "editorMetadata": {}}
+        validation.graph_output(graph, authored)
+        for key, changed in (("failurePolicy", "Continue"), ("retryPolicy", {"maxAttempts": 2}),
+                             ("timeoutSeconds", 30), ("condition", "ready"), ("forEach", {"over": "rows"})):
+            broken = copy.deepcopy(node)
+            broken[key] = changed
+            with self.assertRaises(ValueError):
+                validation.graph_output({**graph, "nodes": [broken]}, authored)
+        omitted = {key: value for key, value in node.items() if key not in ("retryPolicy", "timeoutSeconds", "condition", "forEach")}
+        validation.graph_output({**graph, "nodes": [omitted]}, authored)
 
     def test_complete_authored_worker_and_publication(self):
         proof = validation.judge(FIXTURE,bootstrap(),controls())
@@ -304,11 +320,11 @@ class PublicationControls(unittest.TestCase):
 
     def test_physical_public_and_source_canonical_ids_stay_distinct(self):
         value = controls(); self.assertEqual("741",value["calls"][5]["result"]["structuredContent"]["layerId"])
-        self.assertEqual(0,value["calls"][7]["params"]["arguments"]["layerId"])
+        self.assertEqual(0,value["calls"][7]["params"]["arguments"]["serviceLayerIndex"])
         self.assertEqual(881,value["snapshots"]["published"]["database"]["materialized"][0]["id"])
         self.assertEqual(11,value["calls"][7]["result"]["structuredContent"]["features"][0]["id"])
         validation.judge(FIXTURE,bootstrap(),value)
-        value["calls"][7]["params"]["arguments"]["layerId"] = 741; self.assert_refused(rebind(value))
+        value["calls"][7]["params"]["arguments"]["serviceLayerIndex"] = 741; self.assert_refused(rebind(value))
         value = controls(); output = value["calls"][7]["result"]["structuredContent"]; output["features"][0]["id"] = 881; self.assert_refused(rebind(value))
 
     def test_runtime_allows_prior_bootstrap_restart_but_not_current_setup_drift(self):

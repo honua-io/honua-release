@@ -103,7 +103,7 @@ export function createStyleValidation({ directory, sourceSha, sha256, bootstrapP
         for (const [id, name, args, authenticated] of [
           ["unknown-style", "honua_apply_style_preset", { ...address, styleId: a.id + "-unknown" }, true],
           ["invalid-encoding", "honua_get_style", { styleId: a.id, encoding: "unknown" }, true],
-          ["unknown-layer", "honua_apply_style_preset", { ...address, layerId: 2147483647, styleId: a.id }, true],
+          ["unknown-layer", "honua_apply_style_preset", { ...address, serviceLayerIndex: 2147483647, styleId: a.id }, true],
           ["anonymous-get", "honua_get_style", { styleId: a.id, includeStylesheet: true }, false],
           ["anonymous-apply", "honua_apply_style_preset", { ...address, styleId: b.id }, false]]) {
           try { await tool(id, name, args, authenticated); }

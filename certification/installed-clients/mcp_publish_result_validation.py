@@ -126,8 +126,12 @@ def graph_output(graph, authored):
             or not isinstance(graph.get("nodes"), list) or len(graph["nodes"]) != 1):
         raise ValueError("workflow graph changed authored topology or runtime configuration")
     node = graph["nodes"][0]
-    if (not isinstance(node, dict) or set(node) - {"nodeId", "nodeTypeId", "parameters", "workerProfile", "metadata"}
+    # Candidate 532565b returns these execution fields on every node. Only the inactive defaults
+    # leave the authored sink unchanged; any other value is a different workflow.
+    inactive = {"retryPolicy": None, "failurePolicy": "Fail", "timeoutSeconds": None, "condition": None, "forEach": None}
+    if (not isinstance(node, dict) or set(node) - {"nodeId", "nodeTypeId", "parameters", "workerProfile", "metadata", *inactive}
             or node.get("workerProfile") is not None or node.get("metadata", {}) != {}
+            or any(node[key] != value for key, value in inactive.items() if key in node)
             or any(not same_json(node.get(k), expected["nodes"][0][k]) for k in ("nodeId", "nodeTypeId", "parameters"))):
         raise ValueError("workflow node lost the exact owned sink inputs")
     # Public package hash contract: length-prefixed ASCII fields, ordinal-sorted
@@ -657,7 +661,7 @@ def query_output(result, published, database):
     if "geojson" in value and "geoJson" in value and not same_json(value["geojson"],value["geoJson"]):
         raise ValueError("query GeoJSON aliases conflict")
     collection = value.get("geojson",value.get("geoJson")); mapping = database["mappings"][0]["publication"]
-    if (value.get("serviceId") != mapping["serviceId"] or type(value.get("layerId")) is not int or value["layerId"] != mapping["layerId"]
+    if (value.get("serviceId") != mapping["serviceId"] or type(value.get("serviceLayerIndex")) is not int or value["serviceLayerIndex"] != mapping["layerId"]
             or type(value.get("returnedCount")) is not int or value["returnedCount"] != len(database["rows"])
             or value.get("exceededTransferLimit") is not False or not isinstance(collection,dict)
             or collection.get("type") != "FeatureCollection" or not isinstance(collection.get("features"),list)):

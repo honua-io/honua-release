@@ -124,13 +124,14 @@ def scenario(fixture_bytes, bootstrap):
     if bootstrap.get("areaReadback") != sorted(expected_rows, key=lambda row: row["gid"]):
         raise ValueError("render fixture database readback differs from authored geometry")
     render = fixture["mcp"]["render"]
-    arguments = {"layers": [{"serviceId": owned["serviceId"], "layerId": owned["layerId"]}],
+    # serviceLayerIndex is the publication layer index (ownedArea.layerId), not storageLayerId.
+    arguments = {"layers": [{"serviceId": owned["serviceId"], "serviceLayerIndex": owned["layerId"]}],
                  "bbox": render["bbox"], "bboxSrid": 4326, "width": render["width"],
                  "height": render["height"], "transparent": True, "maxInlineBytes": 1048576}
     invalid = copy.deepcopy(arguments)
     invalid["bbox"][0], invalid["bbox"][2] = invalid["bbox"][2], invalid["bbox"][0]
     missing = copy.deepcopy(arguments)
-    missing["layers"][0]["layerId"] = 2147483647
+    missing["layers"][0]["serviceLayerIndex"] = 2147483647
     return {"schema": SCHEMA, "fixtureSha256": fixture_sha,
             "bootstrapSha256": "sha256:" + hashlib.sha256(json.dumps(bootstrap, sort_keys=True, allow_nan=False).encode()).hexdigest(),
             "candidateSourceSha": bootstrap["candidateSourceSha"], "candidateImage": bootstrap["candidateImage"],

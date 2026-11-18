@@ -692,11 +692,20 @@ class RunnerTests(unittest.TestCase):
                 return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "data": {"code": "permission_denied"}}}
 
         interop = self.orchestrator.Interop.__new__(self.orchestrator.Interop)
-        probe = {"service": "s", "layerId": 1, "revokedAt": None, "observationSeconds": 30, "confirmations": 2}
+        probe = {"service": "s", "layerId": 741, "serviceAddress": {"serviceId": "svc-s", "serviceLayerIndex": 0},
+                 "revokedAt": None, "observationSeconds": 30, "confirmations": 2}
         hung = interop._mcp_revoked(Hanging(), probe)
         self.assertTrue(hung["timedOut"])
         self.assertFalse(judge.oracle_revocation_observed(hung, FIXTURE)[0])
-        refused = interop._mcp_revoked(Refusing(), probe)
+        seen = []
+
+        class Recording(Refusing):
+            def request(self, method, params=None):
+                seen.append(params)
+                return super().request(method, params)
+
+        refused = interop._mcp_revoked(Recording(), probe)
+        self.assertEqual(seen[0]["arguments"], {"serviceId": "svc-s", "serviceLayerIndex": 0, "where": "1=1", "limit": 1})
         self.assertEqual((refused["status"], refused["confirmations"]), ("permission_denied", ["permission_denied", "permission_denied"]))
         self.assertTrue(judge.oracle_revocation_observed(refused, FIXTURE)[0])
 
