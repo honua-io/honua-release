@@ -91,6 +91,18 @@ const dataClient = (auth) => new HonuaClient({ baseUrl: base, ...auth });
 const adminClient = (options) => createHonuaAdminClient({ baseUrl: base, ...options });
 const unwrap = (result) => (result?.data && typeof result.data === "object" && "data" in result.data ? result.data.data : result.data);
 
+// The admin list operations answer one page ({items, page, pageSize, total}, pages from 1); read every page.
+async function listAll(client, operationId, request = {}) {
+  const items = [];
+  for (let page = 1; ; page += 1) {
+    const body = unwrap(await client.call(operationId, { ...request, query: { ...request.query, page } }));
+    if (Array.isArray(body)) return [...items, ...body];
+    const { items: rows = [], total = 0 } = body ?? {};
+    items.push(...rows);
+    if (rows.length === 0 || items.length >= total) return items;
+  }
+}
+
 function pointRows(features, fields, oidField) {
   return (features ?? []).map((feature) => {
     const attributes = feature.attributes ?? {};
@@ -121,8 +133,8 @@ async function runAuth(state) {
   const scenario = "sdk-auth";
   await step(state, scenario, "api-key-query", async () => rowCount(dataClient({ apiKey }).featureLayer(sites.service, sites.layerId)));
   await step(state, scenario, "bearer-admin-list", async () => {
-    const services = unwrap(await adminClient({ headers: { Authorization: `Bearer ${bearer}` } }).call("listServices", {}));
-    return { services: (services ?? []).map((service) => service.serviceName) };
+    const services = await listAll(adminClient({ headers: { Authorization: `Bearer ${bearer}` } }), "listServices");
+    return { services: services.map((service) => service.serviceName) };
   });
   await step(state, scenario, "bearer-query", async () => rowCount(dataClient({ bearerToken: bearer }).featureLayer(sites.service, sites.layerId)));
   await step(state, scenario, "anonymous-refused", async () => {
@@ -162,8 +174,8 @@ async function runAdmin(state) {
     return { layerId: published.layerId, layerName: published.layerName, serviceName: published.serviceName, enabled: published.enabled };
   }, ["connection"]);
   await step(state, scenario, "list", async () => {
-    const layers = unwrap(await admin.call("getPublishedLayers", { path: { id: state.connection }, query: { serviceName: life.service } }));
-    return { layers: (layers ?? []).map((layer) => ({ layerId: layer.layerId, enabled: layer.enabled, layerName: layer.layerName })) };
+    const layers = await listAll(admin, "getPublishedLayers", { path: { id: state.connection }, query: { serviceName: life.service } });
+    return { layers: layers.map((layer) => ({ layerId: layer.layerId, enabled: layer.enabled, layerName: layer.layerName })) };
   }, ["layer"]);
   await step(state, scenario, "served", async () => rowCount(dataClient({ apiKey }).featureLayer(life.service, state.layer)), ["layer"]);
   await step(state, scenario, "unpublish", async () => {
