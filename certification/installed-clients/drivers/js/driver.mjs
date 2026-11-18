@@ -4,7 +4,7 @@
 // never raw fetch. Prints one JSON observation per contract step; the runner evaluates oracles.
 import { readFileSync } from "node:fs";
 import { HonuaClient } from "@honua/sdk-js";
-import { createHonuaAdminClient } from "@honua/sdk-js/control-plane";
+import { createHonuaAdminClient } from "@honua/app-platform/control-plane";
 
 const plan = JSON.parse(readFileSync(process.env.SDKREG_PLAN, "utf8"));
 const base = plan.baseUrl;
