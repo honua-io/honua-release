@@ -201,6 +201,21 @@ class MatrixExpectationTests(unittest.TestCase):
              "honua-mcp-proxy": "mcp-proxy", "honua-zero-to-map-release": "help"},
         )
 
+    def test_mcp_install_also_pins_app_platform(self):
+        pins = {
+            "honua-sdk-js": {"package": "@honua/sdk-js"},
+            "honua-mcp-server": {"package": "@honua/mcp-server"},
+            "honua-app-platform": {"package": "@honua/app-platform"},
+        }
+        primary, companions = mod.npm_companions(pins, "honua-mcp-server", "honua-sdk-js")
+        self.assertEqual(primary["package"], "@honua/mcp-server")
+        self.assertEqual([pin["package"] for pin in companions], ["@honua/sdk-js", "@honua/app-platform"])
+        primary, companions = mod.npm_companions(pins, "honua-sdk-js", "honua-mcp-server")
+        self.assertEqual(primary["package"], "@honua/sdk-js")
+        self.assertEqual([pin["package"] for pin in companions], ["@honua/mcp-server", "@honua/app-platform"])
+        primary, companions = mod.npm_companions(pins, "honua-sdk-js")
+        self.assertEqual(companions, [])
+
     def test_validation_rejects_implicit_expectations(self):
         cases = [
             ({"status": "blocked"}, "blocking issue URL"),

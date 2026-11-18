@@ -271,12 +271,22 @@ def _npm_archive_matches(pin: dict[str, Any], work: Path) -> tuple[bool, str]:
     return True, str(archive)
 
 
+def npm_companions(pins: dict[str, Any], primary_key: str, *companion_keys: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Pins installed together. The MCP server imports @honua/app-platform and only peers it,
+    and this installer uses --legacy-peer-deps, so the manifest pin has to be installed explicitly."""
+    keys = [primary_key, *companion_keys]
+    packages = {pins[key]["package"] for key in keys}
+    if "@honua/mcp-server" in packages and "@honua/app-platform" not in packages:
+        keys.append("honua-app-platform")
+    return pins[keys[0]], [pins[key] for key in keys[1:]]
+
+
 def install_npm(
     pin: dict[str, Any],
     work: Path,
     *,
     executables: dict[str, str] | None = None,
-    companion_pin: dict[str, Any] | None = None,
+    companion_pin: dict[str, Any] | list[dict[str, Any]] | None = None,
     sdk_probe: bool = True,
     strict_peers: bool = False,
     runtime_peers: tuple[str, ...] = (),
@@ -290,11 +300,12 @@ def install_npm(
     if not matched:
         return False, archive_or_detail
     archives = [archive_or_detail]
-    if companion_pin:
-        companion_matched, companion_archive = _npm_archive_matches(companion_pin, work)
-        if not companion_matched:
-            return False, companion_archive
-        archives.append(companion_archive)
+    extras = companion_pin if isinstance(companion_pin, list) else ([companion_pin] if companion_pin else [])
+    for extra in extras:
+        extra_matched, extra_archive = _npm_archive_matches(extra, work)
+        if not extra_matched:
+            return False, extra_archive
+        archives.append(extra_archive)
     proc = _run(
         ["npm", "install", "--ignore-scripts", *([] if strict_peers else ["--legacy-peer-deps"]), "--save-exact", *archives, *runtime_peers],
         cwd=work,
@@ -690,7 +701,8 @@ def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple
             return False, "the pinned wheels installed no honua console script", [], {}
         # The server has no REST call that submits a proposal: the proposal step goes through the
         # byte-verified MCP proxy, as in the npm cell.
-        ok, npm_detail = install_npm(pins["honua-mcp-server"], work / "npm", companion_pin=pins["honua-sdk-js"], sdk_probe=False)
+        mcp, mcp_companions = npm_companions(pins, "honua-mcp-server", "honua-sdk-js")
+        ok, npm_detail = install_npm(mcp, work / "npm", companion_pin=mcp_companions, sdk_probe=False)
         if not ok:
             return False, f"MCP proxy: {npm_detail}", [], {}
         # The console script runs on this interpreter with the isolated target on its path.
@@ -700,14 +712,16 @@ def install_suite_client(driver: str, pins: dict[str, Any], work: Path) -> tuple
             "--proxy", str(work / "npm" / "node_modules" / ".bin" / "honua-mcp-proxy")], env
     if driver == "npm-cli":
         # The proposal step goes through the co-installed, byte-verified MCP proxy (journey stage 7).
-        ok, detail = install_npm(pins["honua-sdk-js"], work, companion_pin=pins["honua-mcp-server"], sdk_probe=False)
+        sdk, sdk_companions = npm_companions(pins, "honua-sdk-js", "honua-mcp-server")
+        ok, detail = install_npm(sdk, work, companion_pin=sdk_companions, sdk_probe=False)
         if not ok:
             return False, detail, [], {}
         shims = work / "node_modules" / ".bin"
         return True, detail, [sys.executable, str(drivers / "cli" / "driver.py"), "--client", "npm",
                               "--honua", str(shims / "honua"), "--proxy", str(shims / "honua-mcp-proxy")], dict(os.environ)
     if driver == "npm-mcp-workflow":
-        ok, detail = install_npm(pins["honua-mcp-server"], work, companion_pin=pins["honua-sdk-js"], sdk_probe=False)
+        mcp, mcp_companions = npm_companions(pins, "honua-mcp-server", "honua-sdk-js")
+        ok, detail = install_npm(mcp, work, companion_pin=mcp_companions, sdk_probe=False)
         if not ok:
             return False, detail, [], {}
         return True, detail, [sys.executable, str(drivers / "mcp" / "driver.py"),
@@ -740,7 +754,8 @@ def install_interop(pins: dict[str, Any], work: Path) -> tuple[bool, str, list[s
     interop = HERE / "interop"
     work.mkdir(parents=True, exist_ok=True)
     npm = work / "npm"
-    ok, npm_detail = install_npm(pins["honua-sdk-js"], npm, companion_pin=pins["honua-mcp-server"], sdk_probe=False)
+    sdk, sdk_companions = npm_companions(pins, "honua-sdk-js", "honua-mcp-server")
+    ok, npm_detail = install_npm(sdk, npm, companion_pin=sdk_companions, sdk_probe=False)
     if not ok:
         return False, f"npm: {npm_detail}", [], {}
     shutil.copy2(interop / "drivers" / "js" / "runner.mjs", npm / "runner.mjs")
@@ -1057,11 +1072,15 @@ def run_cell(
     elif driver == "npm":
         ok, detail = install_npm(pin, work)
     elif driver == "npm-mcp":
+        mcp, mcp_companions = npm_companions(pins, "honua-mcp-server", "honua-sdk-js")
         ok, detail = install_npm(
-            pin, work, executables=cell["executables"], companion_pin=pins["honua-sdk-js"]
+            mcp, work, executables=cell["executables"], companion_pin=mcp_companions,
         )
     elif driver == "npm-mcp-setup-view":
-        ok, detail = install_npm(pin, work, companion_pin=pins["honua-sdk-js"], sdk_probe=False)
+        mcp, mcp_companions = npm_companions(pins, "honua-mcp-server", "honua-sdk-js")
+        ok, detail = install_npm(
+            mcp, work, companion_pin=mcp_companions, sdk_probe=False,
+        )
         server = os.environ.get("HONUA_SERVER_URL")
         if ok and not server:
             ok, detail = False, "the setup-view exchange needs a live candidate (--live)"
