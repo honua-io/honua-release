@@ -6,10 +6,10 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:94555d62688d89d30f77273e76c832b4b5918c0290d21c72a2375d1902f01096
+    sha256: sha256:3ccb5d0dacd231f68c4d8a7fefef4b2209fb1ab1529d2f9acaae6f7fe25aae76
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:6132f660fc5eb6cdd3fe662c99ddec8f2a8320458790da5310b6faa1428c8580
+    sha256: sha256:76b66c79f058c9c4f83eb660671949eadc12729a42e12b6416dc645b1807b240
 components:
   honua-server:
     source:
@@ -169,9 +169,9 @@ components:
       integrity: sha512-+TEAO1LJvLB92LqGsDruOG4glLBJVWzhsdvhqAjlKf6t8nFpNpehGBG5ufYRR8WBNg1Zp6m//37YHaQj8Z+fxA==
     - kind: npm
       coordinate: '@honua/mcp-server'
-      version: 0.4.0
-      sourceRevision: caff3a94848ff4bf202c9f890bf3555d28fbbcd8
-      integrity: sha512-0ClKQIZy0BKCLx8PTQpITN4GYQdMCzZME7cNDfDl+r02jPGXgB/Nq7lCIeOfEQqS+MWK40hWNOCBYCEgPmbriw==
+      version: 0.6.1
+      sourceRevision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
+      integrity: sha512-ENxw1Tn5puQPq9zzTQY1Rt/OJqz912JmSp/QTlBEmZcnUkzQOCT4YWDmcKCSce3CGQrSJ4+b2dRoQU2KLmjhiw==
     - kind: npm
       coordinate: '@honua/sdk'
       version: 0.4.0
@@ -275,7 +275,7 @@ components:
         - serve.ogc-api-features
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: caff3a94848ff4bf202c9f890bf3555d28fbbcd8
+          revision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -318,7 +318,7 @@ components:
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
-      - revision: caff3a94848ff4bf202c9f890bf3555d28fbbcd8
+      - revision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
