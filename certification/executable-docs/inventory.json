@@ -1113,11 +1113,11 @@
       "id": "honua-sdk-dotnet-readme",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "README.md",
-      "revision": "aada6d8987db0802a3c9de0d976f471afa943c0a",
+      "revision": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/aada6d8987db0802a3c9de0d976f471afa943c0a/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/1c745cee6ff698988fc0a3f2e6c5c8fae7645df9/README.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1125,7 +1125,7 @@
       "blocks": [
         {
           "index": 0,
-          "line": 69,
+          "line": 71,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1134,7 +1134,7 @@
         },
         {
           "index": 1,
-          "line": 77,
+          "line": 79,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1143,7 +1143,7 @@
         },
         {
           "index": 2,
-          "line": 103,
+          "line": 105,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1152,7 +1152,7 @@
         },
         {
           "index": 3,
-          "line": 116,
+          "line": 118,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1161,7 +1161,7 @@
         },
         {
           "index": 4,
-          "line": 125,
+          "line": 127,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1177,7 +1177,7 @@
         },
         {
           "index": 5,
-          "line": 134,
+          "line": 136,
           "language": "csharp",
           "infoString": "csharp",
           "intent": "file",
@@ -1190,7 +1190,7 @@
         },
         {
           "index": 6,
-          "line": 190,
+          "line": 192,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1199,7 +1199,7 @@
         },
         {
           "index": 7,
-          "line": 204,
+          "line": 206,
           "language": "csharp",
           "infoString": "csharp",
           "intent": "file",
@@ -1212,7 +1212,7 @@
         },
         {
           "index": 8,
-          "line": 240,
+          "line": 242,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1221,7 +1221,7 @@
         },
         {
           "index": 9,
-          "line": 300,
+          "line": 306,
           "language": "",
           "infoString": "",
           "intent": "illustrative",
@@ -1235,11 +1235,11 @@
       "id": "honua-sdk-dotnet-install",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "INSTALL.md",
-      "revision": "aada6d8987db0802a3c9de0d976f471afa943c0a",
+      "revision": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/aada6d8987db0802a3c9de0d976f471afa943c0a/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/1c745cee6ff698988fc0a3f2e6c5c8fae7645df9/INSTALL.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -1388,11 +1388,11 @@
       "id": "honua-sdk-dotnet-docs-quickstart",
       "repo": "honua-io/honua-sdk-dotnet",
       "path": "docs/quickstart.md",
-      "revision": "aada6d8987db0802a3c9de0d976f471afa943c0a",
+      "revision": "1c745cee6ff698988fc0a3f2e6c5c8fae7645df9",
       "revisionRule": {
         "clientArtifact": "honua-sdk-dotnet"
       },
-      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/aada6d8987db0802a3c9de0d976f471afa943c0a/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-dotnet/blob/1c745cee6ff698988fc0a3f2e6c5c8fae7645df9/docs/quickstart.md",
       "runtime": "dotnet",
       "docker": false,
       "session": null,
@@ -2501,11 +2501,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "1147b13e389be2c9ed4345f8d34803b54a0043d6",
+      "revision": "888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/1147b13e389be2c9ed4345f8d34803b54a0043d6/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2788,11 +2788,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "fae6fb36d8bbcdbc2a09fefa992a8a4269e19f5b",
+      "revision": "888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/fae6fb36d8bbcdbc2a09fefa992a8a4269e19f5b/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/888e1f7cfe3d3f7a7ac16af37b067c9dbd0825d3/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -3251,7 +3251,7 @@
     {
       "repo": "honua-io/honua-site",
       "path": "docs/geoprocessing/index.md",
-      "reason": "Preview surface. The page's .NET tab installs the newest public Honua.Sdk (1.13.1), while 2026.1-rc.2 certifies 1.12.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."
+      "reason": "Preview surface. The page's .NET tab installs Honua.Sdk 2.0.0, while 2026.1-rc.2 certifies 2.2.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."
     }
   ],
   "summary": {

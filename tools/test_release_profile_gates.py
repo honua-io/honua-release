@@ -54,10 +54,11 @@ def test_dotnet_release_profile_is_the_catalog_denominator() -> None:
         row for row in catalog["requirements"]
         if row["client_lane"] == "sdk-dotnet-certification"
     ]
-    # Honua.Sdk 1.12.0 (aada6d89) includes the 14 operations 1.11.x excluded as candidate fixtures.
-    assert contract["releaseProfile"]["denominator"] == 306
+    # Honua.Sdk 2.2.0 (1c745cee) adds 13 operations to the 306 of 1.12.0: admin folders, paged
+    # service and layer lists, the migration scan, OGC tiles and synchronous process execution.
+    assert contract["releaseProfile"]["denominator"] == 319
     assert len(excluded) == 0
-    assert len(rows) == len(included) == 306
+    assert len(rows) == len(included) == 319
     assert {row["operation"] for row in rows} == included
     assert excluded.isdisjoint(included)
     assert excluded.isdisjoint({row["operation"] for row in rows})
@@ -106,7 +107,7 @@ def test_moving_an_included_dotnet_operation_out_of_the_profile_omits_it(copied:
         if row["client_lane"] == "sdk-dotnet-certification"
     ]
     assert operation["id"] not in {row["operation"] for row in rows}
-    assert len(rows) == contract["releaseProfile"]["denominator"] == 305
+    assert len(rows) == contract["releaseProfile"]["denominator"] == 318
 
 
 @pytest.mark.parametrize("field,value", [

@@ -144,23 +144,7 @@ class Resolver:
                 raise InventoryError(f"npm {rule['npmPublished']}@latest records no gitHead")
             return commit
         if rule.get("defaultBranch"):
-            # The last commit that changed this file on the default branch. The branch
-            # tip moves on unrelated merges; those merges do not change the document.
-            repo = document["repo"]
-            key = (repo, document["path"])
-            if key not in self._documents:
-                if repo not in self._branches:
-                    meta = json.loads(self.fetch(f"https://api.github.com/repos/{repo}", token=self.token))
-                    self._branches[repo] = str(meta["default_branch"])
-                branch = self._branches[repo]
-                query = urllib.parse.urlencode({"sha": branch, "path": document["path"], "per_page": 1})
-                payload = json.loads(self.fetch(f"https://api.github.com/repos/{repo}/commits?{query}",
-                                                token=self.token))
-                sha = str(payload[0]["sha"]) if isinstance(payload, list) and payload else ""
-                if not re.fullmatch(r"[0-9a-f]{40}", sha):
-                    raise InventoryError(f"{document['path']}: no commit on {repo} {branch}")
-                self._documents[key] = sha
-            return self._documents[key]
+            return self._default_branch_revision(document)
         if rule.get("checkout"):
             # The last commit that changed the document: stable across unrelated commits.
             sha = subprocess.run(["git", "-C", str(self.checkout), "log", "-1", "--format=%H", "--",
@@ -169,6 +153,35 @@ class Resolver:
                 raise InventoryError(f"{document['path']}: not tracked in this checkout")
             return sha
         raise InventoryError(f"{document['path']}: unknown revision rule {rule}")
+
+    def _default_branch_revision(self, document: dict[str, Any]) -> str:
+        """The last commit that changed this file on the default branch.
+
+        The branch tip moves on unrelated merges; those merges do not change the document.
+        A document that runs from a checkout of its repository also executes the files under
+        its cwd (lockfiles, project files), so its revision is the last commit under that
+        cwd; an empty cwd is the whole repository.
+        """
+        repo = document["repo"]
+        checkout = document.get("checkout")
+        path = str(checkout.get("cwd") or "") if isinstance(checkout, dict) else document["path"]
+        key = (repo, path)
+        if key not in self._documents:
+            if repo not in self._branches:
+                meta = json.loads(self.fetch(f"https://api.github.com/repos/{repo}", token=self.token))
+                self._branches[repo] = str(meta["default_branch"])
+            branch = self._branches[repo]
+            params = {"sha": branch, "per_page": 1}
+            if path:
+                params["path"] = path
+            query = urllib.parse.urlencode(params)
+            payload = json.loads(self.fetch(f"https://api.github.com/repos/{repo}/commits?{query}",
+                                            token=self.token))
+            sha = str(payload[0]["sha"]) if isinstance(payload, list) and payload else ""
+            if not re.fullmatch(r"[0-9a-f]{40}", sha):
+                raise InventoryError(f"{document['path']}: no commit on {repo} {branch}")
+            self._documents[key] = sha
+        return self._documents[key]
 
     def read(self, document: dict[str, Any], revision: str) -> str:
         if document["revision"].get("checkout"):

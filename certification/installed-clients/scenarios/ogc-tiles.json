@@ -42,9 +42,9 @@
       "empty-tile": "HonuaClient.fetchOgcTile"
     },
     "honua-sdk-dotnet": {
-      "vector-tile": "(no OGC API Tiles client in Honua.Sdk)",
-      "raster-tile": "(no OGC API Tiles client in Honua.Sdk)",
-      "empty-tile": "(no OGC API Tiles client in Honua.Sdk)"
+      "vector-tile": "(no OGC API Tiles client call in the driver; honua-release#1467)",
+      "raster-tile": "(no OGC API Tiles client call in the driver; honua-release#1467)",
+      "empty-tile": "(no OGC API Tiles client call in the driver; honua-release#1467)"
     }
   }
 }

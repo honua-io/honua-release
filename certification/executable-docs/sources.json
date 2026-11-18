@@ -54,7 +54,7 @@
   "outOfScope": [
     {"repo": "honua-io/honua-server", "path": "docs/get-started/linux-packages.md", "reason": "installs a native .deb/.rpm as a systemd service; a container has no init system, so this lane cannot be the clean machine. The native-package lane owns it."},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/windows-packages.md", "reason": "Windows-only (PowerShell + MSI); this gate runs Linux containers. The clean-Windows lane (customer-install-manifest cleanWindowsQualification) owns it."},
-    {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "reason": "Preview surface. The page's .NET tab installs the newest public Honua.Sdk (1.13.1), while 2026.1-rc.2 certifies 1.12.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."}
+    {"repo": "honua-io/honua-site", "path": "docs/geoprocessing/index.md", "reason": "Preview surface. The page's .NET tab installs Honua.Sdk 2.0.0, while 2026.1-rc.2 certifies 2.2.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."}
   ],
   "toolchain": {
     "typescript": "5.9.3"
