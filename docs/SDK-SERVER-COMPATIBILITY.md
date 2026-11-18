@@ -5,7 +5,7 @@
 2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,
 license enforcement or serving-unit metering. Maturity and safety limits still apply.
 
-Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:3fae6c59e9504829de2620caf839713c0d86658e49b56eed52f4235d9795c70d`.
+Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:6457d7dedc88915cefc364ef1289a8b8791acdb50094a6a3ff187c4e5242e446`.
 
 Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
 
@@ -16,7 +16,7 @@ SDK/server pairing. Certification requires an exact artifact-pair receipt in the
 
 | SDK / protocol | Locked artifact | Minimum server | Qualification |
 | --- | --- | --- | --- |
-| honua-sdk-js | @honua/sdk-js 0.4.0; @honua/mcp-server 0.4.0; @honua/sdk 0.4.0; @honua/react 0.4.0; @honua/geometry 0.4.0; @honua/app-platform 0.4.0; create-honua-app 0.2.5 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
+| honua-sdk-js | @honua/sdk-js 0.4.0; @honua/mcp-server 0.6.1; @honua/sdk 0.4.0; @honua/react 0.4.0; @honua/geometry 0.4.0; @honua/app-platform 0.4.0; create-honua-app 0.2.5 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 | honua-sdk-dotnet | Honua.Sdk 1.12.0 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 | honua-sdk-python | honua-sdk 0.3.2; honua-admin 0.3.2 | 2026.1.0-rc.2 | declared floor; pairing unqualified |
 | geospatial-mcp | https://github.com/honua-io/geospatial-mcp/blob/1f657ccda04cc344701c92283d4a078bbcc5b9a4/spec/schemas/index.json 1.0.0+1f657ccd | 2026.1.0-rc.2 | declared floor; pairing unqualified |

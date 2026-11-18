@@ -87,21 +87,21 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "mcp-server-0.4.0.tgz",
-          "registry_integrity": "sha512-0ClKQIZy0BKCLx8PTQpITN4GYQdMCzZME7cNDfDl+r02jPGXgB/Nq7lCIeOfEQqS+MWK40hWNOCBYCEgPmbriw==",
-          "sha256": "5d5f68aabe3573deaef70707b6c406f491725870ce6ce9c7924ae73d5702d2c9",
-          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.4.0.tgz"
+          "filename": "mcp-server-0.6.1.tgz",
+          "registry_integrity": "sha512-ENxw1Tn5puQPq9zzTQY1Rt/OJqz912JmSp/QTlBEmZcnUkzQOCT4YWDmcKCSce3CGQrSJ4+b2dRoQU2KLmjhiw==",
+          "sha256": "b19daacef80968cf6cc0227d6967b7773f42cafe33a3e68b4fac349c66d3e162",
+          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.1.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/mcp-server",
-      "publication": "npm @honua/mcp-server@0.4.0",
-      "source_sha": "caff3a94848ff4bf202c9f890bf3555d28fbbcd8",
+      "publication": "npm @honua/mcp-server@0.6.1",
+      "source_sha": "684d95242d1c915e8cb804b76638eaf8f2c77aaf",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fmcp-server/0.4.0",
-        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.4.0.tgz"
+        "https://registry.npmjs.org/@honua%2Fmcp-server/0.6.1",
+        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.1.tgz"
       ],
-      "version": "0.4.0"
+      "version": "0.6.1"
     },
     {
       "disposition": "published",
@@ -958,6 +958,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-17T20:04:01Z",
+  "observed_at": "2026-11-18T00:47:01Z",
   "schema": "honua.first-publication-preflight/v1"
 }

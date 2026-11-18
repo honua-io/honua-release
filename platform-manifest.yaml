@@ -1025,7 +1025,7 @@ components:
         - serve.ogc-api-features
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: caff3a94848ff4bf202c9f890bf3555d28fbbcd8
+          revision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -1068,7 +1068,7 @@ components:
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
-      - revision: caff3a94848ff4bf202c9f890bf3555d28fbbcd8
+      - revision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
@@ -1554,15 +1554,15 @@ clientArtifacts:
   honua-mcp-server:
     ecosystem: npm
     package: '@honua/mcp-server'
-    version: 0.4.0
-    integrity: sha512-0ClKQIZy0BKCLx8PTQpITN4GYQdMCzZME7cNDfDl+r02jPGXgB/Nq7lCIeOfEQqS+MWK40hWNOCBYCEgPmbriw==
+    version: 0.6.1
+    integrity: sha512-ENxw1Tn5puQPq9zzTQY1Rt/OJqz912JmSp/QTlBEmZcnUkzQOCT4YWDmcKCSce3CGQrSJ4+b2dRoQU2KLmjhiw==
     repository: honua-io/honua-sdk-js
-    sourceSha: caff3a94848ff4bf202c9f890bf3555d28fbbcd8
+    sourceSha: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
     publicationState: published
     targets:
     - node
     - honua-mcp-proxy
-    filename: mcp-server-0.4.0.tgz
+    filename: mcp-server-0.6.1.tgz
 
   honua-sdk:
     ecosystem: npm
