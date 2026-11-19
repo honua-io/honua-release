@@ -49,5 +49,15 @@ gates.
 [Promotion](../.github/workflows/promote.yml) separately verifies the certified
 candidate bundle, readiness evidence and protected approval environment before
 publication. Preserve the certified bytes, receipts, signatures and publication
-references. Operational scheduling and deployment credentials belong outside
-this public guide.
+references.
+
+After the release is fully certified and before it is published, turn on S3
+Object Lock for the Launch Stack template hosting bucket and confirm that a
+published release template can be neither overwritten nor deleted (the bucket
+policy blocks overwrites and plain deletes; Object Lock blocks deleting any
+stored version). Object Lock cannot be turned off, so it is the last step
+before publication
+([cut checklist](RELEASE-CUT-CHECKLIST.md#3-check-readiness-and-publish)).
+
+Operational scheduling and deployment credentials belong outside this public
+guide.
