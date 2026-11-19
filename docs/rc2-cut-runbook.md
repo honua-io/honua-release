@@ -54,8 +54,8 @@ references.
 After the release is fully certified and before it is published, turn on S3
 Object Lock for the Launch Stack template hosting bucket and confirm that a
 published release template can be neither overwritten nor deleted (the bucket
-policy blocks overwrites and plain deletes; Object Lock blocks deleting any
-stored version). Object Lock cannot be turned off, so it is the last step
+policy blocks overwrites and deletes of release objects and their versions;
+Object Lock retains every stored version). Object Lock cannot be turned off, so it is the last step
 before publication
 ([cut checklist](RELEASE-CUT-CHECKLIST.md#3-check-readiness-and-publish)).
 
