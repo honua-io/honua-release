@@ -306,11 +306,12 @@ def test_generator_reports_all_current_unresolved_release_work():
     # by tools/verify_content_digests.py. Since the 2026-11-02 rc.2 cut the runtime catalog/OKF
     # digests are declared at the candidate server revision (daf56db2) too. At the rc.2 final
     # candidate 86286687 the catalog digest moves (new proving tests) and OKF is unchanged. At the
-    # 2026-11-17 re-pin to 532565b both are re-declared at that revision.
+    # 2026-11-17 re-pin to 532565b both are re-declared at that revision. At the 2026-11-20 re-pin to
+    # de512e8 the catalog digest moves again and OKF is unchanged.
     assert "contentDigests" not in joined
     assert draft.lock["contentDigests"] == {
         "geospatialMcp": "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c",
-        "catalog": "sha256:a32ec832c1f98f449cd53276f2f210fce1db9bc5ea88e5cfdd10f0a311f823e1",
+        "catalog": "sha256:1546aad52247d223ab16090eef0ad59459e93bb2281c4f23745e63ddacc88488",
         "okf": "sha256:d23aab64bb5ae88274c85bd87f2a8a535761fcff804e8dae0c4c9d154b04ca26",
     }
     # With the server candidate bound, only the post-gate facts remain (qualification marks them pending).

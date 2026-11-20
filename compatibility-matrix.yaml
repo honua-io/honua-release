@@ -118,14 +118,14 @@ deploy:
     # if it drifts. Advanced with the 2026-10-27 rc re-pin #4 (8cb074f -> a4bde4b).
     # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (a4bde4b -> daf56db).
     # 2026-11-03 RC2 REDO: advanced with the rc.2 redo server pin (daf56db -> 8628668).
-    # 2026-11-17 RC2 RE-PIN: advanced with the rc.2 server pin (8628668 -> 532565b).
-    deploysServerImage: "sha:532565bc7215d4b9ce9657bc110cbd0366076e31"
+    # 2026-11-20 RC2 RE-PIN: advanced with the rc.2 server pin (532565b -> de512e8).
+    deploysServerImage: "sha:de512e8123bdfbfbe20f692b236e37853b4f8294"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).
     # Same coupling as honua-iac above; advanced with the 2026-10-27 rc re-pin #4 (a4bde4b).
     # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (daf56db).
     # 2026-11-03 RC2 REDO: advanced with the rc.2 redo server pin (8628668).
-    appVersion: "sha:532565bc7215d4b9ce9657bc110cbd0366076e31"
+    appVersion: "sha:de512e8123bdfbfbe20f692b236e37853b4f8294"
     # Kubernetes/Helm is not certified in 2026.1 rc.2.
     awsEks:
       target: aws-eks
