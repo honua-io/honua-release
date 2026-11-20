@@ -111,6 +111,12 @@ def bearer_auth() -> dict[str, Any]:
     return {"auth_provider": StaticAuthProvider({"Authorization": f"Bearer {BEARER}"})}
 
 
+def layer_id_of(layer: Any) -> int:
+    """honua-admin 0.3.x names the publishing-reply id ``storage_layer_id``; older wheels said ``layer_id``."""
+    found = getattr(layer, "storage_layer_id", None)
+    return found if found is not None else layer.layer_id
+
+
 def count_of(client: HonuaClient, service: str, layer_id: int, where: str = "1=1") -> dict[str, Any]:
     """The documented count API: HonuaClient.query(return_count_only=True)."""
     result = client.query(service, protocol="geoservices-feature-service", layer_id=layer_id, where=where, return_count_only=True)
@@ -189,13 +195,13 @@ def run_admin(state: dict[str, Any]) -> None:
         published = admin.publish_layer(state["connection"], PublishLayerRequest(
             schema="honua_data", table=life["table"], layer_name=life["layerName"], geometry_column="geom",
             geometry_type=life["geometryType"], srid=4326, primary_key="gid", service_name=life["service"], enabled=True))
-        state["layer"] = published.layer_id
-        return {"layerId": published.layer_id, "layerName": published.layer_name,
+        state["layer"] = layer_id_of(published)
+        return {"layerId": layer_id_of(published), "layerName": published.layer_name,
                 "serviceName": published.service_name, "enabled": published.enabled}
 
     def listed() -> dict[str, Any]:
         layers = admin.list_layers(state["connection"], life["service"])
-        return {"layers": [{"layerId": item.layer_id, "enabled": item.enabled, "layerName": item.layer_name} for item in layers]}
+        return {"layers": [{"layerId": layer_id_of(item), "enabled": item.enabled, "layerName": item.layer_name} for item in layers]}
 
     def served() -> dict[str, Any]:
         with data_client(api_key=API_KEY) as client:
@@ -204,7 +210,7 @@ def run_admin(state: dict[str, Any]) -> None:
     def unpublish() -> dict[str, Any]:
         summary = admin.set_layer_enabled(state["connection"], state["layer"], False, life["service"])
         state["unpublished"] = True
-        return {"layerId": summary.layer_id, "enabled": summary.enabled}
+        return {"layerId": layer_id_of(summary), "enabled": summary.enabled}
 
     def refused() -> dict[str, Any]:
         with data_client(api_key=API_KEY) as client:

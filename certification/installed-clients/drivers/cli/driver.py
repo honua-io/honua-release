@@ -83,7 +83,7 @@ API = {
         "approve": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
         "proposal-resolved": "honua proposal read --wait (approver key)",
         "approved-served": "honua query <service> <layer>",
-        "unpublish": "honua layer unpublish --service-name",
+        "unpublish": "honua layer disable --service-name",
         "unpublished-refused": "honua query <service> <layer>",
     },
 }
@@ -230,6 +230,12 @@ def page_rows(document: Any) -> list[dict[str, Any]]:
     if not isinstance(rows, list):
         raise TypeError(f"admin list reply has no item list: {type(rows).__name__}")
     return rows
+
+
+def pypi_layer_id(record: dict[str, Any]) -> Any:
+    """The honua-admin 0.3.x CLI prints the publishing-reply id as ``storageLayerId``; older wheels said ``layerId``."""
+    found = record.get("storageLayerId")
+    return found if found is not None else record["layerId"]
 
 
 def geojson_rows(document: dict[str, Any]) -> dict[str, Any]:
@@ -421,13 +427,13 @@ def run_pypi(cli: Cli, state: dict[str, Any]) -> None:
                               "--layer-name", life["layerName"], "--service-name", life["service"],
                               "--geometry-column", "geom", "--geometry-type", life["geometryType"], "--srid", "4326",
                               "--primary-key", "gid", "--json"], admin)
-        state["layer"] = published["layerId"]
-        return {key: published.get(key) for key in ("layerId", "layerName", "serviceName", "enabled")}
+        state["layer"] = pypi_layer_id(published)
+        return {"layerId": pypi_layer_id(published), **{key: published.get(key) for key in ("layerName", "serviceName", "enabled")}}
     step("pypi", "publish", publish, state, ("connection",))
 
     def listed() -> dict[str, Any]:
         layers = cli.json(["layer", "list", state["connection"], "--service-name", life["service"], "--json"], admin)
-        return {"layers": [{"layerId": layer.get("layerId"), "enabled": layer.get("enabled")} for layer in layers]}
+        return {"layers": [{"layerId": pypi_layer_id(layer), "enabled": layer.get("enabled")} for layer in layers]}
     step("pypi", "list", listed, state, ("layer",))
 
     step("pypi", "query", lambda: geojson_rows(cli.json(
@@ -474,10 +480,10 @@ def run_pypi(cli: Cli, state: dict[str, Any]) -> None:
     step("pypi", "approved-served", approved_served, state, ("resolved",))
 
     def unpublish() -> dict[str, Any]:
-        summary = cli.json(["layer", "unpublish", state["connection"], str(state["layer"]),
+        summary = cli.json(["layer", "disable", state["connection"], str(state["layer"]),
                             "--service-name", life["service"], "--json"], admin)
         state["unpublished"] = True
-        return {"layerId": summary.get("layerId"), "enabled": summary.get("enabled")}
+        return {"layerId": pypi_layer_id(summary), "enabled": summary.get("enabled")}
     step("pypi", "unpublish", unpublish, state, ("layer",))
 
     def refused() -> dict[str, Any]:
