@@ -207,20 +207,17 @@ until db_final_ready; do
   sleep 2
 done
 
-# The source table the suite publishes through the Console (services-layers / publishing-wizard).
-# Same shape as honua-console's own testbed seed (e2e/initdb/01-seed.sql): integer PK, Polygon in
-# EPSG:3857, exactly three features — the spec asserts all three come back in that SRID.
-"${COMPOSE[@]}" exec -T db psql -q -v ON_ERROR_STOP=1 -U honua -d honua >/dev/null <<'SQL' || stack_fail "seed" "could not seed public.e2e_layer_src"
-CREATE TABLE public.e2e_layer_src (
-  id   integer PRIMARY KEY,
-  name text    NOT NULL,
-  geom geometry(Polygon, 3857) NOT NULL
-);
-INSERT INTO public.e2e_layer_src (id, name, geom) VALUES
- (1, 'alpha', ST_SetSRID(ST_MakeEnvelope(  0,   0, 100, 100, 3857), 3857)),
- (2, 'beta',  ST_SetSRID(ST_MakeEnvelope(200, 200, 300, 300, 3857), 3857)),
- (3, 'gamma', ST_SetSRID(ST_MakeEnvelope(400, 400, 500, 500, 3857), 3857));
-SQL
+# The source tables the suite publishes through the Console. Each spec owns a dedicated table
+# (honua-server backs a source table with one layer only), and the set grows with the suite, so S4
+# applies the pinned checkout's own testbed seed (e2e/initdb/*.sql, idempotent) rather than a copy
+# that drifts behind it.
+SEED_DIR="$CONSOLE_DIR/e2e/initdb"
+seeds=("$SEED_DIR"/*.sql)
+[ -f "${seeds[0]}" ] || stack_fail "seed" "honua-console@${CONSOLE_SHA} has no e2e/initdb/*.sql testbed seed"
+for seed in "${seeds[@]}"; do
+  "${COMPOSE[@]}" exec -T db psql -q -v ON_ERROR_STOP=1 -U honua -d honua >/dev/null <"$seed" \
+    || stack_fail "seed" "could not apply testbed seed ${seed##*/}"
+done
 
 # The realm is imported before Keycloak serves discovery, and the issuer must be the exact origin
 # the server is configured with, or the code exchange fails on issuer validation.
@@ -246,7 +243,7 @@ mkdir -p "$TRUST_DIR"
 cp "$S4_RUN_DIR/certs/kc.crt" "$TRUST_DIR/honua-s4.crt"
 openssl rehash "$TRUST_DIR" >/dev/null 2>&1 || true
 deadline=$(( $(date +%s) + 60 ))
-until [ "$(curl -sS --cacert "$TRUST_DIR/honua-s4.crt" -o /dev/null -w '%{http_code}' "${CONSOLE_SERVER_URL}/healthz/ready" 2>/dev/null || echo 000)" = "200" ]; do
+until [ "$(curl -sS --max-time 5 --cacert "$TRUST_DIR/honua-s4.crt" -o /dev/null -w '%{http_code}' "${CONSOLE_SERVER_URL}/healthz/ready" 2>/dev/null || echo 000)" = "200" ]; do
   [ "$(date +%s)" -lt "$deadline" ] || stack_fail "server-tls" "honua-server TLS listener never answered at ${CONSOLE_SERVER_URL}/healthz/ready"
   sleep 3
 done
