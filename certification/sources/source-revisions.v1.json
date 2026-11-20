@@ -3,11 +3,11 @@
   "sources": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "532565bc7215d4b9ce9657bc110cbd0366076e31"
+      "commit": "de512e8123bdfbfbe20f692b236e37853b4f8294"
     },
     "server-certification": {
       "repository": "honua-io/honua-server",
-      "commit": "532565bc7215d4b9ce9657bc110cbd0366076e31"
+      "commit": "de512e8123bdfbfbe20f692b236e37853b4f8294"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
@@ -15,7 +15,7 @@
     },
     "sdk-dotnet-harness": {
       "repository": "honua-io/honua-sdk-dotnet",
-      "commit": "828d8dd882f683fcfc5d9972481b5e6090ef3eac"
+      "commit": "e95922412c881c913d51efe703b603a0dfab8f4c"
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
@@ -23,7 +23,7 @@
     },
     "sdk-python-harness": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "d16faecd6a29ef137e3b85fb2148f3bb6e6d998d"
+      "commit": "35080d91f7e6e362c870ef211c1679d58b9e956d"
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
