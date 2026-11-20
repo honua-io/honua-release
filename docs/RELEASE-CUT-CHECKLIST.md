@@ -143,6 +143,23 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
 - [ ] Confirm the hourly `request-promotion.yml` run found the record ready and requested promotion as
   the scoped App identity, then obtain independent protected-environment approval. Verify the lock
   signature and publication tag against the minting train's exact source.
+- [ ] Lock the Launch Stack template hosting bucket. This is the last step before publication and is
+  done only after the release is fully certified, because S3 Object Lock cannot be turned off once
+  it is on (founder ruling, 2026-11-18). Update the hosting stack from honua-marketplace
+  `aws/cloudformation/template-hosting.yaml` with `EnableObjectLock=true` (default `false`).
+  Review the change set first and go ahead only if `TemplateBucket` shows `Modify` with
+  `Replacement: False`: a replaced bucket gets a new name and breaks every published template URL.
+  Object Lock does not retain versions stored before it was turned on, so apply retention to the
+  published `templates/<version>/` objects (`put-object-retention` or an S3 Batch Operations job).
+  Then confirm for `templates/<version>/deploy.yaml`: `get-object-retention` shows GOVERNANCE with
+  about ten years left; a write without `If-None-Match` is refused (403) and one with it fails (412);
+  a plain delete and a delete of the stored version by `versionId` are both refused (the bucket
+  policy denies both outside `templates/qualification*`, and Object Lock refuses the version delete
+  without `s3:BypassGovernanceRetention`). Use the identical published
+  bytes for the write attempts. If a delete is unexpectedly accepted, stop the cut and restore the
+  object at once (removing a delete marker needs a short bucket-policy exception, because the policy
+  denies version deletes too). Retain the change set, the retention output and every refusal with the
+  release evidence.
 - [ ] Promote `honua-2026.1.0` by dispatching `promote.yml` for the selected lock. That workflow
   signs the publication tag with gitsign, pushes `refs/tags/<tag>`, verifies the published tag
   against the certified commit, and runs `gh release create` with the lock assets listed in the
