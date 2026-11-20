@@ -70,7 +70,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: 2953fa21bd43371fb4d78c32489d633218740324
+          ref: 37655f9b83d7b1f1586c25b8722e1b608a4621c8
           path: gp-qualification
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
