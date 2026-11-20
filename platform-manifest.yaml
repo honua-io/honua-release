@@ -1663,8 +1663,8 @@ evidenceSources:
     workflowPath: .github/workflows/cite-evidence-report.yml
     # Pins the workflow revision carrying the reviewed snapshot; the snapshot itself identifies
     # the certified server source and suite run, which the conformance gate checks separately.
-    producerSha: "899654e772934b917ed0f53c895400fb37b9cd6a"
-    trustedEvents: [schedule, workflow_dispatch]
+    producerSha: "13ed7bc16e4e532f5311f21efc6729569d6c3322"
+    trustedEvents: [workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: cite-status
     evidencePolicyRevision: cite-required-suites-v1
