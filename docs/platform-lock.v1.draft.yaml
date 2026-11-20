@@ -6,15 +6,15 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:57231cb8ff32ef64541b96fad48896cbdcc5724deb1d0387f1935120f39613d2
+    sha256: sha256:4e501a86414b8899118581b749e6af28e9de21f4e992395d27495c55ddc0ee69
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:e7a9266ce9f4abaa74d8fd5ec2c98cd792f13c34b8f344b40f22595458d73958
+    sha256: sha256:70bd450e2df80b91d0c352027d3d24c0250f0c05f5bf2ee901a1e9421f0a26b8
 components:
   honua-server:
     source:
       repository: https://github.com/honua-io/honua-server
-      revision: 532565bc7215d4b9ce9657bc110cbd0366076e31
+      revision: de512e8123bdfbfbe20f692b236e37853b4f8294
     contractVersions:
       admin: v1
       metadata: metadata.honua.io/v2alpha1
@@ -30,33 +30,33 @@ components:
       operation-human-approval: v1
       coordinated-release-human-approval: v1
       normalization-envelope: v3
-      publication-descriptor: '1.0'
-      database: '214'
+      export-collection: 1.0.0
+      database: '223'
     artifacts:
     - kind: image
       coordinate: ghcr.io/honua-io/honua-server
-      sourceRevision: 532565bc7215d4b9ce9657bc110cbd0366076e31
-      digest: sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9
+      sourceRevision: de512e8123bdfbfbe20f692b236e37853b4f8294
+      digest: sha256:1eb5a482778bc8aeb349f4a32732580534e3b5b0067bbcc0060e9159bf07ed6b
       architectures:
       - amd64
       - arm64
       platformDigests:
-        amd64: sha256:dbfd0cb4e3eecf2342f466d62a58d2abdc0f33daac6d2deb57f3d975d186efab
-        arm64: sha256:671122ca779141f969c03620abeba7647619083d4f5d8d37de754d2a55ebc615
+        amd64: sha256:b9b75f591402c60ee5aaf89e390fed803052dc79474492bb2ea6fde4b82a992b
+        arm64: sha256:d43d8740c320e2aa4ce95d969c6db6f2c4afd609e8f4370ef61cf1b2c82eee85
       version: 2026.1.0-rc.2
     - kind: executor-image
       coordinate: ghcr.io/honua-io/honua-server
       version: 2026.1.0-rc.2
-      sourceRevision: 532565bc7215d4b9ce9657bc110cbd0366076e31
-      digest: sha256:5043183c5d90e28ee59a248589385cfe3532eb556b93faf89a5515f4e9b234fa
+      sourceRevision: de512e8123bdfbfbe20f692b236e37853b4f8294
+      digest: sha256:f2f867b5b0309b37fa388abdc94358c53749b2dbb782999fc1942d3b60ff6d58
       architectures:
       - amd64
       - arm64
       platformDigests:
-        amd64: sha256:f900ef765cac1ccb7d9479a6aeaf85bf3ea9c4aaf752b9039fc3c83e514a01e5
-        arm64: sha256:be0c8ed3a30db2ef3e2fdb8a970b3037bef2dea1d5018b4f4f899cefa7e70870
+        amd64: sha256:83b8ad99e1f0d72f2c699ebbfbe8ef36f891055ce40c307b175a692ce1badaed
+        arm64: sha256:91de4cbcb4022942687270c5b724a4b8d40036510640c1eb332868cd4e0f4d90
     artifactIdentityModel: published
-    migrationJournalSha256: sha256:5588b3f3717273b73ce918e6b418d2f237221658b776bb013d73a6448cdbee7d
+    migrationJournalSha256: sha256:9f0e67e065e9b3d8813bda2745217e2ede20de8b5e8d8678e34ef94df515b033
     lifecycleStatus: GA
     supportTier: ga
     releaseVersion: 2026.1.0-rc.2
@@ -100,8 +100,8 @@ components:
     - kind: nuget
       coordinate: Honua.Sdk
       version: 2.2.0
-      sha256: sha256:cceb83dc7dc0779f4573bc6a42894e7b71cc5134b479535051a270ba6b07f25b
       sourceRevision: 1c745cee6ff698988fc0a3f2e6c5c8fae7645df9
+      sha256: sha256:cceb83dc7dc0779f4573bc6a42894e7b71cc5134b479535051a270ba6b07f25b
     artifactIdentityModel: published
     serverCompatibility:
       minimumServerVersion: first-release
@@ -140,11 +140,11 @@ components:
                 uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
                 sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
             serve.ogc-api-tiles:
-              evidence:
-                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
-                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
-              introductionModel: first-release
               versionModel: semver
+              introductionModel: first-release
+              evidence:
+                uri: https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json
+                sha256: sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1
         requiredCapabilities:
         - discovery.capability-manifest
         - serve.geoservices-featureserver
@@ -541,7 +541,7 @@ components:
     supportTier: experimental
 contentDigests:
   geospatialMcp: sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c
-  catalog: sha256:a32ec832c1f98f449cd53276f2f210fce1db9bc5ea88e5cfdd10f0a311f823e1
+  catalog: sha256:1546aad52247d223ab16090eef0ad59459e93bb2281c4f23745e63ddacc88488
   okf: sha256:d23aab64bb5ae88274c85bd87f2a8a535761fcff804e8dae0c4c9d154b04ca26
 fixtures: []
 sbom: []

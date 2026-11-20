@@ -5,7 +5,7 @@
 2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,
 license enforcement or serving-unit metering. Maturity and safety limits still apply.
 
-Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:7b815c9141d8fbca4e0165232acccf5b9618c9ae439553cabfe598477f0dc962`.
+Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:b7de7764927e92609f07e92dc74d0dd1e48a4a8b98d0af0e2e68fd3f9f9a11ec`.
 
 Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
 
@@ -29,9 +29,9 @@ require a Honua Server. `geospatial-mcp` is the protocol specification, not an S
 
 | From server / schema | To server / schema | Supported edge | Previous server reads migrated schema / application rollback | Database rollback | Restore backup required | Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| none: honua-server has no earlier release | 2026.1.0-rc.2 / database schema 214 | fresh install only; no upgrade edge into the first release exists | not applicable: no previous server | not applicable | not applicable | Publication-history receipt `sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1` (https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json) |
-| pre-release build (nightly or earlier candidate) | 2026.1.0-rc.2 / database schema 214 | unqualified | unqualified | unqualified | unqualified | No edge receipt is pinned; pre-release builds are not release identities |
-| 2026.1.0-rc.2 / database schema 214 | next honua-server release | unqualified | unqualified | unqualified | unqualified | No later release is locked; each column needs its own receipt |
+| none: honua-server has no earlier release | 2026.1.0-rc.2 / database schema 223 | fresh install only; no upgrade edge into the first release exists | not applicable: no previous server | not applicable | not applicable | Publication-history receipt `sha256:3069fde14a32cc579e4ee92cbe7e86bd88a14c1405df94457e1393c63fe092d1` (https://github.com/honua-io/honua-release/blob/0dd9b7a37ab4ee0dd02c17632e3de9e9eeeeddbd/certification/sources/server-publication-history.v1.json) |
+| pre-release build (nightly or earlier candidate) | 2026.1.0-rc.2 / database schema 223 | unqualified | unqualified | unqualified | unqualified | No edge receipt is pinned; pre-release builds are not release identities |
+| 2026.1.0-rc.2 / database schema 223 | next honua-server release | unqualified | unqualified | unqualified | unqualified | No later release is locked; each column needs its own receipt |
 
 Application rollback reinstalls the previous server against the migrated database.
 Database rollback restores the previous schema and data state. They require separate evidence.

@@ -9,7 +9,7 @@ represent the site copy as available.
 This is an explicitly **pre-cut rehearsal** profile, not a signed release lock
 or a change to `components.honua-server` / the certification ledger. The guide's
 default server image is the one `platform-manifest.yaml` pins as
-`components.honua-server` (`nightly-aot-532565b`, by digest), which contains the
+`components.honua-server` (`nightly-aot-de512e8`, by digest), which contains the
 licensing-disabled mode
 ([release issue #416](https://github.com/honua-io/honua-release/issues/416)) and the
 compiled health probe the Compose example uses. The manifest's preserved rehearsal
@@ -57,7 +57,7 @@ services:
       retries: 30
 
   honua:
-    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:d56e88152d3ca17f963542a3ecc6b0b28c355f3173a734bc69a8396331c6c9a9}
+    image: ${HONUA_SERVER_IMAGE:-ghcr.io/honua-io/honua-server@sha256:1eb5a482778bc8aeb349f4a32732580534e3b5b0067bbcc0060e9159bf07ed6b}
     platform: linux/amd64
     depends_on:
       db:

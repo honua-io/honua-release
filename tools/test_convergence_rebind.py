@@ -132,7 +132,7 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("532565bc7215d4b9ce9657bc110cbd0366076e31", "manifest/frozen")
+    assert pins["server-certification"] == ("de512e8123bdfbfbe20f692b236e37853b4f8294", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -567,7 +567,7 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "532565bc7215d4b9ce9657bc110cbd0366076e31"  # the last verified_server_commits entry
+VERIFIED = "de512e8123bdfbfbe20f692b236e37853b4f8294"  # the last verified_server_commits entry
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
@@ -1139,19 +1139,19 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_cut_candidate_server():
 
 
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
-    """The 2026-11-17 rc.2 re-pin moves the server to 532565b. Its gRPC surface hash differs from
-    8628668's, so the ruling was re-checked by hand: same six mapped services and conditions, the
-    same implemented set for every inventoried RPC, ExecutePlan still UNIMPLEMENTED; ten FeatureService
-    RPCs from geospatial-grpc 1.3.0 lie outside the v1.0.3 contract this inventory is bound to.
+    """The 2026-11-20 rc.2 re-pin moves the server to de512e8. Its gRPC surface hash differs from
+    532565b's (one HTTP attachment-download route mapped beside FeatureService, and FeatureService
+    query/edit changes), so the ruling was re-checked by hand: same six mapped services and
+    conditions, the same set of 30 RPC overrides, ExecutePlan still UNIMPLEMENTED.
 
     The generator refuses a pinned server commit the ruling was not verified at, so the pin that
-    freezes 532565b as the server-certification pin must record it here."""
-    candidate = "532565bc7215d4b9ce9657bc110cbd0366076e31"
+    freezes de512e8 as the server-certification pin must record it here."""
+    candidate = "de512e8123bdfbfbe20f692b236e37853b4f8294"
     document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-2:] == ["8628668794df9f0c22a490e59cedaee409cc1bdd", candidate]
+    assert ruling["verified_server_commits"][-2:] == ["532565bc7215d4b9ce9657bc110cbd0366076e31", candidate]
     manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
     assert manifest["protocolCertification"]["serverCertificationProducerSha"] == candidate
-    recheck = ruling["evidence"].split("Re-checked at 532565b", 1)[1]
+    recheck = ruling["evidence"].split("Re-checked at de512e8", 1)[1]
     assert "still returns UNIMPLEMENTED for ExecutePlan and ExecutePlanStream" in recheck
     assert "outside the 2026.1 gRPC denominator" in recheck

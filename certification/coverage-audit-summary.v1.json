@@ -2,10 +2,10 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:8514d901a4bab13adc6286890402abc1a5dfcdc050d93bbdbd313a4876d332d5",
+  "requirements_digest": "sha256:85c75b9b34f4a05bb914a5d2ac04df7385fe8d97871c22f4d625234c28221702",
   "production_digest": "sha256:8eb8b6de76f4c70a3cbb467871ea55ec1ccc05690fbeca12b6b663d07286d412",
   "audit_digest": "sha256:324ea9f8b8d6f9609ea97f49a49300bb1c12dcac458b46e3c8047e51c733f8e6",
-  "rows_digest": "sha256:d90c680568e74ba0a7f6cd4d8948c661cd5ddbef3b5476037f8c08c31ec8c82a",
+  "rows_digest": "sha256:3ebd6592ff42fcb23561a084d29f5b6d22705017fad7b0984808cf58554842e2",
   "rows": 2010,
   "non_licensed_rows": 2010,
   "external_licensed_rows": 0,
@@ -144,7 +144,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-server",
-        "commit": "532565bc7215d4b9ce9657bc110cbd0366076e31"
+        "commit": "de512e8123bdfbfbe20f692b236e37853b4f8294"
       },
       "same_revision": false
     },

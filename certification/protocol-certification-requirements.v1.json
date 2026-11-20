@@ -8,11 +8,11 @@
   "source_revisions": {
     "server": {
       "repository": "honua-io/honua-server",
-      "commit": "532565bc7215d4b9ce9657bc110cbd0366076e31"
+      "commit": "de512e8123bdfbfbe20f692b236e37853b4f8294"
     },
     "server-certification": {
       "repository": "honua-io/honua-server",
-      "commit": "532565bc7215d4b9ce9657bc110cbd0366076e31"
+      "commit": "de512e8123bdfbfbe20f692b236e37853b4f8294"
     },
     "sdk-dotnet": {
       "repository": "honua-io/honua-sdk-dotnet",
@@ -20,7 +20,7 @@
     },
     "sdk-dotnet-harness": {
       "repository": "honua-io/honua-sdk-dotnet",
-      "commit": "828d8dd882f683fcfc5d9972481b5e6090ef3eac"
+      "commit": "e95922412c881c913d51efe703b603a0dfab8f4c"
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
@@ -28,7 +28,7 @@
     },
     "sdk-python-harness": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "d16faecd6a29ef137e3b85fb2148f3bb6e6d998d"
+      "commit": "35080d91f7e6e362c870ef211c1679d58b9e956d"
     },
     "sdk-js": {
       "repository": "honua-io/honua-sdk-js",
@@ -375,7 +375,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@532565bc7215",
+      "client_version": "source@de512e8123bd",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -387,7 +387,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -967,7 +967,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -977,9 +977,9 @@
       "scenario_facets": [
         "positive"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SpecGroundingEndpointTests.Mutate_EmptySpecUseDataset_ReturnsValidatedMutationPlan"
@@ -1107,7 +1107,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1118,9 +1118,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SpatialAnalyticsRestTests.QueryBufferAggregate_DissolveTrue_ReturnsDissolvedPolygon"
@@ -1133,7 +1133,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1144,9 +1144,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SpatialAnalyticsRestTests.QueryClusters_Dbscan_PerFeature_ReturnsClusterAssignments"
@@ -1159,7 +1159,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1170,9 +1170,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
@@ -1185,7 +1185,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1196,9 +1196,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
@@ -1211,7 +1211,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1222,9 +1222,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
@@ -1237,7 +1237,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1248,9 +1248,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
@@ -1263,7 +1263,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1274,9 +1274,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
@@ -1289,7 +1289,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1300,9 +1300,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "AnalysisContentEndpointsTests.SavedQuery_SaveVersionReopenPreviewAndArtifactBinding_ReturnsStableContracts"
@@ -1315,7 +1315,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1326,9 +1326,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SpatialAnalyticsRestTests.QueryDensity_HexGrid_ReturnsCellsWithCounts"
@@ -1341,7 +1341,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1352,9 +1352,9 @@
         "positive",
         "negative"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "ProviderRoutedTileAndH3EndpointTests.QueryH3_SourceBackedLayer_UsesBindingScopedFeatureReader",
@@ -1368,7 +1368,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1379,9 +1379,9 @@
         "positive",
         "negative"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "ProviderRoutedTileAndH3EndpointTests.QueryH3Post_SourceBackedLayer_UsesBindingScopedFeatureReader",
@@ -1395,7 +1395,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1406,9 +1406,9 @@
         "positive",
         "negative"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "ProviderRoutedTileAndH3EndpointTests.OgcH3_SourceBackedLayer_UsesBindingScopedFeatureReader",
@@ -1422,7 +1422,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1433,9 +1433,9 @@
         "positive",
         "negative"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "ProviderRoutedTileAndH3EndpointTests.H3Tile_SourceBackedLayer_UsesBindingScopedTileProvider",
@@ -1449,7 +1449,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1460,9 +1460,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "VisibilityAnalysisEndpointTests.PostLineOfSight_WithCoveredFlatTerrain_ReportsVisible"
@@ -1521,7 +1521,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1532,9 +1532,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SceneAnalysisEndpointTests.PostSlice_OverSurface_ReturnsIntersectionMetadata"
@@ -1547,7 +1547,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1558,9 +1558,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SpatialAnalyticsRestTests.SpatialJoin_Intersects_ReturnsTargetFeaturesWithMatchCount"
@@ -1573,7 +1573,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1584,9 +1584,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "SceneAnalysisEndpointTests.PostSunShadow_DaytimeSun_CastsShadowOverSurface"
@@ -1599,7 +1599,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1610,9 +1610,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "VisibilityAnalysisEndpointTests.PostViewshed_WithCoveredFlatTerrain_ReturnsVisibleSamples"
@@ -1905,7 +1905,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1915,9 +1915,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
@@ -1931,7 +1931,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1941,9 +1941,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
@@ -1957,7 +1957,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1967,9 +1967,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
@@ -1983,7 +1983,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -1993,9 +1993,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
@@ -2009,7 +2009,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -2019,9 +2019,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerMutationScenarioTests.MutationEndpoints_AcceptValidEdits_AndRoundTripEachState",
@@ -14052,7 +14052,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -14063,9 +14063,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "ImportEndpointTests.ImportFile_V1_WithValidRequest_ReturnsImportResult"
@@ -16702,7 +16702,7 @@
       "maturity": "preview",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "release",
       "licensed": false,
@@ -16713,9 +16713,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "PrintingToolsEndpointTests.Execute_PdfFormat_ReturnsPdfDocument"
@@ -17708,7 +17708,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-processes",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27689,7 +27689,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -27701,7 +27701,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@532565bc7215",
+      "client_version": "source@de512e8123bd",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -27713,7 +27713,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -27737,7 +27737,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -27761,7 +27761,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -34560,7 +34560,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -34584,7 +34584,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -34608,7 +34608,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -37634,7 +37634,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -37645,9 +37645,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "VectorTileServerEndpointTests.VectorTileServer_Metadata_ReturnsServiceDescriptor"
@@ -37660,7 +37660,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -37671,9 +37671,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "VectorTileServerEndpointTests.VectorTileServer_Tile_InRange_ReturnsMvtBytesNeverStoredForACredentialedCaller"
@@ -38722,7 +38722,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@532565bc7215",
+      "client_version": "source@de512e8123bd",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -38734,7 +38734,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -38758,7 +38758,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -38782,7 +38782,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -38806,7 +38806,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -39346,7 +39346,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39432,7 +39432,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39515,7 +39515,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39601,7 +39601,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39687,7 +39687,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39773,7 +39773,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39859,7 +39859,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -39942,7 +39942,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40025,7 +40025,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40108,7 +40108,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40194,7 +40194,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40280,7 +40280,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40392,7 +40392,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40478,7 +40478,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40564,7 +40564,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -40621,7 +40621,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -40631,9 +40631,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
@@ -40647,7 +40647,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -40657,9 +40657,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
@@ -40673,7 +40673,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -40683,9 +40683,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
@@ -40699,7 +40699,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -40709,9 +40709,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "OgcFeaturesMutationScenarioTests.MutationLifecycle_CreateReplacePatchDelete_RoundTripsEachState",
@@ -40947,7 +40947,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-features",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -41021,7 +41021,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/ogc-api-features/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -41152,7 +41152,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@532565bc7215",
+      "client_version": "source@de512e8123bd",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -41164,7 +41164,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -41188,7 +41188,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -41212,7 +41212,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -42402,7 +42402,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-maps",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -42542,7 +42542,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -42566,7 +42566,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -43070,7 +43070,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-records",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -43973,7 +43973,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-tiles",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -44043,7 +44043,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/ogc-api-tiles/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -44115,7 +44115,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -45387,7 +45387,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -46709,7 +46709,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wcs",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -46779,7 +46779,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/wcs20/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47944,7 +47944,7 @@
       "maturity": "supported",
       "canonical_client": "Honua CLI",
       "client_lane": "cli",
-      "client_version": "source@532565bc7215",
+      "client_version": "source@de512e8123bd",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -47956,7 +47956,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47980,7 +47980,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -47992,7 +47992,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wfs",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -48032,7 +48032,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -48089,7 +48089,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/shared/test-data@{source_sha}",
       "budget_expectations": null
@@ -48114,7 +48114,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/shared/test-data@{source_sha}",
       "budget_expectations": null
@@ -48139,7 +48139,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/shared/test-data@{source_sha}",
       "budget_expectations": null
@@ -48151,7 +48151,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -48161,9 +48161,9 @@
       "scenario_facets": [
         "mutation"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "Wfs20MutationScenarioTests.Transaction_InsertUpdateReplaceDelete_RoundTripsEachState",
@@ -48909,7 +48909,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48933,7 +48933,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null
@@ -48974,7 +48974,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-wms",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49012,7 +49012,7 @@
         "metadata",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cng/seed.sql@{source_sha}",
       "budget_expectations": null,
@@ -49042,7 +49042,7 @@
         "crs-axis",
         "media-schema"
       ],
-      "contract_revision": "server-capability-matrix@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-capability-matrix@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "anonymous-public-v1",
       "fixture_revision": "docker/cite/shared/seed/mapserver.sql@{source_sha}",
       "budget_expectations": null
@@ -49054,7 +49054,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -49065,9 +49065,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "StyleSuggestionEndpointsTests.SuggestStyle_ReturnsStyleSuggestion"
@@ -49108,7 +49108,7 @@
       "maturity": "supported",
       "canonical_client": "OGC CITE",
       "client_lane": "cite-ogc-api-styles",
-      "client_version": "ets-selection@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "ets-selection@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "local-docker",
       "required_tier": "nightly",
       "licensed": false,
@@ -49736,7 +49736,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -49747,9 +49747,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerTemporalExtentEndpointTests.TemporalExtent_TimeAwareLayer_ReturnsExtentWithFields"
@@ -49762,7 +49762,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -49773,9 +49773,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerTemporalTests.GeoServicesQuery_SingleTimeInstant_UnixTimestamp_ReturnsMatchingFeatures"
@@ -49788,7 +49788,7 @@
       "maturity": "supported",
       "canonical_client": "Honua server public protocol integration harness",
       "client_lane": "server-protocol-harness",
-      "client_version": "source@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "client_version": "source@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "deployment_target": "source-test-host",
       "required_tier": "nightly",
       "licensed": false,
@@ -49799,9 +49799,9 @@
         "positive",
         "media-schema"
       ],
-      "contract_revision": "server-protocol-harness@2026-08-26.1+532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "contract_revision": "server-protocol-harness@2026-08-26.1+de512e8123bdfbfbe20f692b236e37853b4f8294",
       "auth_policy_revision": "server-test-host-v1",
-      "fixture_revision": "server-test-fixtures@532565bc7215d4b9ce9657bc110cbd0366076e31",
+      "fixture_revision": "server-test-fixtures@de512e8123bdfbfbe20f692b236e37853b4f8294",
       "budget_expectations": null,
       "test_ids": [
         "FeatureServerQueryDateBinsTests.QueryDateBins_CalendarBin_ReturnsBins"
