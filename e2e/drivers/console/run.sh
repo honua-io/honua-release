@@ -73,12 +73,18 @@ IDP_HOSTNAME="${IDP_HOST%:*}"
 IDP_PORT="${IDP_HOST##*:}"
 if [ "$IDP_HOSTNAME" = "$IDP_HOST" ]; then IDP_PORT=443; fi
 SERVER_PORT="${E2E_CONSOLE_SERVER_PORT:-8088}"
+# The Console host's own server URL. The server mints the operator bearer for a
+# session cookie only over HTTPS with an X-Honua-CSRF token, so the host uses the TLS listener;
+# the suite's verifier keeps plain HTTP on SERVER_URL.
+SERVER_TLS_PORT="${E2E_CONSOLE_SERVER_TLS_PORT:-8445}"
 CONSOLE_ORIGIN="http://127.0.0.1:${LIVE_PORT}"
 SERVER_URL="http://127.0.0.1:${SERVER_PORT}"
+CONSOLE_SERVER_URL="https://127.0.0.1:${SERVER_TLS_PORT}"
 OPERATOR_USER="${HONUA_CONSOLE_E2E_OPERATOR_USER:-alice}"
 
 mint() { openssl rand -hex "$1"; }
 export S4_IDP_HOSTNAME="$IDP_HOSTNAME" S4_IDP_PORT="$IDP_PORT" S4_SERVER_PORT="$SERVER_PORT"
+export S4_SERVER_TLS_PORT="$SERVER_TLS_PORT"
 export S4_CONSOLE_ORIGIN="$CONSOLE_ORIGIN"
 export S4_CLIENT_SECRET="${HONUA_CONSOLE_E2E_IDP_CLIENT_SECRET:-honua-console-bff-live-proof-secret}"
 # Per-run secrets: none of these outlives the stack. The bearer key is 64 bytes of hex (>= 32).
@@ -164,9 +170,9 @@ trap teardown EXIT
 "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 
 port_free() { python3 -c 'import socket,sys;s=socket.socket();s.bind((sys.argv[1],int(sys.argv[2])));s.close()' "$1" "$2" 2>/dev/null; }
-for p in "0.0.0.0:$IDP_PORT" "127.0.0.1:$SERVER_PORT" "127.0.0.1:$LIVE_PORT"; do
+for p in "0.0.0.0:$IDP_PORT" "127.0.0.1:$SERVER_PORT" "127.0.0.1:$SERVER_TLS_PORT" "127.0.0.1:$LIVE_PORT"; do
   if ! port_free "${p%:*}" "${p##*:}"; then
-    emit_scenario "S4-console-studio" fail "S4 port ${p##*:} is already in use on this host (override HONUA_CONSOLE_E2E_IDP_HOST / E2E_CONSOLE_SERVER_PORT / HONUA_CONSOLE_E2E_LIVE_PORT)"
+    emit_scenario "S4-console-studio" fail "S4 port ${p##*:} is already in use on this host (override HONUA_CONSOLE_E2E_IDP_HOST / E2E_CONSOLE_SERVER_PORT / E2E_CONSOLE_SERVER_TLS_PORT / HONUA_CONSOLE_E2E_LIVE_PORT)"
     exit 0
   fi
 done
@@ -201,20 +207,17 @@ until db_final_ready; do
   sleep 2
 done
 
-# The source table the suite publishes through the Console (services-layers / publishing-wizard).
-# Same shape as honua-console's own testbed seed (e2e/initdb/01-seed.sql): integer PK, Polygon in
-# EPSG:3857, exactly three features — the spec asserts all three come back in that SRID.
-"${COMPOSE[@]}" exec -T db psql -q -v ON_ERROR_STOP=1 -U honua -d honua >/dev/null <<'SQL' || stack_fail "seed" "could not seed public.e2e_layer_src"
-CREATE TABLE public.e2e_layer_src (
-  id   integer PRIMARY KEY,
-  name text    NOT NULL,
-  geom geometry(Polygon, 3857) NOT NULL
-);
-INSERT INTO public.e2e_layer_src (id, name, geom) VALUES
- (1, 'alpha', ST_SetSRID(ST_MakeEnvelope(  0,   0, 100, 100, 3857), 3857)),
- (2, 'beta',  ST_SetSRID(ST_MakeEnvelope(200, 200, 300, 300, 3857), 3857)),
- (3, 'gamma', ST_SetSRID(ST_MakeEnvelope(400, 400, 500, 500, 3857), 3857));
-SQL
+# The source tables the suite publishes through the Console. Each spec owns a dedicated table
+# (honua-server backs a source table with one layer only), and the set grows with the suite, so S4
+# applies the pinned checkout's own testbed seed (e2e/initdb/*.sql, idempotent) rather than a copy
+# that drifts behind it.
+SEED_DIR="$CONSOLE_DIR/e2e/initdb"
+seeds=("$SEED_DIR"/*.sql)
+[ -f "${seeds[0]}" ] || stack_fail "seed" "honua-console@${CONSOLE_SHA} has no e2e/initdb/*.sql testbed seed"
+for seed in "${seeds[@]}"; do
+  "${COMPOSE[@]}" exec -T db psql -q -v ON_ERROR_STOP=1 -U honua -d honua >/dev/null <"$seed" \
+    || stack_fail "seed" "could not apply testbed seed ${seed##*/}"
+done
 
 # The realm is imported before Keycloak serves discovery, and the issuer must be the exact origin
 # the server is configured with, or the code exchange fails on issuer validation.
@@ -233,7 +236,18 @@ until [ "$(curl -sS -o /dev/null -w '%{http_code}' "${SERVER_URL}/healthz/ready"
   [ "$(date +%s)" -lt "$deadline" ] || stack_fail "server" "honua-server never became ready at ${SERVER_URL}/healthz/ready"
   sleep 3
 done
-echo "== S4: stack ready (server $SERVER_URL, IdP $ISSUER, Console origin $CONSOLE_ORIGIN) ==" >&2
+# The Console host must trust the per-run certificate on the TLS listener. A directory holding only
+# that certificate is appended to SSL_CERT_DIR, which .NET on Linux reads alongside the system store.
+TRUST_DIR="$S4_RUN_DIR/trust"
+mkdir -p "$TRUST_DIR"
+cp "$S4_RUN_DIR/certs/kc.crt" "$TRUST_DIR/honua-s4.crt"
+openssl rehash "$TRUST_DIR" >/dev/null 2>&1 || true
+deadline=$(( $(date +%s) + 60 ))
+until [ "$(curl -sS --max-time 5 --cacert "$TRUST_DIR/honua-s4.crt" -o /dev/null -w '%{http_code}' "${CONSOLE_SERVER_URL}/healthz/ready" 2>/dev/null || echo 000)" = "200" ]; do
+  [ "$(date +%s)" -lt "$deadline" ] || stack_fail "server-tls" "honua-server TLS listener never answered at ${CONSOLE_SERVER_URL}/healthz/ready"
+  sleep 3
+done
+echo "== S4: stack ready (server $SERVER_URL, Console host -> $CONSOLE_SERVER_URL, IdP $ISSUER, Console origin $CONSOLE_ORIGIN) ==" >&2
 
 # --- run the suite ----------------------------------------------------------------------------------
 # The suite reads these. HONUA_CONSOLE_E2E_ADMIN_KEY is the independent verifier's key
@@ -246,6 +260,8 @@ rm -f "$PW_RESULTS"
 if (
   unset HONUA_ADMIN_API_KEY HONUA_ADMIN_KEY HONUA_API_KEY
   export HONUA_CONSOLE_E2E_SERVER_URL="$SERVER_URL"
+  export HONUA_CONSOLE_E2E_CONSOLE_SERVER_URL="$CONSOLE_SERVER_URL"
+  export SSL_CERT_DIR="${SSL_CERT_DIR:-/etc/ssl/certs}:$TRUST_DIR"
   export HONUA_CONSOLE_E2E_ADMIN_KEY="$S4_ADMIN_KEY"
   export HONUA_CONSOLE_E2E_LIVE_PORT="$LIVE_PORT"
   export HONUA_CONSOLE_E2E_IDP_HOST="$IDP_HOST"
