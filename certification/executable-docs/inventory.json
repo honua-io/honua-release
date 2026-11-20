@@ -1811,11 +1811,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
+      "revision": "514a60fc49dc44d5662897b4b31d8249c912f4f7",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/514a60fc49dc44d5662897b4b31d8249c912f4f7/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1945,7 +1945,7 @@
         },
         {
           "index": 13,
-          "line": 639,
+          "line": 640,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2177,11 +2177,11 @@
       "id": "honua-server-docs-guides-connect-ai-agents-mcp",
       "repo": "honua-io/honua-server",
       "path": "docs/guides/connect/ai-agents-mcp.md",
-      "revision": "789ea170c08824cb656bd52feb1f6d33f40d02cd",
+      "revision": "5ba2eb80e70a14600e96ae04d68873136f7543ee",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/789ea170c08824cb656bd52feb1f6d33f40d02cd/docs/guides/connect/ai-agents-mcp.md",
+      "url": "https://github.com/honua-io/honua-server/blob/5ba2eb80e70a14600e96ae04d68873136f7543ee/docs/guides/connect/ai-agents-mcp.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2204,12 +2204,12 @@
           "infoString": "json",
           "intent": "illustrative",
           "intentSource": "heuristic",
-          "sha256": "075ee54c57f054948168e1ea6a90038ffb415e22481277ec3a9e0878b7c3c683",
+          "sha256": "49370cdbe90985bf3dea6c11c61d3d48faaa068822d060d1524e76531c4b0a5e",
           "reason": "json block is not executable by this gate"
         },
         {
           "index": 2,
-          "line": 133,
+          "line": 135,
           "language": "json",
           "infoString": "json",
           "intent": "illustrative",
@@ -2219,7 +2219,7 @@
         },
         {
           "index": 3,
-          "line": 154,
+          "line": 156,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2228,7 +2228,7 @@
         },
         {
           "index": 4,
-          "line": 158,
+          "line": 160,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2242,7 +2242,7 @@
         },
         {
           "index": 5,
-          "line": 383,
+          "line": 390,
           "language": "json",
           "infoString": "json",
           "intent": "illustrative",
@@ -2252,7 +2252,7 @@
         },
         {
           "index": 6,
-          "line": 512,
+          "line": 519,
           "language": "jsonc",
           "infoString": "jsonc",
           "intent": "illustrative",
