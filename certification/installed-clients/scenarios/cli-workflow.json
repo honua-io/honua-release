@@ -122,7 +122,7 @@
       "approve": "Console password session: open approval-review, approve with the review capability (e2e/harness/lib/human_approval.py)",
       "proposal-resolved": "honua proposal read --wait (approver key)",
       "approved-served": "honua query <service> <layer>",
-      "unpublish": "honua layer unpublish --service-name",
+      "unpublish": "honua layer disable --service-name",
       "unpublished-refused": "honua query <service> <layer>"
     }
   }

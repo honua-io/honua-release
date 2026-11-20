@@ -47,6 +47,23 @@ class CliPageRowsTests(unittest.TestCase):
             driver.page_rows({"success": True, "data": {"page": 1}})
 
 
+class PypiLayerIdTests(unittest.TestCase):
+    """honua-admin 0.3.x replies name the layer ``storageLayerId``/``storage_layer_id`` (rc.2 gate run 44832532862)."""
+
+    def test_cli_reads_storage_layer_id_then_falls_back_to_layer_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            driver = load_cli_driver(Path(tmp))
+        self.assertEqual(driver.pypi_layer_id({"storageLayerId": 7, "layerName": "sites"}), 7)
+        self.assertEqual(driver.pypi_layer_id({"layerId": 5}), 5)
+        with self.assertRaises(KeyError):
+            driver.pypi_layer_id({"layerName": "sites"})
+
+    def test_python_driver_reads_the_layer_id_only_through_the_helper(self):
+        source = (HERE / "drivers/python/driver.py").read_text(encoding="utf-8")
+        direct = [line for line in source.splitlines() if re.search(r"\.layer_id\b", line)]
+        self.assertEqual(direct, ["    return found if found is not None else layer.layer_id"])
+
+
 def js_helpers() -> str:
     """The driver's unwrap and listAll, cut out so they run without the installed SDK packages."""
     unwrap = re.search(r"^const unwrap = .*$", JS_DRIVER, re.MULTILINE)
