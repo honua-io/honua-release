@@ -11,7 +11,7 @@ still rejected by the full-platform gate, by design. Both run from
 `platform-manifest.yaml`. It backs up PostgreSQL, destroys the original database,
 restores into a clean database, compares logical snapshots, then starts the server
 and checks the service catalog. Its PostgreSQL fixture jobs are not the production
-Redis job store or queue. Its pre-start outbox snapshot does not prove dispatch.
+job queue. Its pre-start outbox snapshot does not prove dispatch.
 Its receipt is therefore `honua.postgresql-restore-receipt/v1`, scoped to
 `postgresql-restore`; the full-platform gate rejects it even when signed.
 
@@ -51,7 +51,7 @@ disasterRecovery:
     rtoMs: 300000       # maximum tolerated recovery time
   substrates:
     postgresql: true
-    redis: true
+    redis: false
     object-storage: true
     job-queue: true
     transactional-outbox: false
@@ -62,7 +62,7 @@ This is an illustrative configuration, **not a claim about the current candidate
 `objectives` are deployment-owned limits and are mandatory: without them a producer-reported
 measurement has nothing it can fail against, so an absent block fails the gate closed.
 Use `false` only when the candidate disables that substrate. Local referenced-output
-files still count as `object-storage`; sharing Redis or PostgreSQL does not remove
+files still count as `object-storage`; sharing one PostgreSQL cluster does not remove
 logical job-queue, outbox, or workflow-cursor recovery obligations when enabled.
 No alert delivery, multi-tenant, or offline-sync journey is added by this inventory.
 
@@ -121,9 +121,10 @@ and GitHub artifact attestation certify only that explicitly scoped seam result.
 ## The full-platform producer (`full_platform.py`)
 
 The drill composes `compose.full-platform.yml`: the candidate's local-docker **install**
-topology (PostGIS, Redis, and a local file-storage volume), not the `e2e/local-docker` seam
-tier, which composes no durable job/workflow substrate at all. The image comes from the
-manifest pin; the substrate set comes from `disasterRecovery.substrates` in the same file.
+topology (PostGIS and a local file-storage volume), not the `e2e/local-docker` seam tier,
+which has no file-storage volume. The rc.2 server composes no Redis: its job queue, change
+events and workflow state live in PostgreSQL, so `redis` is disabled in the manifest. The
+image comes from the manifest pin; the substrate set comes from `disasterRecovery.substrates` in the same file.
 An enabled substrate with no implemented drill surface fails the run rather than being
 quietly dropped from the receipt.
 
@@ -136,16 +137,16 @@ freshly created store it asserts was empty, restarts, and re-reads the identical
 | --- | --- | --- | --- |
 | `postgresql` | file import (`POST /api/v1/admin/import/upload`), managed-store publication declaring `Create`, then an OGC API Features insert | `GET /ogc/features/collections/{layerId}/items` | `pg_dump --format=custom` |
 | `transactional-outbox` | an OGC API Features insert's outbox row, written in the same transaction | `SELECT` over `honua.feature_change_outbox` | table-scoped `pg_dump` |
-| `redis` | the same insert's durable feature-change event | `GET /api/v1/admin/feature-events/replay` | `DUMP`/`RESTORE` slice of `featurechange:*` |
 | `object-storage` | GeoServices `addAttachment` | `GET .../attachments/{id}` (the bytes) | `tar` of the storage volume |
-| `job-queue` | GeoServices `submitJob` on the Redis-backed job runtime | `GET .../GPServer/{task}/jobs/{jobId}` | `DUMP`/`RESTORE` slice of the job keys |
-| `workflow-cursors` | workflow package version published to a `Schedule` target | the durable orchestration definition | `DUMP`/`RESTORE` slice of `orchestration:*` |
+| `job-queue` | GeoServices `submitJob` on the PostgreSQL job queue | `GET .../GPServer/{task}/jobs/{jobId}` | table-scoped `pg_dump` of `honua.execution_jobs` |
+| `workflow-cursors` | workflow package version published to a `Schedule` target | `SELECT` of the durable definition in `honua.workflow_definitions` | table-scoped `pg_dump` of the workflow definition, run and cursor tables |
 
-Three substrates share one Redis instance and two share one PostgreSQL cluster. Sharing a
-store does not merge the recovery obligations: each takes its own backup artifact with its
-own id and SHA-256, each is restored from that artifact alone, and the outbox artifact is
-additionally replayed into a scratch database to prove it stands up without the cluster dump
-carrying it. The workflow package *catalog* does not survive a restart — only the compiled
+Four substrates share one PostgreSQL cluster. Sharing a store does not merge the recovery
+obligations: each takes its own backup artifact with its own id and SHA-256, and each
+table-scoped artifact is additionally replayed into a scratch database to prove it stands up
+without the cluster dump carrying it. The server's data-protection key ring (`honua_keys`) is
+backed up, destroyed and restored with the stores: job and workflow records are sealed with it,
+so a restored record is unreadable under a new ring. The drill refuses a ring that holds no key. The workflow package *catalog* does not survive a restart — only the compiled
 durable definition does — so the drill reads that definition from the orchestration store
 rather than from the in-memory publication list.
 
@@ -163,8 +164,8 @@ with the same id and coordinates. The same insert drives the outbox and change-e
 substrates.
 
 Instance identity is the restarted runtime's boot identity: the PostgreSQL cluster's
-`system_identifier`, the Redis `run_id`, and the server's container id. Destroying the
-volumes forces all three to change, so a graceful restart over intact state cannot pass.
+`system_identifier` and the server's container id. Destroying the volumes forces both to
+change, so a graceful restart over intact state cannot pass.
 
 RPO and RTO are measured, never declared. RPO is the age of the recovery point when the
 backup set closed; RTO is the window from the earliest destruction to the latest post-restart
@@ -197,8 +198,8 @@ subject is the manifest digest and its source commit is that sha, so a digest
 and sha from different trunk builds fail the job. It builds the unchanged production GDAL worker
 from the manifest's server source, records its local registry digest, and runs
 the server qualification harness's `output-store-dr` and `crash-boundaries`
-lanes. The first destroys and restores PostgreSQL, Redis and the attested shared
-GP volume; the second supplies the six shared #3852 worker/store crash receipts.
+lanes. The first destroys and restores PostgreSQL, the servers' shared data-protection
+key ring and the attested shared GP volume (honua-server#8734); the second supplies the six shared #3852 worker/store crash receipts.
 Retention and hold qualification from #3852 remains separate.
 
 The complete GP proof is embedded as `geoprocessingOutputs` before the existing

@@ -1793,27 +1793,24 @@ evidenceSources:
 # tools/validate_dr_receipt.py requires a full-platform receipt to cover exactly the substrates
 # enabled here, and tools/generate_platform_lock.py refuses to cut a lock without this block.
 #
-# The topology is the install honua-server's own quickstart compose describes: PostGIS, Redis and a
-# local file-storage volume. Every entry below was resolved against the pinned image's effective
+# The topology is the install honua-server's own quickstart compose describes: PostGIS and a local
+# file-storage volume. Every entry below was resolved against the pinned image's effective
 # configuration, not assumed:
 #   postgresql            MANDATORY. The server connects to DefaultConnection on boot and runs
 #                         migrations; there is no alternative metadata store.
-#   redis                 COMPOSED. ConnectionStrings__Redis is set in the install topology, which
-#                         is what wires the cache, the durable feature-change event store and the
-#                         job/workflow substrate. Removing it is a documented, different topology
-#                         (honua-server's docker-compose.no-redis.yml).
+#   redis                 NOT COMPOSED. The rc.2 server has no Redis client (honua-server#6809):
+#                         the job queue, change events and workflow state are PostgreSQL-backed.
 #   object-storage        FileStorage:Provider=Local over a named volume. Referenced output and
 #                         attachment bytes live there; the metadata rows that point at them are
 #                         useless without the bytes, so the volume is in the recovery set.
-#   job-queue             The Redis-backed job runtime accepts geoprocessing submissions on this
-#                         topology; without Redis the server refuses them with a typed
-#                         capability-unavailable error instead of queueing them.
+#   job-queue             The PostgreSQL job substrate (honua.execution_jobs) accepts and queues
+#                         geoprocessing submissions on this topology.
 #   transactional-outbox  PostgreSQL's outbox capability provider reports support unconditionally,
 #                         so every feature mutation through a protocol handler writes its outbox
 #                         row in the same transaction as the row itself.
-#   workflow-cursors      With Redis composed the orchestration engine, scheduler and event-trigger
-#                         reconciler are hosted, and the durable workflow definition/run and source
-#                         high-water-mark stores are Redis-backed.
+#   workflow-cursors      The orchestration engine, scheduler and event-trigger reconciler keep the
+#                         durable workflow definition/run and source high-water-mark stores in
+#                         PostgreSQL (honua.workflow_definitions, _runs and the cursor tables).
 #
 # The objectives are deployment-owned LIMITS the drill is measured against, matching the 900 s / 300 s
 # recovery targets the DR evidence template already carries. They are not measurements and they are
@@ -1825,7 +1822,7 @@ disasterRecovery:
     rtoMs: 900000                      # maximum tolerated recovery time
   substrates:
     postgresql: true
-    redis: true
+    redis: false                       # the rc.2 server composes no Redis (honua-server#6809)
     object-storage: true
     job-queue: true
     transactional-outbox: true

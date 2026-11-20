@@ -66,11 +66,14 @@ jobs:
       # and honua-server#8211 (the worker fix the 532565bc worker lacked), so harness and worker are
       # one revision again. Its harness runs without the retired cache service (compose.yml declares
       # postgres, server, server-peer and worker only).
+      # 2026-11-20 harness pin: 5b86bbca (honua-server#8740) is a later trunk merge whose harness
+      # gives both servers one data-protection key ring and restores it in the cold-restore drill
+      # (#8734); the server and worker under test stay de512e81, the manifest pin.
       - name: Check out the reviewed GP qualification harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: honua-io/honua-server
-          ref: de512e8123bdfbfbe20f692b236e37853b4f8294
+          ref: 5b86bbca96abd511f557ea17407208459631956d
           path: gp-qualification
       - name: Use the immutable candidate inputs
         if: ${{ inputs.candidate_ref }}
