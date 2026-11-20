@@ -165,7 +165,7 @@ class MatrixExpectationTests(unittest.TestCase):
                 "pypi-sdk-geoservices": ("active", None),
                 "pypi-sdk-ogc-tiles": ("active", None),
                 "nuget-sdk-geoservices": ("active", None),
-                "nuget-sdk-ogc-tiles": ("blocked", ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"]),
+                "nuget-sdk-ogc-tiles": ("active", None),
                 "npm-cli-workflow": ("active", None),
                 "pypi-cli-workflow": ("active", None),
                 "npm-mcp-workflow": ("active", None),
@@ -269,12 +269,11 @@ class MatrixExpectationTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaisesRegex(mod.CertificationError, "owner .* reason .* target"):
                 mod.validate_cell(cell)
 
-    def test_committed_matrix_declares_the_two_dotnet_cells_blocked_for_2026_1(self):
+    def test_committed_matrix_declares_only_the_dotnet_import_fidelity_cell_blocked_for_2026_1(self):
         # Founder decision D6 (2026-10-26): exactly these cells stay declared blocked for 2026.1.
         _, matrix = inputs()
         blocked = {cell["id"]: cell for cell in matrix["cells"] if cell["status"] == "blocked"}
-        self.assertEqual(set(blocked), {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
-        self.assertEqual(blocked["nuget-sdk-ogc-tiles"]["blockedBy"], ["https://github.com/honua-io/honua-sdk-dotnet/issues/405"])
+        self.assertEqual(set(blocked), {"nuget-service-layer-import-fidelity"})
         self.assertEqual(blocked["nuget-service-layer-import-fidelity"]["blockedBy"], mod.IMPORT_BLOCKER)
         for cell in blocked.values():
             self.assertEqual(cell["target"], "2026.1.x")
@@ -332,15 +331,15 @@ class MatrixExpectationTests(unittest.TestCase):
         ruled = mod.ruled_declarations()
         blocked = {cell["id"]: cell["target"] for cell in matrix["cells"] if cell["status"] == "blocked"}
         self.assertEqual(ruled, blocked)
-        self.assertEqual(set(ruled), {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
+        self.assertEqual(set(ruled), {"nuget-service-layer-import-fidelity"})
 
-    def test_green_the_two_real_declared_cells_pass_with_limitations_and_the_lock_accepts(self):
+    def test_green_the_real_declared_cell_passes_with_its_limitation_and_the_lock_accepts(self):
         _, matrix = inputs()
         results = self._full_results(matrix)
         status = mod.receipt_status(results, mod.ruled_declarations())
         self.assertEqual(status, "pass")
         limitations = mod.declared_limitations(results, mod.ruled_declarations())
-        self.assertEqual({item["cell"] for item in limitations}, {"nuget-sdk-ogc-tiles", "nuget-service-layer-import-fidelity"})
+        self.assertEqual({item["cell"] for item in limitations}, {"nuget-service-layer-import-fidelity"})
         self.assertTrue(all(item["target"] == "2026.1.x" and item["owner"] and item["reason"]
                             and item["ruling"] == "dotnet-declared-blocked-2026-10-26" for item in limitations))
         self.assertFalse(self._lock_blocks_installed_clients(status))
@@ -348,14 +347,14 @@ class MatrixExpectationTests(unittest.TestCase):
     def test_red_an_undeclared_blocked_cell_holds_the_lock(self):
         _, matrix = inputs()
         # The matrix refuses it outright ...
-        cell = {**next(c for c in matrix["cells"] if c["id"] == "nuget-sdk-ogc-tiles")}
+        cell = {**next(c for c in matrix["cells"] if c["id"] == "nuget-service-layer-import-fidelity")}
         for field in ("owner", "reason", "target"):
             cell.pop(field)
         with self.assertRaisesRegex(mod.CertificationError, "owner .* reason .* target"):
             mod.validate_cell(cell)
         # ... and a result without its declaration is not covered even though the ruling names the cell.
         results = self._full_results(matrix)
-        next(row for row in results if row["cell"] == "nuget-sdk-ogc-tiles").pop("declared")
+        next(row for row in results if row["cell"] == "nuget-service-layer-import-fidelity").pop("declared")
         status = mod.receipt_status(results, mod.ruled_declarations())
         self.assertEqual(status, "blocked")
         self.assertTrue(self._lock_blocks_installed_clients(status))
@@ -369,7 +368,7 @@ class MatrixExpectationTests(unittest.TestCase):
         _, matrix = inputs()
         results = self._full_results(matrix)
         ruled = mod.ruled_declarations()
-        for missing in ({cell: target for cell, target in ruled.items() if cell != "nuget-sdk-ogc-tiles"},
+        for missing in ({cell: target for cell, target in ruled.items() if cell != "nuget-service-layer-import-fidelity"},
                         {cell: "2026.2.x" for cell in ruled},  # the ruling's target differs
                         {}):
             with self.subTest(ruled=missing):
