@@ -623,8 +623,14 @@ def verify_slice_backup(stack: Stack, substrate: str, backup: dict, counted: str
                                 (scratch_db, "CREATE SCHEMA honua")):
         run("docker", "exec", "-i", db, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "honua",
             "-d", database, "-c", statement)
-    run("docker", "exec", "-i", db, "pg_restore", "-U", "honua", "-d", scratch_db,
-        "--no-owner", "--clean", "--if-exists", "--exit-on-error", stdin=backup["path"].read_bytes())
+    # A table-scoped dump carries the table's triggers but not the functions they call (the job
+    # table's realtime catalog triggers), so the scratch replay skips TRIGGER entries: it proves the
+    # slice's rows stand up on their own; the recovered cluster keeps its triggers.
+    run("docker", "exec", "-i", db, "sh", "-c",
+        "set -e; cat > /tmp/slice.dump; pg_restore -l /tmp/slice.dump | grep -v ' TRIGGER ' > /tmp/slice.list; "
+        f"pg_restore -U honua -d {scratch_db} --no-owner --clean --if-exists --exit-on-error "
+        "-L /tmp/slice.list /tmp/slice.dump; rm -f /tmp/slice.dump /tmp/slice.list",
+        stdin=backup["path"].read_bytes())
     scratch = stack.psql(f"SELECT count(*) FROM {counted}", database=scratch_db)
     restored = stack.psql(f"SELECT count(*) FROM {counted}")
     if scratch != restored or scratch == "0":

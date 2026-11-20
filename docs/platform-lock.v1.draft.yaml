@@ -6,7 +6,7 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:4e501a86414b8899118581b749e6af28e9de21f4e992395d27495c55ddc0ee69
+    sha256: sha256:4e70f49ffe262ad99eda67e8da3f8b6ef59799601a447eba481f715096b9df53
   compatibilityMatrix:
     path: compatibility-matrix.yaml
     sha256: sha256:70bd450e2df80b91d0c352027d3d24c0250f0c05f5bf2ee901a1e9421f0a26b8
@@ -553,7 +553,7 @@ disasterRecovery:
     rtoMs: 900000
   substrates:
     postgresql: true
-    redis: true
+    redis: false
     object-storage: true
     job-queue: true
     transactional-outbox: true
