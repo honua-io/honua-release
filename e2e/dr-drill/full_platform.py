@@ -476,6 +476,8 @@ def observe(stack: Stack, substrate: str) -> dict:
     if substrate == "job-queue":
         status = stack.request(
             "GET", f"/rest/services/geoprocessing/GPServer/{GP_TASK}/jobs/{state['jobId']}?f=json")
+        if "jobId" not in status:
+            raise RuntimeError(f"the GP job is not readable through GPServer: {status}")
         record = {"jobId": status["jobId"], "jobStatus": status["jobStatus"],
                   "results": sorted(status.get("results", {}))}
         return observation(state["jobId"], canonical(record), 1,
@@ -541,6 +543,14 @@ def take_backups(stack: Stack) -> tuple[dict[str, dict], datetime]:
         path = stack.out / "object-storage.tar"
         path.write_bytes(archive)
         backups["object-storage"] = {"id": path.name, "sha256": sha256_hex(archive), "path": path}
+    # Not a substrate of its own: the key ring the job and workflow records are sealed with. A
+    # restored record whose seal no key verifies is unreadable, so the ring is restored with them.
+    if not volume_helper(stack, "honua_keys", "/keys", "ls -A /keys | grep '^key-' | head -1").stdout.strip():
+        raise RuntimeError("the server's data-protection key ring holds no key to back up")
+    archive = volume_helper(stack, "honua_keys", "/keys", "tar -C /keys -cf - . 2>/dev/null").stdout
+    path = stack.out / "data-protection-keys.tar"
+    path.write_bytes(archive)
+    backups["data-protection-keys"] = {"id": path.name, "sha256": sha256_hex(archive), "path": path}
 
     missing = set(stack.substrates) - backups.keys()
     if missing:
@@ -554,7 +564,7 @@ def take_backups(stack: Stack) -> tuple[dict[str, dict], datetime]:
 
 def destroy(stack: Stack) -> datetime:
     log("destroying primary state (containers and every named volume)")
-    volumes = ["db_data", "honua_storage"]
+    volumes = ["db_data", "honua_storage", "honua_keys"]
     stack.compose("down", "-v", "--remove-orphans")
     moment = now()
     surviving = [name for name in volumes if stack.volume_exists(name)]
@@ -566,7 +576,8 @@ def destroy(stack: Stack) -> datetime:
 # phase 5: restore into freshly created, verified-empty stores
 
 def create_clean_volumes(stack: Stack) -> None:
-    for name, mount in (("db_data", "/var/lib/postgresql/data"), ("honua_storage", "/storage")):
+    for name, mount in (("db_data", "/var/lib/postgresql/data"), ("honua_storage", "/storage"),
+                        ("honua_keys", "/keys")):
         run("docker", "volume", "create", stack.volume(name))
         if not stack.volume_is_empty(name, mount):
             raise RuntimeError(f"{name} was not created as a clean store")
@@ -580,6 +591,8 @@ def restore(stack: Stack, backups: dict[str, dict]) -> dict[str, datetime]:
         volume_helper(stack, "honua_storage", "/storage",
                       "tar -C /storage -xf - && chown -R 1001:1001 /storage",
                       stdin=backups["object-storage"]["path"].read_bytes())
+    volume_helper(stack, "honua_keys", "/keys", "tar -C /keys -xf - && chown -R 1001:1001 /keys",
+                  stdin=backups["data-protection-keys"]["path"].read_bytes())
 
     log("starting the clean stores")
     stack.compose("up", "-d", "--wait", "db")

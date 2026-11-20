@@ -73,6 +73,9 @@ services:
       - "${HONUA_SERVER_PORT:-8080}:8080"
     volumes:
       - honua_storage:/var/lib/honua/storage
+      # A Development server keeps its data-protection key ring here, and job records are sealed
+      # with it: the ring is server state the drill backs up and restores with the stores.
+      - honua_keys:/tmp/honua/.aspnet/DataProtection-Keys
     healthcheck:
       # The image has no shell, wget or curl; readiness is its own compiled probe, the HEALTHCHECK
       # its Dockerfile declares (GET /healthz/ready on 8080, non-zero unless 200).
@@ -85,3 +88,4 @@ services:
 volumes:
   db_data:
   honua_storage:
+  honua_keys:
