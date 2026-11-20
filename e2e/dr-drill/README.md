@@ -144,7 +144,9 @@ freshly created store it asserts was empty, restarts, and re-reads the identical
 Four substrates share one PostgreSQL cluster. Sharing a store does not merge the recovery
 obligations: each takes its own backup artifact with its own id and SHA-256, and each
 table-scoped artifact is additionally replayed into a scratch database to prove it stands up
-without the cluster dump carrying it. The workflow package *catalog* does not survive a restart — only the compiled
+without the cluster dump carrying it. The server's data-protection key ring (`honua_keys`) is
+backed up, destroyed and restored with the stores: job and workflow records are sealed with it,
+so a restored record is unreadable under a new ring. The drill refuses a ring that holds no key. The workflow package *catalog* does not survive a restart — only the compiled
 durable definition does — so the drill reads that definition from the orchestration store
 rather than from the in-memory publication list.
 

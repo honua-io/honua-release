@@ -96,5 +96,7 @@ def test_full_platform_topology_is_the_install_not_the_seam():
     assert "FileStorage__Provider" in compose
     # Named volumes are what the drill destroys; anonymous volumes would make the destruction
     # step unverifiable.
-    for volume in ("db_data", "honua_storage"):
+    for volume in ("db_data", "honua_storage", "honua_keys"):
         assert volume in compose
+    # The server's data-protection key ring seals job records, so it is recovered with the stores.
+    assert "honua_keys:/tmp/honua/.aspnet/DataProtection-Keys" in compose
