@@ -6,7 +6,6 @@
       "owner": "Mike McDougall (founder)",
       "authority": "https://github.com/honua-io/honua-release/issues/974#issuecomment-6423533248",
       "installed_client_cells": [
-        "nuget-sdk-ogc-tiles",
         "nuget-service-layer-import-fidelity"
       ],
       "target": "2026.1.x"

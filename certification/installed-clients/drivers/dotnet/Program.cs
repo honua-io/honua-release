@@ -18,6 +18,8 @@ using Honua.Sdk.GeoServices.FeatureServer.Exceptions;
 using Honua.Sdk.GeoServices.FeatureServer.Models;
 using Honua.Sdk.OgcFeatures;
 using Honua.Sdk.OgcFeatures.Models;
+using Honua.Sdk.OgcFeatures.Tiles;
+using Honua.Sdk.OgcFeatures.Tiles.Models;
 using Honua.Sdk.Processes;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -66,9 +68,9 @@ var api = new Dictionary<string, Dictionary<string, string>>
     },
     ["sdk-ogc-tiles"] = new()
     {
-        ["vector-tile"] = "(no OGC API Tiles client call in the driver; honua-release#1467)",
-        ["raster-tile"] = "(no OGC API Tiles client call in the driver; honua-release#1467)",
-        ["empty-tile"] = "(no OGC API Tiles client call in the driver; honua-release#1467)",
+        ["vector-tile"] = "IHonuaOgcTilesClient.GetTileAsync",
+        ["raster-tile"] = "IHonuaOgcTilesClient.GetTileAsync(OgcTileFormat.Png)",
+        ["empty-tile"] = "IHonuaOgcTilesClient.GetTileAsync",
     },
     ["sdk-ogc-processes"] = new()
     {
@@ -442,15 +444,26 @@ async Task RunOgcFeatures(Dictionary<string, object> state)
     });
 }
 
-Task RunTiles(Dictionary<string, object> state)
+async Task RunTiles(Dictionary<string, object> state)
 {
-    // Honua.Sdk 2.2.0 has an OGC API Tiles client, but this driver does not call it yet;
-    // every tile step is a finding, not a skip.
-    foreach (var step in new[] { "vector-tile", "raster-tile", "empty-tile" })
+    const string scenario = "sdk-ogc-tiles";
+    var tiles = keyed.GetRequiredService<IHonuaOgcTilesClient>();
+    var area = plan["area"]!.AsObject();
+    Task<OgcTile> FetchTile(string tileKey, OgcTileFormat format = OgcTileFormat.Vector)
     {
-        Emit("sdk-ogc-tiles", step, "unsupported", "the driver makes no OGC API Tiles client call yet (Honua.Sdk 2.2.0 IHonuaOgcTilesClient, honua-release#1467)");
+        var spec = area[tileKey]!.AsObject();
+        return tiles.GetTileAsync(
+            area["collectionId"]!.GetValue<string>(), area["tileMatrixSet"]!.GetValue<string>(),
+            spec["tileMatrix"]!.GetValue<int>(), spec["tileRow"]!.GetValue<int>(), spec["tileCol"]!.GetValue<int>(), format);
     }
-    return Task.CompletedTask;
+    JsonObject Encode(OgcTile tile) => new() { ["bytes"] = Convert.ToBase64String(tile.Content.Span), ["contentType"] = tile.MediaType };
+    await Step(state, scenario, "vector-tile", async () => Encode(await FetchTile("painted")));
+    await Step(state, scenario, "raster-tile", async () => Encode(await FetchTile("painted", OgcTileFormat.Png)));
+    await Step(state, scenario, "empty-tile", async () =>
+    {
+        var tile = await FetchTile("empty");
+        return new JsonObject { ["empty"] = tile.IsEmpty, ["size"] = tile.Content.Length };
+    });
 }
 
 async Task RunProcesses(Dictionary<string, object> state)

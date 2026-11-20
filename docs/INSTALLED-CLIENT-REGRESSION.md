@@ -204,7 +204,6 @@ Declared blocked cells for 2026.1 (founder decision D6, 2026-10-26; pins .NET `H
 
 | Cell | Blocked steps | Blocker | Owner | Target |
 |---|---|---|---|---|
-| `nuget-sdk-ogc-tiles` | all (`vector-tile`, `raster-tile`, `empty-tile`) | [honua-sdk-dotnet#405](https://github.com/honua-io/honua-sdk-dotnet/issues/405): the .NET driver's tile steps do not call the `Honua.Sdk` 2.2.0 Tiles client yet ([honua-release#1467](https://github.com/honua-io/honua-release/issues/1467)). OGC API Tiles is not certified for the .NET SDK in 2026.1. | `mikemcdougall` | `2026.1.x` |
 | `nuget-service-layer-import-fidelity` | the cell | [honua-release#418](https://github.com/honua-io/honua-release/issues/418): no producer emits the published-.NET-SDK import-fidelity receipt | `mikemcdougall` | `2026.1.x` |
 
 Every other cell is active. The .NET interop runner uses `PublishLayerRequest.StorageMode`,
