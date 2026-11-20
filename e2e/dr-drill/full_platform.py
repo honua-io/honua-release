@@ -316,12 +316,12 @@ def seed_state(stack: Stack) -> None:
 
     # transactional-outbox + redis: a transactional insert through OGC API Features writes the
     # outbox row in the same transaction as the feature and publishes the durable change event.
-    # File import keeps source attributes in its `properties` column, so the insert carries its
-    # marker in the same shape the imported rows are served with.
+    # File import flattens GeoJSON properties into columns (the rc.2 server), so the insert carries
+    # its marker in the imported `name` column; the strict insert refuses an unknown field.
     created = stack.request("POST", f"/ogc/features/collections/{layer_id}/items", {
         "type": "Feature",
         "geometry": {"type": "Point", "coordinates": INSERTED_COORDINATES},
-        "properties": {"properties": {"name": INSERTED_MARKER}}},
+        "properties": {"name": INSERTED_MARKER}},
         headers={"Content-Type": "application/geo+json"})
     object_id = int(created["id"])
     # postgresql: the inserted row is the drill's own write, so it must read back through both
@@ -379,8 +379,12 @@ def seed_state(stack: Stack) -> None:
 
 
 def marker_of(attributes) -> str | None:
-    """The drill's `name` marker from a served row, inside the import's `properties` attribute."""
-    nested = (attributes or {}).get("properties")
+    """The drill's `name` marker from a served row: the flattened `name` column, or the `properties`
+    JSON column of servers whose import kept source attributes nested."""
+    attributes = attributes or {}
+    if isinstance(attributes.get("name"), str):
+        return attributes["name"]
+    nested = attributes.get("properties")
     return nested.get("name") if isinstance(nested, dict) else None
 
 
@@ -393,6 +397,8 @@ def featureserver_marker_of(attributes) -> str | None:
     '{"name": "..."}' on FeatureServer while OGC API Features keeps it a JSON object. Only
     JSON text that decodes to an object is accepted; anything else carries no marker.
     """
+    if isinstance((attributes or {}).get("name"), str):
+        return attributes["name"]
     nested = (attributes or {}).get("properties")
     if isinstance(nested, str):
         try:
