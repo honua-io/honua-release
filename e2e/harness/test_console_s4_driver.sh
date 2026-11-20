@@ -97,6 +97,7 @@ run_driver() { # extra env assignments are already exported by the caller
       HONUA_SERVER_IMAGE=example.invalid/honua-server:fixture \
       HONUA_CONSOLE_E2E_IDP_HOST="host.docker.internal:$IDP_PORT" \
       E2E_CONSOLE_SERVER_PORT="$SERVER_PORT" \
+      E2E_CONSOLE_SERVER_TLS_PORT="$(free_port)" \
       HONUA_CONSOLE_E2E_LIVE_PORT="$LIVE_PORT" \
       S4_ACCESS_TOKEN_LIFESPAN="${S4_LIFESPAN_FOR_CASE:-300}" \
       RUNNER_TEMP="$RUNNER" \

@@ -1750,6 +1750,23 @@ evidenceSources:
     trustedBranch: trunk
     artifactIdentity: demos-source
     evidencePolicyRevision: demos-s9-v1
+  console-live:
+    # e2e S4 runs the honua-console live suite and its Console host from a SOURCE checkout at this
+    # revision. It does not run the components.honua-console image. That image pin (c63b37fd, 1 Nov)
+    # predates Console #1007, so its host cannot complete the rc.2 server's HTTPS + CSRF bearer
+    # exchange (honua-server#7884). The Console no longer publishes SHA-bound images, so the image pin
+    # cannot follow, and the cut binds the Console at stage 1. Pinning the suite source here keeps it
+    # immutable and review-visible: .github/workflows/e2e-local-docker.yml fails closed when its
+    # literal checkout ref differs from producerSha (honua-release#1486).
+    # 2026-11-20: honua-console trunk 29c2f11a (#1048). CI, Console E2E and Live Integration are green
+    # on push, and the scheduled Console Live Publish Journey is green (runs on 19 and 20 Nov).
+    repository: honua-io/honua-console
+    workflowPath: .github/workflows/console-live-journey.yml
+    producerSha: "29c2f11a30e3ba99fa4fd9eef78915a6c47ded52"
+    trustedEvents: [schedule, workflow_dispatch]
+    trustedBranch: trunk
+    artifactIdentity: console-live-suite
+    evidencePolicyRevision: e2e-s4-v1
 
 # Resolved durable-substrate inventory for the candidate's GA local-docker topology
 # (operator ruling A, 2026-09-12). This is a DEPLOYMENT INPUT, not a receipt-supplied denominator:

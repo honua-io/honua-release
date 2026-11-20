@@ -86,6 +86,16 @@ services:
       RateLimiting__Enabled: "false"
       # Trust the throwaway IdP certificate for discovery, JWKS and token calls.
       SSL_CERT_FILE: /certs/kc.crt
+      # HTTPS listener for the Console host. The server accepts a session-cookie
+      # POST to /api/v1/admin/auth/bearer only over HTTPS with an X-Honua-CSRF token, so the Console
+      # host reaches the server on :8445 with the same per-run certificate (its SAN includes
+      # 127.0.0.1). Plain HTTP on :8080 stays for the suite's direct verifier calls, and redirection
+      # is off so those calls are not bounced. Mirrors honua-console e2e/docker-compose.server-tls.yml.
+      Kestrel__Endpoints__Http__Url: "http://*:8080"
+      Kestrel__Endpoints__Https__Url: "https://*:8445"
+      Kestrel__Endpoints__Https__Certificate__Path: /certs/kc.crt
+      Kestrel__Endpoints__Https__Certificate__KeyPath: /certs/kc.key
+      Security__DisableHttpsRedirection: "true"
       WorkflowGeneration__Enabled: "true"
       WorkflowGeneration__DefaultProvider: "deterministic"
       NlQuery__Enabled: "true"
@@ -103,6 +113,7 @@ services:
       - "${S4_RUN_DIR:?rendered per run by e2e/harness/keycloak/render.sh}/certs:/certs:ro"
     ports:
       - "127.0.0.1:${S4_SERVER_PORT:-8088}:8080"
+      - "127.0.0.1:${S4_SERVER_TLS_PORT:-8445}:8445"
     healthcheck:
       # The 532565b image has no shell, wget or curl; readiness is its own compiled probe.
       test: ["CMD", "/app/honua-healthcheck", "--ready"]

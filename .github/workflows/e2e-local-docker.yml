@@ -286,10 +286,12 @@ jobs:
       # review-visible literal. The resolver below compares it with platform-manifest.yaml and fails
       # closed on drift, preserving the manifest as the release source of truth while preventing an
       # unreviewed revision from reaching npm or MSBuild.
+      # The Console host targets net11.0, and src/Honua.Console.Web/global.json at the pinned revision
+      # selects exactly SDK 11.0.100 (rollForward: disable).
       - name: Set up .NET (console live suite)
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.100'
 
       - name: Set up Node (console live suite)
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -299,25 +301,27 @@ jobs:
       # S4-console-studio drives a real honua-console checkout and reported
       # `BLOCKED: E2E_CONSOLE_DIR not set / not a honua-console checkout` on every run, because
       # nothing ever checked honua-console out. On a real cut require_real promotes that BLOCKED to
-      # FAIL, so the scenario could never pass. Check it out at the sha the candidate manifest pins
-      # - not its default branch - so the console driven here is the one this release ships.
+      # FAIL, so the scenario could never pass. Check it out at a pinned sha, not its default branch.
+      # The pin is platform-manifest evidenceSources.console-live: S4 runs the suite and the Console
+      # host from source, and the components.honua-console image pin predates the Console's HTTPS +
+      # CSRF bearer exchange that the rc.2 server requires (honua-release#1486).
       - name: Resolve the pinned honua-console revision
         run: |
           set -euo pipefail
-          TRUSTED_SHA="c63b37fd1788d68333c051760447052c602b7bdd"
+          TRUSTED_SHA="29c2f11a30e3ba99fa4fd9eef78915a6c47ded52"
           # awk, not PyYAML: this job installs no python packages, and boot.sh already reads the
           # manifest exactly this way for the server image. Keeping one idiom avoids adding a
           # dependency to a job whose whole purpose is to boot a container.
           SHA="$(awk '
-            $0 ~ /^  honua-console:/ {inblk=1; next}
+            $0 ~ /^  console-live:/ {inblk=1; next}
             inblk && $0 ~ /^  [a-zA-Z]/ {inblk=0}
-            inblk && $1=="sha:" {gsub(/"/,"",$2); print $2; exit}
+            inblk && $1=="producerSha:" {gsub(/"/,"",$2); print $2; exit}
           ' platform-manifest.yaml)"
           if [ "$SHA" != "$TRUSTED_SHA" ]; then
-            echo "::error::platform-manifest honua-console sha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
+            echo "::error::platform-manifest evidenceSources.console-live producerSha $SHA does not match reviewed workflow pin $TRUSTED_SHA"
             exit 1
           fi
-          echo "pinned honua-console: ${SHA:-<unpinned>}"
+          echo "pinned honua-console live suite: ${SHA:-<unpinned>}"
 
       - name: Check out the pinned honua-console
         id: console
@@ -326,7 +330,7 @@ jobs:
         with:
           repository: honua-io/honua-console
           # Static by design: host-executed code must be review-visible; resolver above enforces manifest equality.
-          ref: c63b37fd1788d68333c051760447052c602b7bdd
+          ref: 29c2f11a30e3ba99fa4fd9eef78915a6c47ded52
           path: _console
 
       # S9-demos drives the five honua-site demos against the seeded candidate. The demos ARE the
@@ -428,7 +432,7 @@ jobs:
           E2E_CONSOLE_DIR: ${{ steps.console.outcome == 'success' && format('{0}/_console', github.workspace) || '' }}
           # Pin the driver's console-sha note to what we actually checked out, so a failure message
           # never cites a different revision than the one under test.
-          E2E_CONSOLE_SHA: c63b37fd1788d68333c051760447052c602b7bdd
+          E2E_CONSOLE_SHA: 29c2f11a30e3ba99fa4fd9eef78915a6c47ded52
           # Left EMPTY when the checkout failed, so the demos driver reports its own honest BLOCKED.
           E2E_SITE_DIR: ${{ steps.site.outcome == 'success' && format('{0}/_site', github.workspace) || '' }}
           # Quoted back in the driver's BLOCKED message so a failure never cites a different
