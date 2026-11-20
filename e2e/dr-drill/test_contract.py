@@ -52,9 +52,11 @@ def test_full_platform_drill_covers_every_declared_substrate():
     text = (HERE / "full_platform.py").read_text()
     assert "no backup path is implemented for enabled substrate" in text
     assert "no drill surface is implemented for substrate" in text
-    for substrate in ("postgresql", "redis", "object-storage", "job-queue",
+    for substrate in ("postgresql", "object-storage", "job-queue",
                       "transactional-outbox", "workflow-cursors"):
         assert f'"{substrate}"' in text
+    # The rc.2 server composes no Redis, so a manifest that enables it must fail closed here.
+    assert '"redis"' not in text
 
 
 def test_full_platform_drill_destroys_and_restores_into_clean_stores():
@@ -63,7 +65,7 @@ def test_full_platform_drill_destroys_and_restores_into_clean_stores():
                      "primary state survived destruction",
                      "was not created as a clean store",
                      "the recreated database was not a clean store",
-                     "the recreated Redis was not a clean store"):
+                     "backup artifact does not stand on its own"):
         assert required in text
     assert '"primaryStateDestroyed": True' in text
     assert '"restoredIntoCleanStore": True' in text
@@ -87,11 +89,12 @@ def test_full_platform_receipt_is_v2_signed_and_candidate_bound():
 
 def test_full_platform_topology_is_the_install_not_the_seam():
     compose = (HERE / "compose.full-platform.yml").read_text()
-    for service in ("db:", "redis:", "server:", "storage-init:"):
+    for service in ("db:", "server:", "storage-init:"):
         assert service in compose
-    assert "ConnectionStrings__Redis" in compose
+    assert "redis:" not in compose
+    assert "ConnectionStrings__Redis" not in compose
     assert "FileStorage__Provider" in compose
     # Named volumes are what the drill destroys; anonymous volumes would make the destruction
     # step unverifiable.
-    for volume in ("db_data", "redis_data", "honua_storage"):
+    for volume in ("db_data", "honua_storage"):
         assert volume in compose

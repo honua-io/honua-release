@@ -22,10 +22,13 @@ Substrate -> product write surface / runtime read surface on this topology:
 
   postgresql            OGC API Features insert        -> GET /ogc/features/collections/{c}/items
   transactional-outbox  the same insert's outbox row   -> honua.feature_change_outbox over SQL
-  redis                 the same insert's change event -> GET /api/v1/admin/feature-events/replay
   object-storage        GeoServices addAttachment      -> GET .../attachments/{id} (bytes)
   job-queue             GeoServices GP submitJob       -> GET .../GPServer/{task}/jobs/{id}
-  workflow-cursors      workflow package -> Schedule   -> the durable orchestration definition
+  workflow-cursors      workflow package -> Schedule   -> honua.workflow_definitions over SQL
+
+The rc.2 server keeps every durable substrate in PostgreSQL (no cache or queue service), so the
+job queue, workflow cursors and outbox are table slices of the one cluster, each backed up as its
+own artifact.
 
 Usage: python3 e2e/dr-drill/full_platform.py [--output DIR] [--gp-receipt FILE] [--keep]
 """
@@ -51,7 +54,6 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from licensing import assert_disabled
-from resp import Resp  # noqa: E402  (local helper, imported after sys.path setup)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -86,13 +88,14 @@ GP_TASK = "geometry.buffer"
 # Point(-156.5 20.9) as little-endian WKB, the geometry.buffer task's required input.
 GP_WKB = base64.b64encode(bytes.fromhex("010100000000000000009063c06666666666e63440")).decode()
 
-# Logical Redis slices. Each declared Redis-backed substrate owns its key space, is exported as
-# its own backup artifact, and is restored from that artifact alone: one physical store does not
-# collapse three logical recovery obligations into one.
-REDIS_SLICES = {
-    "redis": ["featurechange:*"],
-    "job-queue": ["controlplane:job:*", "honua:universal:*", "universal:progress*"],
-    "workflow-cursors": ["orchestration:*"],
+# Logical PostgreSQL slices. Each declared substrate owns its tables, is dumped as its own backup
+# artifact, and that artifact must restore on its own: one physical cluster does not collapse
+# three logical recovery obligations into one. The first table is the slice's counted record.
+PG_SLICES = {
+    "transactional-outbox": ["honua.feature_change_outbox"],
+    "job-queue": ["honua.execution_jobs"],
+    "workflow-cursors": ["honua.workflow_definitions", "honua.workflow_runs",
+                         "honua.workflow_schedule_cursors", "honua.workflow_trigger_cursors"],
 }
 
 
@@ -136,7 +139,6 @@ class Stack:
         self.out = out
         self.server_port = int(os.environ.get("HONUA_SERVER_PORT") or free_port())
         self.db_port = int(os.environ.get("HONUA_DR_DB_PORT") or free_port())
-        self.redis_port = int(os.environ.get("HONUA_DR_REDIS_PORT") or free_port())
         manifest_bytes = MANIFEST.read_bytes()
         manifest = yaml.safe_load(manifest_bytes)
         server = manifest["components"]["honua-server"]
@@ -158,7 +160,6 @@ class Stack:
             "HONUA_DR_PROJECT": PROJECT,
             "HONUA_SERVER_PORT": str(self.server_port),
             "HONUA_DR_DB_PORT": str(self.db_port),
-            "HONUA_DR_REDIS_PORT": str(self.redis_port),
             "HONUA_ADMIN_PASSWORD": ADMIN_KEY,
         }
 
@@ -223,9 +224,6 @@ class Stack:
         proc = run("docker", "exec", "-i", self.container_id("db"), "psql", "-X", "-v", "ON_ERROR_STOP=1",
                    "-U", "honua", "-d", database, "-Atc", sql)
         return proc.stdout.decode("utf-8").strip()
-
-    def redis(self) -> Resp:
-        return Resp("127.0.0.1", self.redis_port)
 
     def wait_postgres_ready(self, seconds: int = 180) -> datetime:
         """Readiness after the PostGIS initialization restart, not merely a healthy report."""
@@ -314,7 +312,7 @@ def seed_state(stack: Stack) -> None:
     if type(layer_id) is not int:
         raise RuntimeError(f"the dr-sentinel publication returned no storageLayerId: {published}")
 
-    # transactional-outbox + redis: a transactional insert through OGC API Features writes the
+    # transactional-outbox: a transactional insert through OGC API Features writes the
     # outbox row in the same transaction as the feature and publishes the durable change event.
     # File import flattens GeoJSON properties into columns (the rc.2 server), so the insert carries
     # its marker in the imported `name` column; the strict insert refuses an unknown field.
@@ -334,7 +332,7 @@ def seed_state(stack: Stack) -> None:
         {"f": "json"}, {"attachment": ("dr-object-storage.txt", b"honua dr drill object bytes\n", "text/plain")})
     attachment_id = attachment["addAttachmentResult"]["objectId"]
 
-    # job-queue: a real geoprocessing submission through the durable Redis-backed job runtime.
+    # job-queue: a real geoprocessing submission through the durable PostgreSQL job queue.
     submitted = stack.request(
         "POST", f"/rest/services/geoprocessing/GPServer/{GP_TASK}/submitJob",
         body=f"f=json&wkb={urllib.parse.quote(GP_WKB)}&srid=4326&distance=0.01".encode(),
@@ -468,16 +466,6 @@ def observe(stack: Stack, substrate: str) -> dict:
         count = int(raw.rsplit("#", 1)[1])
         return observation("feature-change-outbox", raw.encode("utf-8"), count,
                            "SELECT over honua.feature_change_outbox")
-    if substrate == "redis":
-        replay = stack.request("GET", "/api/v1/admin/feature-events/replay?limit=1000")
-        events = sorted(
-            [{"eventId": event["EventId"], "cursor": event["Cursor"], "serviceId": event["ServiceId"],
-              "layerId": event["LayerId"], "objectId": event["ObjectId"],
-              "operation": event["Operation"], "protocol": event["Protocol"]}
-             for event in replay["Events"]],
-            key=lambda event: event["cursor"])
-        return observation("feature-change-event-store", canonical(events), len(events),
-                           "GET /api/v1/admin/feature-events/replay")
     if substrate == "object-storage":
         payload = stack.request(
             "GET", f"/rest/services/{SERVICE}/FeatureServer/{state['layerId']}/{state['objectId']}"
@@ -493,56 +481,29 @@ def observe(stack: Stack, substrate: str) -> dict:
         return observation(state["jobId"], canonical(record), 1,
                            f"GET /rest/services/geoprocessing/GPServer/{GP_TASK}/jobs/{{jobId}}")
     if substrate == "workflow-cursors":
-        with stack.redis() as client:
-            definition = client.call("GET", f"orchestration:def:{state['workflowDefinitionId']}")
-            registered = client.call("SISMEMBER", "orchestration:def:all", state["workflowDefinitionId"])
-        if not definition or not registered:
+        workflow_id = state["workflowDefinitionId"].replace("'", "''")
+        definition = stack.psql(
+            f"SELECT record::text FROM honua.workflow_definitions WHERE workflow_id = '{workflow_id}'")
+        if not definition:
             raise RuntimeError("the durable workflow definition is absent from the orchestration store")
-        return observation(state["workflowDefinitionId"], definition, 1,
-                           "GET orchestration:def:{workflowDefinitionId} on the durable workflow store")
+        return observation(state["workflowDefinitionId"], definition.encode("utf-8"), 1,
+                           "SELECT record FROM honua.workflow_definitions WHERE workflow_id = {workflowDefinitionId}")
     raise RuntimeError(f"no drill surface is implemented for substrate {substrate!r}")
 
 
 def instance_identities(stack: Stack) -> dict[str, str]:
     """Boot identity of the runtime that owns each substrate's primary state."""
-    with stack.redis() as client:
-        info = client.call("INFO", "server").decode("utf-8", "replace")
-    run_id = next(line.split(":", 1)[1].strip() for line in info.splitlines() if line.startswith("run_id:"))
     system_identifier = stack.psql("SELECT system_identifier FROM pg_control_system()")
     server_container = stack.container_id("server")
+    cluster = f"postgresql-cluster:{system_identifier}"
     return {
-        "postgresql": f"postgresql-cluster:{system_identifier}",
-        "transactional-outbox": f"postgresql-cluster:{system_identifier}",
-        "redis": f"redis-run:{run_id}",
-        "job-queue": f"redis-run:{run_id}",
-        "workflow-cursors": f"redis-run:{run_id}",
+        "postgresql": cluster,
+        **{substrate: cluster for substrate in PG_SLICES},
         "object-storage": f"server-container:{server_container}",
     }
 
 
 # phase 3: back every enabled substrate up through its own supported path
-
-def redis_slice_export(stack: Stack, patterns: list[str]) -> bytes:
-    """DUMP every key the slice owns, with its TTL, in key order.
-
-    DUMP/RESTORE is Redis's own logical backup path and is what the restore replays, so the
-    bytes hashed here are exactly the bytes the recovery consumed.
-    """
-    entries = []
-    with stack.redis() as client:
-        keys: list[bytes] = []
-        for pattern in patterns:
-            keys.extend(client.scan_keys(pattern))
-        for key in sorted(set(keys)):
-            payload = client.call("DUMP", key)
-            if payload is None:
-                continue
-            ttl = client.call("PTTL", key)
-            entries.append({"key": base64.b64encode(key).decode(),
-                            "ttl": max(int(ttl), 0) if int(ttl) > 0 else 0,
-                            "payload": base64.b64encode(payload).decode()})
-    return canonical({"schema": "honua.dr-redis-slice/v1", "entries": entries})
-
 
 def volume_helper(stack: Stack, volume: str, mount: str, script: str, stdin=None, capture=True):
     """Run a shell snippet against a named volume using the topology's pinned PostGIS image.
@@ -566,18 +527,14 @@ def take_backups(stack: Stack) -> tuple[dict[str, dict], datetime]:
         path = stack.out / "postgresql.dump"
         path.write_bytes(dump)
         backups["postgresql"] = {"id": path.name, "sha256": sha256_hex(dump), "path": path}
-    if "transactional-outbox" in stack.substrates:
-        dump = run("docker", "exec", "-i", db, "pg_dump", "-U", "honua", "-d", "honua",
-                   "--format=custom", "--no-owner", "-t", "honua.feature_change_outbox").stdout
-        path = stack.out / "transactional-outbox.dump"
-        path.write_bytes(dump)
-        backups["transactional-outbox"] = {"id": path.name, "sha256": sha256_hex(dump), "path": path}
-    for substrate, patterns in REDIS_SLICES.items():
+    for substrate, tables in PG_SLICES.items():
         if substrate in stack.substrates:
-            payload = redis_slice_export(stack, patterns)
-            path = stack.out / f"{substrate}.redis-slice.json"
-            path.write_bytes(payload)
-            backups[substrate] = {"id": path.name, "sha256": sha256_hex(payload), "path": path}
+            selection = [argument for table in tables for argument in ("-t", table)]
+            dump = run("docker", "exec", "-i", db, "pg_dump", "-U", "honua", "-d", "honua",
+                       "--format=custom", "--no-owner", *selection).stdout
+            path = stack.out / f"{substrate}.dump"
+            path.write_bytes(dump)
+            backups[substrate] = {"id": path.name, "sha256": sha256_hex(dump), "path": path}
     if "object-storage" in stack.substrates:
         archive = volume_helper(stack, "honua_storage", "/storage",
                                 "tar -C /storage -cf - . 2>/dev/null").stdout
@@ -597,7 +554,7 @@ def take_backups(stack: Stack) -> tuple[dict[str, dict], datetime]:
 
 def destroy(stack: Stack) -> datetime:
     log("destroying primary state (containers and every named volume)")
-    volumes = ["db_data", "redis_data", "honua_storage"]
+    volumes = ["db_data", "honua_storage"]
     stack.compose("down", "-v", "--remove-orphans")
     moment = now()
     surviving = [name for name in volumes if stack.volume_exists(name)]
@@ -609,8 +566,7 @@ def destroy(stack: Stack) -> datetime:
 # phase 5: restore into freshly created, verified-empty stores
 
 def create_clean_volumes(stack: Stack) -> None:
-    for name, mount in (("db_data", "/var/lib/postgresql/data"), ("redis_data", "/data"),
-                        ("honua_storage", "/storage")):
+    for name, mount in (("db_data", "/var/lib/postgresql/data"), ("honua_storage", "/storage")):
         run("docker", "volume", "create", stack.volume(name))
         if not stack.volume_is_empty(name, mount):
             raise RuntimeError(f"{name} was not created as a clean store")
@@ -626,12 +582,11 @@ def restore(stack: Stack, backups: dict[str, dict]) -> dict[str, datetime]:
                       stdin=backups["object-storage"]["path"].read_bytes())
 
     log("starting the clean stores")
-    stack.compose("up", "-d", "--wait", "db", "redis")
+    stack.compose("up", "-d", "--wait", "db")
     # The PostGIS entrypoint performs one controlled restart after its healthcheck can first
     # succeed, so a healthy report inside that initialization window is not a usable cluster.
     stack.wait_healthy("db")
     db_ready = stack.wait_postgres_ready()
-    redis_ready = stack.wait_healthy("redis")
 
     if "postgresql" in stack.substrates:
         db = stack.container_id("db")
@@ -644,48 +599,36 @@ def restore(stack: Stack, backups: dict[str, dict]) -> dict[str, datetime]:
         run("docker", "exec", "-i", db, "pg_restore", "-U", "honua", "-d", "honua", "--no-owner",
             "--clean", "--if-exists", "--exit-on-error", stdin=backups["postgresql"]["path"].read_bytes())
         ready["postgresql"] = now()
-        ready["transactional-outbox"] = ready["postgresql"]
-        # The outbox slice is its own artifact and must be usable on its own, not merely a copy
-        # carried inside the cluster dump: replay it into a scratch database and compare.
-        if "transactional-outbox" in stack.substrates:
-            verify_outbox_backup(stack, backups["transactional-outbox"])
-
-    with stack.redis() as client:
-        if int(client.call("DBSIZE")) != 0:
-            raise RuntimeError("the recreated Redis was not a clean store")
-        for substrate in REDIS_SLICES:
-            if substrate not in stack.substrates:
-                continue
-            entries = json.loads(backups[substrate]["path"].read_text())["entries"]
-            for entry in entries:
-                client.call("RESTORE", base64.b64decode(entry["key"]), entry["ttl"],
-                            base64.b64decode(entry["payload"]))
-            ready[substrate] = now()
-            log(f"  restored {len(entries)} {substrate} keys from {backups[substrate]['id']}")
+        # Each slice is its own artifact and must be usable on its own, not merely a copy carried
+        # inside the cluster dump: replay it into a scratch database and compare.
+        for substrate, tables in PG_SLICES.items():
+            if substrate in stack.substrates:
+                ready[substrate] = ready["postgresql"]
+                verify_slice_backup(stack, substrate, backups[substrate], tables[0])
 
     log("restarting the application over the restored stores")
     stack.compose("up", "-d", "--wait", "server")
     server_ready = stack.wait_healthy("server")
     ready.setdefault("object-storage", server_ready)
     for substrate in stack.substrates:
-        ready.setdefault(substrate, max(db_ready, redis_ready, server_ready))
+        ready.setdefault(substrate, max(db_ready, server_ready))
     return ready
 
 
-def verify_outbox_backup(stack: Stack, backup: dict) -> None:
+def verify_slice_backup(stack: Stack, substrate: str, backup: dict, counted: str) -> None:
     db = stack.container_id("db")
-    run("docker", "exec", "-i", db, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "honua",
-        "-d", "postgres", "-c", "DROP DATABASE IF EXISTS honua_outbox_verify")
-    run("docker", "exec", "-i", db, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "honua",
-        "-d", "postgres", "-c", "CREATE DATABASE honua_outbox_verify")
-    run("docker", "exec", "-i", db, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "honua",
-        "-d", "honua_outbox_verify", "-c", "CREATE SCHEMA honua")
-    run("docker", "exec", "-i", db, "pg_restore", "-U", "honua", "-d", "honua_outbox_verify",
+    scratch_db = "honua_slice_verify"
+    for database, statement in (("postgres", f"DROP DATABASE IF EXISTS {scratch_db}"),
+                                ("postgres", f"CREATE DATABASE {scratch_db}"),
+                                (scratch_db, "CREATE SCHEMA honua")):
+        run("docker", "exec", "-i", db, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "honua",
+            "-d", database, "-c", statement)
+    run("docker", "exec", "-i", db, "pg_restore", "-U", "honua", "-d", scratch_db,
         "--no-owner", "--clean", "--if-exists", "--exit-on-error", stdin=backup["path"].read_bytes())
-    scratch = stack.psql("SELECT count(*) FROM honua.feature_change_outbox", database="honua_outbox_verify")
-    restored = stack.psql("SELECT count(*) FROM honua.feature_change_outbox")
+    scratch = stack.psql(f"SELECT count(*) FROM {counted}", database=scratch_db)
+    restored = stack.psql(f"SELECT count(*) FROM {counted}")
     if scratch != restored or scratch == "0":
-        raise RuntimeError(f"the outbox backup artifact does not stand on its own "
+        raise RuntimeError(f"the {substrate} backup artifact does not stand on its own "
                            f"({scratch} rows restored vs {restored} in the recovered cluster)")
 
 
