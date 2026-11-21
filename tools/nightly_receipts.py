@@ -59,6 +59,7 @@ SDK_PACKAGE_ARTIFACTS = {'sdk-dotnet': 'honua-sdk-dotnet', 'sdk-python': 'honua-
 DELAYS = (0, 10, 30, 60, 120, 60)
 # GitHub can answer 404 for a run it created a second ago (a capacity dispatch on 21 Nov).
 RUN_VISIBLE_DELAYS = (0, 2, 5, 10, 20, 30)
+NOT_FOUND = 404
 
 
 class ApiError(RuntimeError):
@@ -154,7 +155,7 @@ def dispatched_run(api, repository: str, run_id: int) -> dict:
         try:
             return api('GET', f'repos/{repository}/actions/runs/{run_id}')
         except ApiError as exc:
-            if exc.status != 404 or index == len(RUN_VISIBLE_DELAYS) - 1:
+            if exc.status != NOT_FOUND or index == len(RUN_VISIBLE_DELAYS) - 1:
                 raise
     raise AssertionError('unreachable')
 
