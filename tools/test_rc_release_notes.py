@@ -67,3 +67,11 @@ def test_rc_notes_publish_no_lambda_or_helm_deployment_tier():
     assert "EKS / Helm deployment (Preview" not in text
     assert "rc.2 publishes neither the Lambda image nor the Helm chart" in text
 
+
+def test_committed_narrative_matches_the_rc2_platform():
+    narrative = (Path(__file__).resolve().parents[1] / "release-notes" / "2026.1.md").read_text(encoding="utf-8")
+    assert "AWS Lambda (Preview)" not in narrative
+    assert "Helm on EKS" not in narrative
+    assert "Image export needs Redis" not in narrative
+    assert "No deployment needs Redis." in narrative
+    assert "PostGIS as its only database store" in narrative
