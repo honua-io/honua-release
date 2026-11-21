@@ -60,3 +60,10 @@ def test_rc_notes_place_the_committed_narrative_under_the_rc_title():
     assert text.count("\n# ") == 0, "the narrative H1 must not repeat under the rc title"
     assert "**Status: Release Candidate.**" in text
     assert text.index("## Known limitations") < text.index("## Components")
+
+
+def test_rc_notes_publish_no_lambda_or_helm_deployment_tier():
+    text = notes.render({"components": {}}, "| gate | pass |", "2026.1-rc.2", None, None, [])
+    assert "EKS / Helm deployment (Preview" not in text
+    assert "rc.2 publishes neither the Lambda image nor the Helm chart" in text
+

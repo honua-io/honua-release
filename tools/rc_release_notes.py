@@ -18,7 +18,8 @@ import yaml
 NOT_CERTIFIED_RC = (
     "Third-party desktop GIS client and desktop-scripting certification (operator ruling 2026-10-22: deferred past rc; "
     "reported as advisory)",
-    "EKS / Helm deployment (Preview, per the 2026-10-16 plan amendment)",
+    "AWS Lambda and EKS / Helm deployments (founder ruling 2026-11-10: rc.2 publishes neither the Lambda image nor "
+    "the Helm chart)",
     "Multi-tenancy (internal only for 2026.1)",
     "Licensing enforcement (ships Disabled; the documented posture is `Licensing__Mode=Disabled`)",
     "Every capability whose maturity is `preview`, `experimental` or `internal` in the server capability matrix "
