@@ -60,3 +60,34 @@ def test_rc_notes_place_the_committed_narrative_under_the_rc_title():
     assert text.count("\n# ") == 0, "the narrative H1 must not repeat under the rc title"
     assert "**Status: Release Candidate.**" in text
     assert text.index("## Known limitations") < text.index("## Components")
+
+
+def test_rc_notes_publish_no_lambda_or_helm_deployment_tier():
+    text = notes.render({"components": {}}, "| gate | pass |", "2026.1-rc.2", None, None, [])
+    assert "EKS / Helm deployment (Preview" not in text
+    assert "this release candidate publishes neither the Lambda image nor the Helm chart" in text
+
+
+def test_committed_narrative_matches_the_rc2_platform():
+    narrative = (Path(__file__).resolve().parents[1] / "release-notes" / "2026.1.md").read_text(encoding="utf-8")
+    assert "AWS Lambda (Preview)" not in narrative
+    assert "Helm on EKS" not in narrative
+    assert "Image export needs Redis" not in narrative
+    assert "No deployment needs Redis." in narrative
+    assert "**Qualified for rc.2:** AWS ECS on Fargate" in narrative
+    assert "Set this only on a single server instance" not in narrative
+    assert "enable it only on a single server instance" in narrative
+    assert "PostGIS as its only database store" in narrative
+    assert "run weekly" not in narrative
+    assert "both report server version `2026.1.1`" not in narrative
+    assert "is a required admission gate" not in narrative
+
+
+def test_rc_notes_leave_out_of_lock_components_out_of_the_component_table():
+    manifest = {"components": {
+        "honua-helm": {"version": "pre-release", "sha": "b" * 40, "outOfLock": "helm-preview-out-of-lock-2026-10-26"},
+        "honua-sdk-js": {"version": "0.4.0", "sha": "c" * 40},
+    }}
+    text = notes.render(manifest, "| gate | pass |", "2026.1-rc.2", None, None, [])
+    assert "| honua-sdk-js | 0.4.0 |" in text
+    assert "| honua-helm |" not in text
