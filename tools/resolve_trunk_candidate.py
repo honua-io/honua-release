@@ -563,6 +563,43 @@ def select_release(name, component, github):
     return dict(component)
 
 
+def pinned_image(component):
+    """An image component the manifest holds at its pin (`trunkSelection: pinned`) instead of walking trunk.
+
+    honua-console has published no container since the static SPA ruling (honua-console 47cba9a3,
+    9 Nov), so no trunk commit can qualify; the night keeps the published, digest-pinned image
+    the release ships until the static-bundle component kind lands (honua-release#1527)."""
+    selection = component.get('trunkSelection', 'trunk')
+    if selection not in ('trunk', 'pinned'):
+        raise ResolutionError(f'trunkSelection must be "trunk" or "pinned", not {selection!r}')
+    return selection == 'pinned' and bool(component.get('image'))
+
+
+def select_pinned_image(name, component, github, registry):
+    """Keep a pinned image on its pin: the same immutable digest, re-read from the registry, at a green commit."""
+    repository = component['repository'].removeprefix('https://github.com/')
+    sha = str(component.get('sha') or '')
+    if not SHA.fullmatch(sha):
+        raise ResolutionError(f'{name}: pinned image is not pinned to an immutable commit')
+    if component.get('artifactSourceRevision') != sha:
+        raise ResolutionError(f'{name}: artifactSourceRevision is not the pinned commit {sha}')
+    if registry is None:
+        raise ResolutionError(f'{name}: no registry to verify the pinned image')
+    result = registry.image(name, component, sha)
+    if result.get('digest') != component.get('digest'):
+        raise ResolutionError(f"{name}: registry digest {result.get('digest')} is not the pinned {component.get('digest')}")
+    if component.get('platformDigests') and result.get('platformDigests') != component['platformDigests']:
+        raise ResolutionError(f'{name}: registry platform digests differ from the pinned platformDigests')
+    green, why = github.green(name, repository, sha)
+    if not green:
+        raise ResolutionError(f'{name}: pinned image commit {sha}: CI {why}')
+    selected = {**component, **result, 'sha': sha}
+    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
+        if selected.get(field) is None:
+            selected.pop(field, None)
+    return selected
+
+
 def _commit_time(github, sha):
     value = sha and getattr(github, 'commit_date', lambda _: None)(sha)
     try:
@@ -1073,12 +1110,14 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
             candidate['components'][name] = (
                 select_sdk(name, component, candidate.get('clientArtifacts') or {}, identities, github)
                 if name in SDK_COMPONENTS else select_release(name, component, github)
-                if released_archive(component) else select_component(
+                if released_archive(component) else select_pinned_image(name, component, github, registry)
+                if pinned_image(component) else select_component(
                     name, component, github, registry, limit, walk,
                     declare=lambda selected, name=name: component_versions(github, name, selected)))
             selected = candidate['components'][name]
             image = selected.get('image')
-            print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else ''))
+            print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else '')
+                  + (' (pinned: trunkSelection, trunk not walked)' if pinned_image(component) else ''))
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             detail = str(exc)
             if not detail.startswith(f'{name}:'):
