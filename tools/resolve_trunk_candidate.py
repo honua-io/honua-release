@@ -460,7 +460,8 @@ def select_component(name, component, github, registry, limit, skips=None, decla
     # A malformed rule is a refusal, not a per-commit skip repeated down the whole walk.
     label_rule(component.get('imageLabels'))
     bundle_name = static_bundle.artifact_name(component)
-    workflow = bundle_name and static_bundle.publisher_workflow(component, repository)
+    publisher = bundle_name and static_bundle.Publisher(
+        repository, static_bundle.publisher_workflow(component, repository), bundle_name)
     reasons = []
     skipped = []
 
@@ -487,7 +488,7 @@ def select_component(name, component, github, registry, limit, skips=None, decla
             selected = {**component, 'sha': sha}
             if bundle_name:
                 try:
-                    selected.update(static_bundle.select(github, repository, workflow, bundle_name, sha))
+                    selected.update(static_bundle.select(github, publisher, sha))
                 except static_bundle.Unavailable as exc:
                     skip(sha, str(exc))
                     continue

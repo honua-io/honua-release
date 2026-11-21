@@ -1,5 +1,6 @@
 """honua-console ships a static bundle: the night binds the attested trunk CI bundle, not an image."""
 
+import base64
 import hashlib
 import io
 import json
@@ -13,6 +14,7 @@ import platform_version
 import resolve_trunk_candidate as resolver
 import static_bundle
 import validate_platform_lock as validator
+from test_mint_nightly_lock import valid_predicate
 from test_platform_lock import REVISION, assert_refused, draft_of, evidence_manifest, valid_lock
 
 REPOSITORY = 'honua-io/honua-console'
@@ -41,12 +43,24 @@ def artifact_zip(sha, *, inner=INNER, receipt_sha=None):
     return buffer.getvalue()
 
 
-class BundleGitHub:
-    """Trunk is NEWEST then BUNDLED; only BUNDLED has a static-bundle push run with the artifact."""
+def statement(predicate, digest=INNER_SHA):
+    payload = {'predicateType': predicate, 'predicate': valid_predicate(predicate),
+               'subject': [{'name': 'bundle.zip', 'digest': {'sha256': digest.split(':', 1)[1]}}]}
+    return {'bundle': {'dsseEnvelope': {'payload': base64.b64encode(json.dumps(payload).encode()).decode()}}}
 
-    def __init__(self, *, attested=True, payload=None, expired=False, workflow=WORKFLOW):
+
+PROVENANCE, SBOM = 'https://slsa.dev/provenance/v1', 'https://cyclonedx.org/bom'
+
+
+class BundleGitHub:
+    """Trunk is NEWEST then BUNDLED; only BUNDLED has static-bundle push runs, each with one artifact.
+
+    `payloads` are the artifact zips of those runs, oldest run first (run ids 7, 8, ...)."""
+
+    def __init__(self, *, attested=(PROVENANCE, SBOM), payload=None, payloads=None, expired=False,
+                 workflow=WORKFLOW):
         self.attested, self.expired, self.workflow = attested, expired, workflow
-        self.payload = payload if payload is not None else artifact_zip(BUNDLED)
+        self.payloads = payloads or [payload if payload is not None else artifact_zip(BUNDLED)]
         self.downloads = []
 
     def commits(self, repository, limit):
@@ -58,23 +72,24 @@ class BundleGitHub:
     def json(self, path):
         if path.startswith(f'repos/{REPOSITORY}/actions/runs?head_sha='):
             sha = path.split('head_sha=', 1)[1].split('&', 1)[0]
-            runs = [{'id': 7, 'path': self.workflow, 'head_sha': sha, 'event': 'push',
-                     'conclusion': 'success'}] if sha == BUNDLED else []
+            runs = [{'id': 7 + index, 'path': self.workflow, 'head_sha': sha, 'event': 'push',
+                     'conclusion': 'success'} for index in range(len(self.payloads))] if sha == BUNDLED else []
             return {'total_count': len(runs), 'workflow_runs': runs}
-        if path.startswith(f'repos/{REPOSITORY}/actions/runs/7/artifacts'):
-            digest = 'sha256:' + hashlib.sha256(self.payload).hexdigest()
+        if path.startswith(f'repos/{REPOSITORY}/actions/runs/'):
+            index = int(path.split('/runs/', 1)[1].split('/', 1)[0]) - 7
+            digest = 'sha256:' + hashlib.sha256(self.payloads[index]).hexdigest()
             return {'total_count': 1, 'artifacts': [
-                {'id': 99, 'name': 'console-static-release', 'expired': self.expired, 'digest': digest}]}
-        if path == f'repos/{REPOSITORY}/attestations/{INNER_SHA}':
+                {'id': 99 + index, 'name': 'console-static-release', 'expired': self.expired, 'digest': digest}]}
+        if path.startswith(f'repos/{REPOSITORY}/attestations/'):
             if not self.attested:
                 raise resolver.ResolutionError('gh api failed: HTTP 404', status=404)
-            return {'attestations': [{'bundle': {}}]}
+            return {'attestations': [statement(kind, path.rsplit('/', 1)[1]) for kind in self.attested]}
         raise AssertionError(path)
 
     def download(self, path):
-        assert path == f'repos/{REPOSITORY}/actions/artifacts/99/zip'
+        index = int(path.removeprefix(f'repos/{REPOSITORY}/actions/artifacts/').removesuffix('/zip')) - 99
         self.downloads.append(path)
-        return self.payload
+        return self.payloads[index]
 
 
 def select(github):
@@ -95,7 +110,9 @@ def test_the_night_binds_the_newest_green_attested_trunk_bundle():
 
 
 @pytest.mark.parametrize('github,reason', [
-    (BundleGitHub(attested=False), 'no publisher attestation'),
+    (BundleGitHub(attested=()), 'no publisher provenance or sbom attestation'),
+    (BundleGitHub(attested=(PROVENANCE,)), 'no publisher sbom attestation'),
+    (BundleGitHub(payload=artifact_zip(NEWEST)), "names version '0.0.0-trunk.111111111111'"),
     (BundleGitHub(expired=True), 'no console-static-release artifact'),
     (BundleGitHub(workflow='.github/workflows/ci.yml'), 'no console-static-release artifact'),
     (BundleGitHub(payload=artifact_zip(BUNDLED, receipt_sha='0' * 64)), 'does not match its receipt'),
@@ -110,9 +127,29 @@ def test_an_artifact_whose_download_is_not_its_listed_digest_is_skipped():
     listed = github.json
     github.json = lambda path: ({**listed(path), 'artifacts': [
         {**listed(path)['artifacts'][0], 'digest': 'sha256:' + '0' * 64}]}
-        if '/artifacts' in path and '/runs/7/' in path else listed(path))
+        if '/runs/7/artifacts' in path else listed(path))
     with pytest.raises(resolver.ResolutionError, match='download is not the listed artifact digest'):
         select(github)
+
+
+def test_a_rerun_whose_bundle_is_unusable_falls_back_to_an_earlier_run_at_the_same_commit():
+    github = BundleGitHub(payloads=[artifact_zip(BUNDLED), artifact_zip(BUNDLED, receipt_sha='0' * 64)])
+    selected, _ = select(github)
+    assert selected['artifactSha256'] == INNER_SHA
+    assert github.downloads[-1].endswith('/artifacts/99/zip')
+
+
+def test_mint_reads_the_locked_bundle_when_a_rerun_uploaded_different_bytes():
+    github = BundleGitHub(payloads=[artifact_zip(BUNDLED), artifact_zip(BUNDLED, inner=b'rebuilt bytes')])
+    artifact = {'kind': 'static-bundle', 'sourceRevision': BUNDLED, 'sha256': INNER_SHA,
+                'coordinate': f'https://github.com/{REPOSITORY}/actions/artifacts/console-static-release'}
+    assert mint.published_artifact_bytes(artifact, github=github) == INNER
+
+
+def test_mint_verifies_a_bundle_signed_on_trunk_by_a_hosted_runner():
+    assert static_bundle.signer_constraints({'kind': 'static-bundle'}) == {
+        'sourceRef': 'refs/heads/trunk', 'denySelfHosted': True}
+    assert static_bundle.signer_constraints({'kind': 'nuget'}) == {}
 
 
 def test_console_takes_its_bundle_version_not_the_platform_version():

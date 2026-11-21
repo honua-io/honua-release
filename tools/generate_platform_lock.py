@@ -203,7 +203,7 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
     release = str(manifest.get("platformRelease", ""))
     rulings = out_of_lock_rulings(decision_overrides or decision_overrides_path(release))
     platform_id = f"honua-{release}" if PLATFORM_RELEASE_RE.fullmatch(release) else None
-    # R22: honua-server, honua-console and the Helm chart carry this version, never their own.
+    # R22: honua-server and the Helm chart carry this version, never their own (Console keeps its bundle's).
     platform_version = artifact_version(release) if platform_id else None
     lock: dict[str, Any] = {
         "lockVersion": "platform-lock.v1",

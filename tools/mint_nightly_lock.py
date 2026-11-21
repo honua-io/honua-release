@@ -470,8 +470,8 @@ def collect_post_gate(report: dict, manifest: Path, matrix: Path, output: Path, 
                 if not field:
                     continue
                 try:
-                    verified_artifact = {**artifact, 'signerWorkflow': signer_workflow(
-                        data['components'][name], artifact, repo)}
+                    verified_artifact = {**artifact, **static_bundle.signer_constraints(artifact),
+                                         'signerWorkflow': signer_workflow(data['components'][name], artifact, repo)}
                     verifier(raw, bundle, verified_artifact, repo, statement['predicateType'])
                 except (OSError, ValueError, subprocess.CalledProcessError) as exc:
                     errors.append(f'{context}: {field} attestation verification refused: '
