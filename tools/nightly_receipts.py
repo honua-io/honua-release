@@ -57,6 +57,8 @@ SDK_PACKAGE_PLACEHOLDERS = ('{sdk_package}', '{sdk_package_version}', '{sdk_pack
 # exact package the manifest pins. Its governed source key names the published package's artifact.
 SDK_PACKAGE_ARTIFACTS = {'sdk-dotnet': 'honua-sdk-dotnet', 'sdk-python': 'honua-sdk-python-wheel'}
 DELAYS = (0, 10, 30, 60, 120, 60)
+# GitHub can answer 404 for a run it created a second ago (a capacity dispatch on 21 Nov).
+RUN_VISIBLE_DELAYS = (0, 2, 5, 10, 20, 30)
 
 
 class ApiError(RuntimeError):
@@ -144,6 +146,19 @@ def dispatch(api, repository: str, workflow: str, ref: str, inputs: dict[str, st
     return run_id
 
 
+def dispatched_run(api, repository: str, run_id: int) -> dict:
+    """Read a run this night just dispatched, waiting about a minute for GitHub to show it."""
+    for index, delay in enumerate(RUN_VISIBLE_DELAYS):
+        if delay:
+            time.sleep(delay)
+        try:
+            return api('GET', f'repos/{repository}/actions/runs/{run_id}')
+        except ApiError as exc:
+            if exc.status != 404 or index == len(RUN_VISIBLE_DELAYS) - 1:
+                raise
+    raise AssertionError('unreachable')
+
+
 def verify_run(run, *, run_id: int, workflow: str, head_sha: str | None = None,
                head_branch: str | None = None) -> dict:
     if not isinstance(run, dict):
@@ -174,7 +189,7 @@ def dispatch_capacity(api, repository: str, candidate_sha: str, candidate_image:
     run_id = dispatch(api, repository, CAPACITY_WORKFLOW, ref, {
         'candidate_sha': candidate_sha, 'candidate_image': candidate_image,
         'lock_ref': lock_ref, 'publish': 'true'})
-    verify_run(api('GET', f'repos/{repository}/actions/runs/{run_id}'), run_id=run_id,
+    verify_run(dispatched_run(api, repository, run_id), run_id=run_id,
                workflow=CAPACITY_WORKFLOW, head_sha=candidate_sha)
     return run_id
 
@@ -184,7 +199,7 @@ def dispatch_dr(api, repository: str, candidate_ref: str, reviewed_sha: str) -> 
     if not SHA.fullmatch(candidate_ref) or not SHA.fullmatch(reviewed_sha):
         raise ValueError('DR candidate ref and reviewed commit must be full shas')
     run_id = dispatch(api, repository, DR_WORKFLOW, 'refs/heads/trunk', {'candidate_ref': candidate_ref})
-    run = verify_run(api('GET', f'repos/{repository}/actions/runs/{run_id}'), run_id=run_id,
+    run = verify_run(dispatched_run(api, repository, run_id), run_id=run_id,
                      workflow=DR_WORKFLOW, head_branch='trunk')
     head = str(run.get('head_sha') or '')
     if not SHA.fullmatch(head):
@@ -367,7 +382,7 @@ def dispatch_protocol(api, catalog: dict, manifest: dict, dispatch_id: str,
         workflow = str(producer.get('workflow') or '')
         ref = protocol_dispatch_ref(api, repository, pin)
         run_id = dispatch(api, repository, workflow, ref, inputs)
-        verify_run(api('GET', f'repos/{repository}/actions/runs/{run_id}'), run_id=run_id,
+        verify_run(dispatched_run(api, repository, run_id), run_id=run_id,
                    workflow=workflow, head_sha=pin)
         runs.append({'producer': producer['producer'], 'repository': repository, 'workflow': workflow,
                      'ref': ref, 'head_sha': pin, 'run_id': run_id, 'dispatch_id': dispatch_id,
@@ -404,7 +419,7 @@ def dispatch_aggregate(api, repository: str, requirements_revision: str, manifes
     run_id = dispatch(api, repository, AGGREGATE_WORKFLOW, 'refs/heads/trunk', {
         'requirements_revision': requirements_revision, 'candidate_source_sha': candidate['server_sha'],
         'candidate_image_digest': candidate['image_digest'], 'candidate_cut_at': candidate['cut_at']})
-    verify_run(api('GET', f'repos/{repository}/actions/runs/{run_id}'), run_id=run_id,
+    verify_run(dispatched_run(api, repository, run_id), run_id=run_id,
                workflow=AGGREGATE_WORKFLOW, head_branch='trunk')
     return run_id
 
