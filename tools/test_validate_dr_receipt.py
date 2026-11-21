@@ -206,8 +206,11 @@ def test_release_and_scheduled_workflows_enforce_validator():
 
     root = HERE.parent
     gate = yaml.safe_load((root / ".github/workflows/gate-dr.yml").read_text(encoding="utf-8"))
-    # PyYAML's YAML 1.1 loader maps the Actions 'on' key to True.
-    assert "schedule" in gate[True]
+    # PyYAML's YAML 1.1 loader maps the Actions 'on' key to True. The trunk cadence is the
+    # dispatcher's: it dispatches gate-dr after every successful trunk DR drill.
+    assert "workflow_dispatch" in gate[True]
+    dispatcher = yaml.safe_load((root / ".github/workflows/dispatch-promise-producers.yml").read_text(encoding="utf-8"))
+    assert dispatcher[True]["workflow_run"]["workflows"] == ["dr-drill-local-docker"]
     steps = gate["jobs"]["receipt"]["steps"]
     validate_step = next(step for step in steps if "tools/validate_dr_receipt.py" in step.get("run", ""))
     assert "--candidate $candidatePath" in validate_step["run"]

@@ -157,6 +157,13 @@ signed candidate manifest. The adapter obtains source SHA and image digest from
 the exact manifest consumed by the gate (protocol certification uses the exact
 expected identifiers its evaluator checked). A run without that digest remains
 useful for diagnostics but emits no promise receipt and cannot certify stage 2.
+The digest is sha256 of the qualification lock that the receipt step regenerates
+from the manifest (`kept_gate_receipt.ensure_lock`), not the canonical lock-draft
+digest in `docs/SDK-SERVER-COMPATIBILITY.md`. `dispatch-promise-producers.yml`
+(`tools/promise_dispatch.py`) computes it and dispatches every stackless producer
+for the `platform-manifest.yaml` server pin. It runs daily, on pin changes and on
+manual dispatch. The tool lists the producers it leaves out and why: they need an
+installed stack, a reviewer, the private tracker, release-train or spend.
 For companion producers the aggregate evaluates each workflow independently;
 one successful contract or docs producer cannot hide its missing or failed peer.
 
