@@ -18,7 +18,8 @@ Identity: every proposal must name the agent key as requestedByAgent, and every 
 appear in the audit trail with the agent as actor. The administrator state read before the walk must
 be unchanged after it. Parameters an operation needs to reach the policy decision come from
 certification/agent-safety/operation-fixtures.json; an operation that never reaches the decision is
-unchecked, so the row fails closed.
+unchecked, so the row fails closed. A changed snapshot is reported item by item
+(agent-safety-report.json stateDiff).
 """
 from __future__ import annotations
 
@@ -38,6 +39,7 @@ import agent_safety_seed
 from agent_safety_inventory import INVENTORY, inventory_routes, load_inventory, uncovered
 from agent_safety_routes import (ADMIN_PREFIX, FORBIDDEN, GateUnavailable, annotate, openapi_routes, parse_rules,
                                  placeholder_values, probe_routes, rule_routes, succeeded, walk_routes)
+from agent_safety_state import state_diff, summary
 import rc_gate_window as gate
 
 RECEIPT = Path('security-agent-default-deny.json')
@@ -279,11 +281,12 @@ def run(options, candidate) -> tuple[dict, dict]:
     identity = {'proposals': proposals_audited(admin, operations, actor),
                 'refusals': refusals_unaudited(walked, audit_entries(admin, actor))}
     after = snapshot(admin, actor, world)
-    changed = [route for route in SNAPSHOT_ROUTES if after[route] != before[route]]
+    diff = state_diff(before, after)
+    changed = [summary(route, change) for route, change in diff.items()]
     assertions, findings = decide(operations, walked, identity, changed)
     findings = {**findings, 'proposalNotAudited': identity['proposals'], 'refusalNotAudited': identity['refusals']}
     report = {'operations': operations, 'routes': walked, 'operationCounts': counts(operations),
-              'routeCounts': counts(walked), 'inventoryRoutes': len(inventory or []),
+              'routeCounts': counts(walked), 'inventoryRoutes': len(inventory or []), 'stateDiff': diff,
               'findings': findings}
     return receipt(candidate, assertions, findings), report
 

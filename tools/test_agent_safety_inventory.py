@@ -1,6 +1,9 @@
+import pytest
+
 import agent_safety_gate as walk
 import agent_safety_inventory as inventory
 import agent_safety_routes as routes
+import agent_safety_state as state
 
 INVENTORY = """# Every governed route that changes state.
 ANY /metrics
@@ -66,3 +69,28 @@ def test_an_uncalled_route_or_a_missing_inventory_leaves_the_row_unchecked(tmp_p
         assertions, findings = walk.decide(operations, walked[1:] + gaps, {'proposals': [], 'refusals': []}, [])
         assert assertions['allMutatingRoutesChecked'] is False and assertions['proposalOnly'] is True
         assert findings['unchecked'] == [finding]
+
+
+def snapshot(body, etag='"1"'):
+    return {'etag': etag, 'body': body}
+
+
+@pytest.mark.parametrize('before, after, expected', [
+    ([{'id': 'a', 'title': 'A'}], [{'id': 'a', 'title': 'B'}, {'id': 'b'}],
+     '/folders: added b; modified a[title]'),
+    ([{'name': 'svc'}, {'name': 'gone'}], [{'name': 'svc'}], '/folders: removed gone'),
+    ({'title': 'x', 'keywords': []}, {'title': 'y', 'keywords': []}, '/folders: modified body[title]'),
+    ('text', 'other', '/folders: modified body[value]'),
+    ({'items': [{'id': 'c', 'title': 'x'}], 'total': 1}, {'items': [{'id': 'c', 'title': 'y'}], 'total': 1},
+     '/folders: modified c[title]'),
+    ([{'id': 'a'}, {'id': 'b'}], [{'id': 'b'}, {'id': 'a'}], '/folders: modified body[order or duplicate items]'),
+])
+def test_a_changed_snapshot_names_the_items(before, after, expected):
+    diff = state.state_diff({'/folders': snapshot(before), '/roles': snapshot([])},
+                            {'/folders': snapshot(after), '/roles': snapshot([])})
+    assert list(diff) == ['/folders'] and state.summary('/folders', diff['/folders']) == expected
+
+
+def test_an_etag_only_change_is_reported_as_such():
+    diff = state.state_diff({'/services': snapshot([{'name': 's'}])}, {'/services': snapshot([{'name': 's'}], '"2"')})
+    assert diff['/services']['etagOnly'] and state.summary('/services', diff['/services']).endswith('body unchanged')
