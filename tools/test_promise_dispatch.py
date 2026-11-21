@@ -192,3 +192,23 @@ def test_candidate_drills_are_titled_so_gate_dr_and_the_dispatcher_can_refuse_th
     gate = (ROOT / '.github/workflows/gate-dr.yml').read_text()
     assert gate.count('startswith("dr-drill candidate ")') == 2
     assert '[ "$conclusion" != success ]' in gate
+
+
+def test_a_skipped_drill_gate_fails_so_it_can_be_rerun(monkeypatch, tmp_path):
+    monkeypatch.setattr(dispatch, 'qualification_lock_digest', lambda manifest: DIGEST)
+    commands, manifest = [], write_manifest(tmp_path / 'm.yaml')
+    argv = ['--manifest', str(manifest), '--dispatch', '--only', 'gate-dr.yml', '--dr-producer-run', '9']
+    assert dispatch.main(argv, run=fake_gh(commands, busy={'release-train.yml'})) == 1
+    assert not [command for command in commands if command[:3] == ['gh', 'workflow', 'run']]
+
+
+def test_unreadable_manifest_and_failed_train_lookup_fail_the_dispatcher(tmp_path):
+    (tmp_path / 'empty.yaml').write_text('')
+    assert dispatch.resolve(tmp_path / 'empty.yaml')[2] and dispatch.resolve(tmp_path / 'missing.yaml')[2]
+    manifest = write_manifest(tmp_path / 'm.yaml')
+    failing = lambda argv, **_: subprocess.CompletedProcess(argv, 1, '', 'HTTP 502')  # noqa: E731
+    assert dispatch.main(['--manifest', str(manifest), '--dispatch'], run=failing) == 1
+
+
+def test_without_a_digest_gate_dr_still_reads_the_drill_it_was_given():
+    assert dict(dispatch.plan({}, '', {'gate-dr.yml'}, '9')) == {'gate-dr.yml': {'producer_run_id': '9'}}

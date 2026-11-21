@@ -137,7 +137,8 @@ jobs:
           if [ -n "$PRODUCER_RUN" ]; then
             [[ "$PRODUCER_RUN" =~ ^[0-9]+$ ]] || { echo "::error::producer_run_id must be a run id"; exit 1; }
             read -r path branch event conclusion candidate < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCER_RUN" \
-              --jq '"\(.path) \(.head_branch) \(.event) \(.conclusion) \(.display_title | startswith("dr-drill candidate "))"')
+              --jq '"\(.path) \(.head_branch) \(.event) \(.conclusion) \(.display_title | startswith("dr-drill candidate "))"') \
+              || { echo "::error::cannot read DR producer run $PRODUCER_RUN"; exit 1; }
             if [ "$path" != .github/workflows/dr-drill-local-docker.yml ] || [ "$branch" != trunk ] \
               || [ "$event" = pull_request ] || [ "$candidate" != false ] || [ "$conclusion" != success ]; then
               echo "::error::DR producer run $PRODUCER_RUN published no trunk receipt ($path $branch $event $conclusion candidate=$candidate)"

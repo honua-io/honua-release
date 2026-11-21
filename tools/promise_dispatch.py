@@ -81,7 +81,12 @@ def qualification_lock_digest(manifest: Path, generate=None) -> str:
 
 
 def candidate(manifest: Path) -> dict:
-    document = yaml.safe_load(manifest.read_text())
+    try:
+        document = yaml.safe_load(manifest.read_text())
+    except (OSError, yaml.YAMLError) as error:
+        raise ValueError(f'cannot read {manifest}: {error}') from error
+    if not isinstance(document, dict):
+        raise ValueError(f'{manifest} is not a manifest mapping')
     server = (document.get('components') or {}).get('honua-server') or {}
     sha, digest, label = server.get('sha', ''), server.get('digest', ''), document.get('platformRelease', '')
     if not SHA.match(str(sha)) or not DIGEST.match(str(digest)) or not label:
@@ -105,11 +110,11 @@ def plan(pins: dict, lock_digest: str, selected=None, dr_run='') -> list[tuple[s
     for workflow, extra in DISPATCHED.items():
         if selected is not None and workflow not in selected:
             continue
-        if not lock_digest:
-            planned.append((workflow, None if extra.get('server_sha') else
-                            {key: value for key, value in extra.items() if '{' not in value}))
+        if not lock_digest and extra.get('server_sha'):
+            planned.append((workflow, None))
             continue
-        inputs = {'platform_lock_digest': lock_digest, **{key: value.format(**pins) for key, value in extra.items()}}
+        inputs = ({'platform_lock_digest': lock_digest, **{key: value.format(**pins) for key, value in extra.items()}}
+                  if lock_digest else {key: value for key, value in extra.items() if '{' not in value})
         planned.append((workflow, {**inputs, 'producer_run_id': dr_run} if dr_run and workflow == 'gate-dr.yml'
                         else inputs))
     return planned
@@ -194,7 +199,8 @@ def main(argv=None, run=subprocess.run) -> int:
     try:
         train_busy = trains_in_flight(run) if args.dispatch else ''
     except RuntimeError as error:
-        train_busy = f'unknown: {error}'
+        print(f'::error::{error}')
+        return 1
     results, failed = [], bool(problem)
     for workflow, inputs in plan(pins, lock_digest, selected, args.dr_producer_run):
         if inputs is None:
@@ -204,6 +210,8 @@ def main(argv=None, run=subprocess.run) -> int:
             result, ok = 'planned', True
         else:
             result, ok = dispatch_one(workflow, inputs, run, train_busy)
+            # A drill's gate-dr is never dispatched again later: fail so the skip can be rerun.
+            ok = ok and not (args.dr_producer_run and result.startswith('skipped'))
         failed += not ok
         results.append((workflow, result))
         print(f'{workflow}: {result}')
