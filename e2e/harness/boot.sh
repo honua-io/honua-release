@@ -27,6 +27,12 @@ case "$E2E_HTTPS" in
   off) ;;
   *) echo "boot.sh: E2E_HTTPS must be on or off, got '${E2E_HTTPS}'" >&2; exit 2 ;;
 esac
+# E2E_COMPOSE_EXTRA names further compose files (repository-relative, space-separated) that one gate
+# layers over the candidate stack, e.g. gate-agent-safety's AI admission deployment id. Unset: none.
+for extra in ${E2E_COMPOSE_EXTRA:-}; do
+  [ -f "$REPO_ROOT/$extra" ] || { echo "boot.sh: E2E_COMPOSE_EXTRA file '$extra' does not exist" >&2; exit 2; }
+  COMPOSE+=(-f "$REPO_ROOT/$extra")
+done
 # One local topology (the durable control plane on PostgreSQL). The retired "off" cell is a harness
 # error, never a silent default.
 case "${E2E_REDIS:-on}" in

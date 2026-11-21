@@ -1,0 +1,14 @@
+# gate-agent-safety: the AI admission operations validate against one configured deployment before
+# their policy decision, and the alert, offline-sync and scene routes are mapped only when their
+# experimental capability is on. None of these needs a provider, key or external service; they let
+# the walk reach the agent refusal on every documented route.
+services:
+  server:
+    environment:
+      AiExecutionAdmission__DeploymentId: "agent-safety-gate"
+      Capabilities__Experimental__alerts.geofence__Enabled: "true"
+      Capabilities__Experimental__sync.offline__Enabled: "true"
+      Capabilities__Experimental__scene.catalog__Enabled: "true"
+      Capabilities__Experimental__serve.3d-tiles-scene__Enabled: "true"
+      Capabilities__Experimental__scene.bim-ingest__Enabled: "true"
+      Capabilities__Experimental__scene.pointcloud-ingest__Enabled: "true"

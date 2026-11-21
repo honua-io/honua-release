@@ -1,0 +1,437 @@
+{
+  "schema": "honua.agent-safety-fixtures/v1",
+  "operations": {
+    "admin.ai.admission.initialize": {
+      "policy": "{}"
+    },
+    "admin.ai.admission.policy-update": {
+      "policy": "{}",
+      "expectedGeneration": "${uuid}",
+      "expectedRevision": "1",
+      "expectedEpoch": "1"
+    },
+    "admin.ai.admission.resume": {
+      "expectedGeneration": "${uuid}",
+      "expectedRevision": "1",
+      "expectedEpoch": "1"
+    },
+    "admin.ai.admission.stop": {
+      "expectedGeneration": "${uuid}",
+      "expectedRevision": "1",
+      "expectedEpoch": "1"
+    },
+    "admin.cache.invalidate": {
+      "scope": "all"
+    },
+    "admin.import.upload": {
+      "file": "bmFtZSx4LHkKYSwxLDIK",
+      "TableName": "agent_safety_probe_upload",
+      "fileName": "agent-safety-probe.csv"
+    },
+    "admin.metadata.prevalidate": {
+      "releasePackageId": "${uuid}",
+      "targetEnvironment": "Development"
+    },
+    "admin.oidc-provider.undo": {
+      "expectedRevisionId": "1"
+    },
+    "admin.rate-limit-policy.undo": {
+      "expectedRevisionId": "1"
+    },
+    "admin.role.permissions.set": {
+      "permissions": "[{\"service\":\"*\",\"layer\":\"*\",\"operation\":\"query\"}]"
+    },
+    "dataset.stage.import": {
+      "intentId": "${intentId}",
+      "schema": "public",
+      "targetId": "geoprocessing",
+      "jobId": "${gpJobId}",
+      "resultPackageId": "${gpJobId}:v${gpJobVersion}",
+      "artifactId": "${gpJobId}:artifact:1",
+      "referenceSha256": "${artifactSha256}",
+      "targetSrid": "4326",
+      "previewFingerprint": "${previewFingerprint}"
+    },
+    "folder.create": {
+      "name": "agent-safety-probe-new"
+    },
+    "folder.delete": {
+      "id": "${folderId}"
+    },
+    "folder.update": {
+      "id": "${folderId}",
+      "title": "Agent safety probe (renamed)"
+    },
+    "service.move": {
+      "serviceName": "${serviceName}",
+      "folderId": "${folderId}"
+    },
+    "service.publish": {
+      "connectionId": "${connectionId}",
+      "schema": "public",
+      "table": "${publishTable}",
+      "layerName": "agent_safety_probe_publish"
+    },
+    "studio.content.create-publication-request": {
+      "payload": "{\"itemId\":\"${studioItemId}\",\"versionId\":\"${studioVersionId}\",\"contentHash\":\"${studioContentHash}\"}"
+    },
+    "studio.content.reopen-version": {
+      "payload": "{\"itemId\":\"${uuid}\",\"versionId\":\"${uuid}\"}"
+    },
+    "studio.content.rollback": {
+      "payload": "{\"itemId\":\"${uuid}\",\"targetVersionId\":\"${uuid}\",\"target\":\"current\"}"
+    },
+    "studio.draft.create": {
+      "payload": "{\"command\":{\"packageKey\":\"agent-safety-probe\",\"envelope\":{\"family\":\"map\",\"schemaVersion\":\"1\"}}}"
+    },
+    "studio.draft.delete": {
+      "payload": "{\"draftId\":\"${uuid}\"}"
+    },
+    "studio.draft.preview-plan": {
+      "payload": "{\"draftId\":\"${uuid}\"}"
+    },
+    "studio.draft.save-version": {
+      "payload": "{\"draftId\":\"${uuid}\",\"expectedGeneration\":1}"
+    },
+    "studio.draft.update": {
+      "payload": "{\"draftId\":\"${uuid}\",\"command\":{\"packageKey\":\"agent-safety-probe\",\"envelope\":{\"family\":\"map\",\"schemaVersion\":\"1\"}}}"
+    },
+    "studio.draft.validate": {
+      "payload": "{\"draftId\":\"${uuid}\"}"
+    },
+    "style.apply-preset": {
+      "serviceId": "${serviceId}",
+      "serviceLayerIndex": "${serviceLayerIndex}",
+      "styleId": "${styleId}"
+    }
+  },
+  "routes": {
+    "DELETE /api/v1/admin/alerts/rules/{ruleId}": {
+      "path": {
+        "ruleId": "1"
+      }
+    },
+    "DELETE /api/v1/admin/alerts/zones/{zoneId}": {
+      "path": {
+        "zoneId": "1"
+      }
+    },
+    "DELETE /api/v1/admin/scenes/{id}": {
+      "path": {
+        "id": "${uuid}"
+      }
+    },
+    "PATCH /api/v1/console/content/{id}": {
+      "path": {
+        "id": "${uuid}"
+      },
+      "body": {
+        "visibility": "public"
+      }
+    },
+    "POST /api/v1/admin/alerts/channels/{channel}/pause": {
+      "path": {
+        "channel": "webhook"
+      },
+      "body": {}
+    },
+    "POST /api/v1/admin/alerts/channels/{channel}/resume": {
+      "path": {
+        "channel": "webhook"
+      },
+      "body": {}
+    },
+    "POST /api/v1/admin/alerts/dispatch/redrive": {
+      "body": {}
+    },
+    "POST /api/v1/admin/alerts/rules": {
+      "body": {}
+    },
+    "POST /api/v1/admin/alerts/rules/test": {
+      "body": {}
+    },
+    "POST /api/v1/admin/alerts/zones": {
+      "body": {}
+    },
+    "POST /api/v1/admin/connections/{id}/layers": {
+      "path": {
+        "id": "${connectionId}"
+      },
+      "body": {
+        "schema": "public",
+        "table": "${publishTable}",
+        "layerName": "agent_safety_probe_publish"
+      }
+    },
+    "POST /api/v1/admin/embed/keys": {
+      "body": {
+        "name": "agent-safety-probe",
+        "scope": {
+          "allowedEmbedOrigins": [
+            "https://agent-safety.invalid"
+          ]
+        }
+      }
+    },
+    "POST /api/v1/admin/field-mask-policies": {
+      "body": {
+        "role": "agent-safety-probe",
+        "service": "${serviceName}",
+        "layer": "agent_safety_probe_seed",
+        "attribute": "name"
+      }
+    },
+    "POST /api/v1/admin/observability/alerts/{eventId}/acknowledge": {
+      "path": {
+        "eventId": "1"
+      },
+      "body": {}
+    },
+    "POST /api/v1/admin/observability/alerts/{eventId}/resolve": {
+      "path": {
+        "eventId": "1"
+      },
+      "body": {}
+    },
+    "POST /api/v1/admin/observability/alerts/{eventId}/suppress": {
+      "path": {
+        "eventId": "1"
+      },
+      "body": {}
+    },
+    "POST /api/v1/admin/rls-policies": {
+      "body": {
+        "role": "agent-safety-probe",
+        "service": "${serviceName}",
+        "layer": "agent_safety_probe_seed",
+        "attribute": "name",
+        "claimType": "sub"
+      }
+    },
+    "POST /api/v1/admin/roles": {
+      "body": {
+        "name": "agent-safety-probe-role",
+        "description": "agent safety probe"
+      }
+    },
+    "POST /api/v1/admin/scenes": {
+      "body": {
+        "id": "agent-safety-probe-scene",
+        "name": "Agent safety probe",
+        "assetRoot": "agent-safety-probe",
+        "isPublic": true
+      }
+    },
+    "POST /api/v1/admin/scenes/generate": {
+      "body": "{\"layerId\":${storageLayerId},\"sceneId\":\"agent-safety-probe-generated\"}"
+    },
+    "POST /api/v1/admin/scenes/ingest/citygml": {
+      "body": "--agentsafety\r\nContent-Disposition: form-data; name=\"file\"; filename=\"agent-safety-probe.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nagent-safety-gate\r\n--agentsafety--\r\n",
+      "contentType": "multipart/form-data; boundary=agentsafety"
+    },
+    "POST /api/v1/admin/scenes/ingest/pointcloud": {
+      "body": "--agentsafety\r\nContent-Disposition: form-data; name=\"file\"; filename=\"agent-safety-probe.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nagent-safety-gate\r\n--agentsafety--\r\n",
+      "contentType": "multipart/form-data; boundary=agentsafety"
+    },
+    "POST /api/v1/admin/services/{serviceId}/replicas/{replicaId}/conflicts/{conflictId}/resolve": {
+      "path": {
+        "replicaId": "agent-safety-probe",
+        "conflictId": "agent-safety-probe"
+      },
+      "body": {}
+    },
+    "POST /api/v1/console/access/{environmentId}/roles": {
+      "path": {
+        "environmentId": "production"
+      },
+      "body": {
+        "name": "agent-safety-probe",
+        "grants": []
+      }
+    },
+    "POST /api/v1/console/content": {
+      "body": {
+        "name": "agent-safety-probe",
+        "itemType": "map",
+        "visibility": "public"
+      }
+    },
+    "POST /api/v1/console/content/{id}/share/embed": {
+      "path": {
+        "id": "${uuid}"
+      },
+      "body": {
+        "audience": "map",
+        "ttlSeconds": 60
+      }
+    },
+    "POST /api/v1/console/workflow-packages/{packageId}/versions/{packageVersion}/publish": {
+      "path": {
+        "packageId": "${uuid}",
+        "packageVersion": "1"
+      },
+      "body": {
+        "target": "Job"
+      }
+    },
+    "POST /api/v1/console/workflow-publications/{publicationId}/status": {
+      "path": {
+        "publicationId": "${uuid}"
+      },
+      "body": {
+        "status": "Disabled"
+      }
+    },
+    "PUT /api/v1/admin/alerts/rules/{ruleId}": {
+      "path": {
+        "ruleId": "1"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/alerts/rules/{ruleId}/enabled": {
+      "path": {
+        "ruleId": "1"
+      },
+      "body": {
+        "enabled": true
+      }
+    },
+    "PUT /api/v1/admin/alerts/zones/{zoneId}": {
+      "path": {
+        "zoneId": "1"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/display": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/drawing-info": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/fields": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/filter": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/popup-info": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/relationships": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/spatial": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {}
+    },
+    "PUT /api/v1/admin/oauth-scopes": {
+      "body": {
+        "scope": "agent-safety-probe",
+        "description": "agent safety probe",
+        "permissions": [
+          "query"
+        ]
+      }
+    },
+    "PUT /api/v1/admin/roles/{id}/permissions": {
+      "path": {
+        "id": "${uuid}"
+      },
+      "body": {
+        "permissions": [
+          {
+            "service": "*",
+            "layer": "*",
+            "operation": "query"
+          }
+        ]
+      }
+    },
+    "PUT /api/v1/admin/scenes/{id}": {
+      "path": {
+        "id": "${uuid}"
+      },
+      "body": {
+        "isPublic": true
+      }
+    },
+    "PUT /api/v1/admin/services/{serviceName}/protocols": {
+      "body": {
+        "enabledProtocols": [
+          "FeatureServer"
+        ]
+      }
+    },
+    "PUT /api/v1/console/access/{environmentId}/roles/{roleId}": {
+      "path": {
+        "environmentId": "production",
+        "roleId": "${uuid}"
+      },
+      "body": {
+        "name": "agent-safety-probe",
+        "grants": []
+      }
+    },
+    "PUT /api/v1/console/content/{id}": {
+      "path": {
+        "id": "${uuid}"
+      },
+      "body": {
+        "name": "agent-safety-probe",
+        "itemType": "map",
+        "visibility": "public"
+      }
+    },
+    "PUT /api/v1/console/content/{id}/share/access": {
+      "path": {
+        "id": "${uuid}"
+      },
+      "body": {
+        "accessTier": "public-indexed"
+      }
+    }
+  },
+  "probes": [
+    {
+      "route": "PUT /api/v1/console/content/{id}",
+      "path": {
+        "id": "${consoleItemId}"
+      },
+      "body": {
+        "name": "renamed-by-agent",
+        "itemType": "map",
+        "visibility": "personal",
+        "ownerId": "${consoleOwnerId}"
+      }
+    },
+    {
+      "route": "PATCH /api/v1/console/content/{id}",
+      "path": {
+        "id": "${consoleItemId}"
+      },
+      "body": {
+        "title": "patched by agent"
+      }
+    }
+  ]
+}

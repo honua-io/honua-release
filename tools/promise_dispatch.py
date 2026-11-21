@@ -41,11 +41,11 @@ DISPATCHED = {
     'gate-installed-clients.yml': {'platform_label': '{label}'},
     'gate-executable-docs.yml': {},
     'gate-source-facts.yml': {'server_sha': '{server_sha}', 'server_digest': '{server_digest}'},
+    'gate-agent-safety.yml': {'server_sha': '{server_sha}', 'server_digest': '{server_digest}'},
 }
 EXCLUDED = {
     'gate-runs-itself.yml': 'fault injection on an installed Launch Stack',
     'gate-launch-stack.yml': 'timed install of the Launch Stack in the test account',
-    'gate-agent-safety.yml': 'route walk against an installed candidate',
     'gate-chaos.yml': 'chaos run on an installed stack after the operates rows pass',
     'gate-whitehat.yml': 'two reviewers upload their verdicts',
     'gate-upgrade.yml': 'needs a candidate-bound Launch Stack upgrade proof',
