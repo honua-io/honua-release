@@ -13,6 +13,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       DOTNET_ENVIRONMENT: Production
+      # The replay isolates tenant-a and tenant-b principals; single tenant is the server default since de512e8.
+      MultiTenancy__Enabled: "true"
       AuditLog__ChainVerification__Key: "${S4_AUDIT_CHAIN_KEY:?minted per run}"
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=${S4_DB_PASSWORD}"
       HONUA_TEST_DB_DSN: "Host=db;Port=5432;Database=honua;Username=honua;Password=${S4_DB_PASSWORD}"
