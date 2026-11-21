@@ -386,6 +386,11 @@ class Session:
             err = proc.stderr.decode("utf-8", errors="replace").strip()[-300:]
             raise RunError(f"could not write {path}: {err}")
 
+    def chmod(self, runtime: str, path: Path, mode: str) -> None:
+        outcome = self._exec(self.container(runtime), ["chmod", mode, str(path)], DEFAULT_TIMEOUT)
+        if outcome.status != "pass":
+            raise RunError(f"could not chmod {mode} {path}: {outcome.stderr.strip()[-300:]}")
+
     # executors
     def retain_python_invocations(self, runtime: str, words: list[str], *, relative: bool = True) -> None:
         for word in words:
@@ -760,9 +765,16 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
     session.cwd = str(target / spec.get("cwd", ""))
 
 
+@dataclass(frozen=True)
+class StagedFile:
+    path: str
+    content: bytes
+    mode: str
+
+
 def _safe_stage_path(raw: str) -> str:
     stripped = raw.strip()
-    if not stripped or stripped.startswith("/") or "\\" in stripped:
+    if not stripped or stripped.startswith("/") or "\\" in stripped or "\x00" in stripped:
         raise RunError(f"unsafe stage path: {raw!r}")
     clean = stripped.rstrip("/")
     parts = clean.split("/")
@@ -771,30 +783,53 @@ def _safe_stage_path(raw: str) -> str:
     return clean
 
 
-def _stage_tree(doc: dict[str, Any], revision: str, resolver: Resolver) -> list[tuple[str, bytes]]:
+def _validated_tree_blobs(entries: list[dict[str, Any]], label: str) -> list[tuple[str, str]]:
+    blobs: list[tuple[str, str]] = []
+    for entry in entries:
+        kind, mode, path = entry.get("type"), entry.get("mode"), str(entry.get("path", ""))
+        if kind == "tree" and mode == "040000":
+            continue
+        if kind == "blob" and mode in {"100644", "100755"}:
+            blobs.append((_safe_stage_path(path), "0755" if mode == "100755" else "0644"))
+            continue
+        raise RunError(f"unsupported staged entry in {label}: {path!r} (type={kind!r}, mode={mode!r})")
+    return blobs
+
+
+def _stage_tree(doc: dict[str, Any], revision: str, resolver: Resolver) -> list[StagedFile]:
+    raw_paths = doc.get("stagePaths")
+    if raw_paths is None:
+        return []
+    if not isinstance(raw_paths, list):
+        raise RunError(f"stagePaths must be a list, got {type(raw_paths).__name__}")
     repo = doc["repo"]
-    staged: list[tuple[str, bytes]] = []
-    for raw in doc.get("stagePaths") or ():
+    staged: list[StagedFile] = []
+    for raw in raw_paths:
         prefix = _safe_stage_path(str(raw))
+        label = f"{repo}@{revision[:12]}:{prefix}"
         ref = urllib.parse.quote(f"{revision}:{prefix}", safe="")
         tree = json.loads(resolver.fetch(f"https://api.github.com/repos/{repo}/git/trees/{ref}?recursive=1",
                                          token=resolver.token))
         if tree.get("truncated"):
-            raise RunError(f"staged tree {repo}@{revision[:12]}:{prefix} was truncated")
-        blobs = [entry for entry in tree.get("tree") or () if entry.get("type") == "blob"]
+            raise RunError(f"staged tree {label} was truncated")
+        blobs = _validated_tree_blobs(tree.get("tree") or [], label)
         if not blobs:
-            raise RunError(f"staged path {repo}@{revision[:12]}:{prefix} matched no files")
-        for entry in blobs:
-            rel = f"{prefix}/{_safe_stage_path(str(entry['path']))}"
-            url = f"https://raw.githubusercontent.com/{repo}/{revision}/{rel}"
-            staged.append((rel, resolver.fetch(url, token=resolver.token)))
+            raise RunError(f"staged path {label} matched no files")
+        for sub_path, file_mode in blobs:
+            rel = f"{prefix}/{sub_path}"
+            encoded = urllib.parse.quote(rel, safe="/")
+            url = f"https://raw.githubusercontent.com/{repo}/{revision}/{encoded}"
+            staged.append(StagedFile(rel, resolver.fetch(url, token=resolver.token), file_mode))
     return staged
 
 
-def _write_staged_files(session: Session, runtime: str, files: list[tuple[str, bytes]]) -> None:
+def _write_staged_files(session: Session, runtime: str, files: list[StagedFile]) -> None:
     base = Path(session.cwd)
-    for rel, content in files:
-        session.put_bytes(runtime, base / rel, content)
+    for item in files:
+        target = base / item.path
+        session.put_bytes(runtime, target, item.content)
+        if item.mode == "0755":
+            session.chmod(runtime, target, item.mode)
 
 
 def summarize(result: dict[str, Any]) -> None:
