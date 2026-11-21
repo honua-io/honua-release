@@ -124,4 +124,4 @@ def test_quickstart_declares_stage_paths_and_first_dataset_substitutes_sdk_pin()
     first_dataset_vars = json.loads(
         (HERE / "vars/honua-server-docs-get-started-first-dataset.json").read_text(encoding="utf-8")
     )
-    assert first_dataset_vars["substitute"]["@honua/sdk-js@0.2.10"]["value"] == "@honua/sdk-js@{client.sdkJs}"
+    assert first_dataset_vars["substitute"]["@honua/sdk-js@0.4.0"]["value"] == "@honua/sdk-js@{client.sdkJs}"
