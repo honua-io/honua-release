@@ -568,7 +568,7 @@ def pinned_image(component):
 
     honua-console has published no container since the static SPA ruling (honua-console 47cba9a3,
     9 Nov), so no trunk commit can qualify; the night keeps the published, digest-pinned image
-    the release ships until the static-bundle component kind lands (honua-release#1527)."""
+    the release ships until a static-bundle component kind replaces it."""
     selection = component.get('trunkSelection', 'trunk')
     if selection not in ('trunk', 'pinned'):
         raise ResolutionError(f'trunkSelection must be "trunk" or "pinned", not {selection!r}')
