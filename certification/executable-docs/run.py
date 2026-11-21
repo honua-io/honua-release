@@ -27,6 +27,7 @@ import tempfile
 import threading
 import time
 import traceback
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -375,11 +376,15 @@ class Session:
     def put(self, runtime: str, path: Path, content: str) -> None:
         """Write into the reader's directories from inside the container: the reader owns them there
         (on a Linux host, files a root container created are not writable by the runner's user)."""
+        self.put_bytes(runtime, path, content.encode("utf-8"))
+
+    def put_bytes(self, runtime: str, path: Path, content: bytes) -> None:
         proc = subprocess.run(["docker", "exec", "-i", self.container(runtime), "sh", "-c",
                                'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", str(path)],
-                              input=content, text=True, capture_output=True, check=False)
+                              input=content, capture_output=True, check=False)
         if proc.returncode:
-            raise RunError(f"could not write {path}: {proc.stderr.strip()[-300:]}")
+            err = proc.stderr.decode("utf-8", errors="replace").strip()[-300:]
+            raise RunError(f"could not write {path}: {err}")
 
     # executors
     def retain_python_invocations(self, runtime: str, words: list[str], *, relative: bool = True) -> None:
@@ -753,6 +758,43 @@ def checkout_context(doc: dict[str, Any], revision: str, session: Session, token
     if actual.status != "pass" or actual.stdout.strip() != revision:
         raise RunError("existing source checkout does not match the immutable document revision")
     session.cwd = str(target / spec.get("cwd", ""))
+
+
+def _safe_stage_path(raw: str) -> str:
+    stripped = raw.strip()
+    if not stripped or stripped.startswith("/") or "\\" in stripped:
+        raise RunError(f"unsafe stage path: {raw!r}")
+    clean = stripped.rstrip("/")
+    parts = clean.split("/")
+    if not clean or any(part in {"", ".", ".."} for part in parts):
+        raise RunError(f"unsafe stage path: {raw!r}")
+    return clean
+
+
+def _stage_tree(doc: dict[str, Any], revision: str, resolver: Resolver) -> list[tuple[str, bytes]]:
+    repo = doc["repo"]
+    staged: list[tuple[str, bytes]] = []
+    for raw in doc.get("stagePaths") or ():
+        prefix = _safe_stage_path(str(raw))
+        ref = urllib.parse.quote(f"{revision}:{prefix}", safe="")
+        tree = json.loads(resolver.fetch(f"https://api.github.com/repos/{repo}/git/trees/{ref}?recursive=1",
+                                         token=resolver.token))
+        if tree.get("truncated"):
+            raise RunError(f"staged tree {repo}@{revision[:12]}:{prefix} was truncated")
+        blobs = [entry for entry in tree.get("tree") or () if entry.get("type") == "blob"]
+        if not blobs:
+            raise RunError(f"staged path {repo}@{revision[:12]}:{prefix} matched no files")
+        for entry in blobs:
+            rel = f"{prefix}/{_safe_stage_path(str(entry['path']))}"
+            url = f"https://raw.githubusercontent.com/{repo}/{revision}/{rel}"
+            staged.append((rel, resolver.fetch(url, token=resolver.token)))
+    return staged
+
+
+def _write_staged_files(session: Session, runtime: str, files: list[tuple[str, bytes]]) -> None:
+    base = Path(session.cwd)
+    for rel, content in files:
+        session.put_bytes(runtime, base / rel, content)
 
 
 def summarize(result: dict[str, Any]) -> None:
@@ -1378,6 +1420,8 @@ def main() -> int:
                     row["grpcTlsFixture"] = dict(tls_fixture.evidence)
                 print(f"== {ident} @ {revision[:12]}", flush=True)
                 checkout_context(document, revision, session, token)
+                if document.get("stagePaths"):
+                    _write_staged_files(session, document["runtime"], _stage_tree(document, revision, resolver))
                 binding = source_build.derive(document, revision, text,
                     lambda path: resolver.read({**document, "path": path}, revision).encode())
                 document_context = dict(context)

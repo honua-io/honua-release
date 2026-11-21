@@ -30,7 +30,7 @@
     {"repo": "honua-io/honua-sdk-dotnet", "path": "docs/quickstart.md", "revision": {"clientArtifact": "honua-sdk-dotnet"}, "runtime": "dotnet"},
     {"repo": "honua-io/honua-release", "path": "docs/INSTALL-2026.1.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
     {"repo": "honua-io/honua-release", "path": "docs/CUSTOMER-INSTALL.md", "revision": {"checkout": true}, "runtime": "python", "docker": true},
-    {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started"},
+    {"repo": "honua-io/honua-server", "path": "docs/get-started/quickstart.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started", "stagePaths": ["docker/proj-grids", "skills"]},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/first-dataset.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started", "prerequisites": {"node": "docs/get-started/first-dataset.md:10 — \"Python with `honua-admin`, and Node.js with `npx`\""}},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/first-map.md", "revision": {"defaultBranch": true}, "runtime": "python", "docker": true, "session": "server-get-started"},
     {"repo": "honua-io/honua-server", "path": "docs/get-started/with-ai.md", "revision": {"defaultBranch": true}, "runtime": "python"},

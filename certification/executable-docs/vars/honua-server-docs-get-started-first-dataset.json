@@ -5,6 +5,10 @@
     "<your quickstart install directory>": {
       "value": "{session.appDir}",
       "documentedAt": "docs/get-started/first-dataset.md:17-23 — \"Steps 1–4 of the quickstart write a generated admin password into `secrets/honua_admin_password` and publish the server on the `HONUA_HTTP_PORT` that `.env` sets ... Take both from there\" (`cd <your quickstart install directory>`)"
+    },
+    "@honua/sdk-js@0.2.10": {
+      "value": "@honua/sdk-js@{client.sdkJs}",
+      "documentedAt": "docs/get-started/first-dataset.md:191-210 — \"The `@honua/sdk-js` pin is the release version, 0.2.10.\" Executable-docs installs the manifest pin, the only @honua/sdk-js version the registry guard serves."
     }
   }
 }
