@@ -15,6 +15,8 @@ from pathlib import Path
 
 import yaml
 
+from platform_version import is_unpublished_out_of_lock
+
 NOT_CERTIFIED_RC = (
     "Third-party desktop GIS client and desktop-scripting certification (operator ruling 2026-10-22: deferred past rc; "
     "reported as advisory)",
@@ -33,7 +35,7 @@ def component_rows(manifest: dict, server_image: str | None, server_digest: str 
     comps = manifest.get("components") or {}
     for name in sorted(comps):
         c = comps[name] or {}
-        if c.get("outOfLock"):
+        if is_unpublished_out_of_lock(c):
             continue
         version = str(c.get("version") or "pre-release")
         sha = str(c.get("sha") or "")[:12]

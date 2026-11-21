@@ -313,12 +313,43 @@ def test_release_notes_include_every_component_and_header():
     notes = fr.render_release_notes(
         manifest, matrix, "2026.1", _report("pass"), "https://example/run/1")
     assert notes.startswith("# Honua 2026.1")
-    for name in (manifest.get("components") or {}):
-        assert name in notes, f"{name} missing from generated notes"
+    for name, comp in (manifest.get("components") or {}).items():
+        if comp.get("outOfLock") and comp.get("lifecycleStatus") == "Preview" and comp.get("version") in (None, "pre-release"):
+            assert f"| {name} |" not in notes, f"unpublished out-of-lock {name} should not appear in generated notes"
+        else:
+            assert name in notes, f"{name} missing from generated notes"
     assert "Breaking changes & upgrade actions" in notes
     assert "Verification & provenance" in notes
     assert "Every wired release gate passed" in notes
     assert "- manifest: passed" in notes
+
+
+def test_release_notes_omit_only_unpublished_preview_out_of_lock_components():
+    manifest = {"components": {
+        "honua-helm": {
+            "lifecycleStatus": "Preview",
+            "version": "pre-release",
+            "sha": "a" * 40,
+            "outOfLock": "helm-preview-out-of-lock-2026-10-26",
+        },
+        "honua-helm-published": {
+            "lifecycleStatus": "Preview",
+            "version": "pre-release",
+            "sha": "b" * 40,
+            "digest": "sha256:" + "c" * 64,
+            "outOfLock": "helm-preview-out-of-lock-2026-10-26",
+        },
+        "honua-ga": {
+            "lifecycleStatus": "GA",
+            "version": "pre-release",
+            "sha": "d" * 40,
+            "outOfLock": "stale-ruling",
+        },
+    }}
+    notes = fr.render_release_notes(manifest, {}, "2026.1", _report("pass"))
+    assert "| honua-helm |" not in notes
+    assert "| honua-helm-published |" in notes
+    assert "| honua-ga |" in notes
 
 
 def test_release_notes_name_allowed_skipped_gate_without_claiming_every_gate_passed():
