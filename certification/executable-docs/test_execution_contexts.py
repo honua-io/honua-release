@@ -40,7 +40,7 @@ FROZEN = HERE / "fixtures/site-geoprocessing-frozen"
 def gp_source():
     """The mixed-language geoprocessing guide as last executed (honua-site 477350e5): its reviewed
     binding and page bytes are frozen here as test data, so the context controls below do not move
-    with the live page (honua-io/honua-release#1250 put that page back in scope)."""
+    with the live page, which is back in scope."""
     doc = json.loads((FROZEN / "declaration.json").read_text())
     return doc, (HERE / "fixtures/site-geoprocessing-b56533b9fd2c.md").read_text()
 
@@ -69,7 +69,7 @@ GP_INSTALL_SHA256 = {0: "24cc8e63bb26f20c0b9ab36d00f5459ed65101bb9cb273c284c545b
 
 
 def test_live_geoprocessing_page_runs_each_language_in_its_own_context():
-    """honua-io/honua-release#1250: the tutorial installs the release pins, so the whole page is back
+    """The tutorial installs the release pins, so the whole page is back
     in scope. Each language keeps the frozen node/python/dotnet split; only the install hashes move."""
     sources = json.loads((HERE / "sources.json").read_text())
     assert GP_KEY not in {(o["repo"], o["path"]) for o in sources["outOfScope"]}
