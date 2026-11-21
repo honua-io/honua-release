@@ -1406,6 +1406,12 @@ def _load_optional_sessions():
         importlib.import_module(name)
 
 
+def unexercised_bundle(component):
+    """The static bundle the release binds, recorded beside the frozen image the case ran instead."""
+    return {'artifactSha256': component.get('artifactSha256'), 'sourceRevision': component.get('sha'),
+            'exercised': False}
+
+
 class LocalRuntime:
     """Fresh per-case Compose stack through live_driver.py, plus case custody and transport."""
 
@@ -1799,6 +1805,8 @@ class LocalRuntime:
         console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
         try:
             self.attest(stack, 'studioConsoleImage', pin, [])
+            if not repository:
+                self.attest(stack, 'studioConsoleBoundBundle', unexercised_bundle(component), [])
         except Exception:
             console.close()
             raise

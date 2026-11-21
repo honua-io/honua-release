@@ -201,11 +201,16 @@ def test_a_studio_case_runs_the_reviewed_console_image_when_the_manifest_names_a
     pin = {'image': 'ghcr.io/honua-io/honua-console@sha256:' + 'b' * 64, 'sourceRevision': 'c' * 40}
     (tmp_path / 'pin.json').write_text(json.dumps(pin))
     monkeypatch.setattr(studio, 'CONSOLE_PIN_PATH', tmp_path / 'pin.json')
-    (tmp_path / 'platform-manifest.yaml').write_text(json.dumps({'components': {'honua-console': console()}}))
+    bound = console(sha=BUNDLED, artifactSha256=INNER_SHA)
+    (tmp_path / 'platform-manifest.yaml').write_text(json.dumps({'components': {'honua-console': bound}}))
     monkeypatch.setattr(studio, 'CaseConsole', lambda _stack, actual, **_kwargs:
                         SimpleNamespace(url='http://127.0.0.1:1234', image=actual))
     stack = SimpleNamespace(extra={}, compose_project='g41')
+    custody = {}
     runtime = SimpleNamespace(root=tmp_path, _console_identities={'g41': {'edgeSecret': 'x', 'userId': 'user'}},
-                              attest=lambda *_args: None)
+                              attest=lambda _stack, name, value, _steps: custody.update({name: value}))
     assert LocalRuntime.start_console(runtime, stack) == 'http://127.0.0.1:1234'
     assert stack.extra['_caseConsole'].image == pin['image']
+    # The evidence shows the case did not exercise the bundle the lock binds.
+    assert custody == {'studioConsoleImage': pin, 'studioConsoleBoundBundle': {
+        'artifactSha256': INNER_SHA, 'sourceRevision': BUNDLED, 'exercised': False}}
