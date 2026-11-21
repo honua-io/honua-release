@@ -31,6 +31,8 @@ def approve(user: str, proposal_id: str) -> dict:
     except Refused as exc:
         return {"result": "refused", "proposalId": proposal_id, "stage": exc.stage, "httpStatus": exc.status,
                 "detail": exc.detail}
+    except (OSError, ValueError) as exc:  # transport or malformed reply: report it, never retry the mutation
+        return {"result": "error", "proposalId": proposal_id, "detail": f"{type(exc).__name__}: {exc}"[:300]}
 
 
 if __name__ == "__main__":
