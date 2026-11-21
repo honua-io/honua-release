@@ -1139,7 +1139,7 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_cut_candidate_server():
 
 
 def test_grpc_ruling_is_rechecked_at_the_2026_11_21_nightly_candidate():
-    """Nightly run 44961665462 aborted REBIND at server a997a37e: honua-server #8676 changed the
+    """Nightly run 44961665462 aborted REBIND at server a997a37e: honua-server b975f45378 changed the
     FeatureService Query RPC body, so the surface hash moved although the mapped services and
     RPC overrides did not. The hand re-check is recorded as the newest verified commit."""
     candidate = "a997a37e6953d19a4db483aa9160a113f06ae5ef"
@@ -1147,7 +1147,7 @@ def test_grpc_ruling_is_rechecked_at_the_2026_11_21_nightly_candidate():
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
     assert ruling["verified_server_commits"][-2:] == ["de512e8123bdfbfbe20f692b236e37853b4f8294", candidate]
     recheck = ruling["evidence"].split("Re-checked at a997a37e", 1)[1]
-    assert "byte-identical to de512e8" in recheck and "#8676" in recheck
+    assert "byte-identical to de512e8" in recheck and "b975f45378" in recheck
 
 
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
