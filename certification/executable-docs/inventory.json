@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "22f40da94c40da976254070be1f637bc285f66bc",
+      "revision": "32b1226b17a2ea64c0ebd6309d0035eaf5975d2c",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/22f40da94c40da976254070be1f637bc285f66bc/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/32b1226b17a2ea64c0ebd6309d0035eaf5975d2c/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -1958,11 +1958,11 @@
       "id": "honua-server-docs-get-started-first-dataset",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-dataset.md",
-      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
+      "revision": "ce839a03b4aee9b83650eade7862f29232c3e11d",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/first-dataset.md",
+      "url": "https://github.com/honua-io/honua-server/blob/ce839a03b4aee9b83650eade7862f29232c3e11d/docs/get-started/first-dataset.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -2036,7 +2036,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "4302cc1b4476566a6330eec5668f395381548a066955779295994557e3da8b55"
+          "sha256": "040eda7a5c4eeed07fcf44c4265716cfc7406c5ced998686570ef8feaa3c581f"
         },
         {
           "index": 7,
@@ -2177,11 +2177,11 @@
       "id": "honua-server-docs-guides-connect-ai-agents-mcp",
       "repo": "honua-io/honua-server",
       "path": "docs/guides/connect/ai-agents-mcp.md",
-      "revision": "5db5c5c11861064f1b9237c9ae3b353896c0f332",
+      "revision": "8528cd6999c6ba6b454aaefccbb5d62d419494f3",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/5db5c5c11861064f1b9237c9ae3b353896c0f332/docs/guides/connect/ai-agents-mcp.md",
+      "url": "https://github.com/honua-io/honua-server/blob/8528cd6999c6ba6b454aaefccbb5d62d419494f3/docs/guides/connect/ai-agents-mcp.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2501,11 +2501,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "9ce4ae759a475c871e5bf84259575d7bcc5e948c",
+      "revision": "3150ba7f1692dd5bf369519393e746e3e88bc963",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/9ce4ae759a475c871e5bf84259575d7bcc5e948c/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/3150ba7f1692dd5bf369519393e746e3e88bc963/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2788,11 +2788,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "9ce4ae759a475c871e5bf84259575d7bcc5e948c",
+      "revision": "3150ba7f1692dd5bf369519393e746e3e88bc963",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/9ce4ae759a475c871e5bf84259575d7bcc5e948c/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/3150ba7f1692dd5bf369519393e746e3e88bc963/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
