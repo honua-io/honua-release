@@ -1,4 +1,7 @@
 name: dr-drill-local-docker
+# gate-dr and dispatch-promise-producers tell a nightly candidate drill from a trunk-manifest
+# drill by this title.
+run-name: ${{ inputs.candidate_ref && format('dr-drill candidate {0}', inputs.candidate_ref) || format('dr-drill {0}', github.ref_name) }}
 
 on:
   pull_request:

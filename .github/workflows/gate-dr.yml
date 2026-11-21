@@ -23,6 +23,11 @@ on:
         required: false
         type: string
         default: ""
+      producer_run_id:
+        description: "Trunk dr-drill-local-docker run to take the receipt from; the gate fails unless it succeeded"
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
@@ -110,8 +115,8 @@ jobs:
           name: candidate-manifest
           path: candidate-input
       # An explicit URL (dispatch input, train input or repository variable) wins. Otherwise the URL
-      # comes from the receipt-location artifact of the trunk producer run: the one that triggered
-      # this run, or the newest successful non-PR trunk run. Only the location is taken from the
+      # comes from the receipt-location artifact of the trunk producer run: producer_run_id, or the
+      # newest successful non-PR, non-candidate trunk run. Only the location is taken from the
       # artifact; the bytes it points at are still attestation-verified below against the producer
       # workflow identity and refs/heads/trunk, and freshness-checked by validate_dr_receipt.py.
       - name: Resolve the full-platform receipt location
@@ -119,6 +124,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_URL: ${{ inputs.receipt_url || vars.HONUA_DR_RECEIPT_URL }}
+          PRODUCER_RUN: ${{ inputs.producer_run_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -127,9 +133,22 @@ jobs:
             echo "receipt_url=$INPUT_URL" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/dr-drill-local-docker.yml/runs?branch=trunk&status=success&per_page=30" \
-            --jq '[.workflow_runs[] | select(.event != "pull_request")][0].id // empty')"
-          [ -n "$run" ] || { echo "::error::no successful trunk dr-drill-local-docker run has published a receipt"; exit 1; }
+          # A nightly candidate drill is bound to the candidate snapshot, not the trunk manifest.
+          if [ -n "$PRODUCER_RUN" ]; then
+            [[ "$PRODUCER_RUN" =~ ^[0-9]+$ ]] || { echo "::error::producer_run_id must be a run id"; exit 1; }
+            read -r path branch event conclusion candidate < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PRODUCER_RUN" \
+              --jq '"\(.path) \(.head_branch) \(.event) \(.conclusion) \(.display_title | startswith("dr-drill candidate "))"')
+            if [ "$path" != .github/workflows/dr-drill-local-docker.yml ] || [ "$branch" != trunk ] \
+              || [ "$event" = pull_request ] || [ "$candidate" != false ] || [ "$conclusion" != success ]; then
+              echo "::error::DR producer run $PRODUCER_RUN published no trunk receipt ($path $branch $event $conclusion candidate=$candidate)"
+              exit 1
+            fi
+            run="$PRODUCER_RUN"
+          else
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/dr-drill-local-docker.yml/runs?branch=trunk&status=success&per_page=30" \
+              --jq '[.workflow_runs[] | select(.event != "pull_request" and (.display_title | startswith("dr-drill candidate ") | not))][0].id // empty')"
+            [ -n "$run" ] || { echo "::error::no successful trunk dr-drill-local-docker run has published a receipt"; exit 1; }
+          fi
           name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
             --jq '[.artifacts[] | select(.name | startswith("dr-receipt-location-")) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty')"
           [ -n "$name" ] || { echo "::error::producer run $run has no unexpired dr-receipt-location artifact"; exit 1; }

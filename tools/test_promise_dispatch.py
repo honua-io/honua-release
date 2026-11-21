@@ -120,8 +120,40 @@ def test_a_producer_with_a_trunk_run_in_flight_is_skipped_not_cancelled(monkeypa
     manifest = write_manifest(tmp_path / 'm.yaml')
     argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary), '--only', 'gate-contract.yml']
     assert dispatch.main(argv, run=fake_gh(commands, busy={'gate-contract.yml'})) == 0
-    assert [command[:3] for command in commands] == [['gh', 'run', 'list']]
+    assert [command[6] for command in commands] == [*dispatch.TRAINS, 'gate-contract.yml']
     assert '| `gate-contract.yml` | skipped: run 7 in flight |' in summary.read_text()
+
+
+def test_a_release_train_in_flight_holds_back_only_the_producers_it_calls(monkeypatch, tmp_path):
+    monkeypatch.setattr(dispatch, 'qualification_lock_digest', lambda manifest: DIGEST)
+    commands, summary = [], tmp_path / 'summary.md'
+    manifest = write_manifest(tmp_path / 'm.yaml')
+    argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary)]
+    assert dispatch.main(argv, run=fake_gh(commands, busy={'nightly-certification.yml'})) == 0
+    dispatched = {command[3] for command in commands if command[:3] == ['gh', 'workflow', 'run']}
+    assert dispatched == {'gate-source-facts.yml'}
+    assert dispatch.train_called() >= set(dispatch.DISPATCHED) - {'gate-source-facts.yml'}
+    assert 'skipped: a release train is in flight (nightly-certification.yml run 7 in flight)' in summary.read_text()
+
+
+def test_an_unresolvable_manifest_still_runs_the_scans_without_receipts(tmp_path):
+    commands, summary = [], tmp_path / 'summary.md'
+    manifest = write_manifest(tmp_path / 'm.yaml', digest='pending')
+    argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary)]
+    assert dispatch.main(argv, run=fake_gh(commands)) == 1
+    dispatched = {command[3]: command[8:] for command in commands if command[:3] == ['gh', 'workflow', 'run']}
+    assert set(dispatched) == set(dispatch.DISPATCHED) - {'gate-source-facts.yml'}
+    assert not any('platform_lock_digest' in field for fields in dispatched.values() for field in fields)
+    assert dispatched['gate-contract.yml'] == ['-f', 'enforcement=strict']
+    text = summary.read_text()
+    assert 'none: no promise receipts' in text and '| `gate-source-facts.yml` | FAILED: needs the candidate pins' in text
+
+
+def test_gate_dr_reads_the_drill_run_that_triggered_the_dispatch():
+    pins = {'server_sha': SHA, 'server_digest': DIGEST, 'label': 'rc'}
+    planned = dict(dispatch.plan(pins, DIGEST, {'gate-dr.yml'}, '4242'))
+    assert planned == {'gate-dr.yml': {'platform_lock_digest': DIGEST, 'producer_run_id': '4242'}}
+    assert 'producer_run_id' in dispatch_inputs('gate-dr.yml')
 
 
 def test_only_and_skip_select_dispatched_producers():
@@ -147,7 +179,16 @@ def test_workflow_runs_only_on_trunk_with_actions_write_and_the_tool():
     job = document['jobs']['dispatch']
     assert "github.ref == 'refs/heads/trunk'" in job['if']
     assert job['permissions'] == {'contents': 'read', 'actions': 'write'}
-    assert "workflow_run.conclusion == 'success'" in job['if']
+    assert '"success","failure"' in job['if'] and "github.event.workflow_run.event != 'pull_request'" in job['if']
+    assert "!startsWith(github.event.workflow_run.display_title, 'dr-drill candidate ')" in job['if']
     run = '\n'.join(step.get('run', '') for step in job['steps'])
     assert 'tools/promise_dispatch.py --dispatch' in run
-    assert 'workflow_run) args+=(--only gate-dr.yml)' in run and '*) args+=(--skip gate-dr.yml)' in run
+    assert 'workflow_run) args+=(--only gate-dr.yml --dr-producer-run "$DRILL_RUN")' in run and '*) args+=(--skip gate-dr.yml)' in run
+
+
+def test_candidate_drills_are_titled_so_gate_dr_and_the_dispatcher_can_refuse_them():
+    drill = yaml.safe_load((ROOT / '.github/workflows/dr-drill-local-docker.yml').read_text())
+    assert "format('dr-drill candidate {0}', inputs.candidate_ref)" in drill['run-name']
+    gate = (ROOT / '.github/workflows/gate-dr.yml').read_text()
+    assert gate.count('startswith("dr-drill candidate ")') == 2
+    assert '[ "$conclusion" != success ]' in gate

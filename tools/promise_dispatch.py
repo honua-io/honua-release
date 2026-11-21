@@ -57,6 +57,9 @@ EXCLUDED = {
     'gate-release-outcomes.yml': 'outcome evaluation on an installed stack',
 }
 IN_FLIGHT = {'queued', 'in_progress', 'waiting', 'requested', 'pending'}
+# Their release-train calls share the producers' concurrency groups but run under the caller.
+TRAINS = ('release-train.yml', 'nightly-certification.yml', 'rc-release.yml')
+TRAIN_CALLS = re.compile(r'uses:\s*\./\.github/workflows/([\w.-]+\.yml)')
 SHA = re.compile(r'^[0-9a-f]{40}$')
 DIGEST = re.compile(r'^sha256:[0-9a-f]{64}$')
 
@@ -87,10 +90,29 @@ def candidate(manifest: Path) -> dict:
     return {'server_sha': sha, 'server_digest': digest, 'label': label}
 
 
-def plan(pins: dict, lock_digest: str, selected=None) -> list[tuple[str, dict]]:
-    return [(workflow, {'platform_lock_digest': lock_digest,
-                        **{key: value.format(**pins) for key, value in extra.items()}})
-            for workflow, extra in DISPATCHED.items() if selected is None or workflow in selected]
+def resolve(manifest: Path) -> tuple[dict, str, str]:
+    """Pins and digest, or empty values and the reason the producers get no receipt today."""
+    try:
+        pins = candidate(manifest)
+        return pins, qualification_lock_digest(manifest), ''
+    except ValueError as error:
+        return {}, '', str(error)
+
+
+def plan(pins: dict, lock_digest: str, selected=None, dr_run='') -> list[tuple[str, dict | None]]:
+    """Inputs per producer; None when the producer cannot run without the candidate pins."""
+    planned = []
+    for workflow, extra in DISPATCHED.items():
+        if selected is not None and workflow not in selected:
+            continue
+        if not lock_digest:
+            planned.append((workflow, None if extra.get('server_sha') else
+                            {key: value for key, value in extra.items() if '{' not in value}))
+            continue
+        inputs = {'platform_lock_digest': lock_digest, **{key: value.format(**pins) for key, value in extra.items()}}
+        planned.append((workflow, {**inputs, 'producer_run_id': dr_run} if dr_run and workflow == 'gate-dr.yml'
+                        else inputs))
+    return planned
 
 
 def select(only: list[str], skip: list[str]) -> set[str]:
@@ -106,16 +128,26 @@ def in_flight(workflow: str, run) -> str:
     if done.returncode != 0:
         raise RuntimeError(f'cannot list {workflow} runs: {done.stderr.strip()[:200]}')
     busy = [str(item['databaseId']) for item in json.loads(done.stdout) if item['status'] in IN_FLIGHT]
-    return f"skipped: run {', '.join(busy)} in flight" if busy else ''
+    return f"run {', '.join(busy)} in flight" if busy else ''
 
 
-def dispatch_one(workflow: str, inputs: dict, run) -> tuple[str, bool]:
+def train_called(root: Path = ROOT) -> set[str]:
+    return set(TRAIN_CALLS.findall((root / '.github/workflows/release-train.yml').read_text()))
+
+
+def trains_in_flight(run) -> str:
+    return '; '.join(f'{train} {state}' for train in TRAINS if (state := in_flight(train, run)))
+
+
+def dispatch_one(workflow: str, inputs: dict, run, train_busy='') -> tuple[str, bool]:
+    if train_busy and workflow in train_called():
+        return f'skipped: a release train is in flight ({train_busy})', True
     try:
         busy = in_flight(workflow, run)
     except RuntimeError as error:
         return f'FAILED: {error}', False
     if busy:
-        return busy, True
+        return f'skipped: {busy}', True
     done = run(command(workflow, inputs), capture_output=True, text=True)
     if done.returncode != 0:
         return f'FAILED: {done.stderr.strip()[:200]}', False
@@ -128,9 +160,10 @@ def command(workflow: str, inputs: dict) -> list[str]:
 
 
 def summary(pins: dict, lock_digest: str, results: list[tuple[str, str]]) -> str:
-    lines = [f"## Promise producers for honua-server {pins['server_sha'][:12]}", '',
-             f"- server digest `{pins['server_digest']}`", f'- platform_lock_digest `{lock_digest}`',
-             f"- label `{pins['label']}`", '', '| Workflow | Result |', '|---|---|']
+    lines = [f"## Promise producers for honua-server {pins.get('server_sha', 'unpinned')[:12]}", '',
+             f"- server digest `{pins.get('server_digest', '')}`",
+             f"- platform_lock_digest `{lock_digest or 'none: no promise receipts from these runs'}`",
+             f"- label `{pins.get('label', '')}`", '', '| Workflow | Result |', '|---|---|']
     lines += [f'| `{workflow}` | {result} |' for workflow, result in results]
     lines += ['', 'Not dispatched here:', '']
     lines += [f'- `{workflow}`: {reason}' for workflow, reason in EXCLUDED.items()]
@@ -144,6 +177,7 @@ def main(argv=None, run=subprocess.run) -> int:
     parser.add_argument('--summary', type=Path, help='append a Markdown summary (GITHUB_STEP_SUMMARY)')
     parser.add_argument('--only', action='append', default=[], help='dispatch only this workflow')
     parser.add_argument('--skip', action='append', default=[], help='do not dispatch this workflow')
+    parser.add_argument('--dr-producer-run', default='', help='dr-drill-local-docker run gate-dr reads')
     args = parser.parse_args(argv)
 
     unclassified = contract_workflows() - DISPATCHED.keys() - EXCLUDED.keys()
@@ -153,15 +187,23 @@ def main(argv=None, run=subprocess.run) -> int:
         selected = select(args.only, args.skip)
     except ValueError as error:
         parser.error(str(error))
-    pins = candidate(args.manifest)
-    lock_digest = qualification_lock_digest(args.manifest)
-    results, failed = [], 0
-    for workflow, inputs in plan(pins, lock_digest, selected):
-        if not args.dispatch:
+    pins, lock_digest, problem = resolve(args.manifest)
+    if problem:
+        # The scans still run daily; only their promise receipts wait for a resolvable manifest.
+        print(f'::error::no promise digest: {problem}')
+    try:
+        train_busy = trains_in_flight(run) if args.dispatch else ''
+    except RuntimeError as error:
+        train_busy = f'unknown: {error}'
+    results, failed = [], bool(problem)
+    for workflow, inputs in plan(pins, lock_digest, selected, args.dr_producer_run):
+        if inputs is None:
+            result, ok = f'FAILED: needs the candidate pins ({problem})', False
+        elif not args.dispatch:
             print(' '.join(command(workflow, inputs)))
-            results.append((workflow, 'planned'))
-            continue
-        result, ok = dispatch_one(workflow, inputs, run)
+            result, ok = 'planned', True
+        else:
+            result, ok = dispatch_one(workflow, inputs, run, train_busy)
         failed += not ok
         results.append((workflow, result))
         print(f'{workflow}: {result}')
