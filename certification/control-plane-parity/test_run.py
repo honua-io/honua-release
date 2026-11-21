@@ -224,16 +224,19 @@ def test_import_receipt_catches_requests_decoder_only(decoder_error):
             response_body(Response())
 
 
-
 class _SecureCookieServer(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
     def do_GET(self):
         body = (self.headers.get("Cookie") or "").encode()
-        self.send_response(200)
+        if self.path != "/redirect":
+            self.send_response(200)
         if self.path == "/set":
             self.send_header("Set-Cookie", "honua_admin_pending=p; Path=/; Secure; HttpOnly; SameSite=Lax")
+        if self.path == "/redirect":
+            self.send_response(302)
+            self.send_header("Location", "/echo")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -245,14 +248,16 @@ def secure_cookie_server():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{server.server_port}"
     server.shutdown()
+    server.server_close()
 
 
+@pytest.mark.parametrize("path", ["/echo", "/redirect"])
 @pytest.mark.parametrize("session_type,expected", [(LoopbackSession, "honua_admin_pending=p"), (requests.Session, "")])
-def test_loopback_session_returns_secure_cookie_over_loopback_http(secure_cookie_server, session_type, expected):
-    session = session_type()
-    session.trust_env = False
-    session.get(secure_cookie_server + "/set", timeout=5)
-    assert session.get(secure_cookie_server + "/echo", timeout=5).text == expected
+def test_loopback_session_returns_secure_cookie_over_loopback_http(secure_cookie_server, session_type, expected, path):
+    with session_type() as session:
+        session.trust_env = False
+        session.get(secure_cookie_server + "/set", timeout=5).close()
+        assert session.get(secure_cookie_server + path, timeout=5).text == expected
 
 
 def test_secure_cookie_policy_reaches_loopback_http_and_https():

@@ -23,7 +23,9 @@ class LoopbackSecureContextPolicy(DefaultCookiePolicy):
 
 class LoopbackSession(requests.Session):
     """requests merges cookies into a fresh jar with the default policy before each request,
-    so the Cookie header is rebuilt here from the session jar under the loopback policy."""
+    so the Cookie header is rebuilt here from the session jar under the loopback policy.
+    Only session cookies are sent: per-request cookies= and an explicit Cookie header are
+    not supported (the sign-in flow uses neither)."""
 
     def __init__(self):
         super().__init__()
