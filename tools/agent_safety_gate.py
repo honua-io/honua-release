@@ -7,8 +7,10 @@ as that agent:
 
 - every operation the candidate's catalog marks other than read-only is submitted through
   POST /api/v1/operations/{id}/submit and must come back as a proposal awaiting one human approval;
-- every mutating route in the candidate's admin OpenAPI document, and every route on the
-  candidate's committed agent route rule list, is called directly. A route without its own agent
+- every mutating route in the candidate's admin OpenAPI document, every route on the candidate's
+  committed agent route rule list and every route on its governed change-route inventory
+  (agent-change-routes.txt) is called directly; an inventory route the walk never called, or a
+  missing inventory, leaves the row unchecked. A route without its own agent
   rule must refuse the agent (403); a route with its own rule must not succeed unless the rule says
   it changes nothing.
 
@@ -33,6 +35,7 @@ import uuid
 from http import HTTPStatus
 
 import agent_safety_seed
+from agent_safety_inventory import INVENTORY, inventory_routes, load_inventory, uncovered
 from agent_safety_routes import (ADMIN_PREFIX, FORBIDDEN, GateUnavailable, annotate, openapi_routes, parse_rules,
                                  placeholder_values, probe_routes, rule_routes, succeeded, walk_routes)
 import rc_gate_window as gate
@@ -49,9 +52,10 @@ SNAPSHOT_ROUTES = tuple(ADMIN_PREFIX + route for route in (
 VOLATILE = ('lastUsedAt', 'updatedAt', 'timestamp')
 EXECUTED = {'Succeeded', 'Completed', 'Running', 'Queued', 'Accepted'}
 SHOWN = 40
-SCOPE = ('operations API catalog; mutating routes in the candidate admin OpenAPI; every route on agent-route-rules.txt '
-         '(admin and Console). Console routes without their own rule are not enumerated (no published Console route list); '
-         'protocol data-edit routes (OGC Features, GeoServices applyEdits, WFS-T) and GP job submission are out of scope')
+SCOPE = ('operations API catalog; mutating routes in the candidate admin OpenAPI; every route on '
+         'agent-route-rules.txt and on agent-change-routes.txt (every governed state-changing route: admin, '
+         'Console and administrator-only). Protocol data-edit routes outside the governed set (OGC Features, '
+         'GeoServices applyEdits, WFS-T) and GP job submission are out of scope')
 
 
 class Client:
@@ -264,10 +268,14 @@ def run(options, candidate) -> tuple[dict, dict]:
     before = snapshot(admin, actor, world)
     catalog = unwrap(admin.json('GET', '/api/v1/operations'))['operations']
     routes = openapi_routes(admin.json('GET', ADMIN_PREFIX + '/openapi.json'))
-    routes = annotate(routes + rule_routes(rules, {(r['method'], r['template']) for r in routes}), rules, fixtures)
+    routes += rule_routes(rules, {(r['method'], r['template']) for r in routes})
+    inventory = load_inventory(Path(options.inventory))
+    governed = inventory_routes(inventory or [], {(r['method'], r['template']) for r in routes})
+    routes = annotate(routes + governed, rules, fixtures)
     routes += probe_routes(routes, fixtures)
     operations = walk_operations(agent, catalog, fixtures.get('operations', {}), world)
     walked = walk_routes(agent, routes, world)
+    walked += uncovered(inventory, walked)
     identity = {'proposals': proposals_audited(admin, operations, actor),
                 'refusals': refusals_unaudited(walked, audit_entries(admin, actor))}
     after = snapshot(admin, actor, world)
@@ -275,7 +283,8 @@ def run(options, candidate) -> tuple[dict, dict]:
     assertions, findings = decide(operations, walked, identity, changed)
     findings = {**findings, 'proposalNotAudited': identity['proposals'], 'refusalNotAudited': identity['refusals']}
     report = {'operations': operations, 'routes': walked, 'operationCounts': counts(operations),
-              'routeCounts': counts(walked), 'findings': findings}
+              'routeCounts': counts(walked), 'inventoryRoutes': len(inventory or []),
+              'findings': findings}
     return receipt(candidate, assertions, findings), report
 
 
@@ -284,6 +293,7 @@ def main(argv=None) -> int:
     parser.add_argument('--base', default=os.environ.get('E2E_BASE', 'http://localhost:8080'))
     parser.add_argument('--admin-key', default=os.environ.get('E2E_API_KEY', 'honua-console-dev-key'))
     parser.add_argument('--rules', default=str(Path(os.environ.get('SERVER_CHECKOUT', 'server')) / RULES))
+    parser.add_argument('--inventory', default=str(Path(os.environ.get('SERVER_CHECKOUT', 'server')) / INVENTORY))
     parser.add_argument('--fixtures', default=str(FIXTURES))
     options = parser.parse_args(argv)
     RECEIPT.unlink(missing_ok=True)

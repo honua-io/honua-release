@@ -143,9 +143,12 @@ or certify a live pass. Shell runs are debugging evidence only.
 without an installed stack. It boots the exact candidate image@digest with the e2e compose harness
 and mints an agent-kind API key. As that agent it submits every operation that the candidate's
 catalog marks other than read-only, and each one must come back as a proposal awaiting approval.
-It then calls every mutating route in the candidate's admin OpenAPI document and on the candidate's
-committed agent route rule list. A route without its own agent rule must answer 403. A route with
-its own rule must not succeed unless the rule says it changes nothing. Each proposal must name the
+It then calls every mutating route in the candidate's admin OpenAPI document, on the candidate's
+committed agent route rule list and on its governed change-route inventory
+(`agent-change-routes.txt`, every state-changing admin, Console and administrator-only route). An
+inventory route the walk never called, or a candidate revision without the inventory, leaves the
+row unchecked.
+A route without its own agent rule must answer 403. A route with its own rule must not succeed unless the rule says it changes nothing. Each proposal must name the
 agent as `requestedByAgent`, each refusal must be in the audit trail under the agent actor, and the
 administrator state read before the walk must be unchanged. Parameters an operation needs before
 its policy decision come from `certification/agent-safety/operation-fixtures.json`, filled from
@@ -154,10 +157,8 @@ reaches the decision leaves the row failing. A route with its own rule counts on
 shows the rule decided (403, an `operator.agent.*` reference or a proposal). A documented route the
 candidate does not map counts only when the fixtures give the reason. Sign-in routes under
 `/admin/auth/` are listed, not judged. Fixture `probes` send further requests to a route whose rule
-refuses only some changes, such as an edit of content another person owns. The route scope is every
-mutating route in the candidate's admin OpenAPI document plus every admin and Console route on its
-agent route rule list; Console routes without their own rule are not enumerated, because the
-candidate publishes no Console route list. Protocol data-edit routes (OGC
+refuses only some changes, such as an edit of content another person owns. The route scope is the union of
+those three lists. Protocol data-edit routes outside the governed set (OGC
 Features transactions, GeoServices `applyEdits`, WFS-T) and GP job submission follow their layer
 and process grants and are outside this row; the receipt's `scope` field says so.
 
