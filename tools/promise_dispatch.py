@@ -8,7 +8,8 @@ the canonical lock-draft digest printed in docs/SDK-SERVER-COMPATIBILITY.md. Thi
 computes the digest the same way and dispatches every producer that needs no installed
 stack, reviewer, private tracker or spend. Every other contract workflow is listed in
 EXCLUDED with the reason it is not dispatched here, so a new promise row cannot be skipped
-silently.
+silently. A producer with a trunk run still queued or running is skipped: its concurrency
+group would cancel one of the two runs, and a cancelled overlapping run invalidates the row.
 """
 from __future__ import annotations
 
@@ -53,13 +54,16 @@ EXCLUDED = {
     'gate-ai-native.yml': 'paid model arms need the founder spending authorization',
     'gate-protocol-certification.yml': 'matrix inputs come from the nightly protocol ledger',
     'capacity-soak.yml': 'long soak on a sized stack (GA only)',
+    'gate-release-outcomes.yml': 'outcome evaluation on an installed stack',
 }
+IN_FLIGHT = {'queued', 'in_progress', 'waiting', 'requested', 'pending'}
 SHA = re.compile(r'^[0-9a-f]{40}$')
 DIGEST = re.compile(r'^sha256:[0-9a-f]{64}$')
 
 
 def contract_workflows(contract: Path = CONTRACT) -> set[str]:
-    rows = json.loads(contract.read_text())['rows']
+    document = json.loads(contract.read_text())
+    rows = document['rows'] + document['outcomes']
     return {name for row in rows for name in (row['workflow'], *row.get('additionalWorkflows', []))}
 
 
@@ -83,10 +87,39 @@ def candidate(manifest: Path) -> dict:
     return {'server_sha': sha, 'server_digest': digest, 'label': label}
 
 
-def plan(pins: dict, lock_digest: str) -> list[tuple[str, dict]]:
+def plan(pins: dict, lock_digest: str, selected=None) -> list[tuple[str, dict]]:
     return [(workflow, {'platform_lock_digest': lock_digest,
                         **{key: value.format(**pins) for key, value in extra.items()}})
-            for workflow, extra in DISPATCHED.items()]
+            for workflow, extra in DISPATCHED.items() if selected is None or workflow in selected]
+
+
+def select(only: list[str], skip: list[str]) -> set[str]:
+    unknown = sorted(set(only + skip) - DISPATCHED.keys())
+    if unknown:
+        raise ValueError(f'not dispatched by this tool: {unknown}')
+    return (set(only) or set(DISPATCHED)) - set(skip)
+
+
+def in_flight(workflow: str, run) -> str:
+    done = run(['gh', 'run', 'list', '--repo', REPO, '--workflow', workflow, '--branch', REF,
+                '--limit', '20', '--json', 'databaseId,status'], capture_output=True, text=True)
+    if done.returncode != 0:
+        raise RuntimeError(f'cannot list {workflow} runs: {done.stderr.strip()[:200]}')
+    busy = [str(item['databaseId']) for item in json.loads(done.stdout) if item['status'] in IN_FLIGHT]
+    return f"skipped: run {', '.join(busy)} in flight" if busy else ''
+
+
+def dispatch_one(workflow: str, inputs: dict, run) -> tuple[str, bool]:
+    try:
+        busy = in_flight(workflow, run)
+    except RuntimeError as error:
+        return f'FAILED: {error}', False
+    if busy:
+        return busy, True
+    done = run(command(workflow, inputs), capture_output=True, text=True)
+    if done.returncode != 0:
+        return f'FAILED: {done.stderr.strip()[:200]}', False
+    return 'dispatched', True
 
 
 def command(workflow: str, inputs: dict) -> list[str]:
@@ -109,25 +142,29 @@ def main(argv=None, run=subprocess.run) -> int:
     parser.add_argument('--manifest', type=Path, default=ROOT / 'platform-manifest.yaml')
     parser.add_argument('--dispatch', action='store_true', help='run gh workflow run (default: print)')
     parser.add_argument('--summary', type=Path, help='append a Markdown summary (GITHUB_STEP_SUMMARY)')
+    parser.add_argument('--only', action='append', default=[], help='dispatch only this workflow')
+    parser.add_argument('--skip', action='append', default=[], help='do not dispatch this workflow')
     args = parser.parse_args(argv)
 
     unclassified = contract_workflows() - DISPATCHED.keys() - EXCLUDED.keys()
     if unclassified:
         parser.error(f'promise workflows neither dispatched nor excluded: {sorted(unclassified)}')
+    try:
+        selected = select(args.only, args.skip)
+    except ValueError as error:
+        parser.error(str(error))
     pins = candidate(args.manifest)
     lock_digest = qualification_lock_digest(args.manifest)
     results, failed = [], 0
-    for workflow, inputs in plan(pins, lock_digest):
-        argv_ = command(workflow, inputs)
+    for workflow, inputs in plan(pins, lock_digest, selected):
         if not args.dispatch:
-            print(' '.join(argv_))
+            print(' '.join(command(workflow, inputs)))
             results.append((workflow, 'planned'))
             continue
-        done = run(argv_, capture_output=True, text=True)
-        ok = done.returncode == 0
+        result, ok = dispatch_one(workflow, inputs, run)
         failed += not ok
-        results.append((workflow, 'dispatched' if ok else f'FAILED: {done.stderr.strip()[:200]}'))
-        print(f"{workflow}: {results[-1][1]}")
+        results.append((workflow, result))
+        print(f'{workflow}: {result}')
     text = summary(pins, lock_digest, results)
     if args.summary:
         with args.summary.open('a') as handle:

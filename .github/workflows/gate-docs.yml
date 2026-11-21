@@ -40,8 +40,8 @@ on:
       - "schemas/2026.1-evidence-map.schema.json"
       - "tools/check_evidence_map.py"
       - "tools/test_evidence_map_schema.py"
-  schedule:
-    - cron: "57 5 * * *"
+  # Daily strict runs with the promise digest come from dispatch-promise-producers.yml; a
+  # cron here would start a newer receipt-less trunk run that invalidates them.
   workflow_dispatch:
     inputs:
       platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }

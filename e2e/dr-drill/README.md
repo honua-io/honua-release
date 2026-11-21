@@ -111,7 +111,9 @@ python -m pytest tools/test_validate_dr_receipt.py -q
 ```
 
 Supply `dr_receipt_url` to the release train, or `receipt_url` when dispatching
-`gate-dr`. Scheduled runs use `HONUA_DR_RECEIPT_URL`. Missing URL, attestation,
+`gate-dr`. Without either, `gate-dr` reads the receipt from the newest successful trunk
+`dr-drill-local-docker` run; `dispatch-promise-producers.yml` dispatches it after each one.
+Missing URL, attestation,
 configuration, objective, enabled substrate, or restart observation is a failure, as is an
 attestation from an untrusted signer or ref.
 

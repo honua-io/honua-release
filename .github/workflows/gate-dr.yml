@@ -8,17 +8,10 @@ on:
       - "tools/fixtures/dr/**"
       - ".github/workflows/gate-dr.yml"
       - ".github/workflows/release-train.yml"
-  # The gate runs when the trunk producer (dr-drill-local-docker: weekly, on manifest pushes, or
-  # dispatched) finishes, so the 24-hour freshness bound is measured against a receipt minted
-  # minutes earlier. A fixed cron of its own had no receipt to read: vars.HONUA_DR_RECEIPT_URL was
-  # never set, so every scheduled run since September failed at the fetch step.
-  workflow_run:
-    workflows: [dr-drill-local-docker]
-    types: [completed]
-    branches: [trunk]
-  # Backstop a few hours after the producer's own Monday/Thursday slots, inside the 24-hour bound.
-  schedule:
-    - cron: "47 12 * * 1,4"
+  # After each successful trunk dr-drill-local-docker run, dispatch-promise-producers.yml
+  # dispatches this gate with the promise digest, so the 24-hour freshness bound is measured
+  # against a receipt minted minutes earlier. A workflow_run or cron trigger here would start
+  # a newer receipt-less trunk run that invalidates that dispatch.
   workflow_dispatch:
     inputs:
       platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }
@@ -126,9 +119,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_URL: ${{ inputs.receipt_url || vars.HONUA_DR_RECEIPT_URL }}
-          PRODUCER_RUN: ${{ github.event.workflow_run.id }}
-          PRODUCER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          PRODUCER_EVENT: ${{ github.event.workflow_run.event }}
         shell: bash
         run: |
           set -euo pipefail
@@ -137,17 +127,9 @@ jobs:
             echo "receipt_url=$INPUT_URL" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ -n "$PRODUCER_RUN" ]; then
-            if [ "$PRODUCER_EVENT" = "pull_request" ] || [ "$PRODUCER_CONCLUSION" != "success" ]; then
-              echo "::error::trunk DR producer run $PRODUCER_RUN ($PRODUCER_EVENT) concluded $PRODUCER_CONCLUSION; it published no receipt"
-              exit 1
-            fi
-            run="$PRODUCER_RUN"
-          else
-            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/dr-drill-local-docker.yml/runs?branch=trunk&status=success&per_page=30" \
-              --jq '[.workflow_runs[] | select(.event != "pull_request")][0].id // empty')"
-            [ -n "$run" ] || { echo "::error::no successful trunk dr-drill-local-docker run has published a receipt"; exit 1; }
-          fi
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/dr-drill-local-docker.yml/runs?branch=trunk&status=success&per_page=30" \
+            --jq '[.workflow_runs[] | select(.event != "pull_request")][0].id // empty')"
+          [ -n "$run" ] || { echo "::error::no successful trunk dr-drill-local-docker run has published a receipt"; exit 1; }
           name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" \
             --jq '[.artifacts[] | select(.name | startswith("dr-receipt-location-")) | select(.expired | not)] | sort_by(.created_at) | last | .name // empty')"
           [ -n "$name" ] || { echo "::error::producer run $run has no unexpired dr-receipt-location artifact"; exit 1; }

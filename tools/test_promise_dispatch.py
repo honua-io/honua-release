@@ -49,6 +49,7 @@ def test_digest_uses_ensure_lock_so_both_sides_regenerate_identically(monkeypatc
 
 def test_every_promise_workflow_is_dispatched_or_excluded_with_a_reason():
     workflows = dispatch.contract_workflows()
+    assert {'gate-release-outcomes.yml', 'gate-contract-live.yml', 'gate-docs.yml'} <= workflows
     assert workflows <= dispatch.DISPATCHED.keys() | dispatch.EXCLUDED.keys()
     assert not dispatch.DISPATCHED.keys() & dispatch.EXCLUDED.keys()
     assert all(reason.strip() for reason in dispatch.EXCLUDED.values())
@@ -61,7 +62,7 @@ def test_dispatched_inputs_are_declared_and_required_inputs_supplied(workflow):
     assert set(inputs) <= set(declared), workflow
     assert {name for name, spec in declared.items() if spec.get('required')} <= set(inputs)
     for name, value in inputs.items():
-        assert value == 'strict' or 'options' not in declared[name] or value in declared[name]['options']
+        assert value in declared[name].get('options', [value]), (workflow, name)
     assert inputs['platform_lock_digest'] == DIGEST
 
 
@@ -80,21 +81,28 @@ def test_manifest_without_a_full_server_pin_is_refused(tmp_path, server):
         dispatch.candidate(write_manifest(tmp_path / 'm.yaml', **server))
 
 
+def fake_gh(commands, busy=(), failing=()):
+    def run(argv, **_):
+        commands.append(argv)
+        if argv[:3] == ['gh', 'run', 'list']:
+            status = 'in_progress' if argv[6] in busy else 'completed'
+            return subprocess.CompletedProcess(argv, 0, f'[{{"databaseId": 7, "status": "{status}"}}]', '')
+        return subprocess.CompletedProcess(argv, 1 if argv[3] in failing else 0, '', 'HTTP 422')
+    return run
+
+
 def test_dispatch_runs_gh_on_trunk_and_fails_when_one_dispatch_fails(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(dispatch, 'qualification_lock_digest', lambda manifest: 'sha256:' + 'c' * 64)
     commands = []
-
-    def run(argv, **_):
-        commands.append(argv)
-        return subprocess.CompletedProcess(argv, 1 if argv[3] == 'gate-dr.yml' else 0, '', 'HTTP 422')
+    run = fake_gh(commands, failing={'gate-dr.yml'})
 
     summary = tmp_path / 'summary.md'
     manifest = write_manifest(tmp_path / 'm.yaml')
     code = dispatch.main(['--manifest', str(manifest), '--dispatch', '--summary', str(summary)], run=run)
     assert code == 1
-    assert [argv[3] for argv in commands] == list(dispatch.DISPATCHED)
-    assert all(argv[:3] == ['gh', 'workflow', 'run'] and argv[4:8] == ['--repo', dispatch.REPO, '--ref', 'trunk']
-               for argv in commands)
+    dispatched = [argv for argv in commands if argv[:3] == ['gh', 'workflow', 'run']]
+    assert [argv[3] for argv in dispatched] == list(dispatch.DISPATCHED)
+    assert all(argv[4:8] == ['--repo', dispatch.REPO, '--ref', 'trunk'] for argv in dispatched)
     text = summary.read_text()
     assert '| `gate-dr.yml` | FAILED: HTTP 422 |' in text and '| `gate-dr.yml` | dispatched |' not in text
     assert 'gate-upgrade.yml' in text and 'sha256:' + 'c' * 64 in capsys.readouterr().out
@@ -106,14 +114,40 @@ def test_print_mode_dispatches_nothing(monkeypatch, tmp_path):
     assert dispatch.main(['--manifest', str(manifest)], run=lambda *a, **k: pytest.fail('dispatched')) == 0
 
 
+def test_a_producer_with_a_trunk_run_in_flight_is_skipped_not_cancelled(monkeypatch, tmp_path):
+    monkeypatch.setattr(dispatch, 'qualification_lock_digest', lambda manifest: DIGEST)
+    commands, summary = [], tmp_path / 'summary.md'
+    manifest = write_manifest(tmp_path / 'm.yaml')
+    argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary), '--only', 'gate-contract.yml']
+    assert dispatch.main(argv, run=fake_gh(commands, busy={'gate-contract.yml'})) == 0
+    assert [command[:3] for command in commands] == [['gh', 'run', 'list']]
+    assert '| `gate-contract.yml` | skipped: run 7 in flight |' in summary.read_text()
+
+
+def test_only_and_skip_select_dispatched_producers():
+    assert dispatch.select(['gate-dr.yml'], []) == {'gate-dr.yml'}
+    assert dispatch.select([], ['gate-dr.yml']) == set(dispatch.DISPATCHED) - {'gate-dr.yml'}
+    with pytest.raises(ValueError, match='gate-upgrade.yml'):
+        dispatch.select(['gate-upgrade.yml'], [])
+
+
+@pytest.mark.parametrize('workflow', sorted(dispatch.DISPATCHED))
+def test_dispatched_producers_have_no_trunk_trigger_of_their_own(workflow):
+    document = yaml.safe_load((ROOT / '.github/workflows' / workflow).read_text())
+    assert not {'schedule', 'workflow_run', 'push'} & set(document.get('on', document.get(True))), workflow
+
+
 def test_workflow_runs_only_on_trunk_with_actions_write_and_the_tool():
     document = yaml.safe_load((ROOT / '.github/workflows/dispatch-promise-producers.yml').read_text())
     triggers = document.get('on', document.get(True))
-    assert set(triggers) == {'schedule', 'push', 'workflow_dispatch'}
-    assert triggers['push']['branches'] == ['trunk']
+    assert set(triggers) == {'schedule', 'push', 'workflow_run', 'workflow_dispatch'}
+    assert triggers['push']['branches'] == triggers['workflow_run']['branches'] == ['trunk']
+    assert triggers['workflow_run']['workflows'] == ['dr-drill-local-docker']
     assert document['permissions'] == {'contents': 'read'}
     job = document['jobs']['dispatch']
     assert "github.ref == 'refs/heads/trunk'" in job['if']
     assert job['permissions'] == {'contents': 'read', 'actions': 'write'}
+    assert "workflow_run.conclusion == 'success'" in job['if']
     run = '\n'.join(step.get('run', '') for step in job['steps'])
     assert 'tools/promise_dispatch.py --dispatch' in run
+    assert 'workflow_run) args+=(--only gate-dr.yml)' in run and '*) args+=(--skip gate-dr.yml)' in run

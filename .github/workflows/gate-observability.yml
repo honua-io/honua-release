@@ -48,8 +48,8 @@ name: gate-observability
 run-name: "gate-observability ${{ inputs.platform_label }} (${{ inputs.enforcement }})"
 
 on:
-  schedule:
-    - cron: "7 6 * * *"
+  # Daily strict runs with the promise digest come from dispatch-promise-producers.yml; a
+  # cron here would start a newer receipt-less trunk run that invalidates them.
   workflow_dispatch:
     inputs:
       platform_lock_digest: { description: "Signed candidate manifest digest for promise receipts", required: false, type: string, default: "" }

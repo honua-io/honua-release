@@ -1,26 +1,41 @@
 name: dispatch-promise-producers
-run-name: Promise producers for the pinned candidate
+run-name: Promise producers for the pinned candidate (${{ github.event_name }})
 # Producers emit release-promise-receipts only on a dispatch that carries the qualification-lock
-# digest. This dispatches every stackless producer for the honua-server pin in
-# platform-manifest.yaml, daily after nightly certification and whenever the pins change, so a
-# promise row goes red the day it breaks rather than at the cut (tools/promise_dispatch.py).
+# digest, and the newest trunk run of a producer decides its promise row. This workflow is
+# therefore the producers' only scheduled entry point (tools/promise_dispatch.py): daily and on
+# pin changes it dispatches every stackless producer for the honua-server pin in
+# platform-manifest.yaml, and after each successful trunk DR drill it dispatches gate-dr, so a
+# promise row goes red the day it breaks rather than at the cut.
 on:
   schedule:
-    - cron: "40 13 * * *"
+    - cron: "47 5 * * *"
   push:
     branches: [trunk]
     paths:
       - platform-manifest.yaml
       - compatibility-matrix.yaml
+  workflow_run:
+    workflows: [dr-drill-local-docker]
+    types: [completed]
+    branches: [trunk]
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Space-separated producer workflows to dispatch (empty: all)"
+        required: false
+        type: string
+        default: ""
 permissions:
   contents: read
 concurrency:
-  group: dispatch-promise-producers
+  group: dispatch-promise-producers-${{ github.event_name == 'workflow_run' && 'dr' || 'all' }}
   cancel-in-progress: false
 jobs:
   dispatch:
-    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    if: >-
+      github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -34,7 +49,19 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install --quiet -r tools/requirements-validation.txt
+      # gate-dr follows the drill: on a schedule or a pin push the drill's receipt may be stale or
+      # bound to the previous manifest, and that failure would invalidate the last good pass.
       - name: Dispatch the producers
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python tools/promise_dispatch.py --dispatch --summary "$GITHUB_STEP_SUMMARY"
+          EVENT: ${{ github.event_name }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          set -euo pipefail
+          args=()
+          case "$EVENT" in
+            workflow_run) args+=(--only gate-dr.yml) ;;
+            workflow_dispatch) for workflow in $ONLY; do args+=(--only "$workflow"); done ;;
+            *) args+=(--skip gate-dr.yml) ;;
+          esac
+          python tools/promise_dispatch.py --dispatch --summary "$GITHUB_STEP_SUMMARY" "${args[@]}"
