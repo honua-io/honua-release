@@ -151,7 +151,7 @@ def test_private_bearers_and_signed_urls_removed_from_retained_output():
     assert "<private-bearer>" in retained
 
 
-def test_fixture_is_exact_published_source_input():
+def test_fixture_is_pinned_published_source_with_server_format():
     provenance = json.loads((HERE / "map-envelope-provenance.json").read_text())
     assert provenance["sourceSha"] == "c6484209dda9b1533fefcae1b0e47d87b56414c2"
     assert hashlib.sha256((HERE / "map-envelope.json").read_bytes()).hexdigest() == provenance["sha256"]

@@ -131,7 +131,10 @@ try {
   receipt.savedVersionValidation = await studio.contentVersions.get(join.itemId, join.versionId)
     .then(version => version.validation, readError => `unreadable: ${readError}`);
   // Error strings can include server diagnostics; credentials may never be retained.
-  for (const token of Object.values(tokens)) receipt.failure = receipt.failure.replaceAll(token, '<private-bearer>');
+  for (const token of Object.values(tokens)) {
+    receipt.failure = receipt.failure.replaceAll(token, '<private-bearer>');
+    if (typeof receipt.savedVersionValidation === 'string') receipt.savedVersionValidation = receipt.savedVersionValidation.replaceAll(token, '<private-bearer>');
+  }
   await save();
   process.exitCode = 1;
 }
