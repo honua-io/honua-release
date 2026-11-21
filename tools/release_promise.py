@@ -51,6 +51,33 @@ def load_outcomes() -> list[dict]:
     return outcomes.load(CONTRACT)
 
 
+def _validate_manifest_input_row(row: dict) -> None:
+    if row.get('source') != 'manifest-input':
+        raise ValueError(f"row {row['id']} must use source 'manifest-input'")
+    if any(key in row for key in ('repo', 'workflow', 'artifact')):
+        raise ValueError(f"manifest-input row {row['id']} must not declare a CI workflow")
+    if not re.fullmatch(r'[a-z0-9-]+\.json', row.get('receipt', '')):
+        raise ValueError('invalid producer receipt')
+
+
+def _validate_contract_row(row: dict) -> None:
+    expected = ['ga'] if row['id'] in GA_ONLY_IDS else ['rc', 'ga']
+    if row.get('required') != expected:
+        raise ValueError('release promise requirement disagrees with founder RC/GA ruling')
+    if row.get('additionalWorkflows', []) != COMPANIONS.get(row['id'], []):
+        raise ValueError('required companion producer changed')
+    if row['id'] == SECURITY_SUMMARY_ROW:
+        _validate_manifest_input_row(row)
+        return
+    if row.get('source') == 'manifest-input':
+        raise ValueError(f"row {row['id']} is not allowed as a manifest-input")
+    for key, pattern in (('repo', r'honua-io/[a-z0-9-]+'),
+                         ('workflow', r'[a-z0-9-]+\.yml'),
+                         ('artifact', r'[a-z0-9-]+'), ('receipt', r'[a-z0-9-]+\.json')):
+        if not re.fullmatch(pattern, row.get(key, '')):
+            raise ValueError(f'invalid producer {key}')
+
+
 def load_contract(path: Path = CONTRACT) -> list[dict]:
     doc = json.loads(path.read_text())
     rows = doc['rows']
@@ -59,37 +86,16 @@ def load_contract(path: Path = CONTRACT) -> list[dict]:
             or len(ids) != len(ALL_IDS) or set(ids) != ALL_IDS):
         raise ValueError('release promise contract must cover exactly the founder rows')
     for row in rows:
-        expected = ['ga'] if row['id'] in GA_ONLY_IDS else ['rc', 'ga']
-        if row.get('required') != expected:
-            raise ValueError('release promise requirement disagrees with founder RC/GA ruling')
-        if row.get('additionalWorkflows', []) != COMPANIONS.get(row['id'], []):
-            raise ValueError('required companion producer changed')
-        if row['id'] == SECURITY_SUMMARY_ROW:
-            if row.get('source') != 'manifest-input':
-                raise ValueError(f"row {row['id']} must use source 'manifest-input'")
-            if any(key in row for key in ('repo', 'workflow', 'artifact')):
-                raise ValueError(f"manifest-input row {row['id']} must not declare a CI workflow")
-            if not re.fullmatch(r'[a-z0-9-]+\.json', row.get('receipt', '')):
-                raise ValueError('invalid producer receipt')
-            continue
-        if row.get('source') == 'manifest-input':
-            raise ValueError(f"row {row['id']} is not allowed as a manifest-input")
-        for key, pattern in (('repo', r'honua-io/[a-z0-9-]+'),
-                             ('workflow', r'[a-z0-9-]+\.yml'),
-                             ('artifact', r'[a-z0-9-]+'), ('receipt', r'[a-z0-9-]+\.json')):
-            if not re.fullmatch(pattern, row.get(key, '')):
-                raise ValueError(f'invalid producer {key}')
+        _validate_contract_row(row)
     return rows
 
 
-def _common_receipt_valid(doc: dict, row: dict, *, exact_assertions: bool = False) -> bool:
+def _common_receipt_valid(doc: dict, row: dict) -> bool:
     if (not isinstance(doc, dict) or doc.get('schema') != 'honua.release-promise-receipt/v1'
             or doc.get('row') != row['id'] or doc.get('status') != 'PASS'):
         return False
     assertions = doc.get('assertions', {})
     if not isinstance(assertions, dict):
-        return False
-    if exact_assertions and set(assertions) != set(row['assertions']):
         return False
     return not any(type(assertions.get(key)) is not type(value) or assertions.get(key) != value
                    for key, value in row['assertions'].items())
@@ -104,7 +110,7 @@ def _manifest_input_valid(doc: dict, row: dict, context: tuple, actor: str) -> b
     candidate, now = context
     if actor not in SECURITY_SUMMARY_ACTORS:
         return False
-    if not _common_receipt_valid(doc, row, exact_assertions=True):
+    if not _common_receipt_valid(doc, row) or set(doc.get('assertions', {})) != set(row['assertions']):
         return False
     if set(doc) != SECURITY_SUMMARY_FIELDS:
         return False
