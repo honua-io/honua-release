@@ -1,4 +1,5 @@
-// Actual published terminal approval and SDK reads. No direct HTTP mutation.
+// Actual published terminal and SDK reads and refusals. The one mutation is approver-a's approval in
+// its own signed-in browser session (approve-session.py), the only approval the server accepts.
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -73,9 +74,17 @@ try {
     receipt.observations.push({ user, surface: 'sdk', operation: 'approveOperationProposal', refusedHttpStatus: status, proposalUnchanged: true });
     await save();
   }
-  // Exactly one positive terminal mutation; no automatic retry on uncertainty.
-  const accepted = terminal('approver-a', 'approveOperationProposal');
-  assert.equal(accepted.exitCode, 0);
+  // The terminal cannot approve even for the distinct approver: a bearer is not a person.
+  const terminalApproval = terminal('approver-a', 'approveOperationProposal');
+  assert.notEqual(terminalApproval.exitCode, 0);
+  assert.match(terminalApproval.output.error, /HTTP 403\b.*Human approval requires a live interactive browser session/);
+  assertProposal(await get(), join, owner, 'AwaitingApproval');
+  // Exactly one positive mutation, in approver-a's own IdP browser session; no automatic retry on uncertainty.
+  const human = spawnSync('python3', ['approve-session.py', 'approver-a', join.proposalId], { cwd: run, encoding: 'utf8', timeout: 60000 });
+  assert(!human.error && human.status !== null, 'Session approval timed out or failed to start; no mutation retry');
+  const approval = JSON.parse(human.stdout.trim().split('\n').at(-1));
+  receipt.observations.push({ user: 'approver-a', surface: 'browser-session', operation: 'approveOperationProposal', result: approval });
+  assert.equal(approval.result, 'approved', 'Session approval was refused');
   let resolved;
   for (let index = 0; index < 20; index++) {
     const observation = terminal('admin-a', 'getOperationProposal');

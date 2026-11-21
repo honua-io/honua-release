@@ -286,3 +286,12 @@ def test_deployment_audit_reads_use_the_untenanted_admin_key(name):
     assert lines
     for line in lines:
         assert "Bearer" not in line and re.search(r"platform|X-API-Key", line), line
+
+
+def test_session_approval_sends_only_the_servers_admin_cookies():
+    sys.path.insert(0, str(replay.ROOT / "e2e/harness/lib"))
+    spec = importlib.util.spec_from_file_location("approve_session", HERE / "approve-session.py")
+    approve_session = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(approve_session)
+    saved = {"honua_admin_session": "s", "honua_admin_csrf": "c", "KEYCLOAK_SESSION": "k", "AUTH_SESSION_ID": "a"}
+    assert approve_session.session_cookies(saved) == {"honua_admin_session": "s", "honua_admin_csrf": "c"}
