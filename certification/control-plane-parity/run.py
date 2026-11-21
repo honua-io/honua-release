@@ -187,8 +187,10 @@ def main() -> int:
         if terminal_draft:
             stage("admit published terminal draft command by dry run", lambda: call(["node", "admit-terminal-draft.mjs"]))
         stage("real OIDC principals", lambda: call([sys.executable, "authenticate.py"]))
-        token = json.loads((run / "admin-a-bearer.json").read_text())["accessToken"]
-        integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
+        # The audit chain is deployment-wide: with multi-tenancy on, only an untenanted platform
+        # credential may verify it, so the check uses the deployment admin key, not a tenant admin.
+        platform = {"X-API-Key": env["S4_ADMIN_KEY"]}
+        integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers=platform, timeout=30)
         integrity.raise_for_status()
         assert integrity.json()["verified"] and integrity.json()["unhashedRows"] == 0
         durability = assert_durable_store()
@@ -207,7 +209,7 @@ def main() -> int:
         stage("tenant-owned object refusal " + ("four adapters" if terminal_draft else "three adapters"), lambda: call(["node", "studio-tenants-published.mjs"]))
         stage("concurrent background imports and principal isolation", lambda: call([sys.executable, "import-controls.py"], timeout=360))
         stage("terminal proposal polling and distinct authenticated approver", lambda: call(["node", "publication-lifecycle.mjs"], timeout=240))
-        final_integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
+        final_integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers=platform, timeout=30)
         final_integrity.raise_for_status()
         (run / "audit-integrity-final.json").write_text(json.dumps(final_integrity.json(), indent=2))
         assert final_integrity.json()["verified"] and final_integrity.json()["unhashedRows"] == 0
