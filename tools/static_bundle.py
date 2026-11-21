@@ -105,7 +105,7 @@ def attested_fields(github, repository: str, digest: str) -> set[str]:
     from mint_nightly_lock import statement_field
     from resolve_trunk_candidate import ResolutionError
     try:
-        rows = github.json(f'repos/{repository}/attestations/{digest}').get('attestations') or []
+        rows = github.json(f'repos/{repository}/attestations/{digest}?per_page=100').get('attestations') or []
     except ResolutionError as exc:
         if getattr(exc, 'status', None) != NOT_FOUND:
             raise

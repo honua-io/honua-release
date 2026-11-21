@@ -81,6 +81,7 @@ class BundleGitHub:
             return {'total_count': 1, 'artifacts': [
                 {'id': 99 + index, 'name': 'console-static-release', 'expired': self.expired, 'digest': digest}]}
         if path.startswith(f'repos/{REPOSITORY}/attestations/'):
+            path = path.removesuffix('?per_page=100')
             if not self.attested:
                 raise resolver.ResolutionError('gh api failed: HTTP 404', status=404)
             return {'attestations': [statement(kind, path.rsplit('/', 1)[1]) for kind in self.attested]}
