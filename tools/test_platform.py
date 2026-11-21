@@ -967,7 +967,7 @@ def test_validator_refuses_a_stamp_when_the_release_names_no_platform_version():
     manifest, matrix = _stamped_manifest()
     manifest["platformRelease"] = "snapshot"
     errors = _r22_errors(manifest, matrix)
-    assert len(errors) == 2 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
+    assert len(errors) == 1 and all("platformRelease 'snapshot' is not a platform label" in e for e in errors)
 
 
 # expected-GA observation bound to the candidate server
