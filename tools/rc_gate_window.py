@@ -873,6 +873,8 @@ def _slim(run: dict) -> dict:
         "event": run.get("event"),
         "head_branch": run.get("head_branch"),
         "head_repository": run.get("head_repository"),
+        "actor": run.get("actor"),
+        "triggering_actor": run.get("triggering_actor"),
         "path": run.get("path"),
         "display_title": run.get("display_title"),
         "head_sha": head if isinstance(head, str) else "",
@@ -1018,6 +1020,18 @@ def _bound_verdict(name: str, rec: dict, admission: Admission) -> dict:
             **({"outcomes": run["promise_outcomes"]} if "promise_outcomes" in run else {})}
 
 
+def trusted_promise_actor(run: dict) -> str:
+    """Return the triggering/actor login for a trusted trunk gate-release-promise run, or ''."""
+    if not (run.get("status") == "completed" and run.get("head_branch") == "trunk"
+            and run.get("event") in {"workflow_dispatch", "schedule", "repository_dispatch"}
+            and run.get("path") == f".github/workflows/{PROMISE_GATE}"
+            and isinstance(run.get("head_repository"), dict)
+            and run["head_repository"].get("full_name") == "honua-io/honua-release"):
+        return ""
+    actor_obj = run.get("triggering_actor") or run.get("actor")
+    return actor_obj.get("login", "") if isinstance(actor_obj, dict) else ""
+
+
 def _promise_record(rec: dict, admission: Admission) -> dict:
     # Recheck row freshness at admission, not only when the aggregate was uploaded.
     from release_promise import report_valid
@@ -1025,13 +1039,9 @@ def _promise_record(rec: dict, admission: Admission) -> dict:
     now = admission.cutoff + dt.timedelta(days=admission.days)
     runs = []
     for run in rec.get("runs") or []:
-        trusted = (run.get("status") == "completed" and run.get("head_branch") == "trunk"
-                   and run.get("event") in {"workflow_dispatch", "schedule", "repository_dispatch"}
-                   and run.get("path") == f".github/workflows/{PROMISE_GATE}"
-                   and isinstance(run.get("head_repository"), dict)
-                   and run["head_repository"].get("full_name") == "honua-io/honua-release")
+        actor_login = trusted_promise_actor(run)
         docs = [doc for doc in _documents(run) if matches_candidate(doc, admission.candidate)
-                and report_valid(doc, admission.profile, now)] if trusted else []
+                and report_valid(doc, admission.profile, now, actor=actor_login)] if actor_login else []
         runs.append({**run, "promise_outcomes": docs[0]["outcomes"]} if len(docs) == 1
                     else {**run, "conclusion": "failure"})
     return {**rec, "runs": runs}

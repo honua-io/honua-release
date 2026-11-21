@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import io
 import json
 import os
@@ -28,17 +29,53 @@ AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate',
 
 GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity'}
 ALL_IDS = REQUIRED_IDS | GA_ONLY_IDS
+SECURITY_SUMMARY_ROW = 'security-open-high'
+SECURITY_SUMMARY_ACTORS = frozenset({'mikemcdougall'})
+SECURITY_SUMMARY_FIELDS = frozenset({
+    'schema', 'row', 'status', 'serverSha', 'imageDigest',
+    'platformLockDigest', 'observedAt', 'assertions', 'openHighFindings',
+})
+MAX_MANIFEST_INPUT_BYTES = 4096
 IMAGE_SIZE_BUDGETS = {'rc': 370_000_000, 'ga': 220_000_000}
 COMPANIONS = {'contract-compat': ['gate-contract-live.yml'],
               'docs-executable': ['gate-docs.yml']}
 
 
 def producer_workflows(row):
+    if row.get('source') == 'manifest-input':
+        return []
     return [row['workflow'], *row.get('additionalWorkflows', [])]
 
 
 def load_outcomes() -> list[dict]:
     return outcomes.load(CONTRACT)
+
+
+def _validate_manifest_input_row(row: dict) -> None:
+    if row.get('source') != 'manifest-input':
+        raise ValueError(f"row {row['id']} must use source 'manifest-input'")
+    if any(key in row for key in ('repo', 'workflow', 'artifact')):
+        raise ValueError(f"manifest-input row {row['id']} must not declare a CI workflow")
+    if not re.fullmatch(r'[a-z0-9-]+\.json', row.get('receipt', '')):
+        raise ValueError('invalid producer receipt')
+
+
+def _validate_contract_row(row: dict) -> None:
+    expected = ['ga'] if row['id'] in GA_ONLY_IDS else ['rc', 'ga']
+    if row.get('required') != expected:
+        raise ValueError('release promise requirement disagrees with founder RC/GA ruling')
+    if row.get('additionalWorkflows', []) != COMPANIONS.get(row['id'], []):
+        raise ValueError('required companion producer changed')
+    if row['id'] == SECURITY_SUMMARY_ROW:
+        _validate_manifest_input_row(row)
+        return
+    if row.get('source') == 'manifest-input':
+        raise ValueError(f"row {row['id']} is not allowed as a manifest-input")
+    for key, pattern in (('repo', r'honua-io/[a-z0-9-]+'),
+                         ('workflow', r'[a-z0-9-]+\.yml'),
+                         ('artifact', r'[a-z0-9-]+'), ('receipt', r'[a-z0-9-]+\.json')):
+        if not re.fullmatch(pattern, row.get(key, '')):
+            raise ValueError(f'invalid producer {key}')
 
 
 def load_contract(path: Path = CONTRACT) -> list[dict]:
@@ -49,33 +86,76 @@ def load_contract(path: Path = CONTRACT) -> list[dict]:
             or len(ids) != len(ALL_IDS) or set(ids) != ALL_IDS):
         raise ValueError('release promise contract must cover exactly the founder rows')
     for row in rows:
-        expected = ['ga'] if row['id'] in GA_ONLY_IDS else ['rc', 'ga']
-        if row.get('required') != expected:
-            raise ValueError('release promise requirement disagrees with founder RC/GA ruling')
-        if row.get('additionalWorkflows', []) != COMPANIONS.get(row['id'], []):
-            raise ValueError('required companion producer changed')
-        for key, pattern in (('repo', r'honua-io/[a-z0-9-]+'),
-                             ('workflow', r'[a-z0-9-]+\.yml'),
-                             ('artifact', r'[a-z0-9-]+'), ('receipt', r'[a-z0-9-]+\.json')):
-            if not re.fullmatch(pattern, row.get(key, '')):
-                raise ValueError(f'invalid producer {key}')
+        _validate_contract_row(row)
     return rows
+
+
+def _common_receipt_valid(doc: dict, row: dict) -> bool:
+    if (not isinstance(doc, dict) or doc.get('schema') != 'honua.release-promise-receipt/v1'
+            or doc.get('row') != row['id'] or doc.get('status') != 'PASS'):
+        return False
+    assertions = doc.get('assertions', {})
+    if not isinstance(assertions, dict):
+        return False
+    return not any(type(assertions.get(key)) is not type(value) or assertions.get(key) != value
+                   for key, value in row['assertions'].items())
+
+
+def _canonical_summary_sha256(doc: dict) -> str:
+    canonical = json.dumps(doc, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _manifest_input_valid(doc: dict, row: dict, context: tuple, actor: str) -> bool:
+    candidate, now = context
+    if actor not in SECURITY_SUMMARY_ACTORS:
+        return False
+    if not _common_receipt_valid(doc, row) or set(doc.get('assertions', {})) != set(row['assertions']):
+        return False
+    if set(doc) != SECURITY_SUMMARY_FIELDS:
+        return False
+    if (doc.get('serverSha') != candidate.server_sha
+            or doc.get('imageDigest') != candidate.server_digest
+            or doc.get('platformLockDigest') != candidate.platform_lock):
+        return False
+    observed = instant(doc.get('observedAt'))
+    if observed is None or not now - dt.timedelta(days=7) <= observed <= now:
+        return False
+    count = doc.get('openHighFindings')
+    return type(count) is int and count == 0
+
+
+def load_manifest_input(path: str = '', raw_json: str = '', actor: str = '') -> list[dict]:
+    """Load a sanitized manifest-input receipt from a local path or inline JSON string."""
+    rejected = [{'source': 'manifest-input', 'actor': actor, 'reports': []}]
+    if path and raw_json:
+        return rejected
+    if not path and not raw_json:
+        return []
+    try:
+        if path:
+            with Path(path).open('rb') as handle:
+                raw = handle.read(MAX_MANIFEST_INPUT_BYTES + 1)
+        else:
+            raw = raw_json.encode('utf-8')
+        if len(raw) > MAX_MANIFEST_INPUT_BYTES:
+            return rejected
+        doc = json.loads(raw)
+        if not isinstance(doc, dict):
+            return rejected
+        return [{'source': 'manifest-input', 'actor': actor, 'reports': [doc]}]
+    except (OSError, ValueError, TypeError):
+        return rejected
 
 
 def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
     candidate, now, run = context
     observed = instant(doc.get('observedAt'))
     started, ended = instant(run.get('run_started_at')), instant(run.get('updated_at'))
-    if (doc.get('schema') != 'honua.release-promise-receipt/v1' or doc.get('row') != row['id']
-            or doc.get('status') != 'PASS' or doc.get('certifying') is False
+    if (not _common_receipt_valid(doc, row) or doc.get('certifying') is False
             or w.is_diagnostic(doc) or not w.matches_candidate(doc, candidate) or observed is None
             or started is None or ended is None
             or not now - dt.timedelta(days=7) <= started <= observed <= ended <= now):
-        return False
-    assertions = doc.get('assertions', {})
-    if not isinstance(assertions, dict) or any(
-            type(assertions.get(key)) is not type(value) or assertions.get(key) != value
-            for key, value in row['assertions'].items()):
         return False
     if row['id'] in ('security-hardened', 'cloud-launch-stack', 'cloud-image-aot'):
         if not re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', str(doc.get('stackName', ''))):
@@ -86,9 +166,6 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
         source = instant(doc.get('sourceObservedAt'))
         if source is None or not now - dt.timedelta(days=7) <= source <= observed:
             return False
-    if row['id'] == 'security-open-high':
-        count = doc.get('openHighFindings')
-        return type(count) is int and count == 0
     if row['id'] in adversarial.IDS:
         return adversarial.valid(doc)
     if row['id'] in outcomes.IDS:
@@ -107,7 +184,70 @@ def _run_passes(run: dict, row: dict, context: tuple) -> bool:
     return len(docs) == 1 and _receipt_valid(docs[0], row, (candidate, now, run))
 
 
+def _admitted_security_summary(token: str, now: dt.datetime) -> list[dict]:
+    """Read the founder-attested security-open-high row from the latest gate-release-promise run."""
+    records = []
+    for run in _history(('honua-io/honua-release', w.PROMISE_GATE), token, now):
+        actor_login = w.trusted_promise_actor(run)
+        if actor_login not in SECURITY_SUMMARY_ACTORS:
+            records.append({'source': 'admitted-promise-gate', 'actor': actor_login, 'reports': []})
+            continue
+        run_artifacts = _available_artifacts('honua-io/honua-release', token, run['id'])
+        docs = _producer_reports(
+            {'id': 'release-promise-report', 'repo': 'honua-io/honua-release',
+             'artifact': 'release-promise-report', 'receipt': 'release-promise-report.json'},
+            token, run_artifacts,
+        )
+        records.append({**run, 'source': 'admitted-promise-gate', 'actor': actor_login, 'reports': docs})
+    return records
+
+
+def _admitted_security_row_valid(run: dict, candidate: w.Candidate, now: dt.datetime) -> dict | None:
+    actor = run.get('actor', '')
+    docs = run.get('reports', [])
+    if actor not in SECURITY_SUMMARY_ACTORS or len(docs) != 1:
+        return None
+    doc = docs[0]
+    if doc.get('schema') != 'honua.release-promise-report/v1' or not w.matches_candidate(doc, candidate):
+        return None
+    rows = doc.get('rows')
+    if not isinstance(rows, list):
+        return None
+    matches = [r for r in rows if isinstance(r, dict) and r.get('id') == SECURITY_SUMMARY_ROW]
+    if len(matches) != 1:
+        return None
+    sec = matches[0]
+    if sec.get('actor') != actor or not _report_row_fresh(sec, now, 'ga'):
+        return None
+    return sec
+
+
+def _evaluate_manifest_input(row: dict, runs: list[dict], context: tuple) -> dict:
+    result = {'id': row['id'], 'required': row['required'], 'status': 'missing',
+              'producer': 'manifest-input/' + row['receipt']}
+    if not runs:
+        return result
+    if all(isinstance(r, dict) and r.get('source') == 'admitted-promise-gate' for r in runs):
+        candidate, now = context
+        validated = [_admitted_security_row_valid(r, candidate, now) for r in runs]
+        if not all(validated):
+            return {**result, 'status': 'invalid', 'observedAt': None}
+        chosen = min(validated, key=lambda item: instant(item['observedAt']))
+        return {**result, 'status': 'PASS', 'observedAt': chosen['observedAt'],
+                'actor': chosen['actor'], 'summarySha256': chosen['summarySha256']}
+    if len(runs) != 1 or not isinstance(runs[0], dict) or runs[0].get('source') != 'manifest-input':
+        return {**result, 'status': 'invalid', 'observedAt': None}
+    actor = runs[0].get('actor', '')
+    docs = runs[0].get('reports', [])
+    if len(docs) != 1 or not _manifest_input_valid(docs[0], row, context, actor):
+        return {**result, 'status': 'invalid', 'observedAt': None}
+    return {**result, 'status': 'PASS', 'observedAt': docs[0]['observedAt'],
+            'actor': actor, 'summarySha256': _canonical_summary_sha256(docs[0])}
+
+
 def evaluate_row(row: dict, runs: list[dict], context: tuple) -> dict:
+    if row.get('source') == 'manifest-input':
+        return _evaluate_manifest_input(row, runs, context)
     result = {'id': row['id'], 'required': row['required'], 'status': 'missing',
               'producer': row['repo'] + '/' + row['workflow']}
     if not runs:
@@ -212,9 +352,12 @@ def _available_artifacts(repo: str, token: str, run_id: int) -> list[dict]:
         return []
 
 
-def collect(rows: list[dict], token: str, now: dt.datetime) -> dict:
+def collect(rows: list[dict], token: str, now: dt.datetime, manifest_inputs: dict | None = None) -> dict:
     records, histories, artifacts = {}, {}, {}
     for row in rows:
+        if row.get('source') == 'manifest-input':
+            records[row['id']] = list((manifest_inputs or {}).get(row['id'], []))
+            continue
         records[row['id']] = []
         for workflow in producer_workflows(row):
             key = row['repo'], workflow
@@ -230,7 +373,7 @@ def collect(rows: list[dict], token: str, now: dt.datetime) -> dict:
     return records
 
 
-def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
+def report_valid(doc: dict, profile: str, now: dt.datetime, *, actor: str | None = None) -> bool:
     if doc.get('schema') != 'honua.release-promise-report/v1' or doc.get('status') != 'pass':
         return False
     rows = doc.get('rows')
@@ -240,6 +383,12 @@ def report_valid(doc: dict, profile: str, now: dt.datetime) -> bool:
         return False
     if not outcomes.report_valid(doc.get('outcomes'), profile, now):
         return False
+    if actor is not None:
+        if actor not in SECURITY_SUMMARY_ACTORS:
+            return False
+        sec_row = next(r for r in rows if r['id'] == SECURITY_SUMMARY_ROW)
+        if sec_row.get('actor') != actor:
+            return False
     required = ALL_IDS if profile == 'ga' else REQUIRED_IDS
     return all(_report_row_fresh(r, now, profile) for r in rows if r['id'] in required)
 
@@ -256,6 +405,9 @@ def _report_row_fresh(row: dict, now: dt.datetime, profile: str) -> bool:
     oldest = now - dt.timedelta(days=7)
     if not oldest <= observed <= now:
         return False
+    if row['id'] == SECURITY_SUMMARY_ROW:
+        return (row.get('actor') in SECURITY_SUMMARY_ACTORS
+                and bool(re.fullmatch(r'[0-9a-f]{64}', str(row.get('summarySha256', '')))))
     if row['id'] == 'cloud-image-aot':
         return _image_budget_met(row, profile)
     if row['id'] == 'operates-capacity':
@@ -270,6 +422,14 @@ def arguments():
     parser.add_argument('--server-digest', required=True)
     parser.add_argument('--platform-lock', required=True)
     parser.add_argument('--profile', choices=('rc', 'ga'), default='rc')
+    parser.add_argument('--security-summary', default='',
+                        help='path to lane-host security-open-high.json manifest input')
+    parser.add_argument('--security-summary-json', default='',
+                        help='inline sanitized security-open-high.json manifest input')
+    parser.add_argument('--security-summary-actor', default='',
+                        help='authenticated actor supplying the security summary manifest input')
+    parser.add_argument('--reuse-admitted-security-summary', action='store_true',
+                        help='read founder-attested security-open-high row from gate-release-promise.yml')
     parser.add_argument('--out', default='release-promise-report.json')
     return parser, parser.parse_args()
 
@@ -291,8 +451,19 @@ def main() -> int:
         parser.error('GH_TOKEN with producer Actions read access is required')
     now = dt.datetime.now(dt.timezone.utc)
     rows = load_contract() + load_outcomes()
+    summary_path = getattr(args, 'security_summary', '') or os.environ.get('SECURITY_SUMMARY_FILE', '')
+    summary_json = getattr(args, 'security_summary_json', '') or os.environ.get('SECURITY_SUMMARY_JSON', '')
+    summary_actor = getattr(args, 'security_summary_actor', '') or os.environ.get('SECURITY_SUMMARY_ACTOR', '')
+    reuse_admitted = getattr(args, 'reuse_admitted_security_summary', False)
+    if summary_path or summary_json:
+        security_records = load_manifest_input(summary_path, summary_json, actor=summary_actor)
+    elif reuse_admitted:
+        security_records = _admitted_security_summary(token, now)
+    else:
+        security_records = []
+    manifest_inputs = {SECURITY_SUMMARY_ROW: security_records}
     try:
-        results = evaluate(rows, collect(rows, token, now), (candidate, now))
+        results = evaluate(rows, collect(rows, token, now, manifest_inputs), (candidate, now))
     except (urllib.error.URLError, ValueError, AmbiguousOrder):
         # Print no producer payload, URLs, private tracker identifiers or exception bodies.
         results = evaluate(rows, {}, (candidate, now))

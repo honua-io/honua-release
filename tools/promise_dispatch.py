@@ -6,7 +6,7 @@ Producers emit `release-promise-receipts` only on a workflow_dispatch that carri
 producer regenerates from the manifest it checks out (kept_gate_receipt.ensure_lock), not
 the canonical lock-draft digest printed in docs/SDK-SERVER-COMPATIBILITY.md. This tool
 computes the digest the same way and dispatches every producer that needs no installed
-stack, reviewer, private tracker or spend. Every other contract workflow is listed in
+stack, reviewer or spend. Every other contract workflow is listed in
 EXCLUDED with the reason it is not dispatched here, so a new promise row cannot be skipped
 silently. A producer with a trunk run still queued or running is skipped: its concurrency
 group would cancel one of the two runs, and a cancelled overlapping run invalidates the row.
@@ -50,7 +50,6 @@ EXCLUDED = {
     'gate-whitehat.yml': 'two reviewers upload their verdicts',
     'gate-upgrade.yml': 'needs a candidate-bound Launch Stack upgrade proof',
     'gate-sbom.yml': 'needs the frozen platform-lock.json artifact from release-train',
-    'gate-security-private-summary.yml': 'private tracker environment',
     'gate-ai-native.yml': 'paid model arms need the founder spending authorization',
     'gate-protocol-certification.yml': 'matrix inputs come from the nightly protocol ledger',
     'capacity-soak.yml': 'long soak on a sized stack (GA only)',
@@ -67,7 +66,7 @@ DIGEST = re.compile(r'^sha256:[0-9a-f]{64}$')
 def contract_workflows(contract: Path = CONTRACT) -> set[str]:
     document = json.loads(contract.read_text())
     rows = document['rows'] + document['outcomes']
-    return {name for row in rows for name in (row['workflow'], *row.get('additionalWorkflows', []))}
+    return {name for row in rows for name in (row.get('workflow'), *row.get('additionalWorkflows', [])) if name}
 
 
 def qualification_lock_digest(manifest: Path, generate=None) -> str:

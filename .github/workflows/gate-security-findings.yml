@@ -1,5 +1,5 @@
 # Public finding dispositions verify merged PR citations independently of release working papers.
-# Candidate-bound private severity counts are checked by gate-security-private-summary.yml.
+# Candidate-bound private severity counts are built on the lane host and passed to gate-release-promise.yml as a manifest input.
 name: gate-security-findings
 
 on:

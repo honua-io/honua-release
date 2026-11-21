@@ -46,12 +46,15 @@ Example receipt (the row's own assertions must match the contract):
 
 `observedAt` must fall inside the authenticated run's execution and the last seven
 days. All three candidate identifiers must match together. Hardened-profile and
-cloud rows require a `honua-gate-` stack name. The security count producer must
-run with private tracker read permission in a private-scoped job and publish only
-`openHighFindings` (integer zero) and `assertions: {"privateScoped": true}` plus
-the common identity fields. Never upload tracker titles, bodies or issue IDs.
-The aggregate needs only Actions read permission for these sanitized artifacts,
-not private tracker access. No private tracker producer is implemented here.
+cloud rows require a `honua-gate-` stack name. The `security-open-high` row is
+supplied as a manifest input (`source: "manifest-input"`) built on the lane host
+from the private tracker with the founder `gh` login and written to the private
+artifacts directory — no private tracker token lives in `honua-release` CI. It
+carries only `openHighFindings` (integer zero), `assertions: {"privateScoped": true}`,
+and the common identity fields; any unexpected field is rejected. Never pass tracker
+titles, bodies, or issue IDs. The aggregate reads the sanitized manifest input from
+`--security-summary` / `SECURITY_SUMMARY_FILE` or `security_summary_json` and checks
+candidate identity, seven-day freshness, and the strict field allowlist.
 
 Run the gate on trunk with `server_sha`, `server_digest`,
 `platform_lock_digest` and `profile` (`rc` or `ga`) workflow inputs. Cross-repository

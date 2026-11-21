@@ -1,155 +1,268 @@
-"""Private aggregate producer refuses incomplete evidence without leaking responses."""
-from http.client import IncompleteRead
-import io
+"""Private security summary is a founder-authenticated lane-host manifest input."""
+import argparse
+import datetime as dt
 import json
 from pathlib import Path
-from unittest.mock import Mock
-import urllib.error
 
 import pytest
 import yaml
 
 import rc_gate_window as gate
-import release_promise
-import security_private_summary as summary
+import release_promise as promise
 
+NOW = dt.datetime(2026, 11, 21, 5, 0, 0, tzinfo=dt.timezone.utc)
 CANDIDATE = gate.Candidate('a' * 40, 'sha256:' + 'b' * 64, 'sha256:' + 'c' * 64)
+FOUNDER = 'mikemcdougall'
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def document(count=0):
-    return {'data': {'repository': {'isPrivate': True, 'hasIssuesEnabled': True,
-            'highLabel': {'name': 'severity/high'}, 'high': {'totalCount': count}}}}
+def valid_summary(**overrides):
+    doc = {
+        'schema': 'honua.release-promise-receipt/v1',
+        'row': 'security-open-high',
+        'status': 'PASS',
+        'serverSha': CANDIDATE.server_sha,
+        'imageDigest': CANDIDATE.server_digest,
+        'platformLockDigest': CANDIDATE.platform_lock,
+        'observedAt': '2026-11-21T04:00:00Z',
+        'assertions': {'privateScoped': True},
+        'openHighFindings': 0,
+    }
+    doc.update(overrides)
+    return doc
 
 
-@pytest.fixture(autouse=True)
-def configured(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    for key, value in {
-        'SERVER_SHA': CANDIDATE.server_sha, 'SERVER_DIGEST': CANDIDATE.server_digest,
-        'LOCK_DIGEST': CANDIDATE.platform_lock, 'SECURITY_TRACKER_REPOSITORY': 'private/tracker',
-        'SECURITY_TRACKER_TOKEN': 'private-token',
-    }.items():
-        monkeypatch.setenv(key, value)
+def security_row():
+    return next(row for row in promise.load_contract() if row['id'] == 'security-open-high')
 
 
-def test_query_fetches_aggregate_only():
-    request = summary.tracker_request()
-    assert request.full_url == summary.API
-    assert request.get_header('Authorization') == 'Bearer private-token'
-    query = json.loads(request.data)
-    assert query['variables'] == {'owner': 'private', 'name': 'tracker'}
-    assert 'totalCount' in query['query']
-    assert not any(word in query['query'] for word in ('nodes', 'edges', 'title', 'body', ' id'))
+def test_ci_private_tracker_workflow_and_token_script_are_removed():
+    assert not (ROOT / '.github/workflows/gate-security-private-summary.yml').exists()
+    assert not (ROOT / 'tools/security_private_summary.py').exists()
 
 
-@pytest.mark.parametrize('count', [0, 1, 2000])
-def test_counts_without_pagination(count):
-    assert summary.open_high_count(document(count)) == count
+def test_contract_declares_security_open_high_as_manifest_input():
+    row = security_row()
+    assert row['source'] == 'manifest-input'
+    assert row['required'] == ['rc', 'ga']
+    assert row['receipt'] == 'security-open-high.json'
+    assert row['assertions'] == {'privateScoped': True}
+    assert 'workflow' not in row
+    assert promise.producer_workflows(row) == []
 
 
-@pytest.mark.parametrize('count', [None, True, False, -1, 0.0, '0'])
-def test_invalid_count_fails_closed(count):
-    with pytest.raises(summary.SummaryUnavailable):
-        summary.open_high_count(document(count))
+@pytest.mark.parametrize('mutation', [
+    {'workflow': 'gate-security-private-summary.yml'},
+    {'repo': 'honua-io/honua-release'},
+    {'artifact': 'release-promise-receipts'},
+    {'source': 'actions'},
+])
+def test_contract_rejects_workflow_fields_on_manifest_input_row(tmp_path, mutation):
+    doc = json.loads((ROOT / 'certification/release-promise.v1.json').read_text())
+    row = next(r for r in doc['rows'] if r['id'] == 'security-open-high')
+    row.update(mutation)
+    bad = tmp_path / 'contract.json'
+    bad.write_text(json.dumps(doc))
+    with pytest.raises(ValueError):
+        promise.load_contract(bad)
+
+
+def test_manifest_input_file_passes_when_valid(tmp_path):
+    summary_file = tmp_path / 'security-open-high.json'
+    summary_file.write_text(json.dumps(valid_summary()))
+    records = promise.collect(
+        [security_row()], 'unused-token', NOW,
+        manifest_inputs={'security-open-high': promise.load_manifest_input(
+            path=str(summary_file), actor=FOUNDER)},
+    )
+    result = promise.evaluate([security_row()], records, (CANDIDATE, NOW))[0]
+    assert result['status'] == 'PASS'
+    assert result['producer'] == 'manifest-input/security-open-high.json'
+    assert result['observedAt'] == '2026-11-21T04:00:00Z'
+    assert result['actor'] == FOUNDER
+    assert len(result['summarySha256']) == 64
+
+
+def test_manifest_input_inline_json_passes_when_valid():
+    records = promise.load_manifest_input(raw_json=json.dumps(valid_summary()), actor=FOUNDER)
+    result = promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))
+    assert result['status'] == 'PASS'
+
+
+def test_missing_manifest_input_fails_closed():
+    result = promise.evaluate_row(security_row(), promise.load_manifest_input(actor=FOUNDER), (CANDIDATE, NOW))
+    assert result['status'] == 'missing'
+
+
+@pytest.mark.parametrize('actor', ['', 'other-user', 'github-actions[bot]'])
+def test_non_founder_actor_cannot_pass_manifest_input(actor):
+    records = promise.load_manifest_input(raw_json=json.dumps(valid_summary()), actor=actor)
+    result = promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))
+    assert result['status'] == 'invalid'
+
+
+def test_ambiguous_dual_file_and_inline_json_fails_closed(tmp_path):
+    summary_file = tmp_path / 'security-open-high.json'
+    text = json.dumps(valid_summary())
+    summary_file.write_text(text)
+    records = promise.load_manifest_input(path=str(summary_file), raw_json=text, actor=FOUNDER)
+    assert promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))['status'] == 'invalid'
 
 
 @pytest.mark.parametrize('change', [
-    {'isPrivate': False}, {'isPrivate': 1}, {'hasIssuesEnabled': False},
-    {'highLabel': None}, {'highLabel': {'name': 'other'}}, {'high': None},
+    {'status': 'FAIL'},
+    {'openHighFindings': 1},
+    {'openHighFindings': -1},
+    {'openHighFindings': False},
+    {'openHighFindings': '0'},
+    {'openHighFindings': None},
+    {'serverSha': 'd' * 40},
+    {'serverSha': 'A' * 40},
+    {'imageDigest': 'sha256:' + 'd' * 64},
+    {'imageDigest': 'sha256:' + 'B' * 64},
+    {'platformLockDigest': 'sha256:' + 'd' * 64},
+    {'observedAt': '2026-11-01T00:00:00Z'},
+    {'observedAt': '2026-11-22T00:00:00Z'},
+    {'assertions': {}},
+    {'assertions': {'privateScoped': False}},
+    {'assertions': {'privateScoped': True, 'extra': True}},
+    {'issueTitle': 'private finding title'},
 ])
-def test_repository_and_label_must_be_verified(change):
-    response = document()
-    response['data']['repository'].update(change)
-    with pytest.raises(summary.SummaryUnavailable):
-        summary.open_high_count(response)
+def test_invalid_or_leaky_manifest_input_fails_closed(change):
+    records = promise.load_manifest_input(raw_json=json.dumps(valid_summary(**change)), actor=FOUNDER)
+    result = promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))
+    assert result['status'] == 'invalid'
 
 
-@pytest.mark.parametrize('response', [None, [], {}, {'errors': ['private detail']},
-    {'data': None}, {'data': {'repository': None}},
-    {**document(), 'errors': [{'message': 'private detail'}]},
-])
-def test_missing_or_partial_response_fails_closed(response):
-    with pytest.raises(summary.SummaryUnavailable):
-        summary.open_high_count(response)
+@pytest.mark.parametrize('payload', ['not json', '[]', '"' + 'x' * 4097 + '"'])
+def test_malformed_or_oversized_manifest_input_fails_closed(tmp_path, payload):
+    summary_file = tmp_path / 'security-open-high.json'
+    summary_file.write_text(payload)
+    for records in (
+        promise.load_manifest_input(path=str(summary_file), actor=FOUNDER),
+        promise.load_manifest_input(raw_json=payload, actor=FOUNDER),
+    ):
+        assert promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))['status'] == 'invalid'
 
 
-@pytest.mark.parametrize('key', [
-    'SERVER_SHA', 'SERVER_DIGEST', 'LOCK_DIGEST',
-    'SECURITY_TRACKER_REPOSITORY', 'SECURITY_TRACKER_TOKEN',
-])
-def test_missing_configuration_does_not_fetch_or_leave_stale_receipt(monkeypatch, key):
-    summary.RECEIPT.write_text('old PASS')
-    monkeypatch.delenv(key)
-    opener = Mock()
-    monkeypatch.setattr(summary.urllib.request, 'build_opener', opener)
-    assert summary.main() == 1
-    opener.assert_not_called()
-    assert not summary.RECEIPT.exists()
+def test_nonexistent_manifest_input_file_fails_closed(tmp_path):
+    records = promise.load_manifest_input(path=str(tmp_path / 'missing.json'), actor=FOUNDER)
+    assert promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))['status'] == 'invalid'
 
 
-@pytest.mark.parametrize('error', [
-    urllib.error.HTTPError(summary.API, 403, 'private detail', {}, io.BytesIO(b'private detail')),
-    urllib.error.URLError('private detail'), IncompleteRead(b'private detail'),
-    ValueError('private detail'), summary.SummaryUnavailable(),
-])
-def test_failures_never_print_private_response(monkeypatch, capsys, error):
-    monkeypatch.setattr(summary, 'read_count', Mock(side_effect=error))
-    assert summary.main() == 1
-    assert not summary.RECEIPT.exists()
-    output = capsys.readouterr()
-    assert output.out == ''
-    assert output.err == 'Private security summary unavailable.\n'
+def test_admission_rejects_non_founder_promise_gate_actor():
+    from test_release_promise import aggregate, run as make_run, CANDIDATE as T_CANDIDATE, NOW as T_NOW
+    record = make_run(promise.load_contract()[0])
+    record.update(path='.github/workflows/' + gate.PROMISE_GATE,
+                  report=aggregate(), reports=[], created_at=record['run_started_at'],
+                  triggering_actor={'login': 'collaborator'})
+    result = gate.evaluate({gate.PROMISE_GATE: {'runs': [record]}}, T_NOW, 7, candidate=T_CANDIDATE)
+    assert not result['admissible']
 
 
-@pytest.mark.parametrize('payload', [b'not json', b'x' * 4097])
-def test_bad_or_oversized_response_refused(monkeypatch, payload):
-    response = Mock()
-    response.__enter__ = Mock(return_value=io.BytesIO(payload))
-    response.__exit__ = Mock(return_value=False)
-    monkeypatch.setattr(summary.urllib.request, 'build_opener', Mock(return_value=Mock(
-        open=Mock(return_value=response))))
-    with pytest.raises((ValueError, summary.SummaryUnavailable)):
-        summary.read_count(Mock())
+def test_main_wires_security_summary_env_and_actor(monkeypatch, tmp_path):
+    output = tmp_path / 'report.json'
+    summary = valid_summary(observedAt=dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z'))
+    args = argparse.Namespace(
+        server_sha=CANDIDATE.server_sha, server_digest=CANDIDATE.server_digest,
+        platform_lock=CANDIDATE.platform_lock, profile='rc',
+        security_summary='', security_summary_json='', security_summary_actor='',
+        out=str(output),
+    )
+    seen = {}
+
+    def fake_collect(rows, token, now, manifest_inputs=None):
+        seen['manifest_inputs'] = manifest_inputs
+        return {promise.SECURITY_SUMMARY_ROW: manifest_inputs[promise.SECURITY_SUMMARY_ROW]}
+
+    monkeypatch.setattr(promise, 'arguments', lambda: (None, args))
+    monkeypatch.setattr(promise, 'collect', fake_collect)
+    monkeypatch.setenv('GH_TOKEN', 'test-token')
+    monkeypatch.setenv('SECURITY_SUMMARY_JSON', json.dumps(summary))
+    monkeypatch.setenv('SECURITY_SUMMARY_ACTOR', FOUNDER)
+    promise.main()
+    report = json.loads(output.read_text())
+    sec = next(r for r in report['rows'] if r['id'] == 'security-open-high')
+    assert sec['status'] == 'PASS'
+    assert sec['actor'] == FOUNDER
 
 
-def test_redirect_cannot_forward_credentials():
-    with pytest.raises(summary.SummaryUnavailable):
-        summary.RejectRedirects().redirect_request(None, None, 302, '', {}, 'https://other.test')
+def test_gate_release_promise_and_promote_wiring():
+    gate_wf = yaml.safe_load((ROOT / '.github/workflows/gate-release-promise.yml').read_text())
+    gate_triggers = gate_wf.get('on', gate_wf.get(True))
+    assert 'security_summary_json' in gate_triggers['workflow_dispatch']['inputs']
+    gate_step = next(s for s in gate_wf['jobs']['promises']['steps']
+                     if s.get('name') == 'Evaluate authenticated live producer receipts')
+    assert gate_step['env']['SECURITY_SUMMARY_JSON'] == '${{ inputs.security_summary_json }}'
+    assert gate_step['env']['SECURITY_SUMMARY_ACTOR'] == '${{ github.triggering_actor }}'
+
+    promote_wf = yaml.safe_load((ROOT / '.github/workflows/promote.yml').read_text())
+    promote_step = next(s for s in promote_wf['jobs']['promote']['steps']
+                        if s.get('name') == 'Enforce current GA release promises')
+    assert "'--reuse-admitted-security-summary'" in promote_step['run']
+    assert 'SECURITY_SUMMARY_ACTOR' not in (promote_step.get('env') or {})
 
 
-@pytest.mark.parametrize('count', [0, 1])
-def test_receipt_contains_only_allowed_public_fields(monkeypatch, count):
-    monkeypatch.setattr(summary, 'read_count', Mock(return_value=count))
-    assert summary.main() == (0 if count == 0 else 1)
-    result = json.loads(summary.RECEIPT.read_text())
-    assert set(result) == {'schema', 'row', 'status', 'serverSha', 'imageDigest',
-                           'platformLockDigest', 'observedAt', 'assertions', 'openHighFindings'}
-    assert result['openHighFindings'] == count
-    assert result['status'] == ('PASS' if count == 0 else 'FAIL')
-    assert result['serverSha'] == CANDIDATE.server_sha
-    assert 'private' not in summary.RECEIPT.read_text().replace('privateScoped', '')
-    row = next(row for row in release_promise.load_contract() if row['id'] == 'security-open-high')
-    now = gate.dt.datetime.now(gate.dt.timezone.utc)
-    timestamp = lambda value: value.isoformat().replace('+00:00', 'Z')
-    run = {'run_started_at': timestamp(now - gate.dt.timedelta(minutes=1)),
-           'updated_at': timestamp(now), 'status': 'completed', 'conclusion': 'success',
-           'head_branch': 'trunk', 'event': 'workflow_dispatch',
-           'path': '.github/workflows/gate-security-private-summary.yml', 'reports': [result]}
-    assert release_promise._run_passes(run, row, (CANDIDATE, now)) == (count == 0)
+def _promise_gate_run(**overrides):
+    base = {
+        'id': 99, 'status': 'completed', 'conclusion': 'success', 'head_branch': 'trunk',
+        'event': 'workflow_dispatch', 'path': f'.github/workflows/{gate.PROMISE_GATE}',
+        'head_repository': {'full_name': 'honua-io/honua-release'},
+        'actor': {'login': FOUNDER}, 'triggering_actor': {'login': FOUNDER},
+        'run_started_at': '2026-11-21T04:00:00Z', 'updated_at': '2026-11-21T04:01:00Z',
+    }
+    base.update(overrides)
+    return base
 
 
-def test_workflow_trust_boundary_and_artifact_allowlist():
-    workflow = yaml.safe_load((ROOT / '.github/workflows/gate-security-private-summary.yml').read_text())
-    assert set(workflow[True]) == {'workflow_dispatch'}
-    job = workflow['jobs']['summary']
-    assert job['if'] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
-    assert workflow['permissions'] == {'contents': 'read'}
-    assert job['environment'] == 'security-tracker'
-    steps = job['steps']
-    producer = next(step for step in steps if step.get('name') == 'Produce private aggregate')
-    assert producer['env']['SECURITY_TRACKER_TOKEN'] == '${{ secrets.SECURITY_TRACKER_TOKEN }}'
-    upload = steps[-1]
-    assert upload['if'] == 'always()'
-    assert upload['with']['path'] == 'security-open-high.json'
-    assert upload['with']['name'] == 'release-promise-receipts'
+def _admitted_report(**overrides):
+    sec_row = {
+        'id': 'security-open-high', 'status': 'PASS', 'observedAt': '2026-11-21T04:00:00Z',
+        'actor': FOUNDER, 'summarySha256': 'e' * 64,
+    }
+    report = {
+        'schema': 'honua.release-promise-report/v1', 'status': 'pass',
+        'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
+        'platformLockDigest': CANDIDATE.platform_lock, 'rows': [sec_row],
+    }
+    report.update(overrides)
+    return report
+
+
+def test_admitted_security_summary_trust_filter(monkeypatch):
+    policy = yaml.safe_load((ROOT / 'certification/release-promotion-approval.yaml').read_text())
+    promote_actor = 'honua-release-bot[bot]'
+    roster = [entry['login'] for entry in policy['approval']['required_reviewers']]
+    assert FOUNDER in roster
+    assert promote_actor not in roster and promote_actor not in promise.SECURITY_SUMMARY_ACTORS
+
+    def run_reuse(history_runs, report_by_id):
+        monkeypatch.setattr(promise, '_history', lambda key, token, now: history_runs)
+        monkeypatch.setattr(promise, '_available_artifacts', lambda repo, token, run_id: [{'id': run_id}])
+        monkeypatch.setattr(promise, '_producer_reports',
+                            lambda row, token, arts: report_by_id.get(arts[0]['id'], []))
+        records = promise._admitted_security_summary('token', NOW)
+        return promise.evaluate_row(security_row(), records, (CANDIDATE, NOW))
+
+    # 1. Founder trunk run is accepted.
+    ok = run_reuse([_promise_gate_run(id=10)], {10: [_admitted_report()]})
+    assert ok['status'] == 'PASS'
+    assert ok['actor'] == FOUNDER
+    assert ok['summarySha256'] == 'e' * 64
+
+    # 2. Non-founder re-run (triggering_actor != actor) is rejected.
+    rerun = _promise_gate_run(id=11, actor={'login': FOUNDER}, triggering_actor={'login': promote_actor})
+    assert run_reuse([rerun], {11: [_admitted_report()]})['status'] == 'invalid'
+
+    # 3. Non-trunk branch is rejected.
+    branch_run = _promise_gate_run(id=12, head_branch='topic')
+    assert run_reuse([branch_run], {12: [_admitted_report()]})['status'] == 'invalid'
+
+    # 4. Every contending run returned by _history must validate (no fallback to an older founder run).
+    older_ok = _promise_gate_run(id=10, run_started_at='2026-11-21T02:00:00Z', updated_at='2026-11-21T02:01:00Z')
+    newer_bad = _promise_gate_run(id=13, triggering_actor={'login': promote_actor},
+                                  run_started_at='2026-11-21T04:00:00Z', updated_at='2026-11-21T04:01:00Z')
+    assert run_reuse([newer_bad, older_ok], {10: [_admitted_report()], 13: [_admitted_report()]})['status'] == 'invalid'
+
+    # 5. Wrong-candidate admitted report is rejected.
+    assert run_reuse([_promise_gate_run(id=14)], {14: [_admitted_report(serverSha='d' * 40)]})['status'] == 'invalid'
