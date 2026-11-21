@@ -78,8 +78,10 @@ def test_unbound_identity_names_every_missing_fact(row, missing):
 def manifest():
     return {"platformRelease": "2026.1-rc.3", "components": {
         "honua-server": image(),
-        "honua-console": image(repository="https://github.com/honua-io/honua-console",
-                               image="ghcr.io/honua-io/honua-console:candidate-x"),
+        # A static bundle keeps the version its receipt names; it is never stamped.
+        "honua-console": {"repository": "https://github.com/honua-io/honua-console", "sha": REVISION,
+                          "artifact": "actions-artifact:console-static-release", "artifactSha256": DIGEST,
+                          "artifactSourceRevision": REVISION, "artifactVersion": "0.0.0-trunk.aaaaaaaaaaaa"},
         "honua-helm": chart(),
         "honua-sdk-js": {"repository": "https://github.com/honua-io/honua-sdk-js", "sha": REVISION,
                          "version": "0.1.12", "artifactVersion": "0.1.12", "artifact": "npm:@honua/sdk-js"},
@@ -99,7 +101,7 @@ def test_stamp_gives_every_bound_imaged_component_the_platform_version():
         # The manifest pin model is unchanged; only the artifact identity is versioned.
         assert components[name]["version"] == "pre-release"
     assert components["honua-server"]["releaseVersion"] == "2026.1.0-rc.3"
-    assert "releaseVersion" not in components["honua-console"]
+    assert components["honua-console"]["artifactVersion"] == "0.0.0-trunk.aaaaaaaaaaaa"
 
 
 def test_stamp_at_ga_names_the_ga_version():
@@ -123,7 +125,7 @@ def test_an_unbound_imaged_component_is_not_stamped_and_loses_a_carried_version(
     data["components"]["honua-helm"]["artifactVersion"] = "2026.1.0-rc.2"
     data["components"]["honua-server"].pop("platformDigests")
     data["components"]["honua-server"].update(artifactVersion="2026.1.0-rc.2", releaseVersion="2026.1.0-rc.2")
-    assert stamp_platform_version(data, "2026.1-rc.3") == {"honua-console": "2026.1.0-rc.3"}
+    assert stamp_platform_version(data, "2026.1-rc.3") == {}
     for name in ("honua-helm", "honua-server"):
         assert "artifactVersion" not in data["components"][name]
     assert "releaseVersion" not in data["components"]["honua-server"]
@@ -168,10 +170,10 @@ def test_a_ga_manifest_refuses_an_rc_suffixed_imaged_version(field):
     data = manifest()
     stamp_platform_version(data, "2026.1")
     data["platformRelease"] = "2026.1"
-    data["components"]["honua-console"][field] = "2026.1.0-rc.3"
+    data["components"]["honua-helm"][field] = "2026.1.0-rc.3"
     allowed = "be pre-release or" if field == "version" else "be"
     assert stamp_errors(data) == [
-        f"honua-console.{field} '2026.1.0-rc.3' must {allowed} the platform version '2026.1.0' "
+        f"honua-helm.{field} '2026.1.0-rc.3' must {allowed} the platform version '2026.1.0' "
         "of platformRelease '2026.1' (R22)"]
 
 

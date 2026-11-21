@@ -29,6 +29,7 @@ from release_facts import (
     notes_reference,
 )
 from sdk_baselines import PUBLISHER, SDK_COMPONENTS, check_component, release_context
+import static_bundle
 
 try:
     import yaml
@@ -130,6 +131,10 @@ def _artifact_seed(component: dict[str, Any]) -> dict[str, Any] | None:
     image = component.get("image")
     if image:
         return {"kind": "image", "coordinate": str(image).split("@", 1)[0].rsplit(":", 1)[0]}
+    bundle = static_bundle.artifact_name(component)
+    if bundle:
+        repository = str(component.get("repository", "")).removeprefix("https://github.com/")
+        return {"kind": static_bundle.KIND, "coordinate": static_bundle.coordinate(repository, bundle)}
     if not coordinate:
         return None
     prefix, _, name = str(coordinate).partition(":")
@@ -369,7 +374,7 @@ def generate(manifest_path: Path, matrix_path: Path, *, image_inspector=None,
                     seed["sourceRevision"] = published["sourceRevision"]
                 else:
                     refuse(f"{apath}.integrity: npm registry integrity is not declared", "MECHANICAL")
-            elif seed["kind"] in ("nuget", "wheel", "terraform", "spec", "archive"):
+            elif seed["kind"] in ("nuget", "wheel", "terraform", "spec", "archive", static_bundle.KIND):
                 digest = component_hash or published.get("sha256")
                 if digest and (component.get("artifactSourceRevision") or published.get("sourceRevision")):
                     seed["sha256"] = digest

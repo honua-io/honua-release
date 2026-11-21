@@ -586,11 +586,11 @@ def test_exact_candidate_accepts_bound_coherent_pins():
 
 def test_exact_candidate_rejects_a_bound_image_with_no_platform_stamp():
     manifest, _, _ = _bound_sdk_fixture()
-    del manifest["components"]["honua-console"]["artifactVersion"]
+    del manifest["components"]["honua-server"]["artifactVersion"]
     f = vp.Findings()
     vp.check_exact_candidate(manifest, f)
     assert any(
-        "exact-candidate: honua-console.artifactVersion None must be the platform version '2026.1.0-rc.2'"
+        "exact-candidate: honua-server.artifactVersion None must be the platform version '2026.1.0-rc.2'"
         in error for error in f.errors), f.errors
 
 
@@ -896,11 +896,12 @@ def _r22_errors(manifest, matrix):
 def test_a_stamped_candidate_agrees_with_its_platform_version():
     manifest, matrix = _stamped_manifest()
     assert manifest["components"]["honua-server"]["artifactVersion"] == "2026.1.0-rc.3"
-    assert manifest["components"]["honua-console"]["artifactVersion"] == "2026.1.0-rc.3"
+    # A static-bundle Console keeps the version its bundle receipt names.
+    assert manifest["components"]["honua-console"]["artifactVersion"].startswith("0.0.0-trunk.")
     assert _r22_errors(manifest, matrix) == []
 
 
-@pytest.mark.parametrize("name", ["honua-server", "honua-console"])
+@pytest.mark.parametrize("name", ["honua-server"])
 @pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1-rc.3", "pre-release", "1.0.0"])
 def test_validator_refuses_an_imaged_version_other_than_the_platform_version(name, version):
     manifest, matrix = _stamped_manifest()
@@ -915,8 +916,8 @@ def test_validator_refuses_an_imaged_version_other_than_the_platform_version(nam
 @pytest.mark.parametrize("field", ["digest", "artifactSourceRevision", "platformDigests"])
 def test_validator_refuses_a_platform_version_stamped_without_bound_bytes(field):
     manifest, matrix = _stamped_manifest()
-    del manifest["components"]["honua-console"][field]
-    assert f"manifest: honua-console.artifactVersion is stamped but {field} is not bound (R22)" in \
+    del manifest["components"]["honua-server"][field]
+    assert f"manifest: honua-server.artifactVersion is stamped but {field} is not bound (R22)" in \
         _r22_errors(manifest, matrix)
 
 
@@ -939,7 +940,7 @@ def test_validator_refuses_a_server_release_version_beside_another_artifact_vers
     assert len(_r22_errors(manifest, matrix)) == 1
 
 
-@pytest.mark.parametrize("name", ["honua-server", "honua-console"])
+@pytest.mark.parametrize("name", ["honua-server"])
 @pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1.0", "1.0.0"])
 def test_validator_checks_a_plain_imaged_version_too(name, version):
     """The coordinator follow-up: a plain version key beside the stamp is checked, not ignored."""
@@ -956,9 +957,9 @@ def test_validator_refuses_an_rc_version_in_a_ga_manifest():
     manifest["platformRelease"] = "2026.1"
     stamp_platform_version(manifest, "2026.1")
     assert _r22_errors(manifest, matrix) == []
-    manifest["components"]["honua-console"]["version"] = "2026.1.0-rc.3"
+    manifest["components"]["honua-server"]["version"] = "2026.1.0-rc.3"
     assert _r22_errors(manifest, matrix) == [
-        "manifest: honua-console.version '2026.1.0-rc.3' must be pre-release or the platform version "
+        "manifest: honua-server.version '2026.1.0-rc.3' must be pre-release or the platform version "
         "'2026.1.0' of platformRelease '2026.1' (R22)"]
 
 

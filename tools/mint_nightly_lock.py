@@ -37,6 +37,7 @@ from generate_platform_lock import generate
 from platform_version import stamp_platform_version
 from release_notes_ref import snapshot
 from release_facts import SOURCE_REFERENCE
+import static_bundle
 from tag_signing import publication_tag
 from check_promotion_readiness import EVIDENCE_CLASSES, GA_CELLS, MAX_FRESHNESS, JOURNEYS, _journey
 
@@ -68,7 +69,8 @@ def artifact_subject(artifact: dict) -> str:
 # exact signer workflow in the candidate manifest; a repository alone is never policy.
 PUBLISHER_WORKFLOWS = {
     'honua-io/honua-server': 'nightly-container-build.yml',
-    'honua-io/honua-console': 'container-publish.yml',
+    # A static bundle (Actions artifact of a trunk push run); the publisher attests the bundle zip.
+    'honua-io/honua-console': 'static-bundle.yml',
     'honua-io/honua-sdk-dotnet': 'publish-dotnet-sdk.yml',
     'honua-io/honua-sdk-python': 'publish-python-sdk.yml',
     'honua-io/honua-helm': 'release.yml',
@@ -194,9 +196,9 @@ def publisher_attestations(repository: str, digest: str) -> list[dict]:
     return [row for page in pages for row in page['attestations']]
 
 
-def published_artifact_bytes(artifact: dict) -> bytes:
+def published_artifact_bytes(artifact: dict, github=None) -> bytes:
     """Fetch the public package and check its locked hash before attestation lookup."""
-    from resolve_trunk_candidate import retry
+    from resolve_trunk_candidate import GitHub, retry
     from verify_client_artifacts import _request, _request_json
     kind, coordinate, version = artifact['kind'], artifact['coordinate'], artifact.get('version')
     # Registry packages are addressed by version; spec and archive bytes by URL and hash alone.
@@ -223,9 +225,11 @@ def published_artifact_bytes(artifact: dict) -> bytes:
             raise ValueError('PyPI returned an untrusted wheel URL')
     elif kind in {'spec', 'archive'} and coordinate.startswith('https://github.com/'):
         url = coordinate.replace('/blob/', '/raw/', 1) if kind == 'spec' else coordinate
-    else:
+    elif kind != static_bundle.KIND:
         raise ValueError(f'no published-byte reader for {kind}:{coordinate}')
-    raw = retry(lambda: _request(url))
+    # An Actions artifact is not public: the bundle is read from its publisher run with this token.
+    raw = (static_bundle.published_bytes(artifact, github or GitHub()) if kind == static_bundle.KIND
+           else retry(lambda: _request(url)))
     expected = artifact_subject(artifact)
     actual = ('sha512:' + hashlib.sha512(raw).hexdigest() if expected.startswith('sha512:')
               else 'sha256:' + hashlib.sha256(raw).hexdigest())

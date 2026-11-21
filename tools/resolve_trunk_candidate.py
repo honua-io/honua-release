@@ -37,6 +37,7 @@ from image_requirement import ImageRequirement, label_rule
 from component_versions import version_map
 from platform_version import IMAGED_COMPONENTS, PRERELEASE, PUBLISHER, artifact_version, stamp_platform_version
 import sdk_baselines
+import static_bundle
 from semver import parse as parse_semver
 import upgrade_lock_binding
 import validate_platform
@@ -238,6 +239,13 @@ class GitHub:
             raise ResolutionError(f'{repository}@{revision}:{path}: read {len(raw)} bytes (git blob {actual}), '
                                   f'not the {size} bytes of blob {blob or "(none)"}')
         return raw
+
+    def download(self, path):
+        try:
+            return retry(lambda: static_bundle.gh_bytes(path))
+        except subprocess.CalledProcessError as exc:
+            detail = ' '.join((exc.stderr or b'').decode('utf-8', errors='replace').split()) or str(exc)
+            raise ResolutionError(f'gh api {path} failed: {detail}', status=api_status(exc)) from exc
 
     def raw(self, path):
         try:
@@ -451,6 +459,8 @@ def select_component(name, component, github, registry, limit, skips=None, decla
     repository = component['repository'].removeprefix('https://github.com/')
     # A malformed rule is a refusal, not a per-commit skip repeated down the whole walk.
     label_rule(component.get('imageLabels'))
+    bundle_name = static_bundle.artifact_name(component)
+    workflow = bundle_name and static_bundle.publisher_workflow(component, repository)
     reasons = []
     skipped = []
 
@@ -475,6 +485,12 @@ def select_component(name, component, github, registry, limit, skips=None, decla
                 skip(sha, f'CI {why}')
                 continue
             selected = {**component, 'sha': sha}
+            if bundle_name:
+                try:
+                    selected.update(static_bundle.select(github, repository, workflow, bundle_name, sha))
+                except static_bundle.Unavailable as exc:
+                    skip(sha, str(exc))
+                    continue
             if component.get('image'):
                 try:
                     selected.update(registry.image(name, component, sha))
@@ -561,43 +577,6 @@ def select_release(name, component, github):
     if not green:
         raise ResolutionError(f'{name}: release {tag} at {sha}: CI {why}')
     return dict(component)
-
-
-def pinned_image(component):
-    """An image component the manifest holds at its pin (`trunkSelection: pinned`) instead of walking trunk.
-
-    honua-console has published no container since the static SPA ruling (honua-console 47cba9a3,
-    9 Nov), so no trunk commit can qualify; the night keeps the published, digest-pinned image
-    the release ships until a static-bundle component kind replaces it."""
-    selection = component.get('trunkSelection', 'trunk')
-    if selection not in ('trunk', 'pinned'):
-        raise ResolutionError(f'trunkSelection must be "trunk" or "pinned", not {selection!r}')
-    return selection == 'pinned' and bool(component.get('image'))
-
-
-def select_pinned_image(name, component, github, registry):
-    """Keep a pinned image on its pin: the same immutable digest, re-read from the registry, at a green commit."""
-    repository = component['repository'].removeprefix('https://github.com/')
-    sha = str(component.get('sha') or '')
-    if not SHA.fullmatch(sha):
-        raise ResolutionError(f'{name}: pinned image is not pinned to an immutable commit')
-    if component.get('artifactSourceRevision') != sha:
-        raise ResolutionError(f'{name}: artifactSourceRevision is not the pinned commit {sha}')
-    if registry is None:
-        raise ResolutionError(f'{name}: no registry to verify the pinned image')
-    result = registry.image(name, component, sha)
-    if result.get('digest') != component.get('digest'):
-        raise ResolutionError(f"{name}: registry digest {result.get('digest')} is not the pinned {component.get('digest')}")
-    if component.get('platformDigests') and result.get('platformDigests') != component['platformDigests']:
-        raise ResolutionError(f'{name}: registry platform digests differ from the pinned platformDigests')
-    green, why = github.green(name, repository, sha)
-    if not green:
-        raise ResolutionError(f'{name}: pinned image commit {sha}: CI {why}')
-    selected = {**component, **result, 'sha': sha}
-    for field in ('awsLambdaImage', 'awsLambdaDigest', 'awsLambdaEcrDigest'):
-        if selected.get(field) is None:
-            selected.pop(field, None)
-    return selected
 
 
 def _commit_time(github, sha):
@@ -1110,14 +1089,13 @@ def resolve(manifest, matrix, github, registry, limit=100, protocol_ledger='requ
             candidate['components'][name] = (
                 select_sdk(name, component, candidate.get('clientArtifacts') or {}, identities, github)
                 if name in SDK_COMPONENTS else select_release(name, component, github)
-                if released_archive(component) else select_pinned_image(name, component, github, registry)
-                if pinned_image(component) else select_component(
+                if released_archive(component) else select_component(
                     name, component, github, registry, limit, walk,
                     declare=lambda selected, name=name: component_versions(github, name, selected)))
             selected = candidate['components'][name]
             image = selected.get('image')
             print(f"RESOLVED {name} {selected['sha']}" + (f" {image}" if image else '')
-                  + (' (pinned: trunkSelection, trunk not walked)' if pinned_image(component) else ''))
+                  + (f" {selected['artifactVersion']}" if static_bundle.artifact_name(component) else ''))
         except (OSError, ValueError, subprocess.CalledProcessError) as exc:
             detail = str(exc)
             if not detail.startswith(f'{name}:'):

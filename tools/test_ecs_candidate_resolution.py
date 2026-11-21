@@ -26,7 +26,6 @@ def test_resolve_ecs_candidate_runs_structure_validation_without_lambda(monkeypa
     monkeypatch.setattr(resolver, 'select_component', lambda name, component, *args, **kwargs:
         select_component(name, component, *args, **kwargs) if name == 'honua-server' else copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'released_archive', lambda component: False)
-    monkeypatch.setattr(resolver, 'pinned_image', lambda component: False)
     monkeypatch.setattr(resolver, 'SDK_COMPONENTS', ())
     monkeypatch.setattr(resolver.sdk_baselines, 'SDK_COMPONENTS', ())
     monkeypatch.setattr(resolver, 'verify_manifest', lambda *args, **kwargs: None)

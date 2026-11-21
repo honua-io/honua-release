@@ -1787,9 +1787,11 @@ class LocalRuntime:
         from agent_browser_studio import CaseConsole, studio_console_image
         manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
         component = manifest['components']['honua-console']
-        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0]
         pin = studio_console_image()
-        if repository + '@' + component['digest'] != pin['image'] or component.get('sha') != pin['sourceRevision']:
+        # A static-bundle Console has no image in the manifest; the case runs the reviewed image alone.
+        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0] if component.get('image') else None
+        if repository and (repository + '@' + component['digest'] != pin['image']
+                           or component.get('sha') != pin['sourceRevision']):
             raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
