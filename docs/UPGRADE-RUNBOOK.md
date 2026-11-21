@@ -13,7 +13,8 @@ This page applies it to concrete releases.
 
 For 2026.1 rc.2, the [release cut scope](RELEASE-CUT-CHECKLIST.md) limits production
 certification to AWS ECS. Compose remains a local evaluation path; the earlier GA Compose
-requirements below do not certify an rc.2 production deployment.
+requirements below do not certify an rc.2 production deployment. rc.2 publishes no Helm chart:
+the Helm steps below are the `kind-upgrade` gate cells, not a customer upgrade path for rc.2.
 
 ## 1. Identify the exact release artefacts
 

@@ -33,6 +33,8 @@ def component_rows(manifest: dict, server_image: str | None, server_digest: str 
     comps = manifest.get("components") or {}
     for name in sorted(comps):
         c = comps[name] or {}
+        if c.get("outOfLock"):
+            continue
         version = str(c.get("version") or "pre-release")
         sha = str(c.get("sha") or "")[:12]
         artifact = c.get("image") or c.get("artifact") or "—"

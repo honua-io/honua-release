@@ -81,3 +81,13 @@ def test_committed_narrative_matches_the_rc2_platform():
     assert "run weekly" not in narrative
     assert "both report server version `2026.1.1`" not in narrative
     assert "is a required admission gate" not in narrative
+
+
+def test_rc_notes_leave_out_of_lock_components_out_of_the_component_table():
+    manifest = {"components": {
+        "honua-helm": {"version": "pre-release", "sha": "b" * 40, "outOfLock": "helm-preview-out-of-lock-2026-10-26"},
+        "honua-sdk-js": {"version": "0.4.0", "sha": "c" * 40},
+    }}
+    text = notes.render(manifest, "| gate | pass |", "2026.1-rc.2", None, None, [])
+    assert "| honua-sdk-js | 0.4.0 |" in text
+    assert "| honua-helm |" not in text
