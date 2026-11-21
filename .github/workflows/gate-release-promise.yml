@@ -16,6 +16,11 @@ on:
         type: choice
         options: [rc, ga]
         default: rc
+      security_summary_json:
+        description: Sanitized security-open-high.json manifest input built on the lane host from the private tracker
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       server_sha:
@@ -30,6 +35,10 @@ on:
       profile:
         type: string
         default: rc
+      security_summary_json:
+        required: false
+        type: string
+        default: ''
     secrets:
       RELEASE_GH_TOKEN:
         required: true
@@ -52,6 +61,8 @@ jobs:
           SERVER_DIGEST: ${{ inputs.server_digest }}
           LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
           PROFILE: ${{ inputs.profile }}
+          SECURITY_SUMMARY_JSON: ${{ inputs.security_summary_json }}
+          SECURITY_SUMMARY_ACTOR: ${{ github.triggering_actor }}
         run: >-
           python tools/release_promise.py --server-sha "$SERVER_SHA"
           --server-digest "$SERVER_DIGEST" --platform-lock "$LOCK_DIGEST"

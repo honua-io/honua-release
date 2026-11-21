@@ -14,6 +14,12 @@ CONTRACT = Path(__file__).resolve().parents[1] / 'certification/release-promise.
 
 
 def evidence(row):
+    if row.get('source') == 'manifest-input':
+        return {'schema': 'honua.release-promise-receipt/v1', 'row': row['id'], 'status': 'PASS',
+                'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
+                'platformLockDigest': CANDIDATE.platform_lock,
+                'observedAt': '2026-11-14T00:00:00Z', 'openHighFindings': 0,
+                'assertions': row['assertions']}
     return {'schema': 'honua.release-promise-receipt/v1', 'row': row['id'], 'status': 'PASS',
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
             'platformLockDigest': CANDIDATE.platform_lock,
@@ -23,9 +29,12 @@ def evidence(row):
 
 
 def run(row):
+    if row.get('source') == 'manifest-input':
+        return {'source': 'manifest-input', 'actor': 'mikemcdougall', 'reports': [evidence(row)]}
     return {'id': 1, 'status': 'completed', 'conclusion': 'success',
             'head_branch': 'trunk', 'event': 'workflow_dispatch',
             'head_repository': {'full_name': row['repo']},
+            'triggering_actor': {'login': 'mikemcdougall'},
             'path': '.github/workflows/' + row['workflow'],
             'run_started_at': '2026-11-14T00:00:00Z', 'updated_at': '2026-11-14T00:01:00Z',
             'reports': [evidence(row)]}
@@ -110,10 +119,14 @@ def test_promise_gate_is_required_and_candidate_bound():
 
 
 def aggregate():
-    results = p.evaluate(p.load_contract(CONTRACT),
-                         {r['id']: [{**run(r), 'id': i + 1, 'path': '.github/workflows/' + workflow}
-                                    for i, workflow in enumerate(p.producer_workflows(r))]
-                          for r in p.load_contract(CONTRACT)}, (CANDIDATE, NOW))
+    records = {}
+    for r in p.load_contract(CONTRACT):
+        if r.get('source') == 'manifest-input':
+            records[r['id']] = [run(r)]
+        else:
+            records[r['id']] = [{**run(r), 'id': i + 1, 'path': '.github/workflows/' + workflow}
+                                for i, workflow in enumerate(p.producer_workflows(r))]
+    results = p.evaluate(p.load_contract(CONTRACT), records, (CANDIDATE, NOW))
     for result in results:
         if result['id'] in p.adversarial.IDS:
             result.update(status='PASS', observedAt='2026-11-14T00:00:00Z')

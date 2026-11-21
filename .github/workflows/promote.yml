@@ -235,7 +235,8 @@ jobs:
           report = Path(os.environ['RUNNER_TEMP']) / 'ga-promise-report.json'
           subprocess.run([sys.executable, 'tools/release_promise.py', '--server-sha', sha,
                           '--server-digest', digest, '--platform-lock', lock,
-                          '--profile', 'ga', '--out', str(report)], check=True)
+                          '--profile', 'ga', '--reuse-admitted-security-summary',
+                          '--out', str(report)], check=True)
           notes = Path(os.environ['RUNNER_TEMP']) / 'ga-promise-outcomes.md'
           notes.write_text(render_markdown(json.loads(report.read_text())['outcomes']))
           PYTHON

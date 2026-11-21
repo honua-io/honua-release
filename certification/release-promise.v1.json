@@ -242,18 +242,16 @@
     },
     {
       "id": "security-open-high",
-      "repo": "honua-io/honua-release",
-      "workflow": "gate-security-private-summary.yml",
+      "source": "manifest-input",
       "required": [
         "rc",
         "ga"
       ],
-      "artifact": "release-promise-receipts",
       "receipt": "security-open-high.json",
       "assertions": {
         "privateScoped": true
       },
-      "criterion": "Private-scoped producer reads private tracker; publishes integer openHighFindings only, never titles, bodies or IDs."
+      "criterion": "Lane-host script reads private tracker with the founder gh login and writes security-open-high.json (integer openHighFindings only, never titles, bodies or IDs) to the private artifacts directory; passed into the release gate as a manifest input."
     },
     {
       "id": "cloud-launch-stack",

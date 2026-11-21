@@ -131,8 +131,9 @@ canary described there are still owed under #386/#381; missing artifacts fail cl
   evidence stays within its freshness bound.
 - [ ] Pass the GA documentation gates ([release#379](https://github.com/honua-io/honua-release/issues/379))
   and retain the passing promotion-readiness result with the selected lock and immutable evidence.
-  Require the authenticated candidate-matched [private security summary](SECURITY-SUMMARY-GATE.md)
-  receipt; retain finding dispositions and measured spending ceilings in private operator evidence.
+  Require the candidate-matched [private security summary](SECURITY-SUMMARY-GATE.md)
+  manifest input built on the lane host from the private tracker; retain finding
+  dispositions and measured spending ceilings in private operator evidence.
   A historical decision record cannot grant admission or replace a required gate.
 - [ ] Rehearse fix-forward patching before GA ([release#380](https://github.com/honua-io/honua-release/issues/380)):
   fix on trunk → next certified lock → 12-hour patch burn and two canaries → `2026.1.1` promotion →
