@@ -1,7 +1,7 @@
 {
   "family": "map",
   "schemaVersion": "1.0",
-  "format": "studio_map_package.v1",
+  "format": "honua_map_package.v1",
   "bindings": [
     { "key": "flood-zones", "kind": "content", "ref": "content.flood-zones", "crs": "EPSG:4326", "srid": 4326 }
   ],
