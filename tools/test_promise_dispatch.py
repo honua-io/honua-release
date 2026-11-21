@@ -124,6 +124,9 @@ def test_a_producer_with_a_trunk_run_in_flight_is_skipped_not_cancelled(monkeypa
     assert '| `gate-contract.yml` | skipped: run 7 in flight |' in summary.read_text()
 
 
+PINNED = {name for name, extra in dispatch.DISPATCHED.items() if 'server_sha' in extra}
+
+
 def test_a_release_train_in_flight_holds_back_only_the_producers_it_calls(monkeypatch, tmp_path):
     monkeypatch.setattr(dispatch, 'qualification_lock_digest', lambda manifest: DIGEST)
     commands, summary = [], tmp_path / 'summary.md'
@@ -131,8 +134,8 @@ def test_a_release_train_in_flight_holds_back_only_the_producers_it_calls(monkey
     argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary)]
     assert dispatch.main(argv, run=fake_gh(commands, busy={'nightly-certification.yml'})) == 0
     dispatched = {command[3] for command in commands if command[:3] == ['gh', 'workflow', 'run']}
-    assert dispatched == {'gate-source-facts.yml'}
-    assert dispatch.train_called() >= set(dispatch.DISPATCHED) - {'gate-source-facts.yml'}
+    assert dispatched == PINNED == {'gate-source-facts.yml', 'gate-agent-safety.yml'}
+    assert dispatch.train_called() >= set(dispatch.DISPATCHED) - PINNED
     assert 'skipped: a release train is in flight (nightly-certification.yml run 7 in flight)' in summary.read_text()
 
 
@@ -142,11 +145,12 @@ def test_an_unresolvable_manifest_still_runs_the_scans_without_receipts(tmp_path
     argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary)]
     assert dispatch.main(argv, run=fake_gh(commands)) == 1
     dispatched = {command[3]: command[8:] for command in commands if command[:3] == ['gh', 'workflow', 'run']}
-    assert set(dispatched) == set(dispatch.DISPATCHED) - {'gate-source-facts.yml'}
+    assert set(dispatched) == set(dispatch.DISPATCHED) - PINNED
     assert not any('platform_lock_digest' in field for fields in dispatched.values() for field in fields)
     assert dispatched['gate-contract.yml'] == ['-f', 'enforcement=strict']
     text = summary.read_text()
-    assert 'none: no promise receipts' in text and '| `gate-source-facts.yml` | FAILED: needs the candidate pins' in text
+    assert 'none: no promise receipts' in text
+    assert all(f'| `{name}` | FAILED: needs the candidate pins' in text for name in PINNED)
 
 
 def test_gate_dr_reads_the_drill_run_that_triggered_the_dispatch():
