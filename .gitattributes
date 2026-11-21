@@ -17,6 +17,9 @@ certification/first-publication/**/SHA256SUMS text eol=lf
 # and gate-dr rejected a trunk-signed receipt (run 34671766127, 2026-09-12).
 platform-manifest.yaml text eol=lf
 platform-lock.json text eol=lf
+# kept-gate-receipt regenerates the qualification lock from the manifest AND this matrix and
+# records both sha256s, so a CRLF matrix changes the lock digest (gate-dr run 44840358475).
+compatibility-matrix.yaml text eol=lf
 certification/capacity-envelope.v1.json text eol=lf
 
 # Digest-pinned terminal-journey upload fixture (targets/local-docker.json upload.sha256).
