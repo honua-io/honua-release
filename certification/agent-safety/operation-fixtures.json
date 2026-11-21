@@ -106,6 +106,9 @@
     }
   },
   "routes": {
+    "POST /geospatial.v1.SpecService/{unimplementedMethod}": {
+      "contentType": "application/grpc"
+    },
     "DELETE /api/v1/admin/alerts/rules/{ruleId}": {
       "path": {
         "ruleId": "1"

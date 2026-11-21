@@ -2,8 +2,9 @@
 #
 # Boots the exact candidate image@digest with the e2e compose harness (as gate-contract-live does),
 # mints an agent-kind API key and walks every state-changing operation in the candidate's catalog
-# and every mutating admin route as that agent (tools/agent_safety_gate.py). The receipt passes only
-# when every operation came back as a proposal, no direct route call succeeded, the proposals and
+# and every mutating admin and governed route (the candidate's agent-change-routes.txt) as that
+# agent (tools/agent_safety_gate.py). The receipt passes only when every operation came back as a
+# proposal, every inventory route was called, no direct route call succeeded, the proposals and
 # refusals name the agent in the audit, and the administrator state is unchanged.
 name: gate-agent-safety
 run-name: Agent safety ${{ inputs.server_sha }}
@@ -34,7 +35,7 @@ jobs:
       - run: python -m pip install PyYAML
       # The candidate's committed agent route rule list says which governed routes apply their own
       # agent rule. Only a commit already on honua-server trunk is accepted.
-      - name: Fetch the candidate's agent route rules
+      - name: Fetch the candidate's agent route rules and route inventory
         env:
           SERVER_SHA: ${{ inputs.server_sha }}
           GH_TOKEN: ${{ github.token }}
@@ -46,6 +47,11 @@ jobs:
           gh api -H 'Accept: application/vnd.github.raw' \
             "repos/honua-io/honua-server/contents/tests/dotnet/Honua.Server.Tests/Features/Security/agent-route-rules.txt?ref=${SERVER_SHA}" \
             > server/tests/dotnet/Honua.Server.Tests/Features/Security/agent-route-rules.txt
+          # The governed change-route inventory; a revision without it leaves the row unchecked.
+          inventory=server/tests/dotnet/Honua.Server.Tests/Features/Security/agent-change-routes.txt
+          gh api -H 'Accept: application/vnd.github.raw' \
+            "repos/honua-io/honua-server/contents/${inventory#server/}?ref=${SERVER_SHA}" > "$inventory" \
+            || { rm -f "$inventory"; echo "::warning::agent-change-routes.txt is not at ${SERVER_SHA}; the walk fails closed"; }
       - name: Resolve the candidate image@digest
         id: image
         env:
