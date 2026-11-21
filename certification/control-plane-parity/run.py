@@ -99,7 +99,7 @@ def main() -> int:
     passwords = {user: secrets.token_hex(24) for user in ["admin-a", "viewer-a", "admin-b", "admin-read-a", "approver-a"]}
     env.update({
         "S4_RUN_DIR": str(run), "S4_IDP_HOSTNAME": "host.docker.internal", "S4_IDP_PORT": "19808",
-        "S4_SERVER_PORT": "19816", "S4_CONSOLE_ORIGIN": BASE, "S4_OPERATOR_USER": "admin-a",
+        "S4_SERVER_PORT": "19816", "S4_SERVER_TLS_PORT": "19817", "S4_CONSOLE_ORIGIN": BASE, "S4_OPERATOR_USER": "admin-a",
         "S4_OPERATOR_PASSWORD": passwords["admin-a"], "S4_AUDIT_CHAIN_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
         "S4_ADMIN_KEY": "RunA9!" + secrets.token_hex(24),
         **{name: secrets.token_hex(32) for name in ["S4_CLIENT_SECRET", "S4_OPERATOR_BEARER_KEY", "S4_MASTER_KEY", "S4_DB_PASSWORD", "S4_KEYRING_PASSWORD", "S4_IDP_ADMIN_PASSWORD"]},

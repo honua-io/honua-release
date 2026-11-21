@@ -11,6 +11,9 @@ def resolve(host,*args,**kwargs):
     return original('127.0.0.1' if host=='host.docker.internal' else host,*args,**kwargs)
 socket.getaddrinfo=resolve
 base='http://127.0.0.1:19816'
+# The stack's HTTPS listener (S4_SERVER_TLS_PORT, per-run certificate). Production accepts a
+# session-cookie POST only over same-origin HTTPS with a fresh X-Honua-CSRF antiforgery token.
+secure_base='https://127.0.0.1:19817'
 class Form(HTMLParser):
     def __init__(self):super().__init__();self.action=None;self.fields={}
     def handle_starttag(self,tag,attrs):
@@ -44,7 +47,8 @@ for user,password in json.loads((p/'credentials.json').read_text()).items():
     checked(token,204)
     session=checked(s.get(base+'/api/v1/admin/auth/session',timeout=30)).json()
     assert session['isAuthenticated'] is True
-    bearer=checked(s.post(base+'/api/v1/admin/auth/bearer',json={},timeout=30)).json()
+    csrf=checked(s.get(secure_base+'/api/v1/admin/auth/csrf',timeout=30)).json()['requestToken']
+    bearer=checked(s.post(secure_base+'/api/v1/admin/auth/bearer',json={},headers={'X-Honua-CSRF':csrf},timeout=30)).json()
     (p/f'{user}-bearer.json').write_text(json.dumps(bearer,indent=2)+'\n')
     (p/f'{user}-cookies.json').write_text(json.dumps(requests.utils.dict_from_cookiejar(s.cookies),indent=2)+'\n')
     client=requests.Session();client.trust_env=False
