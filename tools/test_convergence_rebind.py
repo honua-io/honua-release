@@ -567,7 +567,7 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "de512e8123bdfbfbe20f692b236e37853b4f8294"  # the last verified_server_commits entry
+VERIFIED = "a997a37e6953d19a4db483aa9160a113f06ae5ef"  # the last verified_server_commits entry
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
@@ -1138,6 +1138,18 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_cut_candidate_server():
     assert "No RPC was added or removed" in ruling["evidence"].split("Re-checked at daf56db2", 1)[1]
 
 
+def test_grpc_ruling_is_rechecked_at_the_2026_11_21_nightly_candidate():
+    """Nightly run 44961665462 aborted REBIND at server a997a37e: honua-server b975f45378 changed the
+    FeatureService Query RPC body, so the surface hash moved although the mapped services and
+    RPC overrides did not. The hand re-check is recorded as the newest verified commit."""
+    candidate = "a997a37e6953d19a4db483aa9160a113f06ae5ef"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    assert ruling["verified_server_commits"][-2:] == ["de512e8123bdfbfbe20f692b236e37853b4f8294", candidate]
+    recheck = ruling["evidence"].split("Re-checked at a997a37e", 1)[1]
+    assert "byte-identical to de512e8" in recheck and "b975f45378" in recheck
+
+
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     """The 2026-11-20 rc.2 re-pin moves the server to de512e8. Its gRPC surface hash differs from
     532565b's (one HTTP attachment-download route mapped beside FeatureService, and FeatureService
@@ -1149,7 +1161,9 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     candidate = "de512e8123bdfbfbe20f692b236e37853b4f8294"
     document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-2:] == ["532565bc7215d4b9ce9657bc110cbd0366076e31", candidate]
+    commits = ruling["verified_server_commits"]
+    assert commits[commits.index(candidate) - 1:commits.index(candidate) + 1] == [
+        "532565bc7215d4b9ce9657bc110cbd0366076e31", candidate]
     manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
     assert manifest["protocolCertification"]["serverCertificationProducerSha"] == candidate
     recheck = ruling["evidence"].split("Re-checked at de512e8", 1)[1]
