@@ -48,6 +48,7 @@ from inventory import InventoryError, Resolver, document_record, drift, content_
 from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa: E402
 import source_build  # noqa: E402
 import publish_inputs  # noqa: E402
+import stage_paths  # noqa: E402
 
 TAIL = 2000
 SERVE = re.compile(
@@ -375,11 +376,20 @@ class Session:
     def put(self, runtime: str, path: Path, content: str) -> None:
         """Write into the reader's directories from inside the container: the reader owns them there
         (on a Linux host, files a root container created are not writable by the runner's user)."""
+        self.put_bytes(runtime, path, content.encode("utf-8"))
+
+    def put_bytes(self, runtime: str, path: Path, content: bytes) -> None:
         proc = subprocess.run(["docker", "exec", "-i", self.container(runtime), "sh", "-c",
                                'mkdir -p "$(dirname "$1")" && cat > "$1"', "sh", str(path)],
-                              input=content, text=True, capture_output=True, check=False)
+                              input=content, capture_output=True, check=False)
         if proc.returncode:
-            raise RunError(f"could not write {path}: {proc.stderr.strip()[-300:]}")
+            err = proc.stderr.decode("utf-8", errors="replace").strip()[-300:]
+            raise RunError(f"could not write {path}: {err}")
+
+    def chmod(self, runtime: str, path: Path, mode: str) -> None:
+        outcome = self._exec(self.container(runtime), ["chmod", mode, str(path)], DEFAULT_TIMEOUT)
+        if outcome.status != "pass":
+            raise RunError(f"could not chmod {mode} {path}: {outcome.stderr.strip()[-300:]}")
 
     # executors
     def retain_python_invocations(self, runtime: str, words: list[str], *, relative: bool = True) -> None:
@@ -1378,6 +1388,12 @@ def main() -> int:
                     row["grpcTlsFixture"] = dict(tls_fixture.evidence)
                 print(f"== {ident} @ {revision[:12]}", flush=True)
                 checkout_context(document, revision, session, token)
+                if document.get("stagePaths"):
+                    try:
+                        staged_files = stage_paths.stage_tree(document, revision, resolver)
+                    except stage_paths.StageError as exc:
+                        raise RunError(str(exc)) from exc
+                    stage_paths.write_staged_files(session, document["runtime"], staged_files)
                 binding = source_build.derive(document, revision, text,
                     lambda path: resolver.read({**document, "path": path}, revision).encode())
                 document_context = dict(context)

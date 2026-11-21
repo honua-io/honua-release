@@ -1811,11 +1811,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "058d0c0a382316eaa96d93b115afd98cc469f4d4",
+      "revision": "1d42756d0be9b0afe3ac84a683374e3f7b73297b",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/058d0c0a382316eaa96d93b115afd98cc469f4d4/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/1d42756d0be9b0afe3ac84a683374e3f7b73297b/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1823,7 +1823,7 @@
       "blocks": [
         {
           "index": 0,
-          "line": 143,
+          "line": 145,
           "language": "text",
           "infoString": "text",
           "intent": "file",
@@ -1833,7 +1833,7 @@
         },
         {
           "index": 1,
-          "line": 164,
+          "line": 166,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1842,7 +1842,7 @@
         },
         {
           "index": 2,
-          "line": 223,
+          "line": 225,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "file",
@@ -1852,7 +1852,7 @@
         },
         {
           "index": 3,
-          "line": 336,
+          "line": 338,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1861,7 +1861,7 @@
         },
         {
           "index": 4,
-          "line": 355,
+          "line": 357,
           "language": "powershell",
           "infoString": "powershell",
           "intent": "alternative",
@@ -1871,7 +1871,7 @@
         },
         {
           "index": 5,
-          "line": 394,
+          "line": 396,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1880,7 +1880,7 @@
         },
         {
           "index": 6,
-          "line": 414,
+          "line": 416,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1889,7 +1889,7 @@
         },
         {
           "index": 7,
-          "line": 437,
+          "line": 439,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1898,7 +1898,7 @@
         },
         {
           "index": 8,
-          "line": 453,
+          "line": 455,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1907,7 +1907,7 @@
         },
         {
           "index": 9,
-          "line": 462,
+          "line": 464,
           "language": "python",
           "infoString": "python",
           "intent": "file",
@@ -1917,7 +1917,7 @@
         },
         {
           "index": 10,
-          "line": 494,
+          "line": 496,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1926,7 +1926,7 @@
         },
         {
           "index": 11,
-          "line": 567,
+          "line": 569,
           "language": "shell",
           "infoString": "bash",
           "intent": "teardown",
@@ -1936,7 +1936,7 @@
         },
         {
           "index": 12,
-          "line": 607,
+          "line": 609,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -1945,7 +1945,7 @@
         },
         {
           "index": 13,
-          "line": 642,
+          "line": 644,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2177,11 +2177,11 @@
       "id": "honua-server-docs-guides-connect-ai-agents-mcp",
       "repo": "honua-io/honua-server",
       "path": "docs/guides/connect/ai-agents-mcp.md",
-      "revision": "8646c7bad324f7920933431640ba146979fd89a6",
+      "revision": "5db5c5c11861064f1b9237c9ae3b353896c0f332",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/8646c7bad324f7920933431640ba146979fd89a6/docs/guides/connect/ai-agents-mcp.md",
+      "url": "https://github.com/honua-io/honua-server/blob/5db5c5c11861064f1b9237c9ae3b353896c0f332/docs/guides/connect/ai-agents-mcp.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2830,11 +2830,11 @@
       "id": "honua-site-docs",
       "repo": "honua-io/honua-site",
       "path": "docs.html",
-      "revision": "4885e46164ea00262f6e6de2332b38c86ca5ff0b",
+      "revision": "bc333c6a63dcc0e0c95e2cbab76322212a947fb2",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/4885e46164ea00262f6e6de2332b38c86ca5ff0b/docs.html",
+      "url": "https://github.com/honua-io/honua-site/blob/bc333c6a63dcc0e0c95e2cbab76322212a947fb2/docs.html",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -3060,11 +3060,11 @@
       "id": "honua-site-docs-playbooks-publish-a-service-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/publish-a-service/index.md",
-      "revision": "0b230d72b0be7c142736b579d776c79ee223811a",
+      "revision": "8e6336c97db9bd39d5cea45e911d77ed7ab85e30",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/0b230d72b0be7c142736b579d776c79ee223811a/docs/playbooks/publish-a-service/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/8e6336c97db9bd39d5cea45e911d77ed7ab85e30/docs/playbooks/publish-a-service/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -3138,7 +3138,7 @@
           "infoString": "python",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "453ad780aa610ab93b719511d836d9eaf91a15f584fa4a81e51735cd30a328a4"
+          "sha256": "6f3cf602205ee5cc48cdb4229bdbc0ade2cc20742288b609a9cc2630236372c7"
         },
         {
           "index": 5,
@@ -3147,7 +3147,7 @@
           "infoString": "python",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "1021783dfe415174542b057a4bf10721e61f55336c0a69610d6a36f64c868c3b"
+          "sha256": "bc414f301bf79e3d00a57eedf35dc026c09a7d4711f08b44ee78397714c87759"
         },
         {
           "index": 6,
