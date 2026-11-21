@@ -1,4 +1,5 @@
 import hashlib
+import http.server
 import importlib.util
 import json
 import os
@@ -6,15 +7,21 @@ import re
 import stat
 import subprocess
 import sys
+import threading
+import urllib.parse
+import urllib.request
+from http.cookiejar import Cookie, CookieJar
 from pathlib import Path
 
 import pytest
 import copy
+import requests
 import yaml
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from cleanup import validate_owned_object
+from loopback_cookies import LoopbackSecureContextPolicy, LoopbackSession
 
 spec = importlib.util.spec_from_file_location("parity_run", HERE / "run.py")
 replay = importlib.util.module_from_spec(spec)
@@ -215,3 +222,53 @@ def test_import_receipt_catches_requests_decoder_only(decoder_error):
     else:
         with pytest.raises(ValueError, match="unrelated failure"):
             response_body(Response())
+
+
+
+class _SecureCookieServer(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        body = (self.headers.get("Cookie") or "").encode()
+        self.send_response(200)
+        if self.path == "/set":
+            self.send_header("Set-Cookie", "honua_admin_pending=p; Path=/; Secure; HttpOnly; SameSite=Lax")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture
+def secure_cookie_server():
+    server = http.server.HTTPServer(("127.0.0.1", 0), _SecureCookieServer)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}"
+    server.shutdown()
+
+
+@pytest.mark.parametrize("session_type,expected", [(LoopbackSession, "honua_admin_pending=p"), (requests.Session, "")])
+def test_loopback_session_returns_secure_cookie_over_loopback_http(secure_cookie_server, session_type, expected):
+    session = session_type()
+    session.trust_env = False
+    session.get(secure_cookie_server + "/set", timeout=5)
+    assert session.get(secure_cookie_server + "/echo", timeout=5).text == expected
+
+
+def test_secure_cookie_policy_reaches_loopback_http_and_https():
+    assert _secure_cookie_header("http://127.0.0.1:19816/api/v1/admin/auth/session") == "honua_admin_session=s"
+    assert _secure_cookie_header("https://kc.example.test/realms/honua") == "honua_admin_session=s"
+
+
+def _secure_cookie_header(url):
+    jar = CookieJar(LoopbackSecureContextPolicy())
+    host = urllib.parse.urlsplit(url).hostname
+    jar.set_cookie(Cookie(0, "honua_admin_session", "s", None, False, host, False, False, "/", True, True,
+                          None, False, None, None, {}))
+    request = urllib.request.Request(url)
+    jar.add_cookie_header(request)
+    return request.get_header("Cookie")
+
+
+def test_secure_cookie_policy_withholds_non_loopback_http():
+    assert _secure_cookie_header("http://kc.example.test/realms/honua") is None

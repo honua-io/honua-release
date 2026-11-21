@@ -3,6 +3,7 @@ from pathlib import Path
 from html.parser import HTMLParser
 import requests
 from principal_claims import check_principal
+from loopback_cookies import LoopbackSession
 p=Path(__file__).resolve().parent
 os.umask(0o077)
 original=socket.getaddrinfo
@@ -22,7 +23,7 @@ def checked(r,expected=200):
     return r
 results=[]
 for user,password in json.loads((p/'credentials.json').read_text()).items():
-    s=requests.Session();s.trust_env=False;s.verify=str(p/'certs/kc.crt')
+    s=LoopbackSession();s.trust_env=False;s.verify=str(p/'certs/kc.crt')
     config=checked(s.get(base+'/api/v1/admin/auth/config',timeout=30)).json()
     provider=config['providers'][0]['key']
     auth=checked(s.post(base+f'/api/v1/admin/auth/providers/{provider}/authorize-url',json={},timeout=30))
