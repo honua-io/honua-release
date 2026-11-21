@@ -1091,6 +1091,7 @@ def test_the_real_generator_clears_exactly_the_okf_and_catalog_rows(monkeypatch,
     monkeypatch.setattr(resolver, 'select_component', lambda name, component, *a, **k: copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'select_sdk', lambda name, component, *a: copy.deepcopy(component))
     monkeypatch.setattr(resolver, 'select_release', lambda name, component, *a: copy.deepcopy(component))
+    monkeypatch.setattr(resolver, 'select_pinned_image', lambda name, component, *a: copy.deepcopy(component))
     def versions(github, name, selected):
         # The server's own declaration always carries schemaVersions; resolve adds the derived floor.
         declared = {'schemaVersions': {}} if name == 'honua-server' else {}
@@ -2203,4 +2204,5 @@ def test_preview_lambda_keeps_only_pins_from_selected_commit():
     assert selected['awsLambdaDigest'] == child
     assert selected['awsLambdaEcrDigest'] == 'pending-ecr-mirror'
     assert NEW[:7] in selected['awsLambdaImage']
+
 

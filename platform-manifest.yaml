@@ -868,6 +868,9 @@ components:
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
     sha: "c63b37fd1788d68333c051760447052c602b7bdd"   # trunk commit (2026-11-01)
     # Public multi-architecture image built from this SHA by Console Container run 41363063110.
+    # Console publishes no container since the static SPA ruling (honua-console 47cba9a3, 9 Nov):
+    # the nightly keeps this published image at its pin instead of walking trunk.
+    trunkSelection: "pinned"
     image: "ghcr.io/honua-io/honua-console:nightly-c63b37fd1788"
     digest: "sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358"
     artifactSourceRevision: "c63b37fd1788d68333c051760447052c602b7bdd"
