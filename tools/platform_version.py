@@ -21,6 +21,20 @@ PUBLISHER = "honua-server"
 PRERELEASE = "pre-release"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 REVISION = re.compile(r"[0-9a-f]{40}")
+# Manifest facts that name a published chart. Supplying any of them puts the chart in the lock,
+# where it is verified like every other artifact; out-of-lock is only for a chart with none.
+CHART_IDENTITY_FIELDS = ("digest", "artifactSha256", "artifactSourceRevision", "architectures",
+                         "artifactVersion", "platformDigests")
+
+
+def is_unpublished_out_of_lock(component: dict[str, Any]) -> bool:
+    """True when a Preview component carries outOfLock and no published chart identity."""
+    return (
+        bool(component.get("outOfLock"))
+        and component.get("lifecycleStatus") == "Preview"
+        and component.get("version") in (None, PRERELEASE)
+        and not any(component.get(key) for key in CHART_IDENTITY_FIELDS)
+    )
 
 
 def artifact_version(label: str) -> str:

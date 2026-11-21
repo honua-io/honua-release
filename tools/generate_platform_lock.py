@@ -18,7 +18,7 @@ from typing import Any
 
 from component_versions import version_map
 from image_platforms import image_platform_digests, registry_image_platform_digests, verify_image_platform_digests
-from platform_version import IMAGED_COMPONENTS, PRERELEASE, artifact_version
+from platform_version import CHART_IDENTITY_FIELDS, IMAGED_COMPONENTS, PRERELEASE, artifact_version
 
 from release_facts import (
     CONTENT_DIGEST_FACTS,
@@ -41,10 +41,6 @@ PLACEHOLDER_RE = re.compile(r"(?:tbd|todo|unknown|unresolved|pending)", re.I)
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 LIFECYCLE_STATUSES = {"GA", "Preview", "Experimental", "Excluded"}
 RELEASE_LINE_RE = re.compile(r"^([0-9]{4}\.[0-9]+)")
-# Manifest facts that name a published chart. Supplying any of them puts the chart in the lock,
-# where it is verified like every other artifact; out-of-lock is only for a chart with none.
-CHART_IDENTITY_FIELDS = ("digest", "artifactSha256", "artifactSourceRevision", "architectures",
-                         "artifactVersion", "platformDigests")
 
 
 def decision_overrides_path(release: str) -> Path | None:

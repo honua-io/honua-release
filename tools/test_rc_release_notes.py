@@ -85,9 +85,42 @@ def test_committed_narrative_matches_the_rc2_platform():
 
 def test_rc_notes_leave_out_of_lock_components_out_of_the_component_table():
     manifest = {"components": {
-        "honua-helm": {"version": "pre-release", "sha": "b" * 40, "outOfLock": "helm-preview-out-of-lock-2026-10-26"},
+        "honua-helm": {
+            "lifecycleStatus": "Preview",
+            "version": "pre-release",
+            "sha": "b" * 40,
+            "outOfLock": "helm-preview-out-of-lock-2026-10-26",
+        },
         "honua-sdk-js": {"version": "0.4.0", "sha": "c" * 40},
     }}
     text = notes.render(manifest, "| gate | pass |", "2026.1-rc.2", None, None, [])
     assert "| honua-sdk-js | 0.4.0 |" in text
     assert "| honua-helm |" not in text
+
+
+def test_rc_notes_keep_published_or_non_preview_component_even_with_out_of_lock_key():
+    manifest = {"components": {
+        "honua-helm": {
+            "lifecycleStatus": "Preview",
+            "version": "pre-release",
+            "sha": "b" * 40,
+            "digest": "sha256:" + "d" * 64,
+            "outOfLock": "helm-preview-out-of-lock-2026-10-26",
+        },
+        "honua-versioned": {
+            "lifecycleStatus": "Preview",
+            "version": "0.1.0",
+            "sha": "e" * 40,
+            "outOfLock": "stale-ruling",
+        },
+        "honua-ga": {
+            "lifecycleStatus": "GA",
+            "version": "pre-release",
+            "sha": "f" * 40,
+            "outOfLock": "stale-ruling",
+        },
+    }}
+    text = notes.render(manifest, "| gate | pass |", "2026.1-rc.2", None, None, [])
+    assert "| honua-helm |" in text
+    assert "| honua-versioned | 0.1.0 |" in text
+    assert "| honua-ga |" in text

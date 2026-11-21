@@ -43,7 +43,7 @@ from datetime import datetime
 from pathlib import Path
 
 from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
-from platform_version import stamp_errors, stamp_platform_version
+from platform_version import is_unpublished_out_of_lock, stamp_errors, stamp_platform_version
 
 try:
     import yaml
@@ -170,6 +170,8 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
     lines.append("|---|---|---|---|")
     for name in sorted(components):
         comp = components[name] or {}
+        if is_unpublished_out_of_lock(comp):
+            continue
         sha = str(comp.get("sha", ""))[:12] or "—"
         lines.append(f"| {name} | {_component_version(comp)} | `{sha}` | {_component_artifact(comp)} |")
     lines.append("")
