@@ -99,7 +99,7 @@ def main() -> int:
     passwords = {user: secrets.token_hex(24) for user in ["admin-a", "viewer-a", "admin-b", "admin-read-a", "approver-a"]}
     env.update({
         "S4_RUN_DIR": str(run), "S4_IDP_HOSTNAME": "host.docker.internal", "S4_IDP_PORT": "19808",
-        "S4_SERVER_PORT": "19816", "S4_CONSOLE_ORIGIN": BASE, "S4_OPERATOR_USER": "admin-a",
+        "S4_SERVER_PORT": "19816", "S4_SERVER_TLS_PORT": "19817", "S4_CONSOLE_ORIGIN": BASE, "S4_OPERATOR_USER": "admin-a",
         "S4_OPERATOR_PASSWORD": passwords["admin-a"], "S4_AUDIT_CHAIN_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
         "S4_ADMIN_KEY": "RunA9!" + secrets.token_hex(24),
         **{name: secrets.token_hex(32) for name in ["S4_CLIENT_SECRET", "S4_OPERATOR_BEARER_KEY", "S4_MASTER_KEY", "S4_DB_PASSWORD", "S4_KEYRING_PASSWORD", "S4_IDP_ADMIN_PASSWORD"]},
@@ -187,8 +187,10 @@ def main() -> int:
         if terminal_draft:
             stage("admit published terminal draft command by dry run", lambda: call(["node", "admit-terminal-draft.mjs"]))
         stage("real OIDC principals", lambda: call([sys.executable, "authenticate.py"]))
-        token = json.loads((run / "admin-a-bearer.json").read_text())["accessToken"]
-        integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
+        # The audit chain is deployment-wide: with multi-tenancy on, only an untenanted platform
+        # credential may verify it, so the check uses the deployment admin key, not a tenant admin.
+        platform = {"X-API-Key": env["S4_ADMIN_KEY"]}
+        integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers=platform, timeout=30)
         integrity.raise_for_status()
         assert integrity.json()["verified"] and integrity.json()["unhashedRows"] == 0
         durability = assert_durable_store()
@@ -207,7 +209,7 @@ def main() -> int:
         stage("tenant-owned object refusal " + ("four adapters" if terminal_draft else "three adapters"), lambda: call(["node", "studio-tenants-published.mjs"]))
         stage("concurrent background imports and principal isolation", lambda: call([sys.executable, "import-controls.py"], timeout=360))
         stage("terminal proposal polling and distinct authenticated approver", lambda: call(["node", "publication-lifecycle.mjs"], timeout=240))
-        final_integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers={"Authorization": "Bearer " + token}, timeout=30)
+        final_integrity = requests.get(BASE + "/api/v1/admin/observability/audit/verify", headers=platform, timeout=30)
         final_integrity.raise_for_status()
         (run / "audit-integrity-final.json").write_text(json.dumps(final_integrity.json(), indent=2))
         assert final_integrity.json()["verified"] and final_integrity.json()["unhashedRows"] == 0

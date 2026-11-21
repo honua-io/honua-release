@@ -54,7 +54,7 @@ try{
  try{const result=await mcp.callTool({name:'honua_command_studio_draft_saveVersion',arguments:{input}});summary.results.push({surface:'mcp',isError:result.isError,error:JSON.parse(result.content.find(c=>c.type==='text').text)});}finally{await mcp.close();await server.close();}
  await save();
  const correlations=[...new Set(summary.results.map(r=>r.error?.correlationId).filter(Boolean))];
- summary.audit=[];for(const correlationId of correlations){const response=await fetch(`${baseUrl}/api/v1/admin/observability/audit?correlationId=${encodeURIComponent(correlationId)}&pageSize=100`,{headers:{Authorization:`Bearer ${await token('admin-a')}`}});summary.audit.push({correlationId,status:response.status,body:await response.json()});}await save();
+ summary.audit=[];for(const correlationId of correlations){const response=await fetch(`${baseUrl}/api/v1/admin/observability/audit?correlationId=${encodeURIComponent(correlationId)}&pageSize=100`,{headers:{'X-API-Key':process.env.S4_ADMIN_KEY}});summary.audit.push({correlationId,status:response.status,body:await response.json()});}await save();
  assert(summary.results.every(r=>r.error&&[403,404].includes(r.error.statusCode)),'Cross-tenant command succeeded or returned unexpected refusal');
  assert.equal(new Set(summary.results.map(r=>r.error.statusCode)).size,1);
  const correlationId=assertTenantParity(summary.results,surfaces);

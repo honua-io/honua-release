@@ -12,8 +12,12 @@ source passed its full certification matrix. The replay checks the downloaded
 digest, OCI source label, and actual running image identity before any proof.
 
 The canonical S4 stack supplies PostGIS and a real Keycloak authorization
-code plus PKCE flow. A small overlay selects Production, persistent storage,
-encrypted operation keys and durable audit integrity. Each run creates private
+code plus PKCE flow. A small overlay selects Production, multi-tenancy,
+persistent storage, encrypted operation keys and durable audit integrity. Sign-in
+uses the registered http origin; the session bearer is issued over the stack's
+HTTPS listener with the CSRF token, as Production requires for a session-cookie
+POST. The deployment-wide audit chain is verified with the untenanted deployment
+admin key, because a tenant admin is not a platform admin. Each run creates private
 credentials for tenant-a and tenant-b, an ordinary viewer, and a genuine admin
 whose IdP claim limits it to read scope. There are no fabricated tenant headers
 in command calls. The authentication probe separately checks that an attempted

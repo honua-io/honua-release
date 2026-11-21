@@ -277,3 +277,12 @@ def _secure_cookie_header(url):
 
 def test_secure_cookie_policy_withholds_non_loopback_http():
     assert _secure_cookie_header("http://kc.example.test/realms/honua") is None
+
+
+@pytest.mark.parametrize("name", ["run.py", "parity-published.mjs", "studio-tenants-published.mjs"])
+def test_deployment_audit_reads_use_the_untenanted_admin_key(name):
+    # Under multi-tenancy a tenant admin's bearer is refused on the deployment-wide audit routes.
+    lines = [line for line in (HERE / name).read_text().splitlines() if "/observability/audit" in line]
+    assert lines
+    for line in lines:
+        assert "Bearer" not in line and re.search(r"platform|X-API-Key", line), line

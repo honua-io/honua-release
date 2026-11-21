@@ -31,7 +31,6 @@ if(routeAdmission){assert.equal(routeAdmission.kind,'verified-published-intent-a
 const command=publish?mapPackagePublishCommand:importing?importCreateCommand:connectionTestCommand;
 const proof=JSON.parse(await readFile(`${run}/principal-proof.json`,'utf8'));
 const bearer=async(user)=>JSON.parse(await readFile(`${run}/${user}-bearer.json`,'utf8')).accessToken;
-const tokenA=await bearer('admin-a');
 const importUrl=(await readFile(`${run}/owned-import-url.txt`,'utf8')).trim();
 const save=async(name,data)=>writeFile(`${out}/${name}.json`,JSON.stringify(data,null,2).replaceAll(importUrl,'<private-presigned-import-source>').replace(/https?:[^\s\"<>]*X-Amz-[^\s\"<>]*/gi,'<private-presigned-import-source>')+'\n',{mode:0o600});
 const normalize=(e)=>e?.toJSON ? {...e.toJSON(),message:e.message} : e;
@@ -87,7 +86,9 @@ async function invokeAll(user,connectionId){
  assert.equal(new Set(results.map(r=>r.value.errorKind??r.value.status)).size,1,'classification differs');
  assert.equal(new Set(results.map(r=>r.value.statusCode)).size,1,'HTTP status differs');
  const correlationId=results[0].value.correlationId;assert(correlationId);
- const auditResponse=await fetch(`${baseUrl}/api/v1/admin/observability/audit?correlationId=${encodeURIComponent(correlationId)}&pageSize=100`,{headers:{Authorization:`Bearer ${tokenA}`}});
+ // The audit trail is deployment-wide: under multi-tenancy only the untenanted deployment admin key may read it.
+ const platformAudit={'X-API-Key':process.env.S4_ADMIN_KEY};assert(platformAudit['X-API-Key'],'S4_ADMIN_KEY is required for the audit read');
+ const auditResponse=await fetch(`${baseUrl}/api/v1/admin/observability/audit?correlationId=${encodeURIComponent(correlationId)}&pageSize=100`,{headers:platformAudit});
  assert.equal(auditResponse.status,200);const audit=await auditResponse.json();await save(`${user}-audit-api`,audit);
  const safeCorrelation=correlationId.replaceAll("'","''");
  const query=`select coalesce(json_agg(t),'[]'::json) from (select audit_id,actor,action,outcome,correlation_id,resource_type,resource_id,details,entry_hash from honua.audit_log where correlation_id='${safeCorrelation}' order by audit_id) t`;
