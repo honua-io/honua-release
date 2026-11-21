@@ -75,3 +75,6 @@ def test_committed_narrative_matches_the_rc2_platform():
     assert "Image export needs Redis" not in narrative
     assert "No deployment needs Redis." in narrative
     assert "PostGIS as its only database store" in narrative
+    assert "run weekly" not in narrative
+    assert "both report server version `2026.1.1`" not in narrative
+    assert "is a required admission gate" not in narrative
