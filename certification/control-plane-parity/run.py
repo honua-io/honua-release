@@ -160,6 +160,7 @@ def main() -> int:
         for path in HERE.glob("*.py"):
             if path.name != "run.py":
                 shutil.copy(path, run / path.name)
+        shutil.copy(ROOT / "e2e/harness/lib/human_approval.py", run / "human_approval.py")
         for path in HERE.glob("*.mjs"):
             shutil.copy(path, run / path.name)
         for source_name, target in [("map-envelope.json", "published-map-envelope.json"), ("map-envelope-provenance.json", "published-map-envelope-provenance.json")]:
