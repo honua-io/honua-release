@@ -1,0 +1,40 @@
+name: dispatch-promise-producers
+run-name: Promise producers for the pinned candidate
+# Producers emit release-promise-receipts only on a dispatch that carries the qualification-lock
+# digest. This dispatches every stackless producer for the honua-server pin in
+# platform-manifest.yaml, daily after nightly certification and whenever the pins change, so a
+# promise row goes red the day it breaks rather than at the cut (tools/promise_dispatch.py).
+on:
+  schedule:
+    - cron: "40 13 * * *"
+  push:
+    branches: [trunk]
+    paths:
+      - platform-manifest.yaml
+      - compatibility-matrix.yaml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: dispatch-promise-producers
+  cancel-in-progress: false
+jobs:
+  dispatch:
+    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet -r tools/requirements-validation.txt
+      - name: Dispatch the producers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/promise_dispatch.py --dispatch --summary "$GITHUB_STEP_SUMMARY"
