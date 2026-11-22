@@ -5,6 +5,7 @@ client, image, or authorization credit by itself.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -18,7 +19,10 @@ import mcp_map_package_validation as wire
 from mcp_render_validation import negative_output
 from mcp_render_validation import scenario as render_scenario
 from mcp_map_package_validation import strict_json
-from mcp_ops_events_config import declaration as declare_configuration
+from mcp_ops_events_config import (
+    declaration as declare_configuration,
+    declaration_for_nightly_advance as declare_nightly_advance_configuration,
+)
 
 
 PROJECTION = ("releaseVersion", "releaseDeclared", "isCoVersioned", "serving", "execution", "skewedIds")
@@ -525,16 +529,29 @@ def successful_tool(result):
     return wire.structured_text_content(result)
 
 
-def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed, *, allow_candidate_advance=False):
+_active_declarator = declare_configuration
+
+
+@contextmanager
+def _using_declarator(declarator):
+    global _active_declarator
+    previous = _active_declarator
+    _active_declarator = declarator
+    try:
+        yield
+    finally:
+        _active_declarator = previous
+
+
+def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
     """Rejudge original source, exact wire and installed-client call sequence."""
     from mcp_managed_identity_fixture import verify_receipt
 
     authored = scenario(fixture_bytes, bootstrap)
-    actual_declaration = declare_configuration(manifest_bytes,
+    actual_declaration = _active_declarator(manifest_bytes,
         release_source_sha=declaration.get("releaseSourceSha"),
         candidate_source_sha=authored["candidateSourceSha"],
-        candidate_image=authored["candidateImage"],
-        allow_candidate_advance=allow_candidate_advance)
+        candidate_image=authored["candidateImage"])
     if not wire.same_json(declaration, actual_declaration):
         raise ValueError("status declaration differs from governed manifest")
     expected_keys = set(authored) | {"canonicalClient", "clientVersion", "runtimeBefore", "runtimeAfter",
@@ -660,9 +677,10 @@ def main():
         else:
             if not args.manifest or not args.declaration:
                 raise ValueError("grounding judgment requires original manifest and declaration")
-            value = judge(fixture, bootstrap, args.manifest.read_bytes(),
-                          strict_json(args.declaration.read_bytes()), strict_json(args.observations.read_bytes()),
-                          allow_candidate_advance=args.allow_candidate_advance)
+            declarator = declare_nightly_advance_configuration if args.allow_candidate_advance else declare_configuration
+            with _using_declarator(declarator):
+                value = judge(fixture, bootstrap, args.manifest.read_bytes(),
+                              strict_json(args.declaration.read_bytes()), strict_json(args.observations.read_bytes()))
         print(json.dumps(value, allow_nan=False, sort_keys=True))
     except (ValueError, KeyError, TypeError, OSError, OverflowError) as error:
         reason = str(error) if isinstance(error, ValueError) else type(error).__name__

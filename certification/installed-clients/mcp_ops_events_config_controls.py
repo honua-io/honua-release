@@ -129,9 +129,8 @@ class OwnedConfigurationControls(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.declaration(payload, release_source_sha=RELEASE,
                 candidate_source_sha=advanced_source, candidate_image=advanced_image)
-        result = config.declaration(payload, release_source_sha=RELEASE,
-            candidate_source_sha=advanced_source, candidate_image=advanced_image,
-            allow_candidate_advance=True)
+        result = config.declaration_for_nightly_advance(payload, release_source_sha=RELEASE,
+            candidate_source_sha=advanced_source, candidate_image=advanced_image)
         self.assertEqual(result["candidateSourceSha"], advanced_source)
         self.assertEqual(result["candidateImage"], advanced_image)
         self.assertEqual(result["artifactBindings"]["declaredServing"], advanced_image)
@@ -142,27 +141,21 @@ class OwnedConfigurationControls(unittest.TestCase):
         self.assertEqual(result["artifactBindings"]["explicitTestTarget"],
                          "ghcr.io/honua-io/honua-server@sha256:" + "2" * 64)
         self.assertEqual(result["expectedSkewedIds"], ["cert-ops-skew"])
-        # Exact-match nightly run (no new commits) also succeeds with allow_candidate_advance=True.
-        same = config.declaration(payload, release_source_sha=RELEASE,
-            candidate_source_sha=SOURCE, candidate_image=IMAGE, allow_candidate_advance=True)
+        # Exact-match nightly run (no new commits) also succeeds with declaration_for_nightly_advance.
+        same = config.declaration_for_nightly_advance(payload, release_source_sha=RELEASE,
+            candidate_source_sha=SOURCE, candidate_image=IMAGE)
         self.assertEqual(same, selected())
 
-    def test_nightly_candidate_advance_refuses_corrupt_manifest_nonbool_or_skew_collision(self):
+    def test_nightly_candidate_advance_refuses_corrupt_manifest_or_skew_collision(self):
         advanced_source = "f" * 40
         advanced_image = "ghcr.io/honua-io/honua-server@sha256:" + "9" * 64
         payload = yaml.safe_dump(manifest()).encode()
-        for bad_flag in ("true", "false", 1, 0, None):
-            with self.subTest(bad_flag=bad_flag), self.assertRaises(ValueError):
-                config.declaration(payload, release_source_sha=RELEASE,
-                    candidate_source_sha=SOURCE, candidate_image=IMAGE,
-                    allow_candidate_advance=bad_flag)
         for bad_image in ("ghcr.io/honua-io/honua-server@sha256:" + "2" * 64,
                           "ghcr.io/other/honua-server@sha256:" + "9" * 64,
                           "ghcr.io/honua-io/honua-server:nightly"):
             with self.subTest(bad_image=bad_image), self.assertRaises(ValueError):
-                config.declaration(payload, release_source_sha=RELEASE,
-                    candidate_source_sha=advanced_source, candidate_image=bad_image,
-                    allow_candidate_advance=True)
+                config.declaration_for_nightly_advance(payload, release_source_sha=RELEASE,
+                    candidate_source_sha=advanced_source, candidate_image=bad_image)
         for mutate in (lambda v: v["candidate"].update(ref="e" * 40),
                        lambda v: v["candidate"].update(refSource="branch"),
                        lambda v: v["candidate"].update(extra="unexpected"),
@@ -170,9 +163,8 @@ class OwnedConfigurationControls(unittest.TestCase):
                        lambda v: v["components"]["honua-server"].update(awsLambdaDigest="sha256:" + "1" * 64)):
             value = manifest(); mutate(value)
             with self.assertRaises(ValueError):
-                config.declaration(yaml.safe_dump(value).encode(), release_source_sha=RELEASE,
-                    candidate_source_sha=advanced_source, candidate_image=advanced_image,
-                    allow_candidate_advance=True)
+                config.declaration_for_nightly_advance(yaml.safe_dump(value).encode(), release_source_sha=RELEASE,
+                    candidate_source_sha=advanced_source, candidate_image=advanced_image)
 
     def test_cli_allow_candidate_advance_flag_gates_unpinned_candidate(self):
         import subprocess, sys, tempfile
