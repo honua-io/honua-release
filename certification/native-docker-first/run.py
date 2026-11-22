@@ -113,7 +113,7 @@ def candidate(manifest_path: Path) -> tuple[dict, dict]:
     server, console = (components.get(key) or {} for key in ('honua-server', 'honua-console'))
     sdk_js, mcp = (clients.get(key) or {} for key in ('honua-sdk-js', 'honua-mcp-server'))
     dotnet = clients.get('honua-sdk-dotnet') or {}
-    if str(console.get('artifact', '')).startswith('actions-artifact:') and not console.get('digest'):
+    if console.get('artifact') and not console.get('digest'):
         raise Blocked('console is pinned as a static bundle with no image to run; '
                       'this native Docker first-use producer still needs a Console image')
     for name, component in (('server', server), ('console', console)):
