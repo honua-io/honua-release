@@ -16,6 +16,13 @@ certification to AWS ECS. Compose remains a local evaluation path; the earlier G
 requirements below do not certify an rc.2 production deployment. rc.2 publishes no Helm chart:
 the Helm steps below are the `kind-upgrade` gate cells, not a customer upgrade path for rc.2.
 
+**2026.1 GA qualification baseline.** The Compose upgrade gate requires the published rc.2
+server image, resolved by immutable digest, as the source for a `2026.1.0` candidate. Both
+`2026.1.0-rc.2` and legacy `2026.1-rc.2` release tags are accepted, with optional `honua-` prefixes.
+Earlier RCs, later RCs and nightly images cannot substitute for that baseline. This selection
+rule alone does not establish a supported upgrade: retain the passing candidate-bound upgrade
+and rollback receipts before certifying the pair.
+
 ## 1. Identify the exact release artefacts
 
 Take every reference from the release, never from a floating tag:

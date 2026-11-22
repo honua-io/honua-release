@@ -6,8 +6,9 @@ https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748), s
 rollback path is the REQUIRED runtime fragment of the upgrade gate (founder decision D9, 2026-10-26,
 honua-release#950). Helm on kind is Preview evidence.
 
-2026.1 is the first release, so "prior" has no promoted release to come from. It is defined here, in
-this order, and nowhere else:
+For a 2026.1.0 GA candidate, the only prior is the published 2026.1.0-rc.2 release
+(legacy 2026.1-rc.2 tags are accepted). Missing, ambiguous or candidate-identical baselines fail
+closed without nightly fallbacks. For RC candidates, "prior" is defined in this order:
 
   1. published-rc   The newest published (non-draft) GitHub release of this repository tagged
                     `2026.1-rc.N` / `honua-2026.1-rc.N` (tools/rc_release_notes.py, rc-release.yml).
@@ -63,6 +64,7 @@ import yaml
 
 from upgrade_trunk_pair import DIGEST, PairError, server_identity
 from digests import sha256_digest
+from platform_version import artifact_version
 
 SCHEMA = "honua.upgrade-compose-receipt/v1"
 PUBLISHED_RC = "published-rc"
@@ -125,6 +127,20 @@ def rc_server_reference(release: dict) -> str:
     return f"{repository}@{digest}"
 
 
+def candidate_releases(manifest: dict, releases) -> tuple[list[dict], bool]:
+    """GA admission must prove rc.2 -> GA, regardless of newer RCs or nightly availability."""
+    label = manifest.get("platformRelease")
+    ga = label is not None and artifact_version(label) == "2026.1.0"
+    if not ga:
+        return rc_releases(releases), False
+    tags = {f"{prefix}{version}-rc.2" for prefix in ("", "honua-") for version in ("2026.1", "2026.1.0")}
+    rows = [r for r in releases or [] if isinstance(r, dict) and not r.get("draft")
+            and r.get("published_at") and r.get("tag_name") in tags]
+    if len(rows) != 1:
+        raise PairError("2026.1.0 GA upgrade requires exactly one published 2026.1.0-rc.2 baseline release")
+    return rows, True
+
+
 def lock_order(label: str) -> tuple[int, int, int]:
     match = LOCK_LABEL.fullmatch(label)
     if not match:
@@ -154,11 +170,14 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
     only when no rc and no lock supplies a prior, so the GitHub walk never runs once rc.1 exists.
     """
     candidate = candidate_identity(candidate_manifest)
+    releases, ga = candidate_releases(candidate_manifest, releases)
     same = set(candidate["sameImageDigests"])
     skipped: list[str] = []
-    for release in rc_releases(releases):
+    for release in releases:
         reference = rc_server_reference(release)
         if reference.rsplit("@", 1)[1] in same:
+            if ga:
+                raise PairError("2026.1.0-rc.2 baseline is the candidate image; GA upgrade requires different images")
             skipped.append(f"{release['tag_name']} (same image as the candidate)")
             continue
         return _pair(candidate, candidate_bytes, source=PUBLISHED_RC, prior=reference, source_revision="",
@@ -314,8 +333,8 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
             "verdict": "required",
             "ruling": D9_RULING,
             "tierRuling": RETIER_RULING,
-            "priorDefinition": "latest published 2026.1 rc image, else the previous signed nightly lock's "
-                               "server; never the candidate itself",
+            "priorDefinition": "2026.1.0 GA requires published rc.2; RC candidates use the latest published "
+                               "rc, else signed nightly lock, else certified older nightly; never the candidate itself",
             "note": "negative-control cells inject a defect and pass only when the gate's own assertion fails",
         },
         "certifiedReleasePair": False,
