@@ -151,10 +151,10 @@ def proof():
 def receipt(value, **overrides):
     from test_compose_upgrade_credentials import proof as credential_proof
     from test_compose_upgrade_maps import proof as map_proof
-    from test_compose_upgrade_version import evidence
+    from test_compose_upgrade_version import evidence, forward_observed
     pair, phases = evidence()
     inputs = dict(scenario="normal", status="pass", why="harness passed", phases=phases,
-                  observed={"services": value, "credentials": credential_proof(), "maps": map_proof()},
+                  observed={**forward_observed(), "services": value, "credentials": credential_proof(), "maps": map_proof()},
                   harness={}, run="run", commit="commit")
     inputs.update(overrides)
     return cu.build_receipt(pair, **inputs)

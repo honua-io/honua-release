@@ -29,8 +29,8 @@ Do not recreate these resources after the upgrade to make a check pass.
 Upgrade to the selected candidate digest using the package's documented procedure.
 Migrations are forward-only and must be idempotent. Test startup again on the
 installed migrated stack and confirm that already applied migrations do not
-change the schema journal or application state. This restart proof is additional
-to the Compose forward-upgrade receipt; its absence cannot be inferred as a pass.
+change the schema journal or application state. The Compose receipt also requires this restart proof for its topology. The
+installed quickstart run must observe it separately; neither substitutes for the other.
 
 The required normal Compose cell retains `compose-upgrade-receipt.json`:
 
@@ -42,6 +42,11 @@ The required normal Compose cell retains `compose-upgrade-receipt.json`:
   them, and requires the durable map store.
 - `serviceEvidence` compares published layer metadata and every seeded feature's
   attributes and geometry. The populated source contains exactly two features.
+- `forwardEvidence` requires a pre-upgrade backup and the restarted candidate
+  identity, readiness, unchanged migration journal and seeded rows, and repeated
+  credential, map and published-service checks. The legacy harness scenario name
+  `compose-upgrade-rollback` is retained for receipt consumers; it never starts the
+  prior image on the migrated database.
 - The schema journal retains prior entries, reaches the declared candidate schema
   and the seeded database checksums remain unchanged.
 

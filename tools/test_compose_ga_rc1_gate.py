@@ -58,7 +58,7 @@ def test_candidate_must_be_a_newer_descendant_and_not_rc1():
 
 def _receipt(upgrade_status="pass", upgrade_why="advanced", interrupt=None):
     if interrupt is None:
-        interrupt = [{"scenario": name, "status": "pass", "why": "rolled back and retried"} for name in gate.INTERRUPT_MODES]
+        interrupt = [{"scenario": name, "status": "pass", "why": "migration transaction retried"} for name in gate.INTERRUPT_MODES]
     upgrade = {"scenarios": [{"scenario": "compose-upgrade-rollback", "status": upgrade_status, "why": upgrade_why}]}
     return gate.build_receipt(
         upgrade=upgrade, interrupt={"scenarios": interrupt}, observed={"schemaVersionsRows": {"beforeUpgrade": "1"}},
@@ -83,7 +83,7 @@ def test_a_failed_upgrade_marks_only_the_phase_that_failed():
     assert receipt["phases"]["load"] == "pass"
     assert receipt["phases"]["upgrade"] == "pass"
     assert receipt["phases"]["verify"] == "fail"
-    assert receipt["phases"]["rollback"] == "not-run"
+    assert receipt["phases"]["restart"] == "not-run"
     assert receipt["phases"]["interrupt"] == "pass"
 
 
@@ -141,3 +141,20 @@ def test_cli_writes_a_failing_receipt(tmp_path):
                     "--output", str(output)])
     assert rc == 1
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "fail"
+
+
+@pytest.mark.parametrize("why,phase", [
+    ("candidate restart failed", "restart"),
+    ("candidate restart did not become ready", "restart"),
+    ("candidate restart identity changed", "restart"),
+    ("could not capture candidate restart state", "restart_verify"),
+    ("candidate restart changed migration journal", "restart_verify"),
+    ("candidate restart changed seeded rows", "restart_verify"),
+    ("candidate restart changed preserved resources", "restart_verify"),
+])
+def test_restart_failure_is_never_reported_as_rollback_proof(why, phase):
+    receipt = _receipt("fail", why)
+    assert receipt["status"] == "fail"
+    assert receipt["phases"][phase] == "fail"
+    assert "rollback" not in receipt["phases"]
+    assert receipt["schema"] == "honua.compose-ga-rc1-receipt/v2"

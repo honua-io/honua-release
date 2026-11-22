@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Prior/candidate pair and receipt for the Docker Compose upgrade lane (gate-upgrade.yml `compose-upgrade`).
 
-Docker Compose on-prem is a GA topology for 2026.1 (founder re-tier 2026-10-25,
-https://github.com/honua-io/honua-release/issues/376#issuecomment-6407009748), so its upgrade and
-rollback path is the REQUIRED runtime fragment of the upgrade gate (founder decision D9, 2026-10-26,
-honua-release#950). Helm on kind is Preview evidence.
+Docker Compose on-prem is a GA topology. Its forward upgrade and idempotent
+candidate restart are required runtime evidence; Helm on kind is Preview evidence.
 
 For a 2026.1.0 GA candidate, the only prior is the published 2026.1.0-rc.2 release
 (legacy 2026.1-rc.2 tags are accepted). Missing, ambiguous or candidate-identical baselines fail
@@ -65,6 +63,7 @@ import yaml
 from upgrade_trunk_pair import DIGEST, PairError, server_identity
 from digests import sha256_digest
 from platform_version import artifact_version
+from compose_upgrade_forward import forward_evidence
 from compose_upgrade_credentials import credential_evidence
 from compose_upgrade_maps import map_evidence
 from compose_upgrade_services import service_evidence
@@ -327,6 +326,13 @@ def _load_json(path: Path | None, default):
         return default
 
 
+def preservation_verdict(why: str, evidence: tuple) -> tuple[str, str]:
+    for label, result in evidence:
+        if result["status"] == "fail":
+            return "fail", f"{label} refused: {result['why']}. {why}".strip()
+    return "pass", why
+
+
 def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed: dict, phases: dict,
                   harness: dict, run: str, commit: str) -> dict:
     """Same shape as the kind pair receipt (tools/upgrade_trunk_pair.build_receipt), for Compose."""
@@ -337,18 +343,12 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
     credentials = credential_evidence(pair, observed)
     maps = map_evidence(pair, observed)
     services = service_evidence(pair, observed)
-    if scenario == "normal" and status == "pass" and version["status"] == "fail":
-        status = "fail"
-        why = f"candidate version refused: {version['why']}. {why}".strip()
-    if scenario == "normal" and status == "pass" and credentials["status"] == "fail":
-        status = "fail"
-        why = f"credential preservation refused: {credentials['why']}. {why}".strip()
-    if scenario == "normal" and status == "pass" and maps["status"] == "fail":
-        status = "fail"
-        why = f"saved map preservation refused: {maps['why']}. {why}".strip()
-    if scenario == "normal" and status == "pass" and services["status"] == "fail":
-        status = "fail"
-        why = f"published service preservation refused: {services['why']}. {why}".strip()
+    forward = forward_evidence(pair, observed, phases)
+    if scenario == "normal" and status == "pass":
+        status, why = preservation_verdict(why, (
+            ("candidate version", version), ("credential preservation", credentials),
+            ("saved map preservation", maps), ("published service preservation", services),
+            ("forward upgrade", forward)))
     return {
         "schema": SCHEMA,
         "topology": "docker-compose",
@@ -380,6 +380,7 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
         "credentialEvidence": credentials,
         "mapEvidence": maps,
         "serviceEvidence": services,
+        "forwardEvidence": forward,
         "phases": phases,
         "workflow": {"run": run, "commit": commit},
     }
@@ -534,7 +535,7 @@ def main(argv=None) -> int:
         return 0
 
     phases = {phase: _load_json(args.phase_dir / f"compose-{phase}-identity.json", None)
-              for phase in ("install", "candidate", "rollback")}
+              for phase in ("install", "candidate", "restart")}
     receipt = build_receipt(_load_json(args.pair, {}), scenario=args.scenario, status=args.status, why=args.why,
                             observed=_load_json(args.observed, {}),
                             phases={k: v for k, v in phases.items() if v is not None},

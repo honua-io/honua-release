@@ -10,7 +10,7 @@ import yaml
 
 import compose_upgrade_credentials as credentials
 import compose_upgrade_prior as cu
-from test_compose_upgrade_version import evidence
+from test_compose_upgrade_version import evidence, forward_observed
 
 
 CONNECTION_ID = "00000000-0000-0000-0000-000000000001"
@@ -156,7 +156,7 @@ def receipt(observed):
     from test_compose_upgrade_maps import proof as map_proof
     pair, phases = evidence()
     return cu.build_receipt(pair, scenario="normal", status="pass", why="harness passed",
-                            observed={"services": service_proof(), "maps": map_proof(), **observed}, phases=phases, harness={}, run="run", commit="commit")
+                            observed={**forward_observed(), "services": service_proof(), "maps": map_proof(), **observed}, phases=phases, harness={}, run="run", commit="commit")
 
 
 @pytest.mark.parametrize("value", [None, {}, [], "pass", {"status": "pass"}, {"schema": 1, "status": "fail"}])
@@ -198,4 +198,4 @@ def test_workflow_enables_probe_for_ga_and_secret_state_is_outside_artifacts():
     assert 'state="$(mktemp -d)"' in shell
     assert 'rm -rf -- "$CU_CREDENTIAL_STATE"' in shell
     assert shell.index("cu_credentials seed ||") < shell.index('cu_identity candidate "$upgrade_image"')
-    assert shell.index('cu_identity candidate "$upgrade_image"') < shell.index("cu_credentials verify ||")
+    assert shell.index('cu_identity candidate "$upgrade_image"') < shell.index("cu_credentials verify ||", shell.index('cu_identity candidate "$upgrade_image"'))
