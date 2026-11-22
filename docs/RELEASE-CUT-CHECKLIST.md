@@ -8,7 +8,7 @@ approval. Publication retains certified bytes and does not rebuild artifacts or 
 package, container or Helm channels. Gates can fail and cannot be overridden.
 
 **2026.1 rc.2 certification scope (founder ruling, 2026-11-09):** the sole production
-deployment target is AWS ECS Fargate with RDS PostGIS, ElastiCache, and Console hosted in
+deployment target is AWS ECS Fargate with RDS PostGIS and Console hosted in
 S3/CloudFront, using the `honua-iac` ECS stack. Required deployment cells are
 `aws-ecs/redis-off` and `aws-ecs/redis-on`; Redis off exercises the supported refusal behavior.
 Lambda and Kubernetes/Helm are **not certified in 2026.1 rc.2** and their optional evidence
@@ -38,8 +38,8 @@ can override a gate.
   client artifact identities. Verify trunk reachability and immutable package/image provenance.
 - [ ] Produce the matching manifest and matrix within the train. Establish live contract/schema facts
   from the exact booted server image; verify published client bytes. Do not reuse snapshot-derived facts.
-- [ ] Deploy the exact candidate with the `honua-iac` ECS stack: Fargate, RDS PostGIS,
-  ElastiCache and S3/CloudFront Console. Retain the immutable stack/preset revision and
+- [ ] Deploy the exact candidate with the `honua-iac` ECS stack: Fargate, RDS PostGIS
+  and S3/CloudFront Console. Retain the immutable stack/preset revision and
   live deployment receipt; static stack validation alone is not certification.
 - [ ] Produce every nightly evidence class: build/test, contract, SBOM, security, upgrade, capacity soak,
   DR, ECS certification (`ecs-certification`), protocol ledger and journey evidence. Declare consumed classes as nightly
