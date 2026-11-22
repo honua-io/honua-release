@@ -841,12 +841,13 @@ components:
     # artifactVersion the version its receipt names. The rc.2 cut binds the release asset
     # honua-console-<version>.zip (CONSOLE-SPA-RC2.md).
     artifact: "actions-artifact:console-static-release"
-    # 2026-11-21 ADVANCE: static bundle of trunk 9ceffdcf (static-bundle.yml push run 44955086294,
-    # artifact 14728163083, receipt sha256 below; one GitHub attestation for it; every check run green).
-    sha: "9ceffdcf49dd60c603853ffc5ddcfdef83af0275"
-    artifactSourceRevision: "9ceffdcf49dd60c603853ffc5ddcfdef83af0275"
-    artifactSha256: "sha256:00221b39ddcac501035ce540a2df4d27d0c6e76dfa90ced61d5f7fd254008765"
-    artifactVersion: "0.0.0-trunk.9ceffdcf49dd"
+    # 2026-11-22 ADVANCE: static bundle of trunk d0137bd4, the first trunk bundle with both publisher
+    # statements (provenance and CycloneDX SBOM, honua-console#1086): static-bundle.yml push run 44964542819,
+    # artifact 14730703242; both verified with gh attestation verify (refs/heads/trunk, hosted runner).
+    sha: "d0137bd49be6ad7a6efc1b52683e72a959496fe0"
+    artifactSourceRevision: "d0137bd49be6ad7a6efc1b52683e72a959496fe0"
+    artifactSha256: "sha256:23e2b55e1312010e3eb932ebf745a3c609357e9d33048dcea4f79f8d86fef8b4"
+    artifactVersion: "0.0.0-trunk.d0137bd49be6"
     # Image history (the component was a container until 9 Nov):
     # 2026-11-01 ADVANCE (final rc.2 pin): Console #494 (merge c63b37fd) with #521, #525, #526, #528, #532,
     # #534, #536, #537 and the Studio 90bb519 bundle.
