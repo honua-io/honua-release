@@ -100,6 +100,15 @@ the candidate. Private probe state lives outside uploaded artifacts and is remov
 receipts contain identifiers and check results only. Missing or failed credential evidence
 blocks GA admission. This probe does not certify saved maps or other client surfaces.
 
+For GA, `serviceEvidence` also requires the existing published FeatureServer service and
+seeded layer to remain available after the candidate starts. The probe compares the
+layer schema and both seeded features, including attributes and geometry; a count alone
+is insufficient. Missing layers, truncated results, changed content or protocol errors
+fail admission even when database checksums match. Public evidence contains only source
+identity, checks and snapshot hashes. Full snapshots stay in private temporary state and
+are removed on exit. This proves API preservation; browser rendering still needs live proof.
+
+
 For RC candidates, its prior is the honua-server digest of the newest published
 `2026.1-rc.N` release, else the newest signed nightly lock's amd64 image; an rc or lock that ships the
 candidate's image is skipped, and with neither the cell is blocked (strict: fail), never the candidate

@@ -1,4 +1,4 @@
-"""The rc notes name the unguarded 2026.1 rollback limit (honua-server#6484)."""
+"""Candidate notes retain the release admission and forward-upgrade policies."""
 from __future__ import annotations
 
 import sys
@@ -8,21 +8,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rc_release_notes as notes  # noqa: E402
 
 
-def test_rc_notes_say_2026_1_is_not_a_safe_rollback_target():
-    text = notes.render(
-        {"components": {"honua-server": {"version": "pre-release", "sha": "a" * 40}}},
-        "| gate | pass |",
-        "2026.1-rc.4",
-        None,
-        None,
-        [],
-    )
-    assert "not a safe rollback target across any migration" in text
-    assert "the only safe way back to 2026.1 is restoring the backup taken before the upgrade" in text
-    assert "schema 135 or later for additive migrations" in text
-    assert "never across a contract-phase migration without a restore" in text
-    assert "honua-release#776" in text
-    assert "no release-named immutable tag" in text
+def test_rc_notes_name_the_forward_ga_qualification_policy():
+    from upgrade_release_notes import UPGRADE_POLICY
+
+    text = notes.render({"components": {}}, "| gate | pass |", "2026.1-rc.2", None, None, [])
+    assert UPGRADE_POLICY in text
+    assert "## Forward upgrade and recovery" in text
+    assert "published `2026.1.0-rc.2` quickstart" in text
+    assert "This source declaration does not certify an upgrade" in text
+    assert "Migrations are forward-only" in text
+    assert "There is no rolling rollback or N-1 database-reader compatibility contract" in text
+    assert "schema 135 or later" not in text
+    assert "Roll back only to images" not in text
 
 
 def test_rc_notes_require_a_candidate_bound_run():
@@ -48,9 +45,9 @@ def test_rc_notes_report_the_ai_gates_as_preview_evidence_outside_rc_admission()
 
 
 if __name__ == "__main__":
-    test_rc_notes_say_2026_1_is_not_a_safe_rollback_target()
+    test_rc_notes_name_the_forward_ga_qualification_policy()
     test_rc_notes_report_the_ai_gates_as_preview_evidence_outside_rc_admission()
-    print("PASS test_rc_notes_say_2026_1_is_not_a_safe_rollback_target")
+    print("PASS test_rc_notes_name_the_forward_ga_qualification_policy")
 
 
 def test_rc_notes_place_the_committed_narrative_under_the_rc_title():

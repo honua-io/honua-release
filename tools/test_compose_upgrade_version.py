@@ -21,7 +21,8 @@ def evidence():
 
 
 def receipt(pair, phases, **overrides):
-    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={"maps": map_proof(), "credentials": {"schema": 1, "status": "pass",
+    from test_compose_upgrade_services import proof as service_proof
+    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={"services": service_proof(), "maps": map_proof(), "credentials": {"schema": 1, "status": "pass",
                       "connectionId": "00000000-0000-0000-0000-000000000001",
                       "apiKeyId": "00000000-0000-0000-0000-000000000002",
                       "checks": dict.fromkeys(("connectionUnchanged", "storedCredentialHealthy",

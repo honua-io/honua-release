@@ -38,6 +38,9 @@ class Api:
             raise ProbeError(f"admin request rejected (HTTP {error.code})") from None
         except (URLError, TimeoutError, OSError, ValueError):
             raise ProbeError("admin request failed or returned invalid JSON") from None
+        return self.unwrap(document)
+
+    def unwrap(self, document):
         if not isinstance(document, dict) or "data" not in document:
             raise ProbeError("admin response has no data envelope")
         return document["data"]
