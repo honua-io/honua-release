@@ -65,6 +65,7 @@ import yaml
 from upgrade_trunk_pair import DIGEST, PairError, server_identity
 from digests import sha256_digest
 from platform_version import artifact_version
+from compose_upgrade_version import version_evidence
 
 SCHEMA = "honua.upgrade-compose-receipt/v1"
 PUBLISHED_RC = "published-rc"
@@ -171,6 +172,7 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
     """
     candidate = candidate_identity(candidate_manifest)
     releases, ga = candidate_releases(candidate_manifest, releases)
+    candidate["expectedVersion"] = "2026.1.0" if ga else ""
     same = set(candidate["sameImageDigests"])
     skipped: list[str] = []
     for release in releases:
@@ -282,6 +284,7 @@ def _pair(candidate: dict, candidate_bytes: bytes, *, source: str, prior: str, s
         "candidate": candidate["reference"],
         "candidate_source_revision": candidate["sourceRevision"],
         "candidate_schema": str(candidate["dbSchema"]),
+        "candidate_version": candidate.get("expectedVersion", ""),
         "candidate_manifest_digest": sha256_digest(candidate_bytes),
         "platform": PLATFORM,
     }
@@ -323,6 +326,10 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
     if status not in {"pass", "fail", "blocked"}:
         status = "fail"
     source = pair.get("prior_source") if pair.get("prior_source") in PRIOR_SOURCES else None
+    version = version_evidence(pair, phases)
+    if scenario == "normal" and status == "pass" and version["status"] == "fail":
+        status = "fail"
+        why = f"candidate version refused: {version['why']}. {why}".strip()
     return {
         "schema": SCHEMA,
         "topology": "docker-compose",
@@ -350,6 +357,7 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
         "compose": {"file": "e2e/harness/compose.candidate.yml", "harness": "e2e/harness/upgrade-chaos.sh",
                     "harnessScenario": "compose-upgrade-rollback", "result": harness},
         "observed": observed,
+        "versionEvidence": version,
         "phases": phases,
         "workflow": {"run": run, "commit": commit},
     }

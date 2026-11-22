@@ -716,7 +716,7 @@ cu_counts() {
 cu_identity() {
   # <phase> <expected image reference>: the running server container must be exactly that image,
   # linux/amd64, and its admin capabilities answer is recorded as the observed runtime identity.
-  local phase="$1" ref="$2" container image_id expected_id platform version
+  local phase="$1" ref="$2" container image_id expected_id platform version image_version
   container="$(compose ps -q server 2>/dev/null)" || container=""
   image_id="$( [ -n "$container" ] && docker inspect --format '{{.Image}}' "$container" 2>/dev/null)" || image_id=""
   expected_id="$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null)" || expected_id=""
@@ -724,10 +724,12 @@ cu_identity() {
   curl -fsS -H "X-API-Key: $API_KEY" "${E2E_BASE:-http://localhost:8080}/api/v1/admin/capabilities" \
     -o "$OUT/compose-$phase-runtime.json" 2>/dev/null || echo '{}' > "$OUT/compose-$phase-runtime.json"
   version="$(jq -r '.data.serverVersion // empty' "$OUT/compose-$phase-runtime.json" 2>/dev/null)" || version=""
+  image_version="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$ref" 2>/dev/null)" || image_version=""
   jq -n --arg imageID "$image_id" --arg expected "$expected_id" --arg digest "${ref##*@}" --arg ref "$ref" \
-    --arg platform "$platform" --arg version "$version" --arg schema "$(cu_schema 2>/dev/null)" \
+    --arg platform "$platform" --arg version "$version" --arg imageVersion "$image_version" --arg schema "$(cu_schema 2>/dev/null)" \
     '{imageID:$imageID,expectedImageID:$expected,platform:$platform,
-      runtimeIdentity:{imageReference:$ref,imageDigest:$digest,observedVersion:$version},databaseSchema:$schema}' \
+      runtimeIdentity:{imageReference:$ref,imageDigest:$digest,observedVersion:$version},
+      imageVersion:$imageVersion,databaseSchema:$schema}' \
     > "$OUT/compose-$phase-identity.json"
   [ -n "$image_id" ] && [ "$image_id" = "$expected_id" ] && [ "$platform" = "$COMPOSE_PLATFORM" ]
 }

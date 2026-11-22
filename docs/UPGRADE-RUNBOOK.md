@@ -20,8 +20,13 @@ the Helm steps below are the `kind-upgrade` gate cells, not a customer upgrade p
 server image, resolved by immutable digest, as the source for a `2026.1.0` candidate. Both
 `2026.1.0-rc.2` and legacy `2026.1-rc.2` release tags are accepted, with optional `honua-` prefixes.
 Earlier RCs, later RCs and nightly images cannot substitute for that baseline. This selection
-rule alone does not establish a supported upgrade: retain the passing candidate-bound upgrade
-and rollback receipts before certifying the pair.
+rule alone does not establish a supported upgrade: retain passing candidate-bound forward
+upgrade evidence before certifying the pair. The candidate container must report `2026.1.0`
+from the admin capabilities endpoint, and its pulled image must carry the same
+`org.opencontainers.image.version` label. Missing or mismatched versions fail admission,
+even when the upgrade itself succeeds. The receipt records both observations and verifies
+that they came from the selected amd64 candidate image. This check covers the server; it
+does not certify Console, Studio, CLI or documentation version surfaces.
 
 ## 1. Identify the exact release artefacts
 

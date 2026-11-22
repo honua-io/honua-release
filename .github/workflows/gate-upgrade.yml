@@ -76,6 +76,10 @@ on:
       - "tools/test_upgrade_trunk_pair.py"
       - "tools/compose_upgrade_prior.py"
       - "tools/test_compose_upgrade_prior.py"
+      - "tools/compose_upgrade_version.py"
+      - "tools/test_compose_upgrade_version.py"
+      - "tools/test_compose_upgrade_ga_baseline.py"
+      - "e2e/harness/upgrade-chaos.sh"
       - "tools/image_requirement.py"
       - "tools/digests.py"
       - ".github/workflows/gate-upgrade.yml"
@@ -180,7 +184,7 @@ jobs:
           set -euo pipefail
           python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
           python -m pytest tools/test_check_upgrade.py -q
-          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py -q
+          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py tools/test_compose_upgrade_ga_baseline.py tools/test_compose_upgrade_version.py -q
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -1455,8 +1459,8 @@ jobs:
             echo "compose_status=fail" >> "$GITHUB_ENV"
             echo "compose_why=compose receipt could not be assembled" >> "$GITHUB_ENV"
           fi
-          # A refused binding fails the receipt; the fragment must say so too.
-          if [ "${#bind[@]}" -gt 0 ] && [ "$(jq -r .status /tmp/cu/compose-upgrade-receipt.json 2>/dev/null)" != pass ]; then
+          # A version refusal or refused lock binding also fails an unbound dispatch.
+          if [ "$(jq -r .status /tmp/cu/compose-upgrade-receipt.json 2>/dev/null)" = fail ]; then
             echo "compose_status=fail" >> "$GITHUB_ENV"
             echo "compose_why=$(jq -r .why /tmp/cu/compose-upgrade-receipt.json 2>/dev/null | tr '\n' ' ')" >> "$GITHUB_ENV"
           fi

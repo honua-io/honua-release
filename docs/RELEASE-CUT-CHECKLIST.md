@@ -80,7 +80,11 @@ Historical GA upgrade coverage (not rc.2 production certification) uses the Dock
 `upgrade-compose-negative-control`. For a `2026.1.0` GA candidate, its prior must be the published
 `2026.1.0-rc.2` honua-server digest (legacy `2026.1-rc.2` tags are accepted). Missing, ambiguous,
 malformed or candidate-identical rc.2 baselines block the cell (strict: fail); GA has no nightly
-fallback. For RC candidates, its prior is the honua-server digest of the newest published
+fallback. GA admission also requires the installed candidate server version and its OCI
+`org.opencontainers.image.version` label to match `2026.1.0`; retain the receipt
+`versionEvidence` observations and candidate image identity. This does not establish a
+platform-wide version audit or installed data-preservation proof.
+For RC candidates, its prior is the honua-server digest of the newest published
 `2026.1-rc.N` release, else the newest signed nightly lock's amd64 image; an rc or lock that ships the
 candidate's image is skipped, and with neither the cell is blocked (strict: fail), never the candidate
 itself. Every `upgrade-kind-*` (Helm on kind) fragment is non-blocking Preview evidence. This is a
