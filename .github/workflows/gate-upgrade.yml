@@ -76,6 +76,10 @@ on:
       - "tools/test_upgrade_trunk_pair.py"
       - "tools/compose_upgrade_prior.py"
       - "tools/test_compose_upgrade_prior.py"
+      - "tools/compose_upgrade_version.py"
+      - "tools/test_compose_upgrade_version.py"
+      - "tools/test_compose_upgrade_ga_baseline.py"
+      - "e2e/harness/upgrade-chaos.sh"
       - "tools/image_requirement.py"
       - "tools/digests.py"
       - ".github/workflows/gate-upgrade.yml"
@@ -180,7 +184,7 @@ jobs:
           set -euo pipefail
           python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
           python -m pytest tools/test_check_upgrade.py -q
-          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py -q
+          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py tools/test_compose_upgrade_ga_baseline.py tools/test_compose_upgrade_version.py -q
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -1226,6 +1230,7 @@ jobs:
   # image rollback, or the documented backup restore -> the prior image serves the seeded rows.
   #
   # PRIOR (2026.1 is the first release; tools/compose_upgrade_prior.py is the only definition):
+  # GA 2026.1.0 requires the published rc.2 digest, with no fallback. For RC candidates:
   #   1. the newest published 2026.1 rc GitHub release's honua-server image digest (rc-release.yml), else
   #   2. the newest signed nightly lock's (refs/tags/nightly-lock/*) honua-server amd64 image, signature
   #      verified here before use.
@@ -1307,10 +1312,10 @@ jobs:
           [ "$actual" = "$LOCK_DIGEST" ] || { echo "::error::platform lock digest $actual is not the dispatched $LOCK_DIGEST"; exit 1; }
           echo "verified=1" >> "$GITHUB_OUTPUT"
 
-      # Prior (D9; ruling compose-upgrade-prior-nightly-2026-10-27): latest published rc, else the newest
+      # GA requires published rc.2. RC candidates use latest published rc, else the newest
       # signed nightly lock, else the newest certified nightly-<sha7> image older than the candidate (green
       # full-matrix ci.yml, bound by digest). Never the candidate; none resolves -> ready=0 -> blocked/fail.
-      - name: Resolve the prior (latest published rc, else signed nightly lock, else certified nightly) and the candidate
+      - name: Resolve the required release baseline and the candidate
         id: pair
         env:
           GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
@@ -1454,8 +1459,8 @@ jobs:
             echo "compose_status=fail" >> "$GITHUB_ENV"
             echo "compose_why=compose receipt could not be assembled" >> "$GITHUB_ENV"
           fi
-          # A refused binding fails the receipt; the fragment must say so too.
-          if [ "${#bind[@]}" -gt 0 ] && [ "$(jq -r .status /tmp/cu/compose-upgrade-receipt.json 2>/dev/null)" != pass ]; then
+          # A version refusal or refused lock binding also fails an unbound dispatch.
+          if [ "$(jq -r .status /tmp/cu/compose-upgrade-receipt.json 2>/dev/null)" = fail ]; then
             echo "compose_status=fail" >> "$GITHUB_ENV"
             echo "compose_why=$(jq -r .why /tmp/cu/compose-upgrade-receipt.json 2>/dev/null | tr '\n' ' ')" >> "$GITHUB_ENV"
           fi
