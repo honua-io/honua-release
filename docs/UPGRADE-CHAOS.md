@@ -87,10 +87,11 @@ The driver normally removes its Compose stack and volumes on exit.
 `CHAOS_KEEP_STACK=true` is for explicitly managed debugging: its operator owns
 subsequent teardown and must not claim cleanup until removal is verified.
 
-The separate `compose-upgrade-rollback` scenario exercises the customer Compose
-upgrade and rollback path for the required `compose-upgrade` job in
+The separate `compose-upgrade-rollback` scenario retains its legacy name but exercises
+forward upgrade and candidate restart for the required `compose-upgrade` job in
 `gate-upgrade`. It seeds its own prior installation and is excluded from `all`.
-It also requires the declared `HONUA_CANDIDATE_DB_SCHEMA`. Its
-`COMPOSE_UPGRADE_FAULT` controls (`drop-seed-rows`, `journal-stall`, and
-`rollback-unreadable`) are negative probes, never substitutes for a successful
-unmodified customer upgrade/rollback run.
+It requires the declared `HONUA_CANDIDATE_DB_SCHEMA` and a pre-upgrade backup.
+Its `COMPOSE_UPGRADE_FAULT` controls (`drop-seed-rows`, `journal-stall`,
+`restart-journal-change` and `restart-row-change`) are negative probes, never
+substitutes for a successful unmodified upgrade and candidate restart. The prior
+image is never started against the migrated database in this scenario.
