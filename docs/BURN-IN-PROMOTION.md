@@ -47,7 +47,7 @@ classes require an explicit tier declaration and a retained receipt too.
 GA cells are `aws-ecs/redis-off` and `aws-ecs/redis-on`. Under the 2026-10-25 founder re-tier, AWS ECS is
 the only GA cloud target; Lambda (`aws-serverless/*`) and EKS (`aws-eks/*`) cells are informational
 Preview, are never counted and never block. For rc.2 the sole certified production deployment is
-ECS Fargate + RDS PostGIS + ElastiCache + Console in S3/CloudFront, using the `honua-iac` ECS
+ECS Fargate + RDS PostGIS + Console in S3/CloudFront, using the `honua-iac` ECS
 stack. Docker Compose is for local evaluation. Lambda and Kubernetes/Helm are not certified
 in 2026.1 rc.2. The required `ecs-certification` receipt takes its verdict from `cloud-parity`,
 which checks both ECS cells; it replaces the historical `lambda-certification` receipt name.
