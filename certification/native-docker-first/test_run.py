@@ -281,8 +281,32 @@ class NativeFirstUseTests(unittest.TestCase):
             with self.assertRaises(runner.Blocked):
                 runner.observed_install_call(bad)
 
+    def image_console_manifest(self):
+        manifest = runner.yaml.safe_load((runner.ROOT / 'platform-manifest.yaml').read_text())
+        manifest['components']['honua-console'] = {
+            'sha': 'c' * 40, 'image': 'ghcr.io/honua-io/honua-console:nightly-ccccccc', 'digest': 'sha256:' + 'd' * 64}
+        return manifest
+
+    def test_candidate_refuses_a_static_bundle_console_by_name(self):
+        for artifact in ('actions-artifact:console-static-release', 'honua-console-0.1.0.zip'):
+            manifest = self.image_console_manifest()
+            manifest['components']['honua-console'] = {
+                'artifact': artifact, 'sha': 'c' * 40, 'artifactSha256': 'sha256:' + 'e' * 64}
+            with patch.object(runner.yaml, 'safe_load', return_value=manifest):
+                with self.assertRaisesRegex(runner.Blocked, 'static bundle'):
+                    runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+
+    def test_candidate_binds_a_console_that_pins_an_image_beside_its_bundle(self):
+        manifest = self.image_console_manifest()
+        manifest['components']['honua-console']['artifact'] = 'actions-artifact:console-static-release'
+        with patch.object(runner.yaml, 'safe_load', return_value=manifest):
+            _, binding = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+        self.assertEqual(binding['console']['image'],
+                         'ghcr.io/honua-io/honua-console:nightly-ccccccc@sha256:' + 'd' * 64)
+
     def test_candidate_does_not_invent_sdk_mcp_version_coupling(self):
-        manifest, _ = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
+        with patch.object(runner.yaml, 'safe_load', return_value=self.image_console_manifest()):
+            manifest, _ = runner.candidate(runner.ROOT / 'platform-manifest.yaml')
         sdk_version = manifest['clientArtifacts']['honua-sdk-js']['version']
         manifest['clientArtifacts']['honua-mcp-server']['version'] = '0.2.1'
         with patch.object(runner.yaml, 'safe_load', return_value=manifest):

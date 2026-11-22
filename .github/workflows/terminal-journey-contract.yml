@@ -9,6 +9,7 @@ on:
       - e2e/harness/compose.candidate.yml
       - certification/terminal-journey/**
       - certification/native-docker-first/**
+      - platform-manifest.yaml
       - certification/terminal-model-canary/**
       - e2e/cloud_journey.py
       - e2e/run_cloud.py

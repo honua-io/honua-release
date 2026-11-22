@@ -113,6 +113,9 @@ def candidate(manifest_path: Path) -> tuple[dict, dict]:
     server, console = (components.get(key) or {} for key in ('honua-server', 'honua-console'))
     sdk_js, mcp = (clients.get(key) or {} for key in ('honua-sdk-js', 'honua-mcp-server'))
     dotnet = clients.get('honua-sdk-dotnet') or {}
+    if console.get('artifact') and not console.get('digest'):
+        raise Blocked('console is pinned as a static bundle with no image to run; '
+                      'this native Docker first-use producer still needs a Console image')
     for name, component in (('server', server), ('console', console)):
         if not SHA.fullmatch(component.get('sha', '')) or not IMAGE.fullmatch(f"{component.get('image', '')}@{component.get('digest', '')}"):
             raise Blocked(f'{name} needs a source SHA and immutable published GHCR image')
