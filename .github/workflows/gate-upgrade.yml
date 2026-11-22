@@ -76,6 +76,8 @@ on:
       - "tools/test_upgrade_trunk_pair.py"
       - "tools/compose_upgrade_prior.py"
       - "tools/test_compose_upgrade_prior.py"
+      - "tools/compose_upgrade_maps.py"
+      - "tools/test_compose_upgrade_maps.py"
       - "tools/compose_upgrade_credentials.py"
       - "tools/test_compose_upgrade_credentials.py"
       - "tools/compose_upgrade_version.py"
@@ -186,7 +188,7 @@ jobs:
           set -euo pipefail
           python -m pytest tools/test_slo_upgrade.py tools/test_upgrade_recovery.py tools/test_upgrade_lock_binding.py -q -k "upgrade or recovery or lock_binding"
           python -m pytest tools/test_check_upgrade.py -q
-          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py tools/test_compose_upgrade_ga_baseline.py tools/test_compose_upgrade_version.py tools/test_compose_upgrade_credentials.py -q
+          python -m pytest tools/test_upgrade_trunk_pair.py tools/test_compose_upgrade_prior.py tools/test_compose_upgrade_ga_baseline.py tools/test_compose_upgrade_version.py tools/test_compose_upgrade_credentials.py tools/test_compose_upgrade_maps.py -q
 
       - name: Fetch the previous platform release's manifest
         id: prior
@@ -1393,6 +1395,7 @@ jobs:
           SCENARIO: ${{ matrix.scenario }}
           HONUA_PRIOR_SERVER_IMAGE: ${{ steps.pair.outputs.prior }}
           HONUA_CANDIDATE_SERVER_IMAGE: ${{ steps.pair.outputs.candidate }}
+          COMPOSE_UPGRADE_MAP_PROOF: ${{ steps.pair.outputs.candidate_version == '2026.1.0' }}
           COMPOSE_UPGRADE_CREDENTIAL_PROOF: ${{ steps.pair.outputs.candidate_version == '2026.1.0' }}
           HONUA_CANDIDATE_DB_SCHEMA: ${{ steps.pair.outputs.candidate_schema }}
           HONUA_CANDIDATE_SOURCE_REVISION: ${{ steps.pull.outputs.candidate_revision_label }}

@@ -108,20 +108,29 @@ def verify(api: Api, state: dict) -> dict:
             "checks": dict.fromkeys(CHECKS, True)}
 
 
-def credential_evidence(pair: dict, observed: dict) -> dict:
+def preservation_evidence(pair: dict, observed: dict, contract: dict) -> dict:
     if pair.get("candidate_version") != "2026.1.0":
         return {"status": "not-applicable", "why": "pair is not the GA upgrade"}
-    value = observed.get("credentials")
+    value = observed.get(contract["key"])
+    checks = contract["checks"]
     try:
         if (not isinstance(value, dict) or value.get("schema") != 1
                 or value.get("status") != "pass"
                 or not isinstance(value.get("checks"), dict)
-                or any(value["checks"].get(check) is not True for check in CHECKS)):
-            raise ProbeError("credential preservation proof is missing or incomplete")
-        return {"status": "pass", "connectionId": identifier(value.get("connectionId")),
-                "apiKeyId": identifier(value.get("apiKeyId")), "checks": dict.fromkeys(CHECKS, True)}
+                or any(value["checks"].get(check) is not True for check in checks)):
+            raise ProbeError(f"{contract['key']} preservation proof is missing or incomplete")
+        return {"status": "pass", **contract["fields"](value), "checks": dict.fromkeys(checks, True)}
     except ProbeError as error:
         return {"status": "fail", "why": str(error)}
+
+
+def credential_fields(value: dict) -> dict:
+    return {field: identifier(value.get(field)) for field in ("connectionId", "apiKeyId")}
+
+
+def credential_evidence(pair: dict, observed: dict) -> dict:
+    return preservation_evidence(pair, observed, {
+        "key": "credentials", "checks": CHECKS, "fields": credential_fields})
 
 
 def write_private(path: Path, state: dict):
@@ -130,31 +139,35 @@ def write_private(path: Path, state: dict):
         json.dump(state, stream)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def run_probe(api_type, seed_probe, verify_probe) -> int:
+    parser = argparse.ArgumentParser(description="Exercise persisted state across an upgrade")
     parser.add_argument("mode", choices=("seed", "verify"))
     parser.add_argument("--state", type=Path, required=True)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--receipt", type=Path, required=True)
     args = parser.parse_args()
-    result = {"schema": 1, "status": "fail", "why": "credential probe did not finish"}
+    result = {"schema": 1, "status": "fail", "why": "preservation probe did not finish"}
     exit_code = 1
     args.receipt.write_text(json.dumps(result) + "\n")
     try:
-        api = Api(os.environ["E2E_BASE"], os.environ["E2E_API_KEY"])
+        api = api_type(os.environ["E2E_BASE"], os.environ["E2E_API_KEY"])
         if args.mode == "seed":
-            state = seed(api, json.loads(args.manifest.read_text()))
+            state = seed_probe(api, json.loads(args.manifest.read_text()))
             write_private(args.state, state)
             result["why"] = "seeded on prior; candidate verification is still required"
         else:
-            result = verify(api, json.loads(args.state.read_text()))
+            result = verify_probe(api, json.loads(args.state.read_text()))
         exit_code = 0
     except ProbeError as error:
         result["why"] = str(error)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        result["why"] = "credential probe input or private state is invalid"
+        result["why"] = "preservation probe input or private state is invalid"
     args.receipt.write_text(json.dumps(result) + "\n")
     return exit_code
+
+
+def main() -> int:
+    return run_probe(Api, seed, verify)
 
 
 if __name__ == "__main__":
