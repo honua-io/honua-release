@@ -216,8 +216,12 @@ def resolve(candidate_manifest: dict, candidate_bytes: bytes, *, releases=None, 
                      label=f"{tag} ({NIGHTLY_PRIOR_RULING})", url="", skipped=skipped,
                      identity=sha256_digest(json.dumps({"tag": tag, "sha": sha, "prior": reference},
                                                        sort_keys=True).encode()))
+    raise missing_prior(skipped)
+
+
+def missing_prior(skipped: list[str]) -> PairError:
     detail = f"; skipped: {', '.join(skipped)}" if skipped else ""
-    raise PairError("no published 2026.1 rc release, no signed nightly lock and no certified nightly image older "
+    return PairError("no published 2026.1 rc release, no signed nightly lock and no certified nightly image older "
                     "than the candidate names a server image other than the candidate's (prior = latest "
                     "published rc image, else the newest signed nightly lock, else the newest certified "
                     f"nightly-<sha7> image older than the candidate; never the candidate itself){detail}")
