@@ -142,10 +142,20 @@ class OwnedConfigurationControls(unittest.TestCase):
         self.assertEqual(result["artifactBindings"]["explicitTestTarget"],
                          "ghcr.io/honua-io/honua-server@sha256:" + "2" * 64)
         self.assertEqual(result["expectedSkewedIds"], ["cert-ops-skew"])
+        # Exact-match nightly run (no new commits) also succeeds with allow_candidate_advance=True.
+        same = config.declaration(payload, release_source_sha=RELEASE,
+            candidate_source_sha=SOURCE, candidate_image=IMAGE, allow_candidate_advance=True)
+        self.assertEqual(same, selected())
 
-    def test_nightly_candidate_advance_refuses_corrupt_manifest_or_skew_collision(self):
+    def test_nightly_candidate_advance_refuses_corrupt_manifest_nonbool_or_skew_collision(self):
         advanced_source = "f" * 40
+        advanced_image = "ghcr.io/honua-io/honua-server@sha256:" + "9" * 64
         payload = yaml.safe_dump(manifest()).encode()
+        for bad_flag in ("true", "false", 1, 0, None):
+            with self.subTest(bad_flag=bad_flag), self.assertRaises(ValueError):
+                config.declaration(payload, release_source_sha=RELEASE,
+                    candidate_source_sha=SOURCE, candidate_image=IMAGE,
+                    allow_candidate_advance=bad_flag)
         for bad_image in ("ghcr.io/honua-io/honua-server@sha256:" + "2" * 64,
                           "ghcr.io/other/honua-server@sha256:" + "9" * 64,
                           "ghcr.io/honua-io/honua-server:nightly"):
@@ -155,13 +165,34 @@ class OwnedConfigurationControls(unittest.TestCase):
                     allow_candidate_advance=True)
         for mutate in (lambda v: v["candidate"].update(ref="e" * 40),
                        lambda v: v["candidate"].update(refSource="branch"),
-                       lambda v: v["components"]["honua-server"].update(sha="e" * 40)):
+                       lambda v: v["candidate"].update(extra="unexpected"),
+                       lambda v: v["components"]["honua-server"].update(sha="e" * 40),
+                       lambda v: v["components"]["honua-server"].update(awsLambdaDigest="sha256:" + "1" * 64)):
             value = manifest(); mutate(value)
             with self.assertRaises(ValueError):
                 config.declaration(yaml.safe_dump(value).encode(), release_source_sha=RELEASE,
-                    candidate_source_sha=advanced_source,
-                    candidate_image="ghcr.io/honua-io/honua-server@sha256:" + "9" * 64,
+                    candidate_source_sha=advanced_source, candidate_image=advanced_image,
                     allow_candidate_advance=True)
+
+    def test_cli_allow_candidate_advance_flag_gates_unpinned_candidate(self):
+        import subprocess, sys, tempfile
+        from pathlib import Path
+        advanced_source = "f" * 40
+        advanced_image = "ghcr.io/honua-io/honua-server@sha256:" + "9" * 64
+        script = Path(config.__file__).resolve()
+        with tempfile.TemporaryDirectory() as work:
+            manifest_path = Path(work) / "platform-manifest.yaml"
+            manifest_path.write_bytes(yaml.safe_dump(manifest()).encode())
+            base = [sys.executable, str(script), "--manifest", str(manifest_path),
+                    "--release-source-sha", RELEASE, "--candidate-source-sha", advanced_source,
+                    "--candidate-image", advanced_image]
+            refused = subprocess.run(base, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(refused.returncode, 0)
+            accepted = subprocess.run(base + ["--allow-candidate-advance"], capture_output=True, text=True, timeout=30)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            parsed = json.loads(accepted.stdout)
+            self.assertEqual(parsed["candidateSourceSha"], advanced_source)
+            self.assertEqual(parsed["candidateImage"], advanced_image)
 
     def test_daemon_failure_wrong_values_missing_duplicate_or_extra_scope_refuse(self):
         expected = selected()

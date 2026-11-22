@@ -58,6 +58,8 @@ def digest_reference(image, digest):
 
 def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, candidate_image,
                 allow_candidate_advance=False):
+    if not isinstance(allow_candidate_advance, bool):
+        raise ValueError("allow_candidate_advance must be a boolean")
     if not isinstance(manifest_bytes, bytes) or len(manifest_bytes) > 262144:
         raise ValueError("configuration declaration requires original bounded manifest bytes")
     if (any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{40}", value)
@@ -74,9 +76,9 @@ def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, can
     server = manifest["components"].get("honua-server")
     candidate = manifest.get("candidate")
     manifest_ref = candidate.get("ref") if isinstance(candidate, dict) else None
-    if (not isinstance(server, dict) or not isinstance(candidate, dict)
-            or candidate.get("refSource") != "trunk"
-            or not isinstance(manifest_ref, str) or not re.fullmatch(r"[a-f0-9]{40}", manifest_ref)
+    if (not isinstance(server, dict) or not isinstance(manifest_ref, str)
+            or not re.fullmatch(r"[a-f0-9]{40}", manifest_ref)
+            or candidate != {"ref": manifest_ref, "refSource": "trunk"}
             or server.get("sha") != manifest_ref
             or not isinstance(manifest.get("platformRelease"), str)
             or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", manifest["platformRelease"])):

@@ -29,6 +29,7 @@ const image = value => typeof value === "string" && /^[^\s]+@sha256:[a-f0-9]{64}
 export function createGroundingStatusValidation({ directory, sourceSha, sha256, bootstrapPath,
   platformManifestPath, platformManifestSha256, manifestSourceSha, allowCandidateAdvance = false }) {
   if (!immutable(sourceSha) || !immutable(manifestSourceSha) || !sha256 || typeof sha256 !== "object"
+      || typeof allowCandidateAdvance !== "boolean"
       || groundingStatusDependencies.toSorted().join() !== Object.keys(sha256).toSorted().join()
       || ![directory, bootstrapPath, platformManifestPath].every(value => typeof value === "string" && value)
       || !/^[a-f0-9]{64}$/.test(platformManifestSha256 ?? ""))

@@ -23,6 +23,7 @@ const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 export function createOpsEventsValidation({ directory, sourceSha, sha256, bootstrapPath, setupPath,
   platformManifestPath, platformManifestSha256, manifestSourceSha, allowCandidateAdvance = false }) {
   if (!immutable(sourceSha) || !immutable(manifestSourceSha) || !sha256 || typeof sha256 !== "object"
+      || typeof allowCandidateAdvance !== "boolean"
       || opsEventsDependencies.toSorted().join() !== Object.keys(sha256).toSorted().join()
       || ![bootstrapPath, setupPath, platformManifestPath].every(value => typeof value === "string" && value)
       || !/^[a-f0-9]{64}$/.test(platformManifestSha256 ?? "")) throw new Error("findings/events require complete protected sources and original fixture/manifest");
