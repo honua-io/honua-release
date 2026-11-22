@@ -525,7 +525,7 @@ def successful_tool(result):
     return wire.structured_text_content(result)
 
 
-def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
+def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed, *, allow_candidate_advance=False):
     """Rejudge original source, exact wire and installed-client call sequence."""
     from mcp_managed_identity_fixture import verify_receipt
 
@@ -533,7 +533,8 @@ def judge(fixture_bytes, bootstrap, manifest_bytes, declaration, observed):
     actual_declaration = declare_configuration(manifest_bytes,
         release_source_sha=declaration.get("releaseSourceSha"),
         candidate_source_sha=authored["candidateSourceSha"],
-        candidate_image=authored["candidateImage"])
+        candidate_image=authored["candidateImage"],
+        allow_candidate_advance=allow_candidate_advance)
     if not wire.same_json(declaration, actual_declaration):
         raise ValueError("status declaration differs from governed manifest")
     expected_keys = set(authored) | {"canonicalClient", "clientVersion", "runtimeBefore", "runtimeAfter",
@@ -648,6 +649,7 @@ def main():
     parser.add_argument("--calls", action="store_true")
     parser.add_argument("--call-intent-id")
     parser.add_argument("--call-catalog-cursor", action="append", default=[])
+    parser.add_argument("--allow-candidate-advance", action="store_true")
     args = parser.parse_args()
     try:
         fixture, bootstrap = args.fixture.read_bytes(), strict_json(args.bootstrap.read_bytes())
@@ -659,7 +661,8 @@ def main():
             if not args.manifest or not args.declaration:
                 raise ValueError("grounding judgment requires original manifest and declaration")
             value = judge(fixture, bootstrap, args.manifest.read_bytes(),
-                          strict_json(args.declaration.read_bytes()), strict_json(args.observations.read_bytes()))
+                          strict_json(args.declaration.read_bytes()), strict_json(args.observations.read_bytes()),
+                          allow_candidate_advance=args.allow_candidate_advance)
         print(json.dumps(value, allow_nan=False, sort_keys=True))
     except (ValueError, KeyError, TypeError, OSError, OverflowError) as error:
         reason = str(error) if isinstance(error, ValueError) else type(error).__name__

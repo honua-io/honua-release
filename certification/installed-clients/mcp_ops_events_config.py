@@ -56,11 +56,14 @@ def digest_reference(image, digest):
     return image.rsplit(":", 1)[0] + "@" + digest
 
 
-def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, candidate_image):
+def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, candidate_image,
+                allow_candidate_advance=False):
     if not isinstance(manifest_bytes, bytes) or len(manifest_bytes) > 262144:
         raise ValueError("configuration declaration requires original bounded manifest bytes")
-    if any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{40}", value)
-           for value in (release_source_sha, candidate_source_sha)):
+    if (any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{40}", value)
+            for value in (release_source_sha, candidate_source_sha))
+            or not isinstance(candidate_image, str)
+            or not re.fullmatch(r"ghcr\.io/honua-io/honua-server@sha256:[a-f0-9]{64}", candidate_image)):
         raise ValueError("configuration declaration requires exact protected source identities")
     try:
         manifest = yaml.load(manifest_bytes, Loader=UniqueManifestLoader)
@@ -69,15 +72,27 @@ def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, can
     if not isinstance(manifest, dict) or not isinstance(manifest.get("components"), dict):
         raise ValueError("governed platform manifest is missing")
     server = manifest["components"].get("honua-server")
-    if (not isinstance(server, dict) or server.get("sha") != candidate_source_sha
-            or manifest.get("candidate") != {"ref": candidate_source_sha, "refSource": "trunk"}
+    candidate = manifest.get("candidate")
+    manifest_ref = candidate.get("ref") if isinstance(candidate, dict) else None
+    if (not isinstance(server, dict) or not isinstance(candidate, dict)
+            or candidate.get("refSource") != "trunk"
+            or not isinstance(manifest_ref, str) or not re.fullmatch(r"[a-f0-9]{40}", manifest_ref)
+            or server.get("sha") != manifest_ref
             or not isinstance(manifest.get("platformRelease"), str)
             or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", manifest["platformRelease"])):
         raise ValueError("governed manifest is not bound to the actual selected candidate")
-    serving = digest_reference(server.get("image"), server.get("digest"))
+    manifest_serving = digest_reference(server.get("image"), server.get("digest"))
     alternate = digest_reference(server.get("awsLambdaImage"), server.get("awsLambdaDigest"))
-    if candidate_image != serving or serving == alternate:
-        raise ValueError("candidate or deliberately different governed configuration artifact is missing")
+    if allow_candidate_advance:
+        serving = candidate_image
+        if manifest_serving == alternate or serving == alternate:
+            raise ValueError("candidate or deliberately different governed configuration artifact is missing")
+    else:
+        if server.get("sha") != candidate_source_sha:
+            raise ValueError("governed manifest is not bound to the actual selected candidate")
+        serving = manifest_serving
+        if candidate_image != serving or serving == alternate:
+            raise ValueError("candidate or deliberately different governed configuration artifact is missing")
     # These are declared options only. No AWS region/account/role, backend
     # credentials, operation gateway request, actuation or proposal is supplied.
     selected = {
@@ -165,10 +180,12 @@ def main():
     parser.add_argument("--release-source-sha", required=True)
     parser.add_argument("--candidate-source-sha", required=True)
     parser.add_argument("--candidate-image", required=True)
+    parser.add_argument("--allow-candidate-advance", action="store_true")
     args = parser.parse_args()
     try:
         result = declaration(args.manifest.read_bytes(), release_source_sha=args.release_source_sha,
-            candidate_source_sha=args.candidate_source_sha, candidate_image=args.candidate_image)
+            candidate_source_sha=args.candidate_source_sha, candidate_image=args.candidate_image,
+            allow_candidate_advance=args.allow_candidate_advance)
         print(json.dumps(result, allow_nan=False)); return 0
     except (ValueError, TypeError, KeyError, OSError):
         print("owned findings configuration declaration refused", file=sys.stderr); return 1

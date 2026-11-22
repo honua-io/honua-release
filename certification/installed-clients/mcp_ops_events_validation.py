@@ -465,7 +465,7 @@ def limited_refusal(result):
         raise ValueError("limited reader refusal changed authorization semantics or leaked result data")
 
 
-def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
+def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed, *, allow_candidate_advance=False):
     # This helper is one shared prerequisite for the three original MCP closure
     # streams. Missing source/receipt or failed normal revocation stays NONPASS.
     from mcp_managed_identity_fixture import verify_receipt
@@ -474,7 +474,8 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
     if not isinstance(observed, dict):
         raise ValueError("original canonical-client operate observations are missing")
     rederived = declare_configuration(manifest_bytes, release_source_sha=declaration.get("releaseSourceSha"),
-        candidate_source_sha=bootstrap.get("candidateSourceSha"), candidate_image=bootstrap.get("candidateImage"))
+        candidate_source_sha=bootstrap.get("candidateSourceSha"), candidate_image=bootstrap.get("candidateImage"),
+        allow_candidate_advance=allow_candidate_advance)
     if not wire.same_json(declaration, rederived):
         raise ValueError("declared configuration differs from the original protected manifest bytes")
     authored = scenario(fixture, bootstrap, setup, declaration, observed.get("nonce"), observed.get("canonicalClient"))
@@ -600,16 +601,19 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--observations", type=Path)
     parser.add_argument("--nonce"); parser.add_argument("--canonical-client"); parser.add_argument("--actual-cursor")
+    parser.add_argument("--allow-candidate-advance", action="store_true")
     args = parser.parse_args()
     try:
         fixture, bootstrap = args.fixture.read_bytes(), wire.strict_json(args.bootstrap.read_bytes())
         setup, declaration = (wire.strict_json(getattr(args, name).read_bytes()) for name in ("setup", "declaration"))
         manifest = args.manifest.read_bytes()
         rederived = declare_configuration(manifest, release_source_sha=declaration.get("releaseSourceSha"),
-            candidate_source_sha=bootstrap.get("candidateSourceSha"), candidate_image=bootstrap.get("candidateImage"))
+            candidate_source_sha=bootstrap.get("candidateSourceSha"), candidate_image=bootstrap.get("candidateImage"),
+            allow_candidate_advance=args.allow_candidate_advance)
         if not wire.same_json(declaration, rederived):
             raise ValueError("declaration differs from protected source manifest")
-        result = judge(fixture, bootstrap, setup, manifest, declaration, wire.strict_json(args.observations.read_bytes())) \
+        result = judge(fixture, bootstrap, setup, manifest, declaration, wire.strict_json(args.observations.read_bytes()),
+            allow_candidate_advance=args.allow_candidate_advance) \
             if args.observations else scenario(fixture, bootstrap, setup, declaration, args.nonce, args.canonical_client,
                 actual_cursor=args.actual_cursor)
         print(json.dumps(result, allow_nan=False)); return 0

@@ -27,7 +27,7 @@ const immutable = value => typeof value === "string" && /^[a-f0-9]{40}$/.test(va
 const image = value => typeof value === "string" && /^[^\s]+@sha256:[a-f0-9]{64}$/.test(value);
 
 export function createGroundingStatusValidation({ directory, sourceSha, sha256, bootstrapPath,
-  platformManifestPath, platformManifestSha256, manifestSourceSha }) {
+  platformManifestPath, platformManifestSha256, manifestSourceSha, allowCandidateAdvance = false }) {
   if (!immutable(sourceSha) || !immutable(manifestSourceSha) || !sha256 || typeof sha256 !== "object"
       || groundingStatusDependencies.toSorted().join() !== Object.keys(sha256).toSorted().join()
       || ![directory, bootstrapPath, platformManifestPath].every(value => typeof value === "string" && value)
@@ -60,9 +60,10 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
     "--inspect-runtime", "--candidate-source-sha", source, "--candidate-image", selectedImage]);
   const authored = () => launch("mcp_grounding_status_validation.py", [
     "--fixture", join(directory, "fixture.v1.json"), "--bootstrap", bootstrapPath]);
+  const advanceArgs = allowCandidateAdvance === true ? ["--allow-candidate-advance"] : [];
   const config = (source, selectedImage) => launch("mcp_ops_events_config.py", [
     "--manifest", platformManifestPath, "--release-source-sha", manifestSourceSha,
-    "--candidate-source-sha", source, "--candidate-image", selectedImage]);
+    "--candidate-source-sha", source, "--candidate-image", selectedImage, ...advanceArgs]);
   const sourceRead = (mode, credential, credentialSalt) => launch("mcp_grounding_status_state.py", [
     "--fixture", join(directory, "fixture.v1.json"), "--bootstrap", bootstrapPath,
     "--owned-disposable-candidate", "--credential-salt", credentialSalt,
@@ -77,7 +78,8 @@ export function createGroundingStatusValidation({ directory, sourceSha, sha256, 
       writeFileSync(reviewed, JSON.stringify(declaration));
       return launch("mcp_grounding_status_validation.py", [
         "--fixture", join(directory, "fixture.v1.json"), "--bootstrap", bootstrapPath,
-        "--manifest", platformManifestPath, "--declaration", reviewed, "--observations", original]);
+        "--manifest", platformManifestPath, "--declaration", reviewed, "--observations", original,
+        ...advanceArgs]);
     } finally { rmSync(work, { recursive: true, force: true }); }
   };
 

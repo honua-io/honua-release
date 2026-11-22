@@ -122,6 +122,47 @@ class OwnedConfigurationControls(unittest.TestCase):
         self.assertEqual(result["environmentSha256"], expected["environmentSha256"])
         self.assertFalse(result["deployedTargetObserved"])
 
+    def test_nightly_candidate_advance_binds_selected_candidate_against_governed_skew_target(self):
+        advanced_source = "f" * 40
+        advanced_image = "ghcr.io/honua-io/honua-server@sha256:" + "9" * 64
+        payload = yaml.safe_dump(manifest()).encode()
+        with self.assertRaises(ValueError):
+            config.declaration(payload, release_source_sha=RELEASE,
+                candidate_source_sha=advanced_source, candidate_image=advanced_image)
+        result = config.declaration(payload, release_source_sha=RELEASE,
+            candidate_source_sha=advanced_source, candidate_image=advanced_image,
+            allow_candidate_advance=True)
+        self.assertEqual(result["candidateSourceSha"], advanced_source)
+        self.assertEqual(result["candidateImage"], advanced_image)
+        self.assertEqual(result["artifactBindings"]["declaredServing"], advanced_image)
+        self.assertEqual(result["environment"]["ControlPlane__PlatformRelease__ServingArtifactReference"],
+                         advanced_image)
+        self.assertEqual(result["environment"]["ControlPlane__PlatformRelease__Workers__0__ArtifactReference"],
+                         advanced_image)
+        self.assertEqual(result["artifactBindings"]["explicitTestTarget"],
+                         "ghcr.io/honua-io/honua-server@sha256:" + "2" * 64)
+        self.assertEqual(result["expectedSkewedIds"], ["cert-ops-skew"])
+
+    def test_nightly_candidate_advance_refuses_corrupt_manifest_or_skew_collision(self):
+        advanced_source = "f" * 40
+        payload = yaml.safe_dump(manifest()).encode()
+        for bad_image in ("ghcr.io/honua-io/honua-server@sha256:" + "2" * 64,
+                          "ghcr.io/other/honua-server@sha256:" + "9" * 64,
+                          "ghcr.io/honua-io/honua-server:nightly"):
+            with self.subTest(bad_image=bad_image), self.assertRaises(ValueError):
+                config.declaration(payload, release_source_sha=RELEASE,
+                    candidate_source_sha=advanced_source, candidate_image=bad_image,
+                    allow_candidate_advance=True)
+        for mutate in (lambda v: v["candidate"].update(ref="e" * 40),
+                       lambda v: v["candidate"].update(refSource="branch"),
+                       lambda v: v["components"]["honua-server"].update(sha="e" * 40)):
+            value = manifest(); mutate(value)
+            with self.assertRaises(ValueError):
+                config.declaration(yaml.safe_dump(value).encode(), release_source_sha=RELEASE,
+                    candidate_source_sha=advanced_source,
+                    candidate_image="ghcr.io/honua-io/honua-server@sha256:" + "9" * 64,
+                    allow_candidate_advance=True)
+
     def test_daemon_failure_wrong_values_missing_duplicate_or_extra_scope_refuse(self):
         expected = selected()
         runtime = {"running": True, "candidateSourceSha": SOURCE, "candidateImage": IMAGE, "containerId": "c" * 64}
