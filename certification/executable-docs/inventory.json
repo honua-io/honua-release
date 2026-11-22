@@ -1958,11 +1958,11 @@
       "id": "honua-server-docs-get-started-first-dataset",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-dataset.md",
-      "revision": "d0f3a2a627c552bc45c62970f0cc26232e7d9754",
+      "revision": "a31d485ca3b8d457c14390ce16554e0ebdeb7e09",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/d0f3a2a627c552bc45c62970f0cc26232e7d9754/docs/get-started/first-dataset.md",
+      "url": "https://github.com/honua-io/honua-server/blob/a31d485ca3b8d457c14390ce16554e0ebdeb7e09/docs/get-started/first-dataset.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -2022,7 +2022,7 @@
         },
         {
           "index": 5,
-          "line": 123,
+          "line": 125,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2031,7 +2031,7 @@
         },
         {
           "index": 6,
-          "line": 150,
+          "line": 152,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2040,7 +2040,7 @@
         },
         {
           "index": 7,
-          "line": 190,
+          "line": 192,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2049,7 +2049,7 @@
         },
         {
           "index": 8,
-          "line": 208,
+          "line": 210,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2062,11 +2062,11 @@
       "id": "honua-server-docs-get-started-first-map",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-map.md",
-      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
+      "revision": "a31d485ca3b8d457c14390ce16554e0ebdeb7e09",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/first-map.md",
+      "url": "https://github.com/honua-io/honua-server/blob/a31d485ca3b8d457c14390ce16554e0ebdeb7e09/docs/get-started/first-map.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -2074,16 +2074,16 @@
       "blocks": [
         {
           "index": 0,
-          "line": 31,
+          "line": 34,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "f15cc20ec98df4f111c45e002bdd4f7abe3b3cc437f33983d4eee56e6ce4078a"
+          "sha256": "0c6984601d4266a642c672e832fec83fbbe0dc0cdf6dbae643ccda469a790979"
         },
         {
           "index": 1,
-          "line": 74,
+          "line": 88,
           "language": "text",
           "infoString": "text",
           "intent": "illustrative",
@@ -2093,7 +2093,7 @@
         },
         {
           "index": 2,
-          "line": 87,
+          "line": 101,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2102,7 +2102,7 @@
         },
         {
           "index": 3,
-          "line": 114,
+          "line": 128,
           "language": "yaml",
           "infoString": "yaml",
           "intent": "illustrative",
@@ -2112,7 +2112,7 @@
         },
         {
           "index": 4,
-          "line": 118,
+          "line": 132,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2121,7 +2121,7 @@
         },
         {
           "index": 5,
-          "line": 129,
+          "line": 143,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
@@ -2501,11 +2501,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "2dd3b83c85031ffdb21938fb88f37ff9dba1d907",
+      "revision": "9c163e293a7dd1100465c5427897c1ab79f878ce",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/2dd3b83c85031ffdb21938fb88f37ff9dba1d907/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/9c163e293a7dd1100465c5427897c1ab79f878ce/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2788,11 +2788,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "2dd3b83c85031ffdb21938fb88f37ff9dba1d907",
+      "revision": "9c163e293a7dd1100465c5427897c1ab79f878ce",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/2dd3b83c85031ffdb21938fb88f37ff9dba1d907/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/9c163e293a7dd1100465c5427897c1ab79f878ce/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
