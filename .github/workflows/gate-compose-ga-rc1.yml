@@ -1,4 +1,4 @@
-# Deterministic GA Compose upgrade/rollback plus a real migration interrupt.
+# Deterministic GA Compose forward upgrade/restart plus a real migration interrupt.
 # Dispatch only. It does not call the cloud end-to-end suite, and it is not a
 # substitute for gate-upgrade's compose-upgrade cell (that cell still resolves
 # the newest published rc).

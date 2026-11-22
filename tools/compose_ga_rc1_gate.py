@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Deterministic Compose gate for 2026.1-rc.1 upgrade, rollback, and a real migration interrupt.
+"""Deterministic Compose gate for 2026.1-rc.1 forward upgrade, restart, and a real migration interrupt.
 
 gate-upgrade's compose-upgrade cell keeps resolving the newest published rc. This gate does not
 replace that cell and is not part of e2e-cloud-aws. It installs the server image the 2026.1-rc.1
 release notes publish, requires that digest to keep the recorded prefix, upgrades to a newer trunk
-build, verifies, rolls back, verifies again, then interrupts a real pending migration in the
+build, verifies, restarts the candidate, verifies again, then interrupts a real pending migration in the
 candidate runner.
 
   check-release    confirm a release body still names the pin
   check-candidate  refuse a candidate that is not a newer descendant
   amd64-child      read the linux/amd64 manifest from an index document
-  receipt          write honua.compose-ga-rc1-receipt/v1; exit 0 only when every phase passed
+  receipt          write honua.compose-ga-rc1-receipt/v2; exit 0 only when every phase passed
 """
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ RC1_AMD64_DIGEST = "sha256:2c3ce36be9b6a4c8b3911d150de329be002131609933bc3ca4a39
 RC1_SERVER_SHA = "a4bde4b8c5ee8cc3dec05ad8b3d4f84470c1ea6e"
 RC1_SCHEMA = 140
 REPOSITORY = "ghcr.io/honua-io/honua-server"
-SCHEMA = "honua.compose-ga-rc1-receipt/v1"
+SCHEMA = "honua.compose-ga-rc1-receipt/v2"
 COMPOSE_PROJECT = "honua-ga5-compose-upgrade"
 HOST_PORT = 15085
-UPGRADE_PHASES = ("install", "load", "upgrade", "verify", "rollback", "verify_again")
+UPGRADE_PHASES = ("install", "load", "upgrade", "verify", "restart", "restart_verify")
 INTERRUPT_MODES = ("partial-migration-failure:backend-terminated", "partial-migration-failure:server-killed")
 IMAGE_REF = re.compile(r"^\S+@sha256:[0-9a-f]{64}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
@@ -46,7 +46,9 @@ FAIL_AT = (
     ("did not publish the e2e_src_fs layer", "load"),
     ("could not capture the seeded prior state", "load"),
     ("seed did not produce the deterministic rows", "load"),
-    ("rollback-target guard probe", "load"),
+    ("could not capture published service and feature state", "load"),
+    ("could not seed saved map", "load"),
+    ("could not seed the credential", "load"),
     ("mandatory pre-upgrade backup", "load"),
     ("printed no contract-migration nonce", "upgrade"),
     ("after the contract migrations were approved", "upgrade"),
@@ -55,15 +57,15 @@ FAIL_AT = (
     ("did not advance public.schema_versions", "verify"),
     ("does not exactly match the declared candidate schema", "verify"),
     ("seeded rows did not survive the upgrade", "verify"),
-    ("rolled-back container is not exactly", "rollback"),
-    ("rollback-target-ineligible", "rollback"),
-    ("rollback-target-guard-unproven", "rollback"),
-    ("instead of refusing with schema_reader_incompatible", "rollback"),
-    ("outside the documented boundary", "rollback"),
-    ("did not bring the prior back", "rollback"),
-    ("restored container is not exactly", "rollback"),
-    ("could not serve the seeded rows after rollback", "verify_again"),
-    ("seeded rows changed across the rollback", "verify_again"),
+    ("published service or feature content did not survive", "verify"),
+    ("saved map draft/version did not survive", "verify"),
+    ("stored connection or API key did not survive", "verify"),
+    ("candidate restart failed", "restart"),
+    ("candidate restart did not become ready", "restart"),
+    ("candidate restart identity changed", "restart"),
+    ("could not inject restart row drift", "restart_verify"),
+    ("could not capture candidate restart state", "restart_verify"),
+    ("candidate restart changed", "restart_verify"),
 )
 
 

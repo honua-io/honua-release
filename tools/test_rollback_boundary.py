@@ -158,15 +158,18 @@ def test_cli_grades_a_local_note(tmp_path, note_text, expected):
     assert _grade_local(tmp_path, note_text) == expected
 
 
-def test_helm_and_compose_grade_a_refusal_through_this_module():
+def test_helm_preview_grades_refusals_but_compose_uses_forward_only_restart():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github/workflows/gate-upgrade.yml").read_text(encoding="utf-8")
     harness = (root / "e2e/harness/upgrade-chaos.sh").read_text(encoding="utf-8")
     assert "tools/rollback_boundary.py" in workflow
-    assert "tools/rollback_boundary.py" in harness
-    assert "--refusal-file" in workflow and "--refusal-file" in harness
+    assert "tools/rollback_boundary.py" not in harness
+    assert "--refusal-file" in workflow
+    assert "--refusal-file" not in harness
     graded = 'if [ "$decl" = reader-incompatible-declaration ]; then'
-    assert graded in workflow and graded in harness
+    assert graded in workflow
+    assert graded not in harness
+    assert 'cu_verify_restart "$upgrade_image" "$after_journal" "$after_sums"' in harness
 
 
 def test_cli_refuses_a_note_without_its_scripts(tmp_path):

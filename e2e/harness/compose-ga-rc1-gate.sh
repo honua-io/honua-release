@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Deterministic GA Compose gate (honua-release#950, #440).
+# Deterministic Compose forward-upgrade gate.
 # Installs the published 2026.1-rc.1 server image, loads the real e2e seed, upgrades to a
-# newer trunk build, verifies, rolls back, verifies again, then interrupts a real pending
+# newer trunk build, verifies, restarts the candidate, verifies again, then interrupts a real pending
 # migration in the candidate runner. Own compose project and host port (both contain 5).
 # Does not stop containers from any other compose project.
 set -Eeuo pipefail

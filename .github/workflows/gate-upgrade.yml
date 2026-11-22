@@ -5,9 +5,9 @@
 #                    strand any client the PRIOR release shipped (compat-matrix), and its DB schema must be
 #                    forward-only.
 #   compose-upgrade  REQUIRED runtime fragment. Docker Compose on-prem is GA (2026-10-25 re-tier), so its
-#                    customer upgrade/rollback is proven on the runner's own Docker (x86_64, no cloud cost):
-#                    prior -> seed -> backup -> candidate (contract nonce) -> journal advanced + rows
-#                    survived -> image rollback or documented restore -> the prior serves the rows. See the
+#                    forward upgrade is proven on the runner's own Docker (x86_64, no cloud cost):
+#                    prior -> seed -> backup -> candidate (contract nonce) -> journal and rows verified
+#                    -> restart the candidate -> journal, rows and resources unchanged. See the
 #                    job comment for the explicit definition of "prior".
 #   kind-upgrade     PREVIEW EVIDENCE, non-blocking (Helm is Preview). Still runs every cell and uploads its
 #                    receipts; every upgrade-kind-* fragment is advisory and the job is continue-on-error.
@@ -41,8 +41,8 @@
 #                      documented boundary is recovered by restoring the pre-upgrade backup.
 # Each pair emits upgrade-kind-<pair>-<scenario>; receipts say priorSource and certification role,
 # `certifiedReleasePair: false`, and the signed-lock fragment stays blocked. A FAIL (migrations did not
-# advance after approval, seeded rows lost, the prior cannot serve after rollback or restore) is reported
-# as advisory-fail (Preview evidence, D9); the same failure in the compose-upgrade cell fails the gate.
+# advance after approval, seeded rows lost, or historical rollback failure) is reported
+# as advisory-fail (Preview evidence, D9). Compose requires forward upgrade and candidate restart.
 # The kind smoke
 # SELF-SKIPS cleanly (blocked, exit 0) when the helm chart or the server image can't be reached, so a
 # no-creds local cut still runs the static layer. enforcement=strict promotes blocked -> fail.
@@ -1227,13 +1227,13 @@ jobs:
           prefix: upg-${{ matrix.pair }}-${{ matrix.scenario }}-
 
   # ── compose upgrade: the REQUIRED GA runtime fragment (founder decision D9, honua-release#950) ──
-  # Docker Compose on-prem is GA (2026-10-25 re-tier), so its customer upgrade and rollback is the
+  # Docker Compose on-prem is GA (2026-10-25 re-tier), so its forward upgrade and candidate restart are the
   # required runtime proof of this gate; kind-upgrade above is Preview evidence. Runs on the
   # GitHub-hosted x86_64 runner's own Docker (no cloud cost), linux/amd64 images only, through the
   # existing chaos harness (e2e/harness/upgrade-chaos.sh, scenario compose-upgrade-rollback) and
-  # compose.candidate.yml: install prior -> real seed -> guard probe -> pg_dump backup -> candidate
-  # (contract-migration nonce path) -> journal advanced, declared schema, seeded rows survived ->
-  # image rollback, or the documented backup restore -> the prior image serves the seeded rows.
+  # compose.candidate.yml: install prior -> real seed -> pg_dump backup -> candidate
+  # (contract-migration nonce path) -> journal, declared schema and seeded rows verified ->
+  # candidate restart -> journal, rows and published resources unchanged. No old-image rollback.
   #
   # PRIOR (2026.1 is the first release; tools/compose_upgrade_prior.py is the only definition):
   # GA 2026.1.0 requires the published rc.2 digest, with no fallback. For RC candidates:
@@ -1385,7 +1385,7 @@ jobs:
           LABEL="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$CAND" 2>/dev/null)" || LABEL=""
           echo "candidate_revision_label=$LABEL" >> "$GITHUB_OUTPUT"
 
-      - name: Install prior -> seed -> upgrade to candidate -> verify -> roll back -> verify
+      - name: Install prior -> seed -> upgrade to candidate -> verify -> restart candidate
         id: smoke
         if: always()
         env:

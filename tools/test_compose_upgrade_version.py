@@ -1,4 +1,5 @@
 """Admission must reject wrong-version bytes even when the upgrade itself succeeds."""
+from copy import deepcopy
 import json
 from pathlib import Path
 
@@ -17,12 +18,18 @@ def evidence():
     identity = harness_identity(pair["candidate"], pair["candidate"].rsplit("@", 1)[1])
     identity["runtimeIdentity"]["observedVersion"] = "2026.1.0"
     identity["imageVersion"] = "2026.1.0"
-    return pair, {"candidate": identity}
+    return pair, {"candidate": identity, "restart": deepcopy(identity)}
+
+
+def forward_observed():
+    from compose_upgrade_forward import RESTART_CHECKS
+    return {"migrationPolicy": "forward-only", "customerSteps": {"preUpgradeBackup": True},
+            "candidateRestart": dict.fromkeys(RESTART_CHECKS, True)}
 
 
 def receipt(pair, phases, **overrides):
     from test_compose_upgrade_services import proof as service_proof
-    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={"services": service_proof(), "maps": map_proof(), "credentials": {"schema": 1, "status": "pass",
+    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={**forward_observed(), "services": service_proof(), "maps": map_proof(), "credentials": {"schema": 1, "status": "pass",
                       "connectionId": "00000000-0000-0000-0000-000000000001",
                       "apiKeyId": "00000000-0000-0000-0000-000000000002",
                       "checks": dict.fromkeys(("connectionUnchanged", "storedCredentialHealthy",

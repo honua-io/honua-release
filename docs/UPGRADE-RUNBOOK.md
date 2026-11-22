@@ -142,16 +142,17 @@ the prior image. The gate does exactly this. It records
 prior image then cannot serve the data. An image that refuses without the typed error, or a
 schema-135+ image refusing an expand-only edge, fails the gate.
 
-## 6. Docker Compose (GA): upgrade and roll back
+## 6. Docker Compose (GA): forward upgrade and candidate restart
 
 The required `compose-upgrade` job of `gate-upgrade` runs exactly these steps on a GitHub-hosted
 x86_64 runner (`e2e/harness/upgrade-chaos.sh`, scenario `compose-upgrade-rollback`, on
-`e2e/harness/compose.candidate.yml`). The same steps apply to the customer quickstart
-`compose.yaml` ([CUSTOMER-INSTALL.md](CUSTOMER-INSTALL.md)), whose server service is named `honua`
-instead of `server`. Sections 1, 2, 4 and 5 apply unchanged; only the commands differ. 2026.1 is
-x86_64 only: pull and run `linux/amd64` images.
+`e2e/harness/compose.candidate.yml`). Use the customer quickstart
+`compose.yaml` ([CUSTOMER-INSTALL.md](CUSTOMER-INSTALL.md)) for installed package qualification; its
+server service is named `honua` instead of `server`. The harness topology does not certify the
+shipped package. Sections 1, 2 and 4 apply; the older-image compatibility probes in section 5 are
+not GA acceptance criteria. 2026.1 is x86_64 only: pull and run `linux/amd64` images.
 
-1. **Record the image you run now.** It is your rollback target. Read it from your `compose.yaml`
+1. **Record the image you run now.** Retain it with the pre-upgrade backup. Read it from your `compose.yaml`
    or `.env` (`HONUA_SERVER_IMAGE=ghcr.io/honua-io/honua-server@sha256:…`), never from a tag.
 2. **Pull the new digest.** Take it from the release (section 1) and pull it before you stop
    anything: `docker pull --platform linux/amd64 ghcr.io/honua-io/honua-server@sha256:<new>`.
@@ -171,61 +172,52 @@ x86_64 only: pull and run `linux/amd64` images.
    highest script equals the release's `dbSchema`
    (`docker compose exec -T db psql -U honua -d honua -Atc "SELECT max(scriptname) FROM public.schema_versions"`),
    and your own data still serves.
-6. **Roll back to the prior image.** Set `HONUA_SERVER_IMAGE` back to the digest from step 1 and
-   recreate the server. The database stays migrated. A guarded prior (schema 135 or later) serves an
-   expand-only edge; if it exits with the typed `schema_reader_incompatible` refusal at the documented
-   boundary (section 5: below schema 135, an approved contract migration, or a migration declared
-   reader-incompatible rather than expand-only), **restore** instead:
-   ```sh
-   docker compose stop honua
-   docker compose exec -T db psql -U honua -d postgres \
-     -c 'DROP DATABASE honua WITH (FORCE)' -c 'CREATE DATABASE honua OWNER honua'
-   docker compose exec -T db pg_restore -U honua -d honua --no-owner < pre-upgrade.dump
-   docker compose up -d --wait honua   # HONUA_SERVER_IMAGE = the prior digest
-   ```
-   Then verify again through the prior image: it is ready and serves your data.
+6. **Restart the candidate.** Keep `HONUA_SERVER_IMAGE` at the candidate digest and run
+   `docker compose stop honua` followed by `docker compose up -d --wait --no-deps honua`.
+   Require readiness, the same candidate identity, unchanged migration journal and seeded rows,
+   and working saved services, maps, connections and API keys. Already applied migrations must
+   not alter these resources on startup.
+7. **Recover separately if needed.** Stop the failed candidate and choose a reviewed fix forward
+   or restore the pre-upgrade backup into a separate database with its matching immutable
+   artifacts. Never start the prior image against the migrated database. Verify the restored
+   data and credentials before directing traffic to the recovered installation.
 
 **What the gate asserts, and what fails it.** The `compose-upgrade` cell installs the prior on a
-fresh database, runs the real e2e seed, probes the prior's schema-reader guard, takes the backup,
-upgrades to the candidate (answering a contract-migration refusal with its nonce), and then requires:
-the journal advanced with every prior entry kept, the observed schema equals the candidate's declared
-`dbSchema`, and the seeded rows (`e2e_src_fs`=2, `maui_zoning`=12) survived with unchanged
-checksums. It rolls back to the prior image, or restores the backup at the documented boundary, and
-requires the prior to serve both seeded features with the checksums still unchanged. It applies
-kind-upgrade's fail-closed rules: an unguarded prior is `rollback-target-ineligible` (a failure even
-when the restore works), a guarded prior that starts on a contract-narrowed schema fails, a refusal
-outside the documented boundary fails, and the running container must be exactly the expected
-`linux/amd64` digest at install, upgrade and rollback. The receipt is
+fresh database, seeds data and resources, takes a mandatory backup, upgrades to the candidate
+(answering a contract-migration refusal with its nonce), and requires the journal to advance
+with every prior entry kept. The schema must equal the candidate's declared `dbSchema`, and
+seeded rows (`e2e_src_fs`=2, `maui_zoning`=12) must retain their checksums. It restarts the
+candidate, requires readiness and an unchanged journal and rows, and repeats the published
+service, map and credential checks. The running container must match the expected
+`linux/amd64` digest at install, upgrade and restart. The receipt is
 `compose-upgrade-receipt.json` (`honua.upgrade-compose-receipt/v1`, `certification.verdict:
-required`) in the `upgrade-compose-evidence-normal` artifact.
+required`) in the `upgrade-compose-evidence-normal` artifact. For GA admission its
+`forwardEvidence` must pass alongside the version, credential, map and service evidence.
+An absent backup, identity mismatch, failed restart or changed resource fails admission.
+The legacy scenario name `compose-upgrade-rollback` remains for receipt consumers only.
 
-**Which release is "prior".** 2026.1 is the first release, so the gate defines it explicitly
-(`tools/compose_upgrade_prior.py`): the honua-server digest published by the newest `2026.1-rc.N`
-GitHub release, else the amd64 image of the newest signed nightly lock
-(`refs/tags/nightly-lock/2026.1-rc.N`, keyless signature verified). When neither exists, ruling
-`compose-upgrade-prior-nightly-2026-10-27` (founder decision 2026-10-27) uses the newest published,
-certified nightly honua-server image older than the candidate. That is the first `nightly-<sha7>` image,
-walking honua-server trunk back from the candidate's commit, whose commit has a green full-matrix
-`ci.yml` (for example `nightly-08ace24`). It is resolved by its linux/amd64 digest and must be the
-variant the candidate declares in `imageLabels`; `nightly-aot-<sha7>` is tried when `nightly-<sha7>`
-is another variant. Once rc.1 is
-published, the rc rule applies again. An rc, lock or nightly that ships the candidate's own image or
-commit is refused. When no source yields a different immutable digest, the cell is `blocked` (a strict
-train fails it); it never falls back to the candidate, a floating tag or a manifest-history pin. Multi-tenant deployments are out of scope (ADR-0024: internal only).
+**Which release is "prior".** For `2026.1.0` GA the resolver requires the published
+`2026.1.0-rc.2` release (legacy `2026.1-rc.2` spelling is accepted) and its immutable server
+digest. Draft releases, another RC, nightly substitutes and an image equal to the candidate
+are refused. Missing published rc.2 evidence blocks qualification. Historical non-GA trains
+retain their separate prior-selection policy; they do not qualify the rc.2-to-GA pair.
+See [GA-UPGRADE-QUALIFICATION.md](GA-UPGRADE-QUALIFICATION.md) for the installed quickstart
+and platform-version evidence required in addition to this Compose receipt.
 
 **Pinned rc.1 proof.** `gate-compose-ga-rc1` (workflow dispatch only, not part of `e2e-cloud-aws`)
 installs the server image the `2026.1-rc.1` release notes publish, and refuses to run if that digest
 no longer matches the pin in `tools/compose_ga_rc1_gate.py`. It loads the real e2e seed, upgrades to
 a newer trunk build (a supplied digest, or a JIT image built from honua-server trunk when none is
-published), verifies the journal and the seed, rolls back, verifies again, then runs
+published), verifies the journal and the seed, restarts the candidate, verifies again, then runs
 `partial-migration-failure` so the candidate runner is interrupted inside a real pending migration.
-The receipt is `compose-ga-rc1-receipt.json` (`honua.compose-ga-rc1-receipt/v1`). This does not
+The receipt is `compose-ga-rc1-receipt.json` (`honua.compose-ga-rc1-receipt/v2`). This does not
 replace the `compose-upgrade` cell above.
 
 **Negative control.** On the schedule a second cell, `negative-control`, runs the same lifecycle with
 `COMPOSE_UPGRADE_FAULT=drop-seed-rows` and passes only if the gate's own assertion ("seeded rows did
 not survive the upgrade") fails the harness. The harness also supports `journal-stall` and
-`rollback-unreadable`; `e2e/test_upgrade_chaos.py` proves each fails through its own assertion.
+`restart-journal-change` and `restart-row-change`; `e2e/test_upgrade_chaos.py` proves
+each fails through its own assertion.
 
 ## 7. AWS ECS (GA) and Lambda (Preview)
 

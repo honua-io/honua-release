@@ -646,14 +646,12 @@ partial_failure_probe backend-terminated
     assert "[PASS   ] partial-migration-failure:backend-terminated" in result.stdout
 
 
-# ── compose-upgrade-rollback: the required GA Docker Compose fragment (D9, honua-release#950) ────
-# A controlled compose stack: db_exec/compose/docker/curl/seed are a small state machine (journal,
-# seeded rows, which image runs, contract gate, guard probe) so the driver's own assertions decide.
-# These are self-tests that the gate can fail; the real run is gate-upgrade's compose-upgrade job.
+# A controlled Compose state machine exercises the driver's real journal, row and restart checks.
+# The installed proof runs in gate-upgrade's compose-upgrade job.
 PRIOR = "ghcr.io/honua-io/honua-server@sha256:" + "a" * 64
 CANDIDATE = "ghcr.io/honua-io/honua-server@sha256:" + "c" * 64
 COMPOSE_STUB = r"""
-MIGRATED=0; ROWS=2; PROBE=0; APPROVED=0; UNREADABLE=0; CURRENT=""; SERVER_LOG=""
+MIGRATED=0; ROWS=2; APPROVED=0; CURRENT=""; SERVER_LOG=""
 stack_down() { :; }; stop_server() { :; }; wait_db() { :; }; sleep() { :; }
 start_image() { CURRENT="$1"; }
 cu_start_server() { CURRENT="$1"; [ -z "${2:-}" ] || APPROVED=1; }
@@ -669,17 +667,6 @@ wait_ready_attempts() {
     if [ "${SAME_SCHEMA:-0}" != 1 ]; then MIGRATED=1; fi
     return 0
   fi
-  if [ "$PROBE" = 1 ] && [ "${GUARD:-present}" = inconclusive ]; then
-    SERVER_LOG='{"error":"database connection reset during startup"}'; return 1
-  fi
-  if [ "$MIGRATED" = 1 ] && [ "${READER_INCOMPATIBLE:-0}" = 1 ] && [ "$CURRENT" = "$HONUA_PRIOR_SERVER_IMAGE" ] && [ "$PROBE" != 1 ]; then
-    SERVER_LOG='schema_reader_incompatible: this server cannot verify compatibility with applied migration(s): Honua.Server.Migrations.142_CreateAiFinancialAccounting.sql. Start a compatible server or restore the database backup matching this revision. Application rollback does not reverse database migrations. See the Rollback boundaries table in Upgrade and roll back. Forward-compatibility declaration(s) refused: Honua.Server.Migrations.142_CreateAiFinancialAccounting.sql (declared reader-incompatible, not expand).'
-    return 1
-  fi
-  if [ "$PROBE" = 1 ] || { [ "$MIGRATED" = 1 ] && [ "${CONTRACT:-0}" = 1 ]; }; then
-    [ "${GUARD:-present}" = absent ] && return 0
-    SERVER_LOG='{"error":"schema_reader_incompatible: unknown journal entry"}'; return 1
-  fi
   return 0
 }
 wait_ready() { wait_ready_attempts 1; }
@@ -688,18 +675,15 @@ journal() {
   if [ "${DROP_PRIOR_ENTRY:-0}" = 1 ] && [ "$CURRENT" = "$HONUA_CANDIDATE_SERVER_IMAGE" ]; then
     printf 'Honua.Server.Migrations.136_B.sql\n'; return 0
   fi
-  printf 'Honua.Server.Migrations.135_A.sql\n'; [ "$MIGRATED" = 1 ] && printf 'Honua.Server.Migrations.136_B.sql\n'; [ "$PROBE" = 1 ] && printf 'Honua.Server.Migrations.999_RollbackTargetGuardProbe.sql\n'; return 0
+  printf 'Honua.Server.Migrations.135_A.sql\n'; [ "$MIGRATED" = 1 ] && printf 'Honua.Server.Migrations.136_B.sql\n'; return 0
 }
 db_exec() {
   case "$1" in
-    *999_RollbackTargetGuardProbe*INSERT*|INSERT*999_RollbackTargetGuardProbe*) PROBE=1 ;;
-    DELETE\ FROM\ public.schema_versions*) PROBE=0 ;;
     'SELECT scriptname FROM public.schema_versions ORDER BY scriptname') journal | sort ;;
-    "SELECT 'e2e_src_fs'"*) [ "$UNREADABLE" = 1 ] && return 1
+    "SELECT 'e2e_src_fs'"*)
       printf 'e2e_src_fs|%s|%s\nmaui_zoning|12|m2\n' "$ROWS" "m$ROWS" ;;
     SELECT\ COALESCE*) [ "$MIGRATED" = 1 ] && echo 136 || echo 135 ;;
     DELETE\ FROM\ honua_data.e2e_src_fs*) ROWS=1 ;;
-    ALTER\ TABLE\ honua_data.e2e_src_fs*) UNREADABLE=1 ;;
   esac
 }
 compose() {
@@ -707,7 +691,7 @@ compose() {
     'ps -q server') echo c1 ;;
     'logs server') echo "$SERVER_LOG" ;;
     *pg_dump*) echo dump ;;
-    *pg_restore*) MIGRATED=0; PROBE=0 ;;
+    *pg_restore*) echo unexpected-restore >&2; return 1 ;;
   esac
   return 0
 }
@@ -722,7 +706,7 @@ curl() {
   local out="" url="" previous="" arg
   for arg in "$@"; do [ "$previous" = -o ] && out="$arg"; [[ "$arg" == http* ]] && url="$arg"; previous="$arg"; done
   case "$url" in
-    *returnCountOnly*) [ "$UNREADABLE" = 1 ] && return 22; echo "{\"count\":$ROWS}" > "$out" ;;
+    *returnCountOnly*) echo "{\"count\":$ROWS}" > "$out" ;;
     *) echo '{"data":{"serverVersion":"v"}}' > "$out" ;;
   esac
 }
@@ -746,21 +730,22 @@ def test_compose_upgrade_passes_only_through_the_full_customer_lifecycle(tmp_pat
     assert [r["status"] for r in rows] == ["pass"]
     assert "schema_versions advanced 1->2 (schema 135->136" in rows[0]["why"]
     assert observed["customerSteps"]["preUpgradeBackup"] is True
-    assert observed["customerSteps"]["rollback"]["outcome"] == "image-rollback-served"
-    assert observed["customerSteps"]["rollback"]["priorSchemaReaderGuard"] == "present"
+    assert observed["migrationPolicy"] == "forward-only"
+    assert all(observed["candidateRestart"].values())
+    assert "rollback" not in observed["customerSteps"]
     assert observed["seededRows"]["checksumsMatched"] is True and observed["platform"] == "linux/amd64"
-    for phase in ("install", "candidate", "rollback"):
+    for phase in ("install", "candidate", "restart"):
         identity = json.loads((tmp_path / f"compose-{phase}-identity.json").read_text())
         assert identity["platform"] == "linux/amd64" and identity["imageID"] == identity["expectedImageID"]
 
 
-def test_compose_same_schema_candidate_holds_the_journal_and_still_rolls_back(tmp_path):
+def test_compose_same_schema_candidate_holds_the_journal_across_restart(tmp_path):
     result, rows, observed = run_compose(tmp_path, SAME_SCHEMA="1", schema="135")
     assert result.returncode == 0, result.stdout + result.stderr
     assert [r["status"] for r in rows] == ["pass"]
     assert "schema_versions held at 1 (candidate image ships no new migration)" in rows[0]["why"]
     assert "schema_versions advanced" not in rows[0]["why"]
-    assert observed["customerSteps"]["rollback"]["outcome"] == "image-rollback-served"
+    assert all(observed["candidateRestart"].values())
 
 
 def test_compose_upgrade_fails_when_the_candidate_drops_a_prior_journal_entry(tmp_path):
@@ -773,7 +758,8 @@ def test_compose_upgrade_fails_when_the_candidate_drops_a_prior_journal_entry(tm
 @pytest.mark.parametrize("fault,why", [
     ("drop-seed-rows", "seeded rows did not survive the upgrade"),
     ("journal-stall", "candidate did not advance public.schema_versions"),
-    ("rollback-unreadable", "prior image could not serve the seeded rows after rollback"),
+    ("restart-journal-change", "candidate restart changed migration journal"),
+    ("restart-row-change", "candidate restart changed seeded rows"),
 ])
 def test_compose_upgrade_negative_controls_fail_through_the_gates_own_assertion(tmp_path, fault, why):
     result, rows, observed = run_compose(tmp_path, COMPOSE_UPGRADE_FAULT=fault)
@@ -782,71 +768,15 @@ def test_compose_upgrade_negative_controls_fail_through_the_gates_own_assertion(
     assert observed["injectedFault"] == fault
 
 
-def test_compose_contract_nonce_is_the_customer_step_and_the_boundary_restores_the_backup(tmp_path):
+def test_compose_contract_nonce_is_the_customer_step_before_candidate_restart(tmp_path):
     result, rows, observed = run_compose(tmp_path, CONTRACT="1")
     assert result.returncode == 0, result.stdout + result.stderr
     approval = observed["customerSteps"]["contractMigrationApproval"]
     assert approval["outcome"] == "approved-and-applied" and approval["nonce"] == "0123abcd"
     assert approval["gatedScripts"] == "136_Narrow.sql"
     assert 'HONUA_APPROVE_CONTRACT_MIGRATIONS: "0123abcd"' in (tmp_path / "compose-approve-contract.override.yml").read_text()
-    rollback = observed["customerSteps"]["rollback"]
-    assert rollback["outcome"] == "restored-from-pre-upgrade-backup"
-    assert rollback["boundary"] == "contract-migrations-approved" and rollback["restoreVerified"] is True
-    assert rollback["certifiedRollbackPath"] == "restore-pre-upgrade-backup"
-
-
-def _reviewed_reader_scripts(tmp_path, note_text):
-    stem = "142_CreateAiFinancialAccounting"
-    note = tmp_path / "rollback-note.md"
-    note.write_text(note_text, encoding="utf-8")
-    scripts = tmp_path / "scripts"
-    scripts.mkdir()
-    (scripts / f"{stem}.sql").write_text(
-        "-- honua:reader-incompatible reason=the previous reader cannot parse the ledger\n"
-        "-- honua:compatibility-review\n",
-        encoding="utf-8")
-    return {"ROLLBACK_NOTE": str(note), "ROLLBACK_SCRIPTS": str(scripts)}
-
-
-def test_compose_reader_incompatible_declaration_restores_the_backup(tmp_path):
-    documented = _reviewed_reader_scripts(
-        tmp_path, "Restore across 142_CreateAiFinancialAccounting.\n")
-    result, rows, observed = run_compose(
-        tmp_path, READER_INCOMPATIBLE="1", **documented)
-    assert result.returncode == 0, result.stdout + result.stderr
-    rollback = observed["customerSteps"]["rollback"]
-    assert rollback["outcome"] == "restored-from-pre-upgrade-backup"
-    assert rollback["boundary"] == "reader-incompatible-declaration"
-    assert rollback["restoreVerified"] is True
-    assert rollback["certifiedRollbackPath"] == "restore-pre-upgrade-backup"
-
-
-def test_compose_reader_incompatible_refusal_without_the_note_stays_a_failure(tmp_path):
-    undocumented = _reviewed_reader_scripts(tmp_path, "Restore the backup.\n")
-    result, rows, observed = run_compose(
-        tmp_path, READER_INCOMPATIBLE="1", **undocumented)
-    assert result.returncode != 0
-    assert rows[0]["status"] == "fail"
-    assert "outside the documented boundary" in rows[0]["why"]
-    assert observed["customerSteps"]["rollback"]["boundary"] in ("", None)
-
-
-def test_compose_unguarded_prior_is_rollback_target_ineligible(tmp_path):
-    result, rows, observed = run_compose(tmp_path, GUARD="absent")
-    assert result.returncode != 0
-    assert rows[0]["status"] == "fail" and rows[0]["why"].startswith("rollback-target-ineligible")
-    assert observed["customerSteps"]["rollback"]["restoreVerified"] is True
-
-
-def test_compose_inconclusive_guard_probe_never_certifies_an_image_rollback(tmp_path):
-    # The prior failed to start during the probe for an unrelated reason (no typed refusal), then
-    # recovered: the guard is unproven, so an image-only rollback to it is not certified.
-    result, rows, observed = run_compose(tmp_path, GUARD="inconclusive")
-    assert result.returncode != 0
-    assert rows[0]["status"] == "fail" and rows[0]["why"].startswith("rollback-target-guard-unproven")
-    rollback = observed["customerSteps"]["rollback"]
-    assert rollback["priorSchemaReaderGuard"] == "inconclusive"
-    assert rollback["outcome"] == "rollback-target-guard-unproven"
+    assert all(observed["candidateRestart"].values())
+    assert "rollback" not in observed["customerSteps"]
 
 
 def test_compose_never_certifies_the_candidate_against_itself(tmp_path):
