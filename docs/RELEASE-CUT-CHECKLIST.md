@@ -62,7 +62,7 @@ asserted fixture row count, staging write round-trip, authorization denial and c
 Use the isolated staging target. Health-only evidence cannot discharge
 [release#282](https://github.com/honua-io/honua-release/issues/282); see the
 [Lambda GA bill ledger](https://github.com/honua-io/honua-release/blob/ef69b537be24371b84b8f9a985923bf13d2787f5/docs/2026.1-lambda-ga-bill.md) and
-[serverless operating limits](2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits).
+[historical serverless operating limits](https://github.com/honua-io/honua-release/blob/ad4d8b2c1661e0dd06e711b786e00f6037c8c080/docs/2026.1-operating-envelope.md#5-aws-lambda-serverless-supported-target-and-limits).
 
 **Upgrade baseline:** resolve the prior release from current publication history. It is the newest published, non-pre-release `honua-*` GitHub Release carrying the signed
 platform lock that promotion publishes (`platform-lock.json` with `platform-lock.sigstore.json`).
