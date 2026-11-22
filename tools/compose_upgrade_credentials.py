@@ -108,20 +108,29 @@ def verify(api: Api, state: dict) -> dict:
             "checks": dict.fromkeys(CHECKS, True)}
 
 
-def credential_evidence(pair: dict, observed: dict) -> dict:
+def preservation_evidence(pair: dict, observed: dict, contract: dict) -> dict:
     if pair.get("candidate_version") != "2026.1.0":
         return {"status": "not-applicable", "why": "pair is not the GA upgrade"}
-    value = observed.get("credentials")
+    value = observed.get(contract["key"])
+    checks = contract["checks"]
     try:
         if (not isinstance(value, dict) or value.get("schema") != 1
                 or value.get("status") != "pass"
                 or not isinstance(value.get("checks"), dict)
-                or any(value["checks"].get(check) is not True for check in CHECKS)):
-            raise ProbeError("credential preservation proof is missing or incomplete")
-        return {"status": "pass", "connectionId": identifier(value.get("connectionId")),
-                "apiKeyId": identifier(value.get("apiKeyId")), "checks": dict.fromkeys(CHECKS, True)}
+                or any(value["checks"].get(check) is not True for check in checks)):
+            raise ProbeError(f"{contract['key']} preservation proof is missing or incomplete")
+        return {"status": "pass", **contract["fields"](value), "checks": dict.fromkeys(checks, True)}
     except ProbeError as error:
         return {"status": "fail", "why": str(error)}
+
+
+def credential_fields(value: dict) -> dict:
+    return {field: identifier(value.get(field)) for field in ("connectionId", "apiKeyId")}
+
+
+def credential_evidence(pair: dict, observed: dict) -> dict:
+    return preservation_evidence(pair, observed, {
+        "key": "credentials", "checks": CHECKS, "fields": credential_fields})
 
 
 def write_private(path: Path, state: dict):

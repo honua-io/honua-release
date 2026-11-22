@@ -6,7 +6,7 @@ import json
 import re
 from uuid import uuid4
 
-from compose_upgrade_credentials import Api, ProbeError, identifier, run_probe, selected_fields
+from compose_upgrade_credentials import Api, ProbeError, identifier, preservation_evidence, run_probe, selected_fields
 
 
 COMMON_FIELDS = ("itemId", "packageKey", "workspaceId", "ownerId", "envelope", "createdAt")
@@ -88,21 +88,16 @@ def verify(api: Api, state: dict) -> dict:
             "versionSnapshotSha256": snapshot_hash(after["version"])}
 
 
+def map_fields(value: dict) -> dict:
+    if any(not isinstance(value.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", value[field])
+           for field in HASH_FIELDS):
+        raise ProbeError("saved map snapshot hash is invalid")
+    return {**{field: identifier(value.get(field)) for field in ("draftId", "itemId", "versionId")},
+            **{field: value[field] for field in HASH_FIELDS}}
+
+
 def map_evidence(pair: dict, observed: dict) -> dict:
-    if pair.get("candidate_version") != "2026.1.0":
-        return {"status": "not-applicable", "why": "pair is not the GA upgrade"}
-    value = observed.get("maps")
-    try:
-        if (not isinstance(value, dict) or value.get("schema") != 1 or value.get("status") != "pass"
-                or not isinstance(value.get("checks"), dict)
-                or any(value["checks"].get(check) is not True for check in CHECKS)
-                or any(not isinstance(value.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", value[field])
-                       for field in HASH_FIELDS)):
-            raise ProbeError("saved map preservation proof is missing or incomplete")
-        return {"status": "pass", **{field: identifier(value.get(field)) for field in ("draftId", "itemId", "versionId")},
-                "checks": dict.fromkeys(CHECKS, True), **{field: value[field] for field in HASH_FIELDS}}
-    except ProbeError as error:
-        return {"status": "fail", "why": str(error)}
+    return preservation_evidence(pair, observed, {"key": "maps", "checks": CHECKS, "fields": map_fields})
 
 
 def main() -> int:
