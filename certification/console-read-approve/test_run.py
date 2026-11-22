@@ -17,7 +17,7 @@ class ConsoleReadApproveReceiptTests(unittest.TestCase):
     def test_manifest_reader_matches_yaml_for_the_console_pin(self):
         expected = yaml.safe_load(MANIFEST.read_text())["components"]["honua-console"]
         actual = mod.manifest_component(MANIFEST, "honua-console")
-        for field in ["sha", "image", "digest", "artifactSourceRevision"]:
+        for field in ["sha", "artifact", "artifactSha256", "artifactSourceRevision"]:
             self.assertEqual(actual[field], expected[field], field)
 
     def test_receipt_contract_status_follows_its_checks(self):

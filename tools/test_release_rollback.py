@@ -332,9 +332,10 @@ def test_generated_registry_lock_certifies_one_operation(tmp_path, registry_dock
     root = Path(__file__).resolve().parents[1]
     manifest, matrix = root / "platform-manifest.yaml", root / "compatibility-matrix.yaml"
     draft = generator.generate(manifest, matrix, image_inspector=generator.registry_image_platform_digests)
-    for name, expected in registry_docker.items():
-        image = next(artifact for artifact in draft.lock["components"][name]["artifacts"] if artifact["kind"] == "image")
-        assert image["platformDigests"] == expected["platformDigests"]
+    # honua-console ships a static bundle now; its index fixture stays as a second registry image.
+    image = next(artifact for artifact in draft.lock["components"]["honua-server"]["artifacts"]
+                 if artifact["kind"] == "image")
+    assert image["platformDigests"] == registry_docker["honua-server"]["platformDigests"]
     # This exercises generated identities locally. Unresolved release fields still block signing.
     candidate = _write(tmp_path / "candidate.json", draft.lock)
     target = tmp_path / "retained/platform-lock.json"

@@ -103,7 +103,10 @@ def test_finalize_restamps_bound_imaged_components_to_the_ga_version():
              "artifactVersion": "2026.1.0-rc.3"}
     manifest = {"platformRelease": "2026.1-rc.3", "status": "rc", "components": {
         "honua-server": {**image, "releaseVersion": "2026.1.0-rc.3"},
-        "honua-console": dict(image),
+        # A static-bundle Console keeps the version its bundle receipt names.
+        "honua-console": {"version": "pre-release", "artifact": "actions-artifact:console-static-release",
+                          "artifactSha256": digest, "artifactSourceRevision": revision,
+                          "artifactVersion": "0.0.0-trunk.aaaaaaaaaaaa"},
         "honua-helm": {"version": "pre-release", "artifact": "oci-chart:honua", "digest": digest,
                        "artifactSourceRevision": revision, "artifactSha256": digest,
                        "artifactVersion": "2026.1.0-rc.3"},
@@ -113,7 +116,8 @@ def test_finalize_restamps_bound_imaged_components_to_the_ga_version():
     finalized = fr.finalize_manifest(manifest, "2026.1-rc.3", "2026-07-01T00:00:00Z")
     assert manifest == original
     assert finalized["platformRelease"] == "2026.1"
-    for name in ("honua-server", "honua-console", "honua-helm"):
+    assert finalized["components"]["honua-console"]["artifactVersion"] == "0.0.0-trunk.aaaaaaaaaaaa"
+    for name in ("honua-server", "honua-helm"):
         assert finalized["components"][name]["artifactVersion"] == "2026.1.0"
         assert finalized["components"][name]["version"] == "pre-release"
     assert finalized["components"]["honua-server"]["releaseVersion"] == "2026.1.0"
@@ -197,7 +201,7 @@ def _promotable(**server):
     return manifest
 
 
-@pytest.mark.parametrize("name", ["honua-server", "honua-console", "honua-helm"])
+@pytest.mark.parametrize("name", ["honua-server", "honua-helm"])
 def test_finalize_refuses_an_rc_suffixed_plain_version_in_the_ga_manifest(name):
     """Promotion restamps artifactVersion; a plain rc version left beside it must not ship as GA."""
     manifest = _promotable()

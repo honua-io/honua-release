@@ -20,7 +20,8 @@ def test_rel_002_image_gates_bind_scans_to_manifest_digest():
     for name in ("gate-security.yml", "gate-sbom.yml"):
         workflow = (ROOT / ".github/workflows" / name).read_text()
         if name == "gate-security.yml":
-            assert "component: [honua-server, honua-console]" in workflow
+            # honua-console ships a static bundle (no image); its own trunk Trivy fs job scans it.
+            assert "component: [honua-server]" in workflow
             assert "architecture: [amd64, arm64]" in workflow
             assert "c['platformDigests']['${{ matrix.architecture }}']" in workflow
         else:
@@ -60,7 +61,7 @@ def _run(script, tmp_path, env=None):
 
 def _fragment_names(workflow):
     if workflow == "gate-security.yml":
-        return [f"security-image-{c}-{a}" for c in ("honua-server", "honua-console")
+        return [f"security-image-{c}-{a}" for c in ("honua-server",)
                 for a in ("amd64", "arm64")] + ["security-repo"]
     return ["sbom-platform", "sbom-server-image-amd64", "sbom-server-image-arm64"]
 

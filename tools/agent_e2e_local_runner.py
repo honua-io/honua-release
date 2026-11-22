@@ -1406,6 +1406,12 @@ def _load_optional_sessions():
         importlib.import_module(name)
 
 
+def unexercised_bundle(component):
+    """The static bundle the release binds, recorded beside the frozen image the case ran instead."""
+    return {'artifactSha256': component.get('artifactSha256'), 'sourceRevision': component.get('sha'),
+            'exercised': False}
+
+
 class LocalRuntime:
     """Fresh per-case Compose stack through live_driver.py, plus case custody and transport."""
 
@@ -1787,9 +1793,11 @@ class LocalRuntime:
         from agent_browser_studio import CaseConsole, studio_console_image
         manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
         component = manifest['components']['honua-console']
-        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0]
         pin = studio_console_image()
-        if repository + '@' + component['digest'] != pin['image'] or component.get('sha') != pin['sourceRevision']:
+        # A static-bundle Console has no image in the manifest; the case runs the reviewed image alone.
+        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0] if component.get('image') else None
+        if repository and (repository + '@' + component['digest'] != pin['image']
+                           or component.get('sha') != pin['sourceRevision']):
             raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
@@ -1797,6 +1805,8 @@ class LocalRuntime:
         console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
         try:
             self.attest(stack, 'studioConsoleImage', pin, [])
+            if not repository:
+                self.attest(stack, 'studioConsoleBoundBundle', unexercised_bundle(component), [])
         except Exception:
             console.close()
             raise

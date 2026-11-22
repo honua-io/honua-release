@@ -1332,8 +1332,11 @@ def test_stamp_gives_bound_imaged_components_the_platform_version_and_never_an_s
                          'image': 'ghcr.io/honua-io/honua-server:nightly-aaaaaaa',
                          # Yesterday's stamp never survives into tonight's label.
                          'artifactVersion': '2026.1.0-rc.2', 'releaseVersion': '2026.1.0-rc.2'},
-        'honua-console': {**image, 'repository': 'https://github.com/honua-io/honua-console',
-                          'image': 'ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1'},
+        # A static bundle keeps its receipt's version; the label never stamps it.
+        'honua-console': {'repository': 'https://github.com/honua-io/honua-console', 'sha': revision,
+                          'lifecycleStatus': 'GA', 'version': 'pre-release',
+                          'artifact': 'actions-artifact:console-static-release', 'artifactSha256': digest,
+                          'artifactSourceRevision': revision, 'artifactVersion': '0.0.0-trunk.aaaaaaaaaaaa'},
         # No chart digest is published yet (WI-6), so the chart keeps no platform version.
         'honua-helm': {'repository': 'https://github.com/honua-io/honua-helm', 'sha': revision,
                        'lifecycleStatus': 'Preview', 'version': 'pre-release', 'artifact': 'oci-chart:honua'},
@@ -1348,13 +1351,13 @@ def test_stamp_gives_bound_imaged_components_the_platform_version_and_never_an_s
     nightly.stamp_release_label(path, '2026.1-rc.3')
     stamped = yaml.safe_load(path.read_text())['components']
     assert stamped['honua-server']['artifactVersion'] == stamped['honua-server']['releaseVersion'] == '2026.1.0-rc.3'
-    assert stamped['honua-console']['artifactVersion'] == '2026.1.0-rc.3'
+    assert stamped['honua-console']['artifactVersion'] == '0.0.0-trunk.aaaaaaaaaaaa'
     assert 'artifactVersion' not in stamped['honua-helm']
     assert stamped['honua-sdk-dotnet'] == manifest['components']['honua-sdk-dotnet']
 
     draft = generate(path, matrix)
     versions = {name: entry['artifacts'][0].get('version') for name, entry in draft.lock['components'].items()}
-    assert versions == {'honua-server': '2026.1.0-rc.3', 'honua-console': '2026.1.0-rc.3',
+    assert versions == {'honua-server': '2026.1.0-rc.3', 'honua-console': '0.0.0-trunk.aaaaaaaaaaaa',
                         'honua-helm': None, 'honua-sdk-dotnet': '1.6.2'}
     assert draft.lock['components']['honua-server']['releaseVersion'] == '2026.1.0-rc.3'
     assert [item for item in draft.unresolved if item.split(':')[0].endswith(('.version', '.releaseVersion'))] == [
@@ -1370,7 +1373,7 @@ def test_mint_restamp_overrides_the_resolver_prestamp(tmp_path):
              'artifactSourceRevision': revision, 'platformDigests': {'amd64': 'sha256:' + 'c' * 64}}
     manifest = {'platformRelease': '2026.1-rc.2', 'status': 'rc', 'components': {
         'honua-server': {**image, 'image': 'ghcr.io/honua-io/honua-server:nightly-aaaaaaa'},
-        'honua-console': {**image, 'image': 'ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1'},
+        'honua-helm': {**image, 'artifact': 'oci-chart:honua', 'artifactSha256': 'sha256:' + 'd' * 64},
         'honua-sdk-js': {'sha': revision, 'version': '0.1.12', 'artifactVersion': '0.1.12'}}}
     resolver.prestamp_platform_version(manifest, manifest['platformRelease'])
     assert manifest['components']['honua-server']['artifactVersion'] == '2026.1.0-rc.2'
@@ -1381,7 +1384,7 @@ def test_mint_restamp_overrides_the_resolver_prestamp(tmp_path):
     components = minted['components']
     assert minted['platformRelease'] == '2026.1-rc.3'
     assert components['honua-server']['artifactVersion'] == components['honua-server']['releaseVersion'] \
-        == components['honua-console']['artifactVersion'] == '2026.1.0-rc.3'
+        == components['honua-helm']['artifactVersion'] == '2026.1.0-rc.3'
     assert 'rc.2' not in repr(components)
     assert components['honua-sdk-js'] == {'sha': revision, 'version': '0.1.12', 'artifactVersion': '0.1.12'}
 

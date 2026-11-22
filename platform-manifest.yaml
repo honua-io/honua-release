@@ -834,9 +834,21 @@ components:
     repository: "https://github.com/honua-io/honua-console"
     lifecycleStatus: GA
     version: "pre-release"             # no releases/tags; package.json declares 0.1.0 (un-released)
-    # R22 (tools/platform_version.py stamp_platform_version): the bound Console image takes the lock
-    # label's platform version as artifactVersion; finalize_release re-stamps it at promotion.
-    artifactVersion: "2026.1.0-rc.2"
+    # Static SPA (founder ruling, 9 Nov; honua-console 47cba9a3 removed the container): the
+    # component is the trunk CI bundle. tools/static_bundle.py selects a trunk commit only when a
+    # successful static-bundle.yml push run there uploaded console-static-release and the publisher
+    # attested the bundle zip; artifactSha256 is that zip (the attestation subject) and
+    # artifactVersion the version its receipt names. The rc.2 cut binds the release asset
+    # honua-console-<version>.zip (CONSOLE-SPA-RC2.md).
+    artifact: "actions-artifact:console-static-release"
+    # 2026-11-22 ADVANCE: static bundle of trunk d0137bd4, the first trunk bundle with both publisher
+    # statements (provenance and CycloneDX SBOM, honua-console#1086): static-bundle.yml push run 44964542819,
+    # artifact 14730703242; both verified with gh attestation verify (refs/heads/trunk, hosted runner).
+    sha: "d0137bd49be6ad7a6efc1b52683e72a959496fe0"
+    artifactSourceRevision: "d0137bd49be6ad7a6efc1b52683e72a959496fe0"
+    artifactSha256: "sha256:23e2b55e1312010e3eb932ebf745a3c609357e9d33048dcea4f79f8d86fef8b4"
+    artifactVersion: "0.0.0-trunk.d0137bd49be6"
+    # Image history (the component was a container until 9 Nov):
     # 2026-11-01 ADVANCE (final rc.2 pin): Console #494 (merge c63b37fd) with #521, #525, #526, #528, #532,
     # #534, #536, #537 and the Studio 90bb519 bundle.
     # 2026-11-01 ADVANCE: Console #515 restores the Studio assistant transport.
@@ -866,20 +878,7 @@ components:
     #   skipped 631594c: no published SHA-bound image
     # The earlier index and platform digests were re-read from GHCR with the resolver's own
     # Registry.image() (tag candidate-c652ef22612d-37509939284-1) and match that run.
-    sha: "c63b37fd1788d68333c051760447052c602b7bdd"   # trunk commit (2026-11-01)
-    # Public multi-architecture image built from this SHA by Console Container run 41363063110.
-    # Console publishes no container since the static SPA ruling (honua-console 47cba9a3, 9 Nov):
-    # the nightly keeps this published image at its pin instead of walking trunk.
-    trunkSelection: "pinned"
-    image: "ghcr.io/honua-io/honua-console:nightly-c63b37fd1788"
-    digest: "sha256:ab453db9b2a468a05e58ebc445569fd2df84908df91967ae8d31417d6e971358"
-    artifactSourceRevision: "c63b37fd1788d68333c051760447052c602b7bdd"
-    architectures: [amd64, arm64]
-    # Read from the public pinned index on 2026-11-01.
-    platformDigests:
-      amd64: sha256:da16b6fcab25561392ff905ca9d2409d67c1f1c6e5a982eace7c80bb531b742c
-      arm64: sha256:2c375e85ebafaa2e04842c2fb6eeae7b1b77d1fb9f63ea4faf5ad59166b61792
-    # Version maps: release/component-versions.json at the pinned c63b37fd (unchanged from 626c13cc).
+    # Version maps: release/component-versions.json at the pinned commit.
     contractVersions:
       admin: "v1"
     schemaVersions:

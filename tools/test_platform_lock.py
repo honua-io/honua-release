@@ -334,7 +334,10 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
         "sha256:888fadf53618e234bb512bfbade5213b33337bd5a249d54c793b2b437cd97a75"
     )
-    assert draft.lock["components"]["honua-console"]["artifacts"][0]["architectures"] == ["amd64", "arm64"]
+    # honua-console ships a static bundle (no image since the static SPA ruling): one hashed zip.
+    console = draft.lock["components"]["honua-console"]["artifacts"][0]
+    assert console["kind"] == "static-bundle" and console["sha256"].startswith("sha256:")
+    assert "architectures" not in console
     assert "honua-server.artifacts[0].platformDigests" not in joined
     assert "honua-server.artifacts[0].architectures" not in joined
     assert all(
@@ -393,7 +396,7 @@ def test_generator_copies_exact_amd64_platform_digest(tmp_path):
     assert not any("platformDigests" in item for item in draft.unresolved)
 
 
-@pytest.mark.parametrize("component", ["honua-server", "honua-console"])
+@pytest.mark.parametrize("component", ["honua-server"])
 @pytest.mark.parametrize("tamper", [None, "missing", "swapped", "index"])
 def test_generator_cli_checks_registry_architectures(tmp_path, registry_docker, component, tamper, capsys):
     expected = registry_docker[component]
@@ -429,7 +432,7 @@ def test_generator_cli_checks_registry_architectures(tmp_path, registry_docker, 
             image_platforms.verify_image_platform_digests({**expected, "platformDigests": image["platformDigests"]})
 
 
-@pytest.mark.parametrize("component", ["honua-server", "honua-console"])
+@pytest.mark.parametrize("component", ["honua-server"])
 @pytest.mark.parametrize("tamper", ["missing", "missing-arm64", "malformed", "index", "architectures"])
 def test_validator_requires_every_image_platform_map(registry_images, component, tamper):
     import validate_platform
@@ -779,7 +782,7 @@ AMD64, ARM64 = "sha256:" + "c" * 64, "sha256:" + "d" * 64
 
 
 def _imaged_manifest(release="2026.1-rc.3", **server):
-    """honua-server, honua-console and honua-helm with every identity fact bound and stamped."""
+    """honua-server and honua-helm with every identity fact bound and stamped (Console is a static bundle)."""
     image = {"lifecycleStatus": "GA", "sha": REVISION, "digest": DIGEST, "artifactSourceRevision": REVISION,
              "architectures": ["amd64", "arm64"], "platformDigests": {"amd64": AMD64, "arm64": ARM64},
              "version": "pre-release", "artifactVersion": artifact_version(release)}
@@ -787,8 +790,6 @@ def _imaged_manifest(release="2026.1-rc.3", **server):
         "honua-server": {**image, "repository": "https://github.com/honua-io/honua-server",
                          "image": "ghcr.io/honua-io/honua-server:nightly-aaaaaaa",
                          "releaseVersion": artifact_version(release)},
-        "honua-console": {**image, "repository": "https://github.com/honua-io/honua-console",
-                          "image": "ghcr.io/honua-io/honua-console:candidate-aaaaaaaaaaaa-1-1"},
         "honua-helm": {"repository": "https://github.com/honua-io/honua-helm", "sha": REVISION,
                        "lifecycleStatus": "Preview", "artifact": "oci-chart:honua", "digest": DIGEST,
                        "artifactSourceRevision": REVISION, "architectures": ["amd64", "arm64"],
@@ -810,7 +811,7 @@ def _version_items(draft, name):
 @pytest.mark.parametrize("release,version", [("2026.1-rc.3", "2026.1.0-rc.3"), ("2026.1.0", "2026.1.0")])
 def test_generator_accepts_the_platform_version_beside_bound_bytes(tmp_path, release, version):
     draft = draft_of(tmp_path, _imaged_manifest(release))
-    for name in ("honua-server", "honua-console", "honua-helm"):
+    for name in ("honua-server", "honua-helm"):
         assert draft.lock["components"][name]["artifacts"][0]["version"] == version
         assert _version_items(draft, name) == []
     # The first-release floor names the server image that ships.
@@ -821,8 +822,6 @@ def test_generator_accepts_the_platform_version_beside_bound_bytes(tmp_path, rel
     ("honua-server", "digest", "digest"),
     ("honua-server", "artifactSourceRevision", "sourceRevision"),
     ("honua-server", "platformDigests", "platformDigests"),
-    ("honua-console", "digest", "digest"),
-    ("honua-console", "platformDigests", "platformDigests"),
     ("honua-helm", "artifactSha256", "sha256"),
     ("honua-helm", "artifactSourceRevision", "sourceRevision"),
 ])
@@ -836,7 +835,7 @@ def test_generator_refuses_a_platform_version_stamped_without_bound_bytes(tmp_pa
 
 
 @pytest.mark.parametrize("version", ["2026.1.0-rc.2", "2026.1-rc.3", "1.0.0", "0.4.0"])
-@pytest.mark.parametrize("name", ["honua-server", "honua-console", "honua-helm"])
+@pytest.mark.parametrize("name", ["honua-server", "honua-helm"])
 def test_generator_refuses_an_imaged_version_other_than_the_platform_version(tmp_path, name, version):
     manifest = _imaged_manifest()
     manifest["components"][name]["artifactVersion"] = version
@@ -846,7 +845,7 @@ def test_generator_refuses_an_imaged_version_other_than_the_platform_version(tmp
                "platform version '2026.1.0-rc.3'" in item for item in draft.unresolved), draft.unresolved
 
 
-@pytest.mark.parametrize("name", ["honua-server", "honua-console", "honua-helm"])
+@pytest.mark.parametrize("name", ["honua-server", "honua-helm"])
 def test_generator_still_refuses_pre_release(tmp_path, name):
     manifest = _imaged_manifest()
     del manifest["components"][name]["artifactVersion"]
@@ -861,7 +860,7 @@ def test_generator_refuses_an_imaged_version_when_the_release_names_no_platform_
     manifest["platformRelease"] = "snapshot"
     draft = draft_of(tmp_path, manifest)
     assert all("version" not in draft.lock["components"][name]["artifacts"][0]
-               for name in ("honua-server", "honua-console", "honua-helm"))
+               for name in ("honua-server", "honua-helm"))
     assert any("is not the lock's platform version None" in item for item in draft.unresolved)
 
 

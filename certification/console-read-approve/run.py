@@ -105,7 +105,8 @@ def admin_get_results(rows):
 def prove(args):
     server_image = f"ghcr.io/honua-io/honua-server@{args.server_digest}"
     console = manifest_component(args.manifest, "honua-console")
-    require(console.get("digest", "").startswith("sha256:"), "Manifest does not pin a Console digest")
+    require(console.get("digest", "").startswith("sha256:"),
+            "Manifest does not pin a Console image digest (a static-bundle Console has no image to run)")
     console_image = f"ghcr.io/honua-io/honua-console@{console['digest']}"
     require(image_revision(server_image) == args.server_revision,
             "Server image source revision differs from the expected nightly")

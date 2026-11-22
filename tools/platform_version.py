@@ -1,8 +1,10 @@
-"""The artifact version every imaged component takes from the lock label (ruling R22, #376).
+"""The artifact version every imaged component takes from the lock label (ruling R22).
 
-honua-server, honua-console and the Helm chart carry the lock's platform version: the candidate
+honua-server and the Helm chart carry the lock's platform version: the candidate
 label `2026.1-rc.N` names artifact version `2026.1.0-rc.N`, and the GA label `2026.1.0` names
-`2026.1.0` (#383). SDKs, gRPC and MCP keep their own semver and are never stamped.
+`2026.1.0`. SDKs, gRPC and MCP keep their own semver and are never stamped. honua-console
+is a static bundle (no image since the static SPA ruling): it keeps the version its bundle receipt
+names, because a stamp cannot rename the bytes inside a published zip.
 
 A platform version names an image or chart only together with the bytes it names, so it is
 stamped and accepted only when the artifact's digest, source revision and per-architecture
@@ -16,7 +18,7 @@ from typing import Any
 # `honua-` is the lock id prefix; a manifest platformRelease carries the bare label.
 LABEL = re.compile(r"(?:honua-)?(?P<year>[0-9]{4})\.(?P<minor>[0-9]+)(?:\.(?P<patch>[0-9]+))?"
                    r"(?P<rc>-rc\.[0-9]+)?")
-IMAGED_COMPONENTS = ("honua-server", "honua-console", "honua-helm")
+IMAGED_COMPONENTS = ("honua-server", "honua-helm")
 PUBLISHER = "honua-server"
 PRERELEASE = "pre-release"
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")

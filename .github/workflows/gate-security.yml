@@ -1,12 +1,12 @@
 # Release gate (e) — security review. Scans the platform artifacts the release repo can reach and
 # fails the gate on real findings (AGENTS.md: a gate that can't fail is worse than no gate).
 #
-#   image-scan  Trivy vulnerability scan of each pinned server/console architecture (OS + app deps)
+#   image-scan  Trivy vulnerability scan of each pinned server architecture (OS + app deps)
 #   repo-scan   Trivy filesystem scan of this repo: secrets, vulnerable deps, license, IaC misconfig
 #   findings    Required disposition of the existing GA-blocking security findings
 #
 # Component-level SAST (CodeQL) + each repo's own dep/secret scans live in the component repos; this
-# gate covers the shipped server/console images + the release repo itself.
+# gate covers the shipped server image + the release repo itself.
 #
 # Trigger scope: workflow_dispatch / workflow_call (the train) / nightly — NOT per-PR, because a CVE
 # in the upstream server image is not an individual honua-release PR's fault (same rationale as the
@@ -81,7 +81,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component: [honua-server, honua-console]
+        # honua-console ships a static bundle, not an image (static SPA ruling, 9 Nov); its
+        # dependencies are scanned by honua-console's own Trivy fs job on every trunk push.
+        component: [honua-server]
         architecture: [amd64, arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -296,7 +298,7 @@ jobs:
             # Every matrix cell and the repo scan must contribute exactly one receipt.
             # A partial upload or failed producer must never become a passing subset.
             if [ "$IMAGE_RESULT" != "success" ] || [ "$OTHER_RESULT" != "success" ] || ! jq -e -s \
-              --argjson expected '["security-image-honua-server-amd64","security-image-honua-server-arm64","security-image-honua-console-amd64","security-image-honua-console-arm64","security-repo"]' \
+              --argjson expected '["security-image-honua-server-amd64","security-image-honua-server-arm64","security-repo"]' \
               '([.[].gate] | sort) == ($expected | sort)' "${frags[@]}" >/dev/null; then
               jq -n '{gate:"security-coverage",status:"fail",source:"coverage",
                 why:"missing, duplicate or unexpected scan receipts, or a scan producer did not succeed"}' \
