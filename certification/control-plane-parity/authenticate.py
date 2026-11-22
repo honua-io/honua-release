@@ -55,7 +55,7 @@ for user,password in json.loads((p/'credentials.json').read_text()).items():
     headers={'Authorization':'Bearer '+bearer['accessToken']}
     response=client.get(base+'/api/v1/admin/connections',headers=headers,timeout=30)
     cross=client.get(base+'/api/v1/admin/connections',headers={**headers,'X-Honua-Tenant':'tenant-b' if user.endswith('-a') else 'tenant-a'},timeout=30)
-    claims=[c for c in session['claims'] if c['type'] in ('scope','scp','honua:oauth_scope_governed','tenant_id','roles','role','sub','preferred_username','http://schemas.microsoft.com/ws/2008/06/identity/claims/role')]
+    claims=[c for c in session['claims'] if c['type'] in ('scope','scp','honua:oauth_scope_governed','tenant_id','roles','role','sub','iss','preferred_username','http://schemas.microsoft.com/ws/2008/06/identity/claims/role')]
     result={'user':user,'provider':provider,'claims':claims,'bearerExpiresAt':bearer['expiresAt'],'connectionsStatus':response.status_code,'crossTenantOverrideStatus':cross.status_code}
     results.append(result)
     (p/'principal-proof.json').write_text(json.dumps({'authentication':'real Keycloak authorization code + PKCE; server session-derived operator bearer','principals':results},indent=2)+'\n')

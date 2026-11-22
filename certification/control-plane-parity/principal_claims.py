@@ -8,6 +8,7 @@ def check_principal(user: str, claims: list[dict], normal_status: int, override_
     assert values("tenant_id") == {"tenant-b" if user == "admin-b" else "tenant-a"}, "Unexpected authenticated tenant"
     assert values("preferred_username") == {user}, "Unexpected authenticated username"
     assert len(values("sub")) == 1 and "" not in values("sub"), "Missing authenticated subject"
+    assert len(values("iss")) == 1 and "" not in values("iss"), "Missing authenticated issuer"
     roles = values("roles") | values("role") | values("http://schemas.microsoft.com/ws/2008/06/identity/claims/role")
     assert "user" in roles and ("admin" in roles) == (user != "viewer-a"), "Unexpected authenticated role"
     if user == "admin-read-a":

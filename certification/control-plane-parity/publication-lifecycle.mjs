@@ -97,7 +97,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assertProposal(resolved, join, owner, 'Succeeded');
-  assert.equal(resolved.resolvedBy, approver.actor);
+  assert.equal(resolved.resolvedBy, approver.sessionActor);
   assertProposal(await get(), join, owner, 'Succeeded');
   const response = await fetch(`${baseUrl}/api/v1/operations/handles/${encodeURIComponent(join.operationInstanceId)}`, { headers: { Authorization: `Bearer ${tokens['admin-a']}` }, redirect: 'error', signal: AbortSignal.timeout(30000) });
   assert.equal(response.status, 200);

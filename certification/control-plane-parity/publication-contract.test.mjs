@@ -3,18 +3,21 @@ import assert from 'node:assert/strict';
 import { principal, assertProposal, assertCompletedPublication, assertAppliedAudit } from './publication-contract.mjs';
 
 const join = { proposalId: 'proposal-1', operationInstanceId: 'operation-1', correlationId: 'correlation-1', auditId: 'audit-1', itemId: 'item-1', versionId: 'version-1', contentHash: 'hash-1' };
-const owner = { actor: 'owner-subject', tenant: 'tenant-a' };
-const approver = { actor: 'approver-subject', tenant: 'tenant-a' };
+const issuer = 'https://host.docker.internal:19808/realms/honua';
+const encodedIssuer = encodeURIComponent(issuer);
+const owner = { actor: 'owner-subject', sessionActor: `adminsession:subject:${encodedIssuer}:owner-subject`, tenant: 'tenant-a' };
+const approver = { actor: 'approver-subject', sessionActor: `adminsession:subject:${encodedIssuer}:approver-subject`, tenant: 'tenant-a' };
 const proposal = { proposalId: join.proposalId, requestedBy: owner.actor, status: 'AwaitingApproval' };
 const handle = { ...join, status: 'Completed', auditId: 'audit-1', resourceIds: { itemId: join.itemId, versionId: join.versionId, publicationId: 'publication-1' } };
 const publication = { requestId: 'publication-1', itemId: join.itemId, versionId: join.versionId, status: 'accepted' };
 const version = { itemId: join.itemId, versionId: join.versionId, contentHash: join.contentHash };
-const audit = { action: 'operation.applied', resource_id: join.proposalId, actor: approver.actor, correlation_id: join.correlationId, audit_id: 18, entry_hash: 'durable-hash', details: JSON.stringify({ status: 'Succeeded' }) };
+const audit = { action: 'operation.applied', resource_id: join.proposalId, actor: approver.sessionActor, correlation_id: join.correlationId, audit_id: 18, entry_hash: 'durable-hash', details: JSON.stringify({ status: 'Succeeded' }) };
 
 test('real principal claims are singular and cannot silently select another subject', () => {
-  const proof = { principals: [{ user: 'approver-a', claims: [{ type: 'sub', value: approver.actor }, { type: 'tenant_id', value: approver.tenant }] }] };
+  const proof = { principals: [{ user: 'approver-a', claims: [{ type: 'sub', value: approver.actor }, { type: 'iss', value: issuer }, { type: 'tenant_id', value: approver.tenant }] }] };
   assert.deepEqual(principal(proof, 'approver-a'), approver);
   assert.throws(() => principal(proof, 'other'));
+  assert.throws(() => principal({ principals: [{ user: 'approver-a', claims: [{ type: 'sub', value: approver.actor }, { type: 'tenant_id', value: approver.tenant }] }] }, 'approver-a'));
   proof.principals[0].claims.push({ type: 'sub', value: owner.actor });
   assert.throws(() => principal(proof, 'approver-a'));
 });
@@ -38,7 +41,7 @@ test('successful publication joins the canonical handle, resource, immutable ver
 
 test('one durable applied audit must identify the separate approver and original correlation', () => {
   assert.equal(assertAppliedAudit([audit], join, approver), '18');
-  for (const rows of [[], [audit, audit], [{ ...audit, actor: owner.actor }], [{ ...audit, correlation_id: 'other' }], [{ ...audit, resource_id: 'other' }], [{ ...audit, entry_hash: null }], [{ ...audit, details: JSON.stringify({ status: 'Failed' }) }]]) {
+  for (const rows of [[], [audit, audit], [{ ...audit, actor: owner.sessionActor }], [{ ...audit, actor: approver.actor }], [{ ...audit, correlation_id: 'other' }], [{ ...audit, resource_id: 'other' }], [{ ...audit, entry_hash: null }], [{ ...audit, details: JSON.stringify({ status: 'Failed' }) }]]) {
     assert.throws(() => assertAppliedAudit(rows, join, approver));
   }
 });
