@@ -170,7 +170,8 @@ from principal_claims import check_principal
 
 def _read_admin():
     return [{'type': kind, 'value': value} for kind, value in [
-        ('sub', 'owned-subject'), ('preferred_username', 'admin-read-a'),
+        ('sub', 'owned-subject'), ('iss', 'https://host.docker.internal:19808/realms/honua'),
+        ('preferred_username', 'admin-read-a'),
         ('tenant_id', 'tenant-a'), ('roles', 'admin'), ('roles', 'user'), ('scp', 'honua.mcp.read')]]
 
 

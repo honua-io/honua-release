@@ -9,10 +9,16 @@ export function principal(proof, user) {
     assert(values[0]);
     return values[0];
   };
-  // The /admin/packages path uses ConsolePrincipal.ResolveActorId and creates
-  // a proposal without Evidence. Its approval branch preserves that raw subject,
-  // unlike the canonical scheme/issuer actor on generic OperationsEndpoints.
-  return { actor: claim('sub'), tenant: claim('tenant_id') };
+  // The /admin/packages path uses ConsolePrincipal.ResolveActorId (raw sub) for requestedBy.
+  // Approval in approver-a's interactive AdminSession uses CanonicalSecurityActor
+  // (`adminsession:subject:<encoded-iss>:<encoded-sub>`) for resolvedBy and operation.applied.
+  const subject = claim('sub');
+  const issuer = claim('iss');
+  return {
+    actor: subject,
+    sessionActor: `adminsession:subject:${encodeURIComponent(issuer)}:${encodeURIComponent(subject)}`,
+    tenant: claim('tenant_id'),
+  };
 }
 
 export function assertProposal(value, join, owner, status) {
@@ -43,7 +49,7 @@ export function assertCompletedPublication(handle, join, publication, version) {
 export function assertAppliedAudit(rows, join, approver) {
   const applied = rows.filter(row => row.action === 'operation.applied' && row.resource_id === join.proposalId);
   assert.equal(applied.length, 1, 'Approval must have exactly one durable applied audit');
-  assert.equal(applied[0].actor, approver.actor);
+  assert.equal(applied[0].actor, approver.sessionActor);
   assert.equal(applied[0].correlation_id, join.correlationId);
   assert(applied[0].audit_id && applied[0].entry_hash, 'Applied audit is not durably hashed');
   assert.equal(JSON.parse(applied[0].details).status, 'Succeeded');
