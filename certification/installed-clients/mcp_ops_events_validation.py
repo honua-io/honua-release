@@ -7,6 +7,7 @@ these functions alone never qualifies an operation or candidate.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import timedelta
 import argparse
 import hashlib
@@ -20,7 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mcp_map_package_validation as wire
 from mcp_ops_events_state import SCHEMA as STORE_SCHEMA, fixture_rows, instant, setup_seed
 from mcp_ops_events_setup import SETUP_SQL
-from mcp_ops_events_config import SELECTED_KEYS as CONFIGURATION_KEYS, declaration as declare_configuration
+from mcp_ops_events_config import (
+    SELECTED_KEYS as CONFIGURATION_KEYS,
+    declaration as declare_configuration,
+    declaration_for_nightly_advance as declare_nightly_advance_configuration,
+)
 from mcp_render_validation import negative_output
 
 FINDINGS_URI = "honua://ops/findings"
@@ -465,6 +470,20 @@ def limited_refusal(result):
         raise ValueError("limited reader refusal changed authorization semantics or leaked result data")
 
 
+_active_declarator = declare_configuration
+
+
+@contextmanager
+def _using_declarator(declarator):
+    global _active_declarator
+    previous = _active_declarator
+    _active_declarator = declarator
+    try:
+        yield
+    finally:
+        _active_declarator = previous
+
+
 def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
     # This helper is one shared prerequisite for the three original MCP closure
     # streams. Missing source/receipt or failed normal revocation stays NONPASS.
@@ -473,7 +492,7 @@ def judge(fixture, bootstrap, setup, manifest_bytes, declaration, observed):
 
     if not isinstance(observed, dict):
         raise ValueError("original canonical-client operate observations are missing")
-    rederived = declare_configuration(manifest_bytes, release_source_sha=declaration.get("releaseSourceSha"),
+    rederived = _active_declarator(manifest_bytes, release_source_sha=declaration.get("releaseSourceSha"),
         candidate_source_sha=bootstrap.get("candidateSourceSha"), candidate_image=bootstrap.get("candidateImage"))
     if not wire.same_json(declaration, rederived):
         raise ValueError("declared configuration differs from the original protected manifest bytes")
@@ -600,18 +619,21 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--observations", type=Path)
     parser.add_argument("--nonce"); parser.add_argument("--canonical-client"); parser.add_argument("--actual-cursor")
+    parser.add_argument("--allow-candidate-advance", action="store_true")
     args = parser.parse_args()
     try:
         fixture, bootstrap = args.fixture.read_bytes(), wire.strict_json(args.bootstrap.read_bytes())
         setup, declaration = (wire.strict_json(getattr(args, name).read_bytes()) for name in ("setup", "declaration"))
         manifest = args.manifest.read_bytes()
-        rederived = declare_configuration(manifest, release_source_sha=declaration.get("releaseSourceSha"),
+        declarator = declare_nightly_advance_configuration if args.allow_candidate_advance else declare_configuration
+        rederived = declarator(manifest, release_source_sha=declaration.get("releaseSourceSha"),
             candidate_source_sha=bootstrap.get("candidateSourceSha"), candidate_image=bootstrap.get("candidateImage"))
         if not wire.same_json(declaration, rederived):
             raise ValueError("declaration differs from protected source manifest")
-        result = judge(fixture, bootstrap, setup, manifest, declaration, wire.strict_json(args.observations.read_bytes())) \
-            if args.observations else scenario(fixture, bootstrap, setup, declaration, args.nonce, args.canonical_client,
-                actual_cursor=args.actual_cursor)
+        with _using_declarator(declarator):
+            result = judge(fixture, bootstrap, setup, manifest, declaration, wire.strict_json(args.observations.read_bytes())) \
+                if args.observations else scenario(fixture, bootstrap, setup, declaration, args.nonce, args.canonical_client,
+                    actual_cursor=args.actual_cursor)
         print(json.dumps(result, allow_nan=False)); return 0
     except (ValueError, TypeError, KeyError, AttributeError, OSError, ImportError):
         print("authored findings/events client oracle refused evidence", file=sys.stderr); return 1

@@ -56,11 +56,13 @@ def digest_reference(image, digest):
     return image.rsplit(":", 1)[0] + "@" + digest
 
 
-def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, candidate_image):
+def _parse_manifest_artifacts(manifest_bytes, release_source_sha, candidate_source_sha, candidate_image):
     if not isinstance(manifest_bytes, bytes) or len(manifest_bytes) > 262144:
         raise ValueError("configuration declaration requires original bounded manifest bytes")
-    if any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{40}", value)
-           for value in (release_source_sha, candidate_source_sha)):
+    if (any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{40}", value)
+            for value in (release_source_sha, candidate_source_sha))
+            or not isinstance(candidate_image, str)
+            or not re.fullmatch(r"ghcr\.io/honua-io/honua-server@sha256:[a-f0-9]{64}", candidate_image)):
         raise ValueError("configuration declaration requires exact protected source identities")
     try:
         manifest = yaml.load(manifest_bytes, Loader=UniqueManifestLoader)
@@ -69,19 +71,25 @@ def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, can
     if not isinstance(manifest, dict) or not isinstance(manifest.get("components"), dict):
         raise ValueError("governed platform manifest is missing")
     server = manifest["components"].get("honua-server")
-    if (not isinstance(server, dict) or server.get("sha") != candidate_source_sha
-            or manifest.get("candidate") != {"ref": candidate_source_sha, "refSource": "trunk"}
+    candidate = manifest.get("candidate")
+    manifest_ref = candidate.get("ref") if isinstance(candidate, dict) else None
+    if (not isinstance(server, dict) or not isinstance(manifest_ref, str)
+            or not re.fullmatch(r"[a-f0-9]{40}", manifest_ref)
+            or candidate != {"ref": manifest_ref, "refSource": "trunk"}
+            or server.get("sha") != manifest_ref
             or not isinstance(manifest.get("platformRelease"), str)
             or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", manifest["platformRelease"])):
         raise ValueError("governed manifest is not bound to the actual selected candidate")
-    serving = digest_reference(server.get("image"), server.get("digest"))
+    manifest_serving = digest_reference(server.get("image"), server.get("digest"))
     alternate = digest_reference(server.get("awsLambdaImage"), server.get("awsLambdaDigest"))
-    if candidate_image != serving or serving == alternate:
-        raise ValueError("candidate or deliberately different governed configuration artifact is missing")
+    return manifest["platformRelease"], manifest_ref, manifest_serving, alternate
+
+
+def _build_declaration(manifest_bytes, release_version, serving, alternate):
     # These are declared options only. No AWS region/account/role, backend
     # credentials, operation gateway request, actuation or proposal is supplied.
     selected = {
-        "ControlPlane__PlatformRelease__Version": manifest["platformRelease"],
+        "ControlPlane__PlatformRelease__Version": release_version,
         "ControlPlane__PlatformRelease__ServingArtifactReference": serving,
         "ControlPlane__PlatformRelease__Workers__0__RuntimeProfile": MANAGED_RUNTIME_PROFILE,
         "ControlPlane__PlatformRelease__Workers__0__ArtifactReference": serving,
@@ -93,13 +101,36 @@ def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, can
         "ControlPlane__DeployTargets__0__RequiresApproval": "true",
     }
     encoded = json.dumps(selected, sort_keys=True, separators=(",", ":")).encode()
-    return {"schema": SCHEMA, "releaseSourceSha": release_source_sha,
+    return {"schema": SCHEMA,
         "platformManifestSha256": "sha256:" + hashlib.sha256(manifest_bytes).hexdigest(),
-        "candidateSourceSha": candidate_source_sha, "candidateImage": candidate_image,
         "environment": selected, "environmentSha256": "sha256:" + hashlib.sha256(encoded).hexdigest(),
         "artifactBindings": {"declaredServing": serving, "explicitTestTarget": alternate},
         "expectedSkewedIds": [TARGET], "evidenceLevel": "L1-declared-configuration",
         "deployedTargetObserved": False, "actuationRequested": False}
+
+
+def declaration(manifest_bytes, *, release_source_sha, candidate_source_sha, candidate_image):
+    release_version, manifest_ref, serving, alternate = _parse_manifest_artifacts(
+        manifest_bytes, release_source_sha, candidate_source_sha, candidate_image)
+    if manifest_ref != candidate_source_sha:
+        raise ValueError("governed manifest is not bound to the actual selected candidate")
+    if candidate_image != serving or serving == alternate:
+        raise ValueError("candidate or deliberately different governed configuration artifact is missing")
+    result = _build_declaration(manifest_bytes, release_version, serving, alternate)
+    result.update(releaseSourceSha=release_source_sha, candidateSourceSha=candidate_source_sha,
+                  candidateImage=candidate_image)
+    return result
+
+
+def declaration_for_nightly_advance(manifest_bytes, *, release_source_sha, candidate_source_sha, candidate_image):
+    release_version, _, manifest_serving, alternate = _parse_manifest_artifacts(
+        manifest_bytes, release_source_sha, candidate_source_sha, candidate_image)
+    if manifest_serving == alternate or candidate_image == alternate:
+        raise ValueError("candidate or deliberately different governed configuration artifact is missing")
+    result = _build_declaration(manifest_bytes, release_version, candidate_image, alternate)
+    result.update(releaseSourceSha=release_source_sha, candidateSourceSha=candidate_source_sha,
+                  candidateImage=candidate_image)
+    return result
 
 
 def option_template():
@@ -165,9 +196,11 @@ def main():
     parser.add_argument("--release-source-sha", required=True)
     parser.add_argument("--candidate-source-sha", required=True)
     parser.add_argument("--candidate-image", required=True)
+    parser.add_argument("--allow-candidate-advance", action="store_true")
     args = parser.parse_args()
     try:
-        result = declaration(args.manifest.read_bytes(), release_source_sha=args.release_source_sha,
+        declare = declaration_for_nightly_advance if args.allow_candidate_advance else declaration
+        result = declare(args.manifest.read_bytes(), release_source_sha=args.release_source_sha,
             candidate_source_sha=args.candidate_source_sha, candidate_image=args.candidate_image)
         print(json.dumps(result, allow_nan=False)); return 0
     except (ValueError, TypeError, KeyError, OSError):

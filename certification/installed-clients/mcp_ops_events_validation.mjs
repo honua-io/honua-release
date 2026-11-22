@@ -21,8 +21,9 @@ const image = value => typeof value === "string" && /^[^\s]+@sha256:[a-f0-9]{64}
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 
 export function createOpsEventsValidation({ directory, sourceSha, sha256, bootstrapPath, setupPath,
-  platformManifestPath, platformManifestSha256, manifestSourceSha }) {
+  platformManifestPath, platformManifestSha256, manifestSourceSha, allowCandidateAdvance = false }) {
   if (!immutable(sourceSha) || !immutable(manifestSourceSha) || !sha256 || typeof sha256 !== "object"
+      || typeof allowCandidateAdvance !== "boolean"
       || opsEventsDependencies.toSorted().join() !== Object.keys(sha256).toSorted().join()
       || ![bootstrapPath, setupPath, platformManifestPath].every(value => typeof value === "string" && value)
       || !/^[a-f0-9]{64}$/.test(platformManifestSha256 ?? "")) throw new Error("findings/events require complete protected sources and original fixture/manifest");
@@ -45,14 +46,16 @@ export function createOpsEventsValidation({ directory, sourceSha, sha256, bootst
   };
   const inspect = (source, selectedImage) => launch("mcp_render_validation.py", ["--inspect-runtime",
     "--candidate-source-sha", source, "--candidate-image", selectedImage]);
+  const advanceArgs = allowCandidateAdvance === true ? ["--allow-candidate-advance"] : [];
   const config = (source, selectedImage) => launch("mcp_ops_events_config.py", ["--manifest", platformManifestPath,
-    "--release-source-sha", manifestSourceSha, "--candidate-source-sha", source, "--candidate-image", selectedImage]);
+    "--release-source-sha", manifestSourceSha, "--candidate-source-sha", source, "--candidate-image", selectedImage,
+    ...advanceArgs]);
   const python = (declaration, { nonce, canonicalClient, observations } = {}) => {
     const work = mkdtempSync(join(tmpdir(), "mcp-ops-judge-"));
     try {
       const declarationPath = join(work, "declaration.json"); writeFileSync(declarationPath, JSON.stringify(declaration));
       const args = ["--fixture", join(directory, "fixture.v1.json"), "--bootstrap", bootstrapPath, "--setup", setupPath,
-        "--manifest", platformManifestPath, "--declaration", declarationPath];
+        "--manifest", platformManifestPath, "--declaration", declarationPath, ...advanceArgs];
       if (observations) { const path = join(work, "observations.json"); writeFileSync(path, JSON.stringify(observations)); args.push("--observations", path); }
       else args.push("--nonce", nonce, "--canonical-client", canonicalClient);
       return launch("mcp_ops_events_validation.py", args);

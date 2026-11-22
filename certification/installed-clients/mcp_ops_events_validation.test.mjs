@@ -111,3 +111,16 @@ test("producer requires the explicit disposable candidate boundary before invoki
     assert.equal(checks.every(check => check.passed === false), true);
   } finally { control.close(); }
 });
+
+test("bridge rejects non-boolean allowCandidateAdvance and accepts boolean true", () => {
+  const control = setup();
+  try {
+    for (const bad of ["true", "false", 1, 0, null]) {
+      assert.throws(() => createOpsEventsValidation({ ...control.context, allowCandidateAdvance: bad }),
+        /complete protected sources/);
+    }
+    const api = createOpsEventsValidation({ ...control.context, allowCandidateAdvance: true });
+    assert.equal(api.verifyOpsEventsProof(control.proof, control.proof.candidateSourceSha, control.proof.candidateImage,
+      control.proof.operations[0], control.proof.canonicalClient, control.proof.clientVersion), true);
+  } finally { control.close(); }
+});
