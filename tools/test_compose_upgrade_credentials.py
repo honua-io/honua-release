@@ -152,9 +152,10 @@ def proof():
 
 
 def receipt(observed):
+    from test_compose_upgrade_maps import proof as map_proof
     pair, phases = evidence()
     return cu.build_receipt(pair, scenario="normal", status="pass", why="harness passed",
-                            observed=observed, phases=phases, harness={}, run="run", commit="commit")
+                            observed={"maps": map_proof(), **observed}, phases=phases, harness={}, run="run", commit="commit")
 
 
 @pytest.mark.parametrize("value", [None, {}, [], "pass", {"status": "pass"}, {"schema": 1, "status": "fail"}])

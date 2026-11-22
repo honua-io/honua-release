@@ -85,6 +85,14 @@ fallback. GA admission also requires the installed candidate server version and 
 `versionEvidence` observations and candidate image identity. This does not establish a
 platform-wide version audit or installed data-preservation proof.
 
+The GA Compose cell requires `mapEvidence` from the durable Studio store. It creates a
+map draft and immutable version on rc.2, records their identifiers and full saved envelope
+snapshots outside uploaded artifacts, then reads the same records after upgrading. The
+candidate must preserve map content, seeded layer references, viewport, ownership and version
+metadata. The public receipt retains identifiers, snapshot SHA-256 digests and explicit checks;
+missing records, unavailable durable storage or changed snapshots fail admission. This proof
+covers saved maps, not browser rendering or the remaining client-version acceptance.
+
 The GA Compose cell also requires `credentialEvidence`: the seeded connection metadata and
 API key metadata remain unchanged, the saved database credential passes the connection test
 without resubmitting its password, and the API key minted on the prior authenticates against

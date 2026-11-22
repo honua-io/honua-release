@@ -7,6 +7,7 @@ import yaml
 
 import compose_upgrade_prior as cu
 from compose_upgrade_version import version_evidence
+from test_compose_upgrade_maps import proof as map_proof
 from test_compose_upgrade_ga_baseline import resolve_ga
 from test_compose_upgrade_prior import harness_identity, rc
 
@@ -20,7 +21,7 @@ def evidence():
 
 
 def receipt(pair, phases, **overrides):
-    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={"credentials": {"schema": 1, "status": "pass",
+    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={"maps": map_proof(), "credentials": {"schema": 1, "status": "pass",
                       "connectionId": "00000000-0000-0000-0000-000000000001",
                       "apiKeyId": "00000000-0000-0000-0000-000000000002",
                       "checks": dict.fromkeys(("connectionUnchanged", "storedCredentialHealthy",
