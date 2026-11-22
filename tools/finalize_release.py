@@ -44,6 +44,7 @@ from pathlib import Path
 
 from candidate_binding import CERTIFICATION_MODES, verify_candidate_binding
 from platform_version import is_unpublished_out_of_lock, stamp_errors, stamp_platform_version
+from upgrade_release_notes import UPGRADE_POLICY
 
 try:
     import yaml
@@ -204,15 +205,7 @@ def render_release_notes(manifest: dict, matrix: dict, label: str, gate_report: 
 
     lines.append("## Breaking changes & upgrade actions")
     lines.append("")
-    # honua-2026.1 predates the schema-reader guard (honua-server#6484).
-    # No release-named immutable tag exists until honua-release#776.
-    lines.append("`honua-2026.1` is not a safe rollback target across any migration, and the only "
-                 "safe way back to 2026.1 is restoring the backup taken before the upgrade. "
-                 "Roll back only to images that include the schema-reader guard: schema 135 or later "
-                 "for additive migrations, and never across a contract-phase migration without a restore. "
-                 "There is no release-named immutable tag for the 2026.1 image yet (honua-release#776); "
-                 "do not substitute the nightly tag that release named, which has moved. "
-                 "The customer procedure is `docs/UPGRADE-RUNBOOK.md`.")
+    lines.append(UPGRADE_POLICY)
     lines.append("")
     lines.append("_No other breaking changes are recorded for this release._  Per-component breaking "
                  "changes are generated from change metadata (conventional-commit + change-class labels) "

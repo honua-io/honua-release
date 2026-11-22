@@ -152,10 +152,11 @@ def proof():
 
 
 def receipt(observed):
+    from test_compose_upgrade_services import proof as service_proof
     from test_compose_upgrade_maps import proof as map_proof
     pair, phases = evidence()
     return cu.build_receipt(pair, scenario="normal", status="pass", why="harness passed",
-                            observed={"maps": map_proof(), **observed}, phases=phases, harness={}, run="run", commit="commit")
+                            observed={"services": service_proof(), "maps": map_proof(), **observed}, phases=phases, harness={}, run="run", commit="commit")
 
 
 @pytest.mark.parametrize("value", [None, {}, [], "pass", {"status": "pass"}, {"schema": 1, "status": "fail"}])
@@ -194,7 +195,7 @@ def test_workflow_enables_probe_for_ga_and_secret_state_is_outside_artifacts():
     smoke = next(step for step in steps if step.get("id") == "smoke")
     assert smoke["env"]["COMPOSE_UPGRADE_CREDENTIAL_PROOF"] == "${{ steps.pair.outputs.candidate_version == '2026.1.0' }}"
     shell = Path("e2e/harness/upgrade-chaos.sh").read_text()
-    assert 'CU_CREDENTIAL_STATE="$(mktemp -d)"' in shell
+    assert 'state="$(mktemp -d)"' in shell
     assert 'rm -rf -- "$CU_CREDENTIAL_STATE"' in shell
     assert shell.index("cu_credentials seed ||") < shell.index('cu_identity candidate "$upgrade_image"')
     assert shell.index('cu_identity candidate "$upgrade_image"') < shell.index("cu_credentials verify ||")

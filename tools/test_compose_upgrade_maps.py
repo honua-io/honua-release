@@ -148,11 +148,12 @@ def proof():
 
 
 def receipt(value, **overrides):
+    from test_compose_upgrade_services import proof as service_proof
     from test_compose_upgrade_credentials import proof as credential_proof
     from test_compose_upgrade_version import evidence
     pair, phases = evidence()
     inputs = dict(scenario="normal", status="pass", why="harness passed", phases=phases,
-                  observed={"maps": value, "credentials": credential_proof()}, harness={}, run="run", commit="commit")
+                  observed={"services": service_proof(), "maps": value, "credentials": credential_proof()}, harness={}, run="run", commit="commit")
     inputs.update(overrides)
     return cu.build_receipt(pair, **inputs)
 
@@ -193,7 +194,7 @@ def test_workflow_runs_map_probe_around_candidate_upgrade_and_cleans_private_sta
     smoke = next(step for step in workflow["jobs"]["compose-upgrade"]["steps"] if step.get("id") == "smoke")
     assert smoke["env"]["COMPOSE_UPGRADE_MAP_PROOF"] == "${{ steps.pair.outputs.candidate_version == '2026.1.0' }}"
     shell = Path("e2e/harness/upgrade-chaos.sh").read_text()
-    assert 'CU_MAP_STATE="$(mktemp -d)"' in shell
+    assert 'state="$(mktemp -d)"' in shell
     assert 'rm -rf -- "$CU_MAP_STATE"' in shell
     assert shell.index("cu_maps seed ||") < shell.index('cu_identity candidate "$upgrade_image"')
     assert shell.index('cu_identity candidate "$upgrade_image"') < shell.index("cu_maps verify ||")

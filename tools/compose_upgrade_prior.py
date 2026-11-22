@@ -67,6 +67,7 @@ from digests import sha256_digest
 from platform_version import artifact_version
 from compose_upgrade_credentials import credential_evidence
 from compose_upgrade_maps import map_evidence
+from compose_upgrade_services import service_evidence
 from compose_upgrade_version import version_evidence
 
 SCHEMA = "honua.upgrade-compose-receipt/v1"
@@ -335,6 +336,7 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
     version = version_evidence(pair, phases)
     credentials = credential_evidence(pair, observed)
     maps = map_evidence(pair, observed)
+    services = service_evidence(pair, observed)
     if scenario == "normal" and status == "pass" and version["status"] == "fail":
         status = "fail"
         why = f"candidate version refused: {version['why']}. {why}".strip()
@@ -344,6 +346,9 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
     if scenario == "normal" and status == "pass" and maps["status"] == "fail":
         status = "fail"
         why = f"saved map preservation refused: {maps['why']}. {why}".strip()
+    if scenario == "normal" and status == "pass" and services["status"] == "fail":
+        status = "fail"
+        why = f"published service preservation refused: {services['why']}. {why}".strip()
     return {
         "schema": SCHEMA,
         "topology": "docker-compose",
@@ -374,6 +379,7 @@ def build_receipt(pair: dict, *, scenario: str, status: str, why: str, observed:
         "versionEvidence": version,
         "credentialEvidence": credentials,
         "mapEvidence": maps,
+        "serviceEvidence": services,
         "phases": phases,
         "workflow": {"run": run, "commit": commit},
     }

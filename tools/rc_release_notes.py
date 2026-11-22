@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 from platform_version import is_unpublished_out_of_lock
+from upgrade_release_notes import UPGRADE_POLICY
 
 NOT_CERTIFIED_RC = (
     "Third-party desktop GIS client and desktop-scripting certification (operator ruling 2026-10-22: deferred past rc; "
@@ -92,15 +93,8 @@ def render(manifest: dict, gate_md: str, label: str, server_image: str | None, s
             parts.append(f"| [{g.get('repo')}#{g.get('number')}]({g.get('url')}) | {g.get('title', '').replace('|', '/')} |")
     else:
         parts.append("_None recorded._")
-    parts.append("\n## Upgrade and rollback\n")
-    parts.append(
-        "`honua-2026.1` is not a safe rollback target across any migration, and the only safe way "
-        "back to 2026.1 is restoring the backup taken before the upgrade. Roll back only to images "
-        "that include the schema-reader guard: schema 135 or later for additive migrations, and never "
-        "across a contract-phase migration without a restore. There is no release-named immutable tag "
-        "for the 2026.1 server image yet (honua-release#776); pin the digest recorded in that release's "
-        "`finalized-manifest.yaml` only when restoring the matching backup, and do not pull the nightly "
-        "tag that release named. The customer procedure is `docs/UPGRADE-RUNBOOK.md`.\n")
+    parts.append("\n## Forward upgrade and recovery\n")
+    parts.append(UPGRADE_POLICY + "\n")
     parts.append("\n## Install\n")
     parts.append("Follow [Install Honua locally with Docker](https://honua.io/docs/playbooks/install-with-docker/) "
                  "with the server image above. Published SDKs: `@honua/sdk-js`, `honua-sdk` (PyPI), `Honua.Sdk` (NuGet) "

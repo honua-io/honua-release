@@ -88,12 +88,16 @@ def verify(api: Api, state: dict) -> dict:
             "versionSnapshotSha256": snapshot_hash(after["version"])}
 
 
-def map_fields(value: dict) -> dict:
+def snapshot_hash_fields(value: dict, fields: tuple) -> dict:
     if any(not isinstance(value.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", value[field])
-           for field in HASH_FIELDS):
-        raise ProbeError("saved map snapshot hash is invalid")
+           for field in fields):
+        raise ProbeError("preserved snapshot hash is invalid")
+    return {field: value[field] for field in fields}
+
+
+def map_fields(value: dict) -> dict:
     return {**{field: identifier(value.get(field)) for field in ("draftId", "itemId", "versionId")},
-            **{field: value[field] for field in HASH_FIELDS}}
+            **snapshot_hash_fields(value, HASH_FIELDS)}
 
 
 def map_evidence(pair: dict, observed: dict) -> dict:

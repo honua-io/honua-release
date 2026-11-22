@@ -692,6 +692,8 @@ declaration_boundary() {
 }
 
 COMPOSE_PLATFORM="linux/amd64"
+CU_SERVICE_STATE=""
+CU_SERVICE_RECEIPT="$OUT/compose-services.json"
 CU_MAP_STATE=""
 CU_MAP_RECEIPT="$OUT/compose-maps.json"
 CU_CREDENTIAL_STATE=""
@@ -804,27 +806,21 @@ cu_restore_backup() {
   cu_start_server "$PRIOR_IMAGE" && wait_ready
 }
 
-cu_credentials() {
-  [ "${COMPOSE_UPGRADE_CREDENTIAL_PROOF:-false}" = true ] || return 0
-  local mode="$1"
+cu_preservation() {
+  local prefix="$1" probe="$2" mode="$3"
+  local enabled="COMPOSE_UPGRADE_${prefix}_PROOF"
+  [ "${!enabled:-false}" = true ] || return 0
+  local -n state="CU_${prefix}_STATE" receipt="CU_${prefix}_RECEIPT"
   if [ "$mode" = seed ]; then
-    CU_CREDENTIAL_STATE="$(mktemp -d)" || return 1
+    state="$(mktemp -d)" || return 1
   fi
-  E2E_BASE="${E2E_BASE:-http://localhost:8080}" E2E_API_KEY="$API_KEY" python3 tools/compose_upgrade_credentials.py "$mode" \
-    --state "$CU_CREDENTIAL_STATE/state.json" --manifest "$SEED_DIR/seed-manifest.json" \
-    --receipt "$CU_CREDENTIAL_RECEIPT"
+  E2E_BASE="${E2E_BASE:-http://localhost:8080}" E2E_API_KEY="$API_KEY" python3 "tools/compose_upgrade_${probe}.py" "$mode" \
+    --state "$state/state.json" --manifest "$SEED_DIR/seed-manifest.json" --receipt "$receipt"
 }
 
-cu_maps() {
-  [ "${COMPOSE_UPGRADE_MAP_PROOF:-false}" = true ] || return 0
-  local mode="$1"
-  if [ "$mode" = seed ]; then
-    CU_MAP_STATE="$(mktemp -d)" || return 1
-  fi
-  E2E_BASE="${E2E_BASE:-http://localhost:8080}" E2E_API_KEY="$API_KEY" python3 tools/compose_upgrade_maps.py "$mode" \
-    --state "$CU_MAP_STATE/state.json" --manifest "$SEED_DIR/seed-manifest.json" \
-    --receipt "$CU_MAP_RECEIPT"
-}
+cu_credentials() { cu_preservation CREDENTIAL credentials "$1"; }
+cu_maps() { cu_preservation MAP maps "$1"; }
+cu_services() { cu_preservation SERVICE services "$1"; }
 
 cu_write_observed() {
   jq -n --arg before "$CU_BEFORE_VERSIONS" --arg after "$CU_AFTER_VERSIONS" \
@@ -834,10 +830,11 @@ cu_write_observed() {
     --arg approval "$CU_APPROVAL" --arg nonce "$CU_NONCE" --arg gated "$CU_GATED" \
     --arg rollback "$CU_ROLLBACK_OUTCOME" --arg boundary "$CU_BOUNDARY" --arg backup "$CU_BACKUP_TAKEN" \
     --arg floor "$READER_EXPAND_FLOOR" --arg guard "$CU_GUARD" --arg restored "$CU_RESTORE_VERIFIED" \
+    --argjson services "$(cat "$CU_SERVICE_RECEIPT" 2>/dev/null || echo '{}')" \
     --argjson maps "$(cat "$CU_MAP_RECEIPT" 2>/dev/null || echo '{}')" \
     --argjson credentials "$(cat "$CU_CREDENTIAL_RECEIPT" 2>/dev/null || echo '{}')" \
     --arg silent "$CU_SERVED_SILENTLY" --arg fault "$COMPOSE_FAULT" --arg platform "$COMPOSE_PLATFORM" \
-    '{platform:$platform,injectedFault:$fault,credentials:$credentials,maps:$maps,
+    '{platform:$platform,injectedFault:$fault,credentials:$credentials,maps:$maps,services:$services,
       schemaVersionsRows:{beforeUpgrade:$before,afterUpgrade:$after},observedSchema:$schema,
       declaredCandidateSchema:$declared,priorSchema:$priorSchema,
       seededRows:{expected:"e2e_src_fs=2 maui_zoning=12",beforeUpgrade:$beforeCounts,afterUpgrade:$afterCounts,
@@ -891,6 +888,7 @@ run_compose_upgrade_rollback() {
   fi
   SRC_LAYER_ID="$(jq -r '.slice1.e2e_src_fs.layerId // empty' "$SEED_DIR/seed-manifest.json" 2>/dev/null)" || SRC_LAYER_ID=""
   [[ "$SRC_LAYER_ID" =~ ^[0-9]+$ ]] || { cu_fail "real e2e seed did not publish the e2e_src_fs layer (layerId=$SRC_LAYER_ID)"; return 1; }
+  cu_services seed || { cu_fail "could not capture published service and feature state"; return 1; }
   cu_maps seed || { cu_fail "could not seed saved map draft/version"; return 1; }
   cu_credentials seed || { cu_fail "could not seed the credential preservation probe"; return 1; }
   capture_state "$before_journal" "$before_sums" || { cu_fail "could not capture the seeded prior state"; return 1; }
@@ -960,6 +958,7 @@ run_compose_upgrade_rollback() {
   if [ "$CU_AFTER_COUNTS" != "$CU_BEFORE_COUNTS" ] || [ "$CU_CHECKSUMS_MATCHED" != true ]; then
     cu_fail "seeded rows did not survive the upgrade ($CU_BEFORE_COUNTS -> $CU_AFTER_COUNTS, checksums matched: $CU_CHECKSUMS_MATCHED)"; return 1
   fi
+  cu_services verify || { cu_fail "published service or feature content did not survive the upgrade"; return 1; }
   cu_maps verify || { cu_fail "saved map draft/version did not survive the upgrade"; return 1; }
   cu_credentials verify || { cu_fail "stored connection or API key did not survive the upgrade"; return 1; }
   echo "UPGRADE VERIFIED: $journal_phrase, schema $CU_PRIOR_SCHEMA -> $CU_CANDIDATE_SCHEMA, seeded rows $CU_AFTER_COUNTS (checksums matched)"
@@ -1041,6 +1040,7 @@ run_compose_upgrade_rollback() {
 
 cleanup() {
   [ -z "$CU_CREDENTIAL_STATE" ] || rm -rf -- "$CU_CREDENTIAL_STATE"
+  [ -z "$CU_SERVICE_STATE" ] || rm -rf -- "$CU_SERVICE_STATE"
   [ -z "$CU_MAP_STATE" ] || rm -rf -- "$CU_MAP_STATE"
   [ -z "$LOCK_HOLDER_PID" ] || kill "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
   [ -z "$PARTIAL_JOB_PID" ] || kill "$PARTIAL_JOB_PID" >/dev/null 2>&1 || true
