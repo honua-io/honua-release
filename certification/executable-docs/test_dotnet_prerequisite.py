@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +35,14 @@ def test_samples_readme_declares_the_dotnet_sdk_it_restores_with():
     doc = next(d for d in SOURCES["documents"] if d["repo"] == "honua-io/honua-samples" and d["path"] == "README.md")
     assert doc["runtime"] == "node"
     assert doc["prerequisites"]["dotnet"].startswith("README.md:")
+    assert "The .NET 11 SDK" in doc["prerequisites"]["dotnet"]
+
+
+def test_pinned_sdk_supports_the_samples_target_framework():
+    sdk = re.fullmatch(r"mcr.microsoft.com/dotnet/sdk:(\d+)\.\d+@sha256:[0-9a-f]{64}",
+                       SOURCES["runtimes"]["dotnet"])
+    assert sdk is not None
+    assert int(sdk.group(1)) >= 11, "The samples checkout targets net11.0"
 
 
 def test_node_container_mounts_the_sdk_when_dotnet_is_a_prerequisite(tmp_path, monkeypatch):

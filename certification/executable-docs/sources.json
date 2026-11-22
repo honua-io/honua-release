@@ -4,7 +4,7 @@
   "runtimes": {
     "node": "node:22-bookworm@sha256:363e1587494626837fa7f9a23bdb453d13b0ff3c67c705c2805cfc69c2d2fad7",
     "python": "python:3.12-bookworm@sha256:e91fec3d1ac69f04e4eddcd29c327e630ce34658cf31075bfa7e8b0e052bafea",
-    "dotnet": "mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317",
+    "dotnet": "mcr.microsoft.com/dotnet/sdk:11.0@sha256:65f3c7c6a25a239ab3e6719f2896147e7b68242ff2d8818dd70498bde6ef8bea",
     "dockerCli": "docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d"
   },
   "revisionRules": {
@@ -39,7 +39,7 @@
     {"repo": "honua-io/honua-server", "path": "docs/sdks/javascript/javascript-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "node"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/python/python-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "python"},
     {"repo": "honua-io/honua-server", "path": "docs/sdks/dotnet/dotnet-getting-started.md", "revision": {"component": "honua-server"}, "runtime": "dotnet"},
-    {"repo": "honua-io/honua-samples", "path": "README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "README.md:162 — \"Bash, `curl`, `jq` and `od`\"", "python": "README.md:161 — \"Python 3 on `PATH` as `python`\"", "sudo": "README.md:165-166 — \"`--with-deps` also installs Chromium's system libraries (it uses `sudo` on Linux)\"", "xvfb": "README.md:280 — \"On Linux, install Xvfb and `xauth` (Debian/Ubuntu packages `xvfb` and `xauth`)\"", "dotnet": "README.md:190-191 — \"The .NET 10 SDK: the state/local samples verify their JS, Python and .NET snippets against the published SDKs.\""}},
+    {"repo": "honua-io/honua-samples", "path": "README.md", "revision": {"defaultBranch": true}, "runtime": "node", "docker": true, "checkout": {"cwd": ""}, "prerequisites": {"jq": "README.md:162 — \"Bash, `curl`, `jq` and `od`\"", "python": "README.md:161 — \"Python 3 on `PATH` as `python`\"", "sudo": "README.md:165-166 — \"`--with-deps` also installs Chromium's system libraries (it uses `sudo` on Linux)\"", "xvfb": "README.md:280 — \"On Linux, install Xvfb and `xauth` (Debian/Ubuntu packages `xvfb` and `xauth`)\"", "dotnet": "README.md:190-191 — \"The .NET 11 SDK: the state/local samples verify their JS, Python and .NET snippets against the published SDKs.\""}},
     {"repo": "honua-io/honua-samples", "path": "samples/geocode-single-line/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/geocode-single-line"}},
     {"repo": "honua-io/honua-samples", "path": "samples/hello-featureserver-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/hello-featureserver-rest"}},
     {"repo": "honua-io/honua-samples", "path": "samples/odata-query-rest/README.md", "revision": {"defaultBranch": true}, "runtime": "node", "checkout": {"cwd": "samples/odata-query-rest"}},
