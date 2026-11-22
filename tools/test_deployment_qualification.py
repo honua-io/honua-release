@@ -227,7 +227,7 @@ def test_after_run_configuration_or_unknown_manifest_drift_refused(manifest, dep
 
 
 def qualified_bundle(manifest, deployment, raw_lambda, producer_run):
-    envelope = vp.LAMBDA_ENVELOPE_PATH.read_bytes()
+    envelope = vp.OPERATING_ENVELOPE_PATH.read_bytes()
     deployment["operatingEnvelope"] = {"path": dq.ENVELOPE_PATH,
                                       "sha256": "sha256:" + hashlib.sha256(envelope).hexdigest()}
     inputs = dq.execution_inputs(manifest, deployment)

@@ -121,16 +121,38 @@ def test_lambda_matrix_rejects_any_architecture_besides_x86_64(candidate):
     assert any("must declare exactly x86_64" in error for error in result.errors)
 
 
-def test_operating_envelope_requires_published_serverless_limits():
-    text = vp.LAMBDA_ENVELOPE_PATH.read_text(encoding="utf-8")
+def test_operating_envelope_publishes_current_deployment_scope():
     findings = vp.Findings()
-    vp.check_lambda_operating_envelope(text, findings)
+    vp.check_operating_envelope(vp.OPERATING_ENVELOPE_PATH.read_text(encoding="utf-8"), findings)
     assert findings.ok, findings.errors
 
-    stripped = text.replace("512 MB", "512 megabytes", 1)
+
+@pytest.mark.parametrize(("published", "obsolete", "boundary"), [
+    ("AWS ECS on Fargate", "Docker Compose", "production target"),
+    ("AWS Launch Stack CloudFormation template", "Terraform modules", "installation path"),
+    ("single-host local evaluation quickstart", "GA production deployment", "local evaluation scope"),
+    ("no AWS Lambda image and no Helm chart", "Lambda and Helm are Preview", "unavailable artifacts"),
+    ("No deployment needs Redis", "Redis is required", "Redis-free deployment"),
+])
+def test_operating_envelope_rejects_obsolete_scope(published, obsolete, boundary):
+    text = vp.OPERATING_ENVELOPE_PATH.read_text(encoding="utf-8")
     findings = vp.Findings()
-    vp.check_lambda_operating_envelope(stripped, findings)
-    assert any("ephemeral storage" in error for error in findings.errors)
+    vp.check_operating_envelope(text.replace(published, obsolete, 1), findings)
+    assert any(boundary in error for error in findings.errors), findings.errors
+
+
+def test_operating_envelope_cannot_borrow_scope_from_another_section():
+    text = vp.OPERATING_ENVELOPE_PATH.read_text(encoding="utf-8")
+    prefix, section = text.split(vp.OPERATING_ENVELOPE_HEADING, 1)
+    findings = vp.Findings()
+    vp.check_operating_envelope(prefix + vp.OPERATING_ENVELOPE_HEADING + "\n## Historical scope\n" + section, findings)
+    assert not findings.ok
+
+
+def test_operating_envelope_rejects_missing_scope_section():
+    findings = vp.Findings()
+    vp.check_operating_envelope("# Historical operating envelope", findings)
+    assert any("missing the rc.2 deployment certification scope" in error for error in findings.errors)
 
 
 def test_exact_candidate_pending_ga_target_rejected(candidate):

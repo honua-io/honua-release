@@ -87,16 +87,14 @@ INTERNAL_FORBIDDEN_FIELDS = frozenset({
 })
 # A run page is not the receipt. The supported reference has to name the lane artifact.
 LAMBDA_RECEIPT_NAME = "lambda-preview-receipt.json"
-LAMBDA_ENVELOPE_PATH = REPO_ROOT / "docs" / "2026.1-operating-envelope.md"
-LAMBDA_ENVELOPE_HEADING = "## 5. AWS Lambda (serverless): supported target and limits"
-# Bill item 5's pre-cut half: the published limits, not a Supported flip.
-LAMBDA_ENVELOPE_REQUIREMENTS = (
-    ("invocation cap", "30 seconds"),
-    ("in-function GP exclusion", "No long-running jobs or GP workers in the serving function"),
-    ("ephemeral storage", "512 MB"),
-    ("cold start", "Cold starts"),
-    ("concurrency", "Reserved concurrency"),
-    ("pending qualification", "qualification pending"),
+OPERATING_ENVELOPE_PATH = REPO_ROOT / "docs" / "2026.1-operating-envelope.md"
+OPERATING_ENVELOPE_HEADING = "## 2026.1 rc.2 deployment certification scope"
+OPERATING_ENVELOPE_REQUIREMENTS = (
+    ("production target", "AWS ECS on Fargate with RDS PostgreSQL/PostGIS, S3 and CloudFront"),
+    ("installation path", "AWS Launch Stack CloudFormation template"),
+    ("local evaluation scope", "Docker Compose is the single-host local evaluation quickstart"),
+    ("unavailable artifacts", "no AWS Lambda image and no Helm chart"),
+    ("Redis-free deployment", "No deployment needs Redis"),
 )
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -545,27 +543,19 @@ def qualification_candidate_digest(manifest: dict) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def check_lambda_operating_envelope(text: str, f: Findings) -> None:
-    """Item 5's published limits have to stay in the envelope. This is not qualification."""
-    start = text.find(LAMBDA_ENVELOPE_HEADING)
+def check_operating_envelope(text: str, f: Findings) -> None:
+    """Check the published deployment boundaries without claiming qualification."""
+    start = text.find(OPERATING_ENVELOPE_HEADING)
     if start < 0:
-        f.error(
-            "lambda-ga: operating envelope is missing the serverless limits section (release#282 item 5)"
-        )
+        f.error("operating envelope is missing the rc.2 deployment certification scope")
         return
-    rest = text[start + len(LAMBDA_ENVELOPE_HEADING):]
+    rest = text[start + len(OPERATING_ENVELOPE_HEADING):]
     next_heading = rest.find("\n## ")
     section = rest if next_heading < 0 else rest[:next_heading]
-    for label, needle in LAMBDA_ENVELOPE_REQUIREMENTS:
-        if needle not in section:
-            f.error(f"lambda-ga: operating envelope section 5 is missing the {label} limit ({needle!r})")
-    if "lambda-preview-receipt.json" not in section:
-        f.error(
-            "lambda-ga: operating envelope must require qualificationReceipt.url to name "
-            "lambda-preview-receipt.json"
-        )
-    if "No receipt reference is declared until that proof exists." not in section:
-        f.error("lambda-ga: operating envelope must not declare a Lambda qualification receipt")
+    normalized = " ".join(section.replace("**", "").split())
+    for label, needle in OPERATING_ENVELOPE_REQUIREMENTS:
+        if needle not in normalized:
+            f.error(f"operating envelope is missing the {label} boundary ({needle!r})")
 
 
 def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exact_candidate: bool,
@@ -609,7 +599,7 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                         try:
                             if not isinstance(proof, dq.VerifiedQualification):
                                 raise dq.QualificationError("verified before-execution Lambda proof is missing")
-                            proof.require_current(manifest, LAMBDA_ENVELOPE_PATH.read_bytes())
+                            proof.require_current(manifest, OPERATING_ENVELOPE_PATH.read_bytes())
                             if proof.receipt.get("phase") != "candidate-precut":
                                 raise dq.QualificationError("Lambda proof has the wrong qualification phase")
                         except (OSError, ValueError) as exc:
@@ -630,7 +620,7 @@ def check_deploy_qualification(manifest: dict, matrix: dict, f: Findings, *, exa
                         if (target != "awsEks" or component != "honua-helm" or architecture != "x86_64"
                                 or not isinstance(proof, dq.VerifiedEksQualification)):
                             raise dq.QualificationError("versioned supported proof requires the full EKS bill")
-                        proof.require_current(manifest, LAMBDA_ENVELOPE_PATH.read_bytes())
+                        proof.require_current(manifest, OPERATING_ENVELOPE_PATH.read_bytes())
                         if receipt != proof.reference():
                             raise dq.QualificationError("supported reference differs from verified EKS input binding")
                     except (OSError, ValueError) as exc:
@@ -879,10 +869,10 @@ def validate(
                               deployment_qualification=deployment_qualification)
     check_capability_lifecycle(
         matrix, f, _load_json(EXPECTED_GA_MANIFEST_PATH) if EXPECTED_GA_MANIFEST_PATH.is_file() else None)
-    if LAMBDA_ENVELOPE_PATH.is_file():
-        check_lambda_operating_envelope(LAMBDA_ENVELOPE_PATH.read_text(encoding="utf-8"), f)
+    if OPERATING_ENVELOPE_PATH.is_file():
+        check_operating_envelope(OPERATING_ENVELOPE_PATH.read_text(encoding="utf-8"), f)
     else:
-        f.error("lambda-ga: operating envelope is missing (release#282 item 5)")
+        f.error("operating envelope is missing")
     if requirements is None:
         requirements = _load_json(REQUIREMENTS_PATH)
     check_bound_catalog_pin_coherence(manifest, requirements, f)
@@ -936,7 +926,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.deployment_qualification:
         try:
             deployment_proof = dq.verify_bundle(dq.read_json(args.deployment_qualification), manifest,
-                                               LAMBDA_ENVELOPE_PATH.read_bytes())
+                                               OPERATING_ENVELOPE_PATH.read_bytes())
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             print(f"ERROR deployment qualification bundle refused: {exc}")
             return 1

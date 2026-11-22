@@ -196,7 +196,7 @@ def complete_pair(cell):
     import validate_platform as vp
     from test_deployment_qualification import run_metadata
     manifest, original_inputs, original_raw, producer, original_artifact = cell
-    envelope = vp.LAMBDA_ENVELOPE_PATH.read_bytes()
+    envelope = vp.OPERATING_ENVELOPE_PATH.read_bytes()
     proofs = {}
     for mode in ('off', 'on'):
         inputs, raw, artifact = copy.deepcopy((original_inputs, original_raw, original_artifact))
