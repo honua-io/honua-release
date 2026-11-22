@@ -39,8 +39,8 @@ FROZEN = HERE / "fixtures/site-geoprocessing-frozen"
 
 def gp_source():
     """The mixed-language geoprocessing guide as last executed (honua-site 477350e5): its reviewed
-    binding and page bytes are frozen here as test data, because the live page is out of scope for
-    rc.2 (sources.json outOfScope; honua-io/honua-release#1250)."""
+    binding and page bytes are frozen here as test data, so the context controls below do not move
+    with the live page, which is back in scope."""
     doc = json.loads((FROZEN / "declaration.json").read_text())
     return doc, (HERE / "fixtures/site-geoprocessing-b56533b9fd2c.md").read_text()
 
@@ -60,23 +60,35 @@ def test_frozen_guide_binds_all_six_blocks_and_only_documented_key():
     assert {p for b in blocks for p in needs(b, set())["placeholders"]} == {"<your-api-key>"}
 
 
-def test_live_geoprocessing_page_is_out_of_scope_for_rc2_with_its_reason():
-    """The page's .NET tab installs Honua.Sdk 2.0.0; rc.2 certifies 2.2.0 and the guarded registry
-    serves only manifest pins, so the page leaves scope whole (release-session ruling) and nothing
-    else moves with it."""
+GP_KEY = ("honua-io/honua-site", "docs/geoprocessing/index.md")
+# The page's three install blocks after honua-site moved them to the 2026.1 pins (@honua/sdk-js 0.4.0,
+# honua-sdk 0.3.2, Honua.Sdk 2.2.0); the three snippets are byte-identical to the frozen binding.
+GP_INSTALL_SHA256 = {0: "24cc8e63bb26f20c0b9ab36d00f5459ed65101bb9cb273c284c545b21ee394e3",
+                     2: "cb611bbdce7d9b583c8545c337e7172ef61117ff232d16d5494f6d8e38f94723",
+                     4: "a9717a49bb3e23068e95cc97196afc96c809c3408801cb50afb10d6b8d7aea8a"}
+
+
+def test_live_geoprocessing_page_runs_each_language_in_its_own_context():
+    """The tutorial installs the release pins, so the whole page is back
+    in scope. Each language keeps the frozen node/python/dotnet split; only the install hashes move."""
     sources = json.loads((HERE / "sources.json").read_text())
-    key = ("honua-io/honua-site", "docs/geoprocessing/index.md")
-    assert key not in {(d["repo"], d["path"]) for d in sources["documents"]}
-    entry = next(o for o in sources["outOfScope"] if (o["repo"], o["path"]) == key)
-    assert "2.0.0" in entry["reason"] and "2.2.0" in entry["reason"] and "honua-io/honua-release#1250" in entry["reason"]
-    assert [(o["repo"], o["path"]) for o in sources["outOfScope"]] == [
-        ("honua-io/honua-server", "docs/get-started/linux-packages.md"),
-        ("honua-io/honua-server", "docs/get-started/windows-packages.md"), key]
-    frozen = json.loads((HERE / "inventory.json").read_text())
-    assert "honua-site-docs-geoprocessing-index" not in {d["id"] for d in frozen["documents"]}
-    assert entry in frozen["outOfScope"]
-    assert not (HERE / "vars/honua-site-docs-geoprocessing-index.json").exists()
-    assert len(frozen["documents"]) == 35
+    assert GP_KEY not in {(o["repo"], o["path"]) for o in sources["outOfScope"]}
+    live = next(d for d in sources["documents"] if (d["repo"], d["path"]) == GP_KEY)
+    frozen_doc, _ = gp_source()
+    assert live["revision"] == {"defaultBranch": True}
+    expected = copy.deepcopy(frozen_doc["executionContexts"])
+    for context in expected:
+        for binding in context["blocks"]:
+            binding["sha256"] = GP_INSTALL_SHA256.get(binding["index"], binding["sha256"])
+    assert [(c["name"], c["runtime"], c["blocks"]) for c in live["executionContexts"]] == \
+        [(c["name"], c["runtime"], c["blocks"]) for c in expected]
+    assert load_vars(HERE / "vars", "honua-site-docs-geoprocessing-index") == \
+        load_vars(FROZEN / "vars", "honua-site-docs-geoprocessing-index")
+    inventory = json.loads((HERE / "inventory.json").read_text())
+    record = next(d for d in inventory["documents"] if d["id"] == "honua-site-docs-geoprocessing-index")
+    assert [b["sha256"] for b in record["blocks"]] == [b["sha256"] for c in expected for b in c["blocks"]]
+    assert GP_KEY not in {(o["repo"], o["path"]) for o in inventory["outOfScope"]}
+    assert len(inventory["documents"]) == 36
 
 
 @pytest.mark.parametrize("mutation", ["absent-block", "unknown-key", "runtime", "wrong-language", "hash", "bool-index",

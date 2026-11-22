@@ -3235,6 +3235,91 @@
           "reason": "json block is not executable by this gate"
         }
       ]
+    },
+    {
+      "id": "honua-site-docs-geoprocessing-index",
+      "repo": "honua-io/honua-site",
+      "path": "docs/geoprocessing/index.md",
+      "revision": "5f2d6380281b1739c5f1c53af203d3cfa197497c",
+      "revisionRule": {
+        "defaultBranch": true
+      },
+      "url": "https://github.com/honua-io/honua-site/blob/5f2d6380281b1739c5f1c53af203d3cfa197497c/docs/geoprocessing/index.md",
+      "runtime": "node",
+      "docker": false,
+      "session": null,
+      "checkout": null,
+      "blocks": [
+        {
+          "index": 0,
+          "line": 42,
+          "language": "shell",
+          "infoString": "bash",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "24cc8e63bb26f20c0b9ab36d00f5459ed65101bb9cb273c284c545b21ee394e3"
+        },
+        {
+          "index": 1,
+          "line": 47,
+          "language": "javascript",
+          "infoString": "js",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "346524f59dd63dcfc7ae5e23778a78697e4e3c752a1c8355ecd7749505346a5d",
+          "needs": {
+            "placeholders": [
+              "<your-api-key>"
+            ]
+          }
+        },
+        {
+          "index": 2,
+          "line": 68,
+          "language": "shell",
+          "infoString": "bash",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "cb611bbdce7d9b583c8545c337e7172ef61117ff232d16d5494f6d8e38f94723"
+        },
+        {
+          "index": 3,
+          "line": 72,
+          "language": "python",
+          "infoString": "python",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "85cc85b51f5e9933fee19d503d9dbf3fcc80b1bc38f21745bc9967f1ce540e6d",
+          "needs": {
+            "placeholders": [
+              "<your-api-key>"
+            ]
+          }
+        },
+        {
+          "index": 4,
+          "line": 89,
+          "language": "shell",
+          "infoString": "bash",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "a9717a49bb3e23068e95cc97196afc96c809c3408801cb50afb10d6b8d7aea8a"
+        },
+        {
+          "index": 5,
+          "line": 94,
+          "language": "csharp",
+          "infoString": "csharp",
+          "intent": "run",
+          "intentSource": "heuristic",
+          "sha256": "366928ee4f5a115705aa92bb69b695499e32e3258db1cd384cf47164d8bf29ff",
+          "needs": {
+            "placeholders": [
+              "<your-api-key>"
+            ]
+          }
+        }
+      ]
     }
   ],
   "outOfScope": [
@@ -3247,16 +3332,11 @@
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/windows-packages.md",
       "reason": "Windows-only (PowerShell + MSI); this gate runs Linux containers. The clean-Windows lane (customer-install-manifest cleanWindowsQualification) owns it."
-    },
-    {
-      "repo": "honua-io/honua-site",
-      "path": "docs/geoprocessing/index.md",
-      "reason": "Preview surface. The page's .NET tab installs Honua.Sdk 2.0.0, while 2026.1-rc.2 certifies 2.2.0 and the guarded registry serves only manifest pins. The page's blocks are not executed for rc.2; GA restores them per honua-io/honua-release#1250."
     }
   ],
   "summary": {
-    "documents": 35,
-    "blocks": 248,
+    "documents": 36,
+    "blocks": 254,
     "byIntent": {
       "alternative": 1,
       "compile": 8,
@@ -3264,7 +3344,7 @@
       "file": 26,
       "illustrative": 19,
       "output": 6,
-      "run": 174,
+      "run": 180,
       "teardown": 5
     }
   }
