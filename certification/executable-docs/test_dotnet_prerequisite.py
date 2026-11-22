@@ -40,9 +40,26 @@ def test_samples_readme_declares_the_dotnet_sdk_it_restores_with():
 
 def test_pinned_sdk_supports_the_samples_target_framework():
     sdk = re.fullmatch(r"mcr.microsoft.com/dotnet/sdk:(\d+)\.\d+@sha256:[0-9a-f]{64}",
-                       SOURCES["runtimes"]["dotnet"])
+                       SOURCES["runtimes"]["dotnetPrerequisite"])
     assert sdk is not None
     assert int(sdk.group(1)) >= 11, "The samples checkout targets net11.0"
+
+
+def test_native_dotnet_sessions_keep_the_published_cli_runtime():
+    assert SOURCES["runtimes"]["dotnet"].startswith("mcr.microsoft.com/dotnet/sdk:10.0@sha256:")
+
+
+def test_tool_preparation_copies_the_prerequisite_sdk(tmp_path, monkeypatch):
+    calls = _record(monkeypatch)
+    node = tmp_path / "tools/node/bin/node"
+    node.parent.mkdir(parents=True)
+    node.touch()
+    monkeypatch.setattr(run, "bootstrap_compiler", lambda *args: None)
+    copied = []
+    monkeypatch.setattr(run, "copy_dotnet_sdk", lambda image, tools: copied.append(image))
+    run.prepare_tools(SOURCES["runtimes"], tmp_path)
+    assert copied == [SOURCES["runtimes"]["dotnetPrerequisite"]]
+    assert ("pull", SOURCES["runtimes"]["dotnetPrerequisite"]) in calls
 
 
 def test_node_container_mounts_the_sdk_when_dotnet_is_a_prerequisite(tmp_path, monkeypatch):

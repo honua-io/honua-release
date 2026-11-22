@@ -1130,7 +1130,9 @@ def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
             docker("rm", "-f", cid)
         for command, target in (("npm", "npm-cli.js"), ("npx", "npx-cli.js")):
             (node / "bin" / command).symlink_to(f"../lib/node_modules/npm/bin/{target}")
-    copy_dotnet_sdk(runtimes["dotnet"], tools)
+    prerequisite_sdk = runtimes.get("dotnetPrerequisite", runtimes["dotnet"])
+    docker("pull", prerequisite_sdk, timeout=1800, check=True)
+    copy_dotnet_sdk(prerequisite_sdk, tools)
     bootstrap_compiler(tools, node / "bin" / "node", node / "lib" / "node_modules/npm/bin/npm-cli.js")
     docker("pull", runtimes["dockerCli"], timeout=900, check=True)
     cid = docker("create", runtimes["dockerCli"], check=True).stdout.strip()
