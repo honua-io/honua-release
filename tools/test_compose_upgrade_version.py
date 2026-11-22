@@ -20,7 +20,11 @@ def evidence():
 
 
 def receipt(pair, phases, **overrides):
-    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={},
+    inputs = dict(scenario="normal", status="pass", why="upgrade succeeded", observed={"credentials": {"schema": 1, "status": "pass",
+                      "connectionId": "00000000-0000-0000-0000-000000000001",
+                      "apiKeyId": "00000000-0000-0000-0000-000000000002",
+                      "checks": dict.fromkeys(("connectionUnchanged", "storedCredentialHealthy",
+                                               "existingApiKeyAuthenticated", "apiKeyUnchanged"), True)}},
                   phases=phases, harness={}, run="run", commit="commit")
     inputs.update(overrides)
     return cu.build_receipt(pair, **inputs)

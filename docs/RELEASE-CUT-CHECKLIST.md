@@ -84,6 +84,14 @@ fallback. GA admission also requires the installed candidate server version and 
 `org.opencontainers.image.version` label to match `2026.1.0`; retain the receipt
 `versionEvidence` observations and candidate image identity. This does not establish a
 platform-wide version audit or installed data-preservation proof.
+
+The GA Compose cell also requires `credentialEvidence`: the seeded connection metadata and
+API key metadata remain unchanged, the saved database credential passes the connection test
+without resubmitting its password, and the API key minted on the prior authenticates against
+the candidate. Private probe state lives outside uploaded artifacts and is removed on exit;
+receipts contain identifiers and check results only. Missing or failed credential evidence
+blocks GA admission. This probe does not certify saved maps or other client surfaces.
+
 For RC candidates, its prior is the honua-server digest of the newest published
 `2026.1-rc.N` release, else the newest signed nightly lock's amd64 image; an rc or lock that ships the
 candidate's image is skipped, and with neither the cell is blocked (strict: fail), never the candidate
