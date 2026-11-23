@@ -10,10 +10,10 @@ import hashlib
 import json
 import os
 import re
-import time
-import urllib.parse
 import subprocess
 import sys
+import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,7 +125,7 @@ PROPOSAL_PENDING = {"Pending", "AwaitingApproval"}
 PROPOSAL_APPROVED = {"Succeeded", "Approved", "Applied", "Submitted"}
 PROPOSAL_RESOLVED = PROPOSAL_APPROVED | {"Rejected", "Failed"}
 HANDLE_IN_FLIGHT = {"Queued", "Running", "RequiresApproval"}
-# What an approval, rejection or replay of a proposal would change.
+# Proposal fields an operator's refused approval must leave untouched.
 PROPOSAL_STATE = ("proposalId", "status", "version", "planHash", "summary", "resolvedBy", "executionOperationId")
 HANDLE_IDS = ("operationId", "operationInstanceId", "correlationId", "auditId")
 CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless|aws-eks)/(redis-on|redis-off)\Z")
@@ -636,9 +636,7 @@ class JourneyExecutor:
         self.evidence["nativePublication"] = {
             "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
             "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
-            "serviceUriSource": output.get("serviceUriSource", "candidate"),
             "layerId": storage_layer,
-            "serviceLayerIndex": layer_index,
             "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
         }
         self.check_features()
@@ -657,6 +655,8 @@ class JourneyExecutor:
         handle = self.approve_gated(gate)
         if handle.get("operationId") != "service.publish":
             raise ExecutionError("GET approved publication handle", "approved replay is not the service publication")
+        # The handle names no URI; honua_publish_service derives it from the service name the same way.
+        self.evidence["operatorApprovals"]["3"]["serviceUriSource"] = "derived-from-handle"
         return self.project_publication(handle)
 
     def approve_style(self, proposal_id, arguments):
@@ -727,10 +727,9 @@ class JourneyExecutor:
         """The fields honua_publish_service projects from a completed handle (McpPublishServiceOutput)."""
         published = {**(handle.get("resourceIds") or {}), **((handle.get("result") or {}).get("details") or {})}
         service = published.get("serviceName")
-        # The handle names no URI; honua_publish_service derives it from the service name the same way.
         return {"status": handle.get("status"), "requiresApproval": False,
                 **{key: handle.get(key) for key in HANDLE_IDS},
-                "serviceName": service, "serviceUriSource": "derived-from-handle",
+                "serviceName": service,
                 "serviceUri": ("honua://published-services/" + urllib.parse.quote(service, safe="")
                                if isinstance(service, str) else None),
                 **{key: published.get(key) for key in ("storageLayerId", "serviceLayerIndex")}}

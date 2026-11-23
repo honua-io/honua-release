@@ -658,6 +658,8 @@ def test_completed_service_publish_supplies_stage_3_operation_ids_and_feature_pr
         "service.publish", "opinst-publish-1", "00-corr-publish", "audit-publish-1")
 
 
+# tools/terminal_model_canary.py refuses a native publication diagnostic with any other key.
+CANARY_NATIVE_PUBLICATION_KEYS = {"serviceNameSha256", "serviceUriSha256", "layerId", "fixtureServiceNameMatches"}
 AWAITING_PUBLICATION = {**{key: PUBLISH_OUTPUT[key] for key in ("operationId", "operationInstanceId", "correlationId",
                                                                   "auditId")},
                         "status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-publish-1",
@@ -706,10 +708,11 @@ def test_publication_proposal_is_approved_by_a_person_after_the_operator_is_refu
     assert engine.resources["layerId"] == 7 and engine.resources["serviceLayerIndex"] == 0
     assert engine.resources["serviceUri"] == "honua://published-services/journey"
     assert "proposalId" not in engine.resources and "publicationOperation" not in engine.evidence
-    assert engine.evidence["operatorApprovals"]["3"] == {"proposalId": "proposal-publish-1", "requestedBy": OPERATOR_ACTOR,
+    assert {key: value for key, value in engine.evidence["operatorApprovals"]["3"].items()
+            if key != "serviceUriSource"} == {"proposalId": "proposal-publish-1", "requestedBy": OPERATOR_ACTOR,
         "resolvedBy": HUMAN_ACTOR, "approvalChannel": "console-interactive-password", "operatorSelfApproval": "denied"}
-    assert result["nativePublication"]["serviceLayerIndex"] == 0
-    assert result["nativePublication"]["serviceUriSource"] == "derived-from-handle"
+    assert set(result["nativePublication"]) == CANARY_NATIVE_PUBLICATION_KEYS
+    assert engine.evidence["operatorApprovals"]["3"]["serviceUriSource"] == "derived-from-handle"
     assert engine.result(3).status == "pass"
 
 
@@ -769,6 +772,7 @@ def test_returned_publication_identity_replaces_fixture_alias_without_changing_e
     assert engine.resources["serviceUri"] == returned["serviceUri"] and engine.resources["layerId"] == 7
     assert result["resources"] == engine.resources
     assert result["nativePublication"]["fixtureServiceNameMatches"] is False
+    assert set(result["nativePublication"]) == CANARY_NATIVE_PUBLICATION_KEYS
     assert result["nativePublication"]["serviceNameSha256"] == hashlib.sha256(service.encode()).hexdigest()
     assert engine.fixture == fixture and engine.evidence["checks"]["3"]["imported-content"]["status"] == "pass"
 
