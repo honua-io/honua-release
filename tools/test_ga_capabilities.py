@@ -26,8 +26,8 @@ def capability(key, category='Analytics', **overrides):
     return entry
 
 
-def lane(run_date):
-    return {'clientLane': 'js', 'protocol': 'wfs', 'freshness': {'state': 'fresh', 'runDate': run_date}}
+def lane(run_date, state='fresh'):
+    return {'clientLane': 'js', 'protocol': 'wfs', 'freshness': {'state': state, 'runDate': run_date}}
 
 
 def matrix(*entries):
@@ -80,6 +80,7 @@ GAPS = [
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve')}, None),
     ('interop', {'analytics.h3': capability('analytics.h3', cite=[{'suite': 'X', 'passRate': 100.0}])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(None)])}, None),
+    ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH, 'stale')])}, None),
     ('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
                                       cite=[{'suite': 'WFS 2.0', 'passRate': 99.3}])}, None),
     ('evaluation', {'ai.unlisted': capability('ai.unlisted', 'AI')}, {'ai.unlisted': ['A.Forbidden']}),
@@ -159,9 +160,20 @@ def test_proven_candidate_writes_a_receipt_the_contract_accepts(candidate_tree):
     assert receipt['status'] == 'PASS' and receipt['serverSha'] == candidate.server_sha
     assert receipt['assertions']['capabilitiesFailing'] == 0
     assert receipt['assertions']['gaCapabilities'] == 3
+    assert receipt['sourceObservedAt'] == FRESH
     assert accepted_by_contract(receipt)
     report = json.loads(ga.REPORT.read_text())
     assert report['serverSha'] == candidate.server_sha and len(report['capabilities']) == 3
+
+
+def test_admission_refuses_interop_evidence_that_expired_after_the_receipt(candidate_tree):
+    candidate_tree()
+    assert ga.main([]) == 0
+    receipt = json.loads(ga.RECEIPT.read_text())
+    receipt['sourceObservedAt'] = STALE
+    assert not accepted_by_contract(receipt)
+    del receipt['sourceObservedAt']
+    assert not accepted_by_contract(receipt)
 
 
 def test_unproven_candidate_writes_a_failing_receipt_the_contract_refuses(candidate_tree):

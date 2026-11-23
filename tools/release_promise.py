@@ -162,7 +162,7 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
             return False
     if row['id'] == 'cloud-image-aot' and not _image_budget_met(doc, 'rc'):
         return False
-    if row['id'] == 'operates-capacity':
+    if row['id'] in ('operates-capacity', 'ga-capabilities'):
         source = instant(doc.get('sourceObservedAt'))
         if source is None or not now - dt.timedelta(days=7) <= source <= observed:
             return False

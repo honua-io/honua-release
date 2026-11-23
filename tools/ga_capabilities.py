@@ -158,8 +158,10 @@ def protocol_facing(entry: dict, ledger: dict) -> bool:
 
 
 def newest_interop(entry: dict) -> dt.datetime | None:
-    dates = [instant((lane.get('freshness') or {}).get('runDate'))
-             for lane in entry.get('interop') or [] if isinstance(lane, dict)]
+    """Newest green result: the matrix marks a failed or out-of-window envelope `stale`."""
+    freshness = [lane.get('freshness') or {} for lane in entry.get('interop') or []
+                 if isinstance(lane, dict)]
+    dates = [instant(seen.get('runDate')) for seen in freshness if seen.get('state') == 'fresh']
     dates = [date for date in dates if date is not None]
     return max(dates) if dates else None
 
@@ -172,11 +174,22 @@ def interop_gap(entry: dict, ledger: dict, now: dt.datetime) -> str | None:
     newest = newest_interop(entry)
     limit = ledger['interopMaxAgeDays']
     if newest is None:
-        return 'no client-interop lane has a recorded result'
+        return 'no client-interop lane has a passing result'
     if newest > now or now - newest > dt.timedelta(days=limit):
         age = (now - newest).days
         return f'newest client-interop result is {age} days old (limit {limit})'
     return None
+
+
+def interop_observed_at(entry: dict, ledger: dict) -> str | None:
+    newest = newest_interop(entry) if protocol_facing(entry, ledger) else None
+    return stamp(newest) if newest else None
+
+
+def source_observed_at(results: list[dict], now: dt.datetime) -> str:
+    """Oldest interop evidence the verdict relies on; admission re-checks its 7-day window."""
+    dates = [result['interopObservedAt'] for result in results if result['interopObservedAt']]
+    return min(dates, key=instant) if dates else stamp(now)
 
 
 def cite_gap(entry: dict) -> str | None:
@@ -223,6 +236,7 @@ def evaluate_capability(entry: dict, context: tuple) -> dict:
         'key': entry.get('key'), 'displayName': entry.get('displayName'),
         'category': entry.get('category'), 'provingTests': entry.get('provingTestCount') or 0,
         'securityTests': len(found), 'protocolFacing': protocol_facing(entry, ledger),
+        'interopObservedAt': interop_observed_at(entry, ledger),
         'gaps': {criterion: detail for criterion, detail in gaps.items() if detail},
     }
 
@@ -264,6 +278,7 @@ def receipt(candidate, results: list[dict], now: dt.datetime) -> dict:
         'imageDigest': candidate.server_digest,
         'platformLockDigest': candidate.platform_lock,
         'observedAt': stamp(now),
+        'sourceObservedAt': source_observed_at(results, now),
         'assertions': counts,
         'findings': findings(results)[:SHOWN_FINDINGS],
     }
