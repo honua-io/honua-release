@@ -89,8 +89,11 @@ the cell. Preview and stub cells keep the documented blocked build receipt.
 
 - **Principals.** `local_fixture.credentials` mints the operator, proposer, approver and viewer keys
   through the cell's admin REST API with the cell's bootstrap credential
-  (`HONUA_CLOUD_JOURNEY_ADMIN`), with the same grants and `layer-write-key` StudioDraft author grants
-  as local Docker. They expire after an hour and the run revokes them when it ends, best effort
+  (`HONUA_CLOUD_JOURNEY_ADMIN`). Operator, approver and viewer get the same grants as on local
+  Docker. Without a declared tenant fixture the proposer is a `write:journey` key, and its
+  StudioDraft author grants go on the `layer-write-key` role the server stamps on it. A server
+  that reserves that role name refuses the grant, so such a cell has no Studio author on it
+  (#1552). They expire after an hour and the run revokes them when it ends, best effort
   (`local_fixture.revoke`; the receipt notes how many were revoked). Key material stays in the 0600
   private state file and memory; the last-exchange trace masks it.
 - **Second tenant.** A cell trusts no issuer the harness holds a signing key for, and admin API keys
@@ -359,12 +362,16 @@ SDK checkout never substitutes for the pin. The standalone
 `test_sdk_bridge.py --dll PATH` exercise runs five actual published SDK HTTP calls
 against an authored loopback peer. It is serialization/transport evidence only.
 
-The local fixture mints four short-lived keys: an `operator` (`admin:write`) that
-publishes, styles and runs GP; a non-admin Studio `proposer` (`write:journey`,
-whose stamped `layer-write-key` role receives StudioDraft
-Create/Read/Update/Publish operator grants in the isolated stack), because an
-admin caller publishes immediately and never produces an AwaitingApproval
-proposal; a separate `approver` (`admin:approve`); and a `viewer`. Stage 6 reads
+The local fixture mints three short-lived keys and one signed author: an
+`operator` key (`admin:write`) that publishes, styles and runs GP; a non-admin
+Studio `proposer`, a fresh five-minute bearer signed with the run's own issuer
+key on the default tenant and carrying the fixture-owned `journey-studio-author`
+role, which receives StudioDraft Create/Read/Update/Publish operator grants in
+the isolated stack, because an admin caller publishes immediately and never
+produces an AwaitingApproval proposal; a separate `approver` key
+(`admin:approve`); and a `viewer` key. The proposer is not an API key because
+the server stamps every key with a role name it reserves, and a stored role, and
+so a StudioDraft grant, cannot use one of those names. Stage 6 reads
 the map family's `currentSchemaVersion` from `GET /api/v1/studio/package-families`.
 Cloud cells mint these through the cell admin API (see [Cloud cells](#cloud-cells)).
 Other targets need environment references for `HONUA_JOURNEY_OPERATOR_KEY` (optional;

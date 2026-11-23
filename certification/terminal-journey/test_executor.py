@@ -1190,7 +1190,7 @@ def test_prerequisite_failures_survive_successful_executor_checks():
     assert result.blocked_by == [stages.INSTALLED_CLIENTS]
 
 
-def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers(tmp_path, monkeypatch):
+def test_local_fixture_mints_expiring_keys_and_fresh_signed_proposer_and_other_tenant_bearers(tmp_path, monkeypatch):
     import local_fixture
     target = json.loads((Path(__file__).parent / "targets" / "local-docker.json").read_text())
     monkeypatch.setenv("HONUA_JOURNEY_REPLICA_PORT", "19138")
@@ -1198,7 +1198,9 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
     assert env["HONUA_JOURNEY_REPLICA_PORT"] == "19138"
     assert local_fixture.replica_url(target) == "http://127.0.0.1:19138"
     transport = mock.Mock()
-    grants = iter(local_fixture.GRANTS.items())
+    # The server reserves every role name it stamps on API keys, so no key can carry the
+    # StudioDraft author grants: the local proposer is a run-signed bearer.
+    grants = iter((name, value) for name, value in local_fixture.GRANTS.items() if name != "proposer")
     def mint(*args, **kwargs):
         name, expected = next(grants)
         assert kwargs["body"]["permissions"] == expected
@@ -1209,10 +1211,18 @@ def test_local_fixture_mints_expiring_keys_and_fresh_signed_other_tenant_bearers
     with mock.patch.object(local_fixture, "Transport", return_value=transport), \
             mock.patch.object(local_fixture, "_grant_author_role") as author_role:
         keys = local_fixture.credentials(target, tmp_path, "http://127.0.0.1:8137", mint=True)
-    author_role.assert_called_once_with(transport)
+    author_role.assert_called_once_with(transport, local_fixture.AUTHOR_ROLE)
     assert set(keys) == {"operator", "proposer", "approver", "viewer", "other-tenant"}
+    assert next(grants, None) is None
+    minted = [call.kwargs["body"]["name"] for call in transport.http.call_args_list]
+    assert not any(name.endswith("-proposer") for name in minted)
     private_path = tmp_path / "private-principals.json"
     assert private_path.stat().st_mode & 0o777 == 0o600
+    assert "proposer" not in json.loads(private_path.read_text())["keys"]
+    proposer = keys["proposer"]()
+    author = json.loads(base64.urlsafe_b64decode(proposer.split(" ")[1].split(".")[1] + "=="))
+    assert (author["sub"], author["tenant_id"], author["role"]) == ("journey-author", "public", local_fixture.AUTHOR_ROLE)
+    assert proposer != keys["proposer"]()
     first_token = keys["other-tenant"]()
     token = first_token.split(" ")[1]
     header, payload, signature = token.split(".")
@@ -1240,11 +1250,43 @@ def test_studio_author_principal_never_holds_an_admin_grant():
     assert local_fixture.GRANTS["proposer"] != local_fixture.GRANTS["approver"]
 
 
+# honua-server ReservedRoleNames (docs/reference/admin-api/users-roles-licensing.md): the server
+# refuses a stored role under any of these names.
+SERVER_RESERVED_ROLE_NAMES = {"admin", "viewer", "agent", "orchestrator", "approved-operation",
+                              "scoped-admin-key", "scoped-api-key", "layer-write-key"}
+
+
+def test_cloud_cell_without_a_tenant_fixture_keeps_granting_its_proposer_keys_stamped_role(tmp_path):
+    import local_fixture
+    # GA single-tenant cells author with the write:journey key; its grants must stay on the
+    # role the server stamps on that key, or the pinned candidate loses its Studio author.
+    target = {"kind": "aws-ecs", "principals": {}, "adminPassword": {"env": "UNIT_ADMIN", "default": ""}}
+    transport = mock.Mock()
+    def mint(*args, **kwargs):
+        name = kwargs["body"]["name"].rsplit("-", 1)[1]
+        transport.get_json.return_value = {"data": {"permissions": local_fixture.GRANTS[name], "status": "active",
+                                                    "canAuthenticate": True}}
+        return json.dumps({"data": {"key": "private-" + name, "apiKey": {"id": name}}}).encode(), 201
+    transport.http.side_effect = mint
+    with mock.patch.object(local_fixture, "Transport", return_value=transport), \
+            mock.patch.object(local_fixture, "_grant_author_role") as author_role:
+        keys = local_fixture.credentials(target, tmp_path, "https://cell.invalid", mint=True)
+    author_role.assert_called_once_with(transport, local_fixture.KEY_AUTHOR_ROLE)
+    assert local_fixture.KEY_AUTHOR_ROLE == "layer-write-key"
+    assert keys["proposer"] == "private-proposer"
+
+
+def test_author_role_is_a_name_the_server_lets_the_fixture_define():
+    import local_fixture
+    assert local_fixture.AUTHOR_ROLE.lower() not in SERVER_RESERVED_ROLE_NAMES
+    assert local_fixture.TENANT_FIXTURE["role"] == local_fixture.AUTHOR_ROLE
+
+
 @pytest.mark.parametrize("existing", [False, True])
 def test_author_role_is_created_or_reused_and_its_grants_are_read_back(existing):
     import local_fixture
     transport = mock.Mock()
-    transport.get_json.return_value = {"data": [{"roleId": "role-1", "name": "layer-write-key"}] if existing else []}
+    transport.get_json.return_value = {"data": [{"roleId": "role-1", "name": local_fixture.AUTHOR_ROLE}] if existing else []}
     calls = []
     def http(method, path, **kwargs):
         calls.append((method, path))
@@ -1252,13 +1294,13 @@ def test_author_role_is_created_or_reused_and_its_grants_are_read_back(existing)
             return json.dumps({"data": {"roleId": "role-1"}}).encode(), 201
         return json.dumps({"data": kwargs["body"]["permissions"]}).encode(), 200
     transport.http.side_effect = http
-    local_fixture._grant_author_role(transport)
+    local_fixture._grant_author_role(transport, local_fixture.AUTHOR_ROLE)
     expected = [("PUT", "/api/v1/admin/roles/role-1/permissions")]
     assert calls == ([] if existing else [("POST", "/api/v1/admin/roles/")]) + expected
     transport.http.side_effect = lambda method, path, **kwargs: (json.dumps({"data": []}).encode(), 200)
-    transport.get_json.return_value = {"data": [{"roleId": "role-1", "name": "layer-write-key"}]}
+    transport.get_json.return_value = {"data": [{"roleId": "role-1", "name": local_fixture.AUTHOR_ROLE}]}
     with pytest.raises(ExecutionError, match="author grants"):
-        local_fixture._grant_author_role(transport)
+        local_fixture._grant_author_role(transport, local_fixture.AUTHOR_ROLE)
 
 
 def test_tenant_denial_cannot_pass_from_a_blanket_studio_rbac_refusal():
