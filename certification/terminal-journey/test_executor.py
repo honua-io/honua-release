@@ -240,12 +240,13 @@ def engine_for(transport, **target):
     return executor.JourneyExecutor({"workspaceId": "workspace"}, target, observation, transport)
 
 
-def test_self_approval_cli_usage_error_cannot_substitute_for_candidate_denial(live_http):
+def test_self_approval_cli_usage_error_cannot_substitute_for_candidate_denial(live_http, human_approver):
     url, seen = live_http
     transport = transport_for(url)
     engine = approval_engine(transport)
-    with mock.patch.object(transport, "cli_approve", side_effect=[(2, None), (1, None)]) as cli:
-        with pytest.raises(ExecutionError, match="separate-principal approval failed"):
+    human_approver.return_value = {"result": "refused", "stage": "approve", "httpStatus": 403, "detail": "denied"}
+    with mock.patch.object(transport, "cli_approve", side_effect=[(2, None)]) as cli:
+        with pytest.raises(ExecutionError, match="human approval did not approve the proposal"):
             engine.approve("proposal-1")
     assert cli.call_args_list[0].args == ("proposal-1", "proposer")
     assert ("POST", "/api/v1/admin/proposals/proposal-1/approve", "private-proposer") in seen
@@ -579,7 +580,8 @@ def test_failed_cli_upload_is_not_a_pass():
 
 PUBLISH_OUTPUT = {"status": "Completed", "requiresApproval": False, "operationId": "service.publish",
                   "operationInstanceId": "opinst-publish-1", "correlationId": "00-corr-publish",
-                  "auditId": "audit-publish-1", "layerId": "7", "serviceName": "journey",
+                  "auditId": "audit-publish-1", "storageLayerId": "7", "serviceLayerIndex": "0",
+                  "serviceName": "journey",
                   "serviceUri": "honua://published-services/journey"}
 
 
@@ -656,17 +658,8 @@ def test_completed_service_publish_supplies_stage_3_operation_ids_and_feature_pr
         "service.publish", "opinst-publish-1", "00-corr-publish", "audit-publish-1")
 
 
-def test_publish_awaiting_operator_approval_is_not_a_published_layer():
-    engine = upload_engine()
-    engine.resources.update(importTable="imported_journey_source", importSchema="public")
-    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "status": "RequiresApproval",
-                                                                "requiresApproval": True, "layerId": None}}
-    with pytest.raises(ExecutionError, match="did not complete"):
-        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
-                           "arguments": publish_arguments(engine)})
-    assert "layerId" not in engine.resources
-
-
+# tools/terminal_model_canary.py refuses a native publication diagnostic with any other key.
+CANARY_NATIVE_PUBLICATION_KEYS = {"serviceNameSha256", "serviceUriSha256", "layerId", "fixtureServiceNameMatches"}
 @pytest.mark.parametrize("service", ["native-published", "default", 'Hālau district/"North"'])
 def test_returned_publication_identity_replaces_fixture_alias_without_changing_expected_content(service):
     engine = upload_engine()
@@ -682,6 +675,7 @@ def test_returned_publication_identity_replaces_fixture_alias_without_changing_e
     assert engine.resources["serviceUri"] == returned["serviceUri"] and engine.resources["layerId"] == 7
     assert result["resources"] == engine.resources
     assert result["nativePublication"]["fixtureServiceNameMatches"] is False
+    assert set(result["nativePublication"]) == CANARY_NATIVE_PUBLICATION_KEYS
     assert result["nativePublication"]["serviceNameSha256"] == hashlib.sha256(service.encode()).hexdigest()
     assert engine.fixture == fixture and engine.evidence["checks"]["3"]["imported-content"]["status"] == "pass"
 
@@ -691,7 +685,8 @@ def test_returned_publication_identity_replaces_fixture_alias_without_changing_e
     {"serviceName": "not/a/service"}, {"serviceName": ""}, {"serviceName": " padded "},
     {"serviceName": "line\nbreak"}, {"serviceName": "a" * 201},
     {"requiresApproval": None}, {"requiresApproval": 0},
-    {"layerId": None}, {"layerId": True}, {"layerId": "not-a-layer"}])
+    {"storageLayerId": None}, {"storageLayerId": True}, {"storageLayerId": "not-a-layer"},
+    {"serviceLayerIndex": None}, {"serviceLayerIndex": "-1"}])
 def test_completed_publish_cannot_supply_partial_or_contradictory_identity_from_requested_names(changes):
     engine = upload_engine()
     engine.resources.update(importTable="imported_journey_source", importSchema="public")
@@ -718,7 +713,7 @@ def test_decimal_layer_identity_cannot_normalize_a_credential_into_model_context
     secret = "012345678901234567"
     engine = upload_engine(operator=secret)
     engine.resources.update(importTable="imported_journey_source", importSchema="public")
-    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "layerId": layer}}
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "storageLayerId": layer}}
     with pytest.raises(ExecutionError):
         engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
     assert "nativePublication" not in engine.evidence and "layerId" not in engine.resources
@@ -1962,7 +1957,7 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
         {"workspaceId": "workspace"},
         {"execution": {"serviceId": "journey", "styleId": "journey-solid-red", "renderSize": [128, 128], "bbox": [-2, -2, 2, 2]}},
         observation, transport)
-    engine.resources["layerId"] = 7
+    engine.resources.update(layerId=7, serviceLayerIndex=0)
     transport.tool.return_value = {"isError": True, "structuredContent": {"code": "invalid_argument"}}
 
     def rejected(tool, arguments):
@@ -1970,13 +1965,13 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
             engine.execute(4, {"kind": "tool_call", "tool": tool, "arguments": arguments})
         return caught.value
 
-    layer = {"serviceId": "journey", "layerId": 7}
+    layer = {"serviceId": "journey", "serviceLayerIndex": 0}
     style = {**layer, "styleId": "journey-solid-red"}
     render = {"layers": [layer], "width": 128, "height": 128, "bbox": [-2, -2, 2, 2]}
     assert rejected("honua_apply_style_preset", {**style, "styleId": "unknown"}).problem.get("argumentsProven") is not True
-    assert rejected("honua_apply_style_preset", {**style, "layerId": 8}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", {**style, "serviceLayerIndex": 7}).problem.get("argumentsProven") is not True
     assert rejected("honua_apply_style_preset", style).problem["argumentsProven"] is True
-    for changed in [{"width": 20}, {"bbox": [0, 0, 1, 1]}, {"layers": [{**layer, "layerId": 8}]},
+    for changed in [{"width": 20}, {"bbox": [0, 0, 1, 1]}, {"layers": [{**layer, "serviceLayerIndex": 7}]},
                     {"encoding": "unsupported"}, {"bboxSrid": 999999}]:
         assert rejected("honua_render_map", {**render, **changed}).problem.get("argumentsProven") is not True
     assert rejected("honua_render_map", render).problem["argumentsProven"] is True

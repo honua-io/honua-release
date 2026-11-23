@@ -21,8 +21,10 @@ import probes
 import sdk
 import stages
 import discovery
+from gated_approval import PROPOSAL_PENDING, GatedApprovals
+from identities import PRINCIPAL, PRINCIPAL_MAX, TOKEN, _token, identity, principal_identity, principal_shape  # noqa: F401
 from transport import (ActionRejected, ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
-                       masked_fields, tool_error)
+                       masked_fields, pending_approval, tool_error)
 
 ID_FIELDS = ("operationId", "operationInstanceId", "proposalId", "jobId", "correlationId", "auditId")
 # The identities the candidate actually emits for one canonical invocation
@@ -39,29 +41,6 @@ STAGE_EVIDENCE_KEYS = {int(k): tuple(v) for k, v in CONTRACT["stageEvidenceKeys"
 JOB_KEYS = ("jobId", "resourceUri", "jobStatus", "jobCreatedAt")
 # Stage 3 file import: the pinned CLI's multipart admin upload of the committed fixture.
 UPLOAD_COMMAND = "honua admin import uploadImportFile"
-TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
-# A proposal's requestedBy/resolvedBy is a server actor id, not an opaque token. honua-server emits
-# exactly these shapes, every free component Uri.EscapeDataString-encoded (unreserved
-# [A-Za-z0-9._~-] kept, everything else as uppercase %XX):
-#   CanonicalSecurityActor.Resolve (approve route, MCP audit):
-#     `<scheme>:subject:<issuer|->:<subject>`, `<scheme>:api-key:<guid>`, `<scheme>:name:<name>`
-#   StudioAuthorizationService.ResolveCallerId (the Studio publication proposer, which the
-#   operation gateway records as requestedBy for honua_studio_propose_publication):
-#     `subject:<issuer>:<subject>@tenant:<tenant>` for an issuer-bearing token, else the bare
-#     api_key_id / api_key_name / identity name (a legacy TOKEN-shaped id).
-# e2e-cloud-aws run 40947860102 refused the `%` in the signed bearer proposer; #1075 then admitted
-# `%XX` but not the `@tenant:` suffix, so run 40981429785 (aws-eks/redis-on, proposer
-# `subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:public`) still failed
-# 8.execution with "omitted a bounded canonical identity (requestedBy)".
-_ACTOR_ESCAPED = r"(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})"
-_ACTOR_SCHEME = r"[a-z0-9][a-z0-9._-]{0,63}"
-PRINCIPAL_MAX = 512
-PRINCIPAL = re.compile(
-    rf"(?:{_ACTOR_SCHEME}:subject:{_ACTOR_ESCAPED}+:{_ACTOR_ESCAPED}+"
-    rf"|{_ACTOR_SCHEME}:api-key:[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}"
-    rf"|{_ACTOR_SCHEME}:name:{_ACTOR_ESCAPED}+"
-    rf"|subject:{_ACTOR_ESCAPED}+:{_ACTOR_ESCAPED}+@tenant:{_ACTOR_ESCAPED}*"
-    r"|[A-Za-z0-9][A-Za-z0-9_.:-]{0,199})\Z")
 STAGE_TOOLS = {
     1: {"honua_list_capabilities"},
     2: {"honua_list_capabilities"},
@@ -125,43 +104,6 @@ def declared_redis_topology(target):
     return declared if declared in ("redis-on", "redis-off") else None
 
 
-def _token(value):
-    return value if isinstance(value, str) and TOKEN.fullmatch(value) else None
-
-
-def identity(value, label):
-    if not isinstance(value, str) or not TOKEN.fullmatch(value):
-        raise ExecutionError(label, "candidate omitted a bounded canonical identity")
-    return value
-
-
-def principal_shape(value):
-    """A value-free shape summary of a refused actor id: type, length and character classes."""
-    if not isinstance(value, str):
-        return "absent" if value is None else f"type={type(value).__name__}"
-    classes = []
-    for name, test in (("lower", str.islower), ("upper", str.isupper), ("digit", str.isdigit)):
-        if any(c.isascii() and test(c) for c in value):
-            classes.append(name)
-    classes.extend(sorted({repr(c) for c in value if c.isascii() and c.isprintable() and not c.isalnum()
-                           and not c.isspace()}))
-    for name, test in (("whitespace", str.isspace), ("control", lambda c: not c.isprintable() and not c.isspace()),
-                       ("non-ascii", lambda c: not c.isascii())):
-        if any(test(c) for c in value):
-            classes.append(name)
-    if re.search(r"%(?![0-9A-F]{2})", value):
-        classes.append("malformed-or-lowercase-escape")
-    return f"length={len(value)} classes={','.join(classes) or 'none'} segments={value.count(':') + 1}"
-
-
-def principal_identity(value, label, field):
-    """A bounded server actor id (PRINCIPAL); the failure names the field and its value-free shape."""
-    if not isinstance(value, str) or len(value) > PRINCIPAL_MAX or not PRINCIPAL.fullmatch(value):
-        raise ExecutionError(label, f"candidate omitted a bounded canonical identity ({field}; "
-                                    f"{principal_shape(value)})")
-    return value
-
-
 def structured(result, command, secrets=()):
     if result.get("isError"):
         problem = tool_error(result, secrets)
@@ -172,7 +114,7 @@ def structured(result, command, secrets=()):
     return value
 
 
-class JourneyExecutor:
+class JourneyExecutor(GatedApprovals):
     def __init__(self, state, target, observation, transport, *, manifest=None):
         self.state, self.target, self.observation, self.transport = state, target, observation, transport
         self.manifest = manifest
@@ -196,10 +138,10 @@ class JourneyExecutor:
         if not isinstance(arguments, dict):
             return False
         service_id = self.fixture.get("serviceId")
-        layer_id = self.resources.get("layerId")
-        if not isinstance(service_id, str) or not service_id or type(layer_id) is not int:
+        layer_index = self.resources.get("serviceLayerIndex")
+        if not isinstance(service_id, str) or not service_id or type(layer_index) is not int:
             return False
-        layer = {"serviceId": service_id, "layerId": layer_id}
+        layer = {"serviceId": service_id, "serviceLayerIndex": layer_index}
         if name == "honua_apply_style_preset":
             style_id = self.fixture.get("styleId")
             return (isinstance(style_id, str) and bool(style_id)
@@ -339,6 +281,9 @@ class JourneyExecutor:
             injected = {"id": fault["id"], "recoverable": True}
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
+        gated_proposal = pending_approval(result) if name == "honua_apply_style_preset" else None
+        if gated_proposal:
+            result = {"structuredContent": self.approve_style(gated_proposal, arguments)}
         try:
             output = structured(result, name, credential_values(self.transport.credentials))
         except ExecutionError as exc:
@@ -349,7 +294,7 @@ class JourneyExecutor:
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
         if name == "honua_publish_service":
-            self.record_publication(output)
+            output = self.record_publication(output, arguments)
         if number == 6 and name in {"honua_studio_create_draft", "honua_studio_update_draft",
                                      *stages.STUDIO_COMPOSITION_TOOLS}:
             self.record_map_draft(name, arguments, output)
@@ -574,10 +519,11 @@ class JourneyExecutor:
         if any(arguments.get(key) != value for key, value in wanted.items()):
             raise ActionRejected("honua_publish_service", "publication does not bind the uploaded dataset and connection")
 
-    def record_publication(self, output):
+    def record_publication(self, output, arguments):
+        if output.get("status") == "RequiresApproval" and output.get("requiresApproval") is True:
+            output = self.approve_publication(output, arguments)
         if output.get("status") != "Completed" or output.get("requiresApproval") is not False:
-            # service.publish is synchronous on the candidate (the submit handle is terminal), so name
-            # the terminal state it returned instead (masked; never the raw tool output).
+            # Name the state the publication ended in (masked; never the raw tool output).
             seen = masked_fields({name: output.get(name) for name in (
                 "status", "requiresApproval", "policyOutcome", "authorizationOutcome", "message")},
                 credential_values(self.transport.credentials))
@@ -598,28 +544,34 @@ class JourneyExecutor:
         uri = output.get("serviceUri")
         if uri != "honua://published-services/" + urllib.parse.quote_from_bytes(service_bytes, safe=""):
             raise ExecutionError("honua_publish_service", "candidate omitted or contradicted the published service URI")
-        layer = output.get("layerId")
+        storage_layer = self._layer_number(output, "storageLayerId")
+        layer_index = self._layer_number(output, "serviceLayerIndex")
+        # Native map tools accept the published service name as serviceId and address the layer by
+        # its index in that service; OGC Features and Studio sources address the storage layer.
+        self.resources.update(serviceName=service, serviceId=service, serviceUri=uri, layerId=storage_layer,
+                              serviceLayerIndex=layer_index)
+        self.evidence["nativePublication"] = {
+            "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
+            "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
+            "layerId": storage_layer,
+            "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
+        }
+        self.check_features()
+        return output
+
+    def _layer_number(self, output, field):
+        """A non-negative decimal layer number the candidate returned, never credential material."""
+        layer = output.get(field)
         raw_layer = str(layer) if isinstance(layer, str) or type(layer) is int else None
         if raw_layer is not None and any(secret and (secret == raw_layer or
                 secret.isdecimal() and raw_layer.isdecimal() and secret.lstrip("0") == raw_layer.lstrip("0"))
                 for secret in credential_values(self.transport.credentials)):
             raise ExecutionError("honua_publish_service", "candidate returned credential material as a layer identity")
         if type(layer) is int and layer >= 0:
-            layer_id = layer
-        elif isinstance(layer, str) and re.fullmatch(r"[0-9]{1,18}", layer):
-            layer_id = int(layer)
-        else:
-            raise ExecutionError("honua_publish_service", "candidate omitted the published layer identity")
-        # Native map tools accept the published service name as serviceId.
-        # Keep the returned name too, so this normalization stays explicit.
-        self.resources.update(serviceName=service, serviceId=service, serviceUri=uri, layerId=layer_id)
-        self.evidence["nativePublication"] = {
-            "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
-            "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
-            "layerId": layer_id,
-            "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
-        }
-        self.check_features()
+            return layer
+        if isinstance(layer, str) and re.fullmatch(r"[0-9]{1,18}", layer):
+            return int(layer)
+        raise ExecutionError("honua_publish_service", f"candidate omitted the published layer identity ({field})")
 
     def record_job(self, output):
         """Stage 5 job-runtime evidence, exactly as honua_execute_plan returned it."""
@@ -1115,7 +1067,7 @@ class JourneyExecutor:
         path = "/api/v1/admin/proposals/" + proposal_id
         reader = self.principal(8)
         before = self.transport.get_json(path, principal=reader)
-        if before.get("proposalId") != proposal_id or before.get("status") not in {"Pending", "AwaitingApproval"}:
+        if before.get("proposalId") != proposal_id or before.get("status") not in PROPOSAL_PENDING:
             raise ExecutionError("GET publication proposal", "publication did not persist awaiting separate approval")
         self.require_publication_intent(before)
         code, _ = self.transport.cli_approve(proposal_id, "proposer")
@@ -1127,22 +1079,10 @@ class JourneyExecutor:
         # A CLI usage error is not a security denial. Independently exercise the
         # authenticated candidate endpoint and require its actual 403 response.
         self.transport.http("POST", path + "/approve", principal="proposer", expected=(403,))
-        code, _ = self.transport.cli_approve(proposal_id, "approver")
-        if code:
-            raise ExecutionError("approveOperationProposal --profile approver", "typed separate-principal approval failed")
-        final = self.poll("GET approved proposal", lambda: self.transport.get_json(path, principal="approver"),
-                          lambda r: r.get("status") in {"Succeeded", "Approved", "Applied", "Rejected", "Failed"})
-        if (final.get("proposalId") != proposal_id or final.get("status") not in {"Succeeded", "Approved", "Applied"}
-                or final.get("requestedBy") != before.get("requestedBy")
-                or not final.get("resolvedBy") or final["resolvedBy"] == final.get("requestedBy")):
-            raise ExecutionError("GET approved proposal", "candidate did not prove separate principal resolution")
+        final, resolution = self.resolve_by_human(proposal_id, before, "approver")
         self.require_publication_intent(final)
-        self.evidence["approvalResolution"] = {"proposalId": proposal_id,
-                                              "requestedBy": principal_identity(final["requestedBy"], "GET approved proposal",
-                                                                                "requestedBy"),
-                                              "resolvedBy": principal_identity(final["resolvedBy"], "GET approved proposal",
-                                                                               "resolvedBy")}
-        self._check(8, "separation", "typed CLI separate-principal approval", lambda: self.evidence["approvalResolution"])
+        self.evidence["approvalResolution"] = {key: resolution[key] for key in ("proposalId", "requestedBy", "resolvedBy")}
+        self._check(8, "separation", "human session separate-principal approval", lambda: self.evidence["approvalResolution"])
         # The candidate emits no separate approval identity. The approval is keyed on
         # what it does report: the proposal, the resolving principal, and the audited
         # operation instance the approved replay executed. A server-reported approvalId
@@ -1161,8 +1101,7 @@ class JourneyExecutor:
             source = "publication-handle"
         else:
             raise ExecutionError("GET approved proposal", "candidate reported no execution for the approved proposal")
-        handle = self.transport.get_json("/api/v1/operations/handles/" + execution_id, principal=self.principal(8))
-        handle = handle.get("data", handle)
+        handle = self.settled_handle(execution_id, self.principal(8))
         sealed = {"itemId": self.resources.get("itemId"), "versionId": self.resources.get("versionId")}
         diff = set(final.get("diff") or [])
         if (handle.get("operationInstanceId") != execution_id or handle.get("proposalId") not in {None, proposal_id}
@@ -1387,9 +1326,9 @@ class JourneyExecutor:
                  "schema": self.resources["importSchema"], "table": self.resources["importTable"]})
 
         def style():
-            if "layerId" not in self.resources:
+            if "serviceLayerIndex" not in self.resources:
                 raise ExecutionError("honua_apply_style_preset", "imported published layer is unavailable", blocked=True)
-            params = {"serviceId": self.fixture["serviceId"], "layerId": self.resources["layerId"]}
+            params = {"serviceId": self.fixture["serviceId"], "serviceLayerIndex": self.resources["serviceLayerIndex"]}
             self.transport.http("POST", "/ogc/styles", principal=self.principal(4), body=self.fixture["style"], expected=(201,),
                                 extra_headers={"X-Style-Id": self.fixture["styleId"]})
             call(4, "honua_get_style", {"styleId": self.fixture["styleId"], "includeStylesheet": True})

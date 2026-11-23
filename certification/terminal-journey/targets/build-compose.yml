@@ -75,6 +75,21 @@ services:
       AWS_ACCESS_KEY_ID: "${HONUA_CANARY_AWS_ACCESS_KEY_ID:-}"
       AWS_SECRET_ACCESS_KEY: "${HONUA_CANARY_AWS_SECRET_ACCESS_KEY:-}"
       AWS_SESSION_TOKEN: "${HONUA_CANARY_AWS_SESSION_TOKEN:-}"
+      # A person approves proposals over a builtin password session, which the server mints only
+      # over HTTPS. Kestrel serves TLS itself from the run's throwaway localhost certificate, next to
+      # plain HTTP; redirection is off so the HTTP drivers keep working (as e2e/harness/compose.https.yml).
+      Kestrel__Endpoints__Https__Url: "https://+:8443"
+      Kestrel__Endpoints__Https__Protocols: "Http1"
+      Kestrel__Endpoints__Https__Certificate__Path: "/certs/tls.crt"
+      Kestrel__Endpoints__Https__Certificate__KeyPath: "/certs/tls.key"
+      Security__DisableHttpsRedirection: "true"
+      # Human review capabilities are bound to the configured public base URL; without one the server
+      # answers the approval review 503. It is the plain HTTP address the journey driver uses.
+      Public__BaseUrl: "http://127.0.0.1:${HONUA_SERVER_PORT:-8137}"
+    volumes:
+      - "${HONUA_JOURNEY_TLS_DIR:?fixture must write the run certificate}:/certs:ro"
+    ports:
+      - "${HONUA_JOURNEY_HTTPS_PORT:-8139}:8443"
     depends_on:
       redis:
         condition: service_healthy

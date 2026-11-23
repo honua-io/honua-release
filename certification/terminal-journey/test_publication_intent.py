@@ -155,20 +155,22 @@ def test_changed_proposal_cannot_borrow_a_previous_stage_seven_pass(candidate):
 
 
 @pytest.mark.parametrize('when', ['self-denial', 'separate-approval'])
-def test_approval_rechecks_intent_after_each_principal(candidate, when):
+def test_approval_rechecks_intent_after_each_principal(candidate, human_approver, when):
     engine, transport, state = candidate
-    def approve(_proposal_id, principal):
-        if principal == 'proposer':
-            if when == 'self-denial':
-                state['proposal']['diff'][-1] = 'visibility=personal'
-            return 1, None
+    def self_approve(_proposal_id, _principal):
+        if when == 'self-denial':
+            state['proposal']['diff'][-1] = 'visibility=personal'
+        return 1, None
+    def human_approve(*_args):
         state['proposal'].update(status='Succeeded', resolvedBy='separate-human')
         state['proposal']['diff'][-1] = 'visibility=personal'
-        return 0, None
-    transport.cli_approve.side_effect = approve
+        return {'result': 'approved'}
+    transport.cli_approve.side_effect = self_approve
+    human_approver.side_effect = human_approve
     with pytest.raises(ExecutionError, match='differs from the authored intent'):
         engine.approve('native-proposal')
-    assert transport.cli_approve.call_count == (1 if when == 'self-denial' else 2)
+    assert transport.cli_approve.call_count == 1
+    assert human_approver.call_count == (0 if when == 'self-denial' else 1)
     assert 'approvalResolution' not in engine.evidence
 
 
