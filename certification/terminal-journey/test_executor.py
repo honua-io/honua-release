@@ -664,7 +664,8 @@ AWAITING_PUBLICATION = {**{key: PUBLISH_OUTPUT[key] for key in ("operationId", "
                         "policyOutcome": "RequireApproval", "message": "Proposal created and awaiting approval."}
 OPERATOR_ACTOR = "apikey:api-key:0b6f2f8e-0a4e-4b8a-9d55-6f1d2c3b4a59"
 HUMAN_ACTOR = "cookie:name:admin"
-PENDING_PUBLICATION = {"proposalId": "proposal-publish-1", "status": "Pending", "requestedBy": OPERATOR_ACTOR}
+PENDING_PUBLICATION = {"proposalId": "proposal-publish-1", "status": "Pending", "requestedBy": OPERATOR_ACTOR,
+                       "summary": "Publish 'public.imported_journey_source' as layer 'journey_source'."}
 APPROVED_PUBLICATION = {**PENDING_PUBLICATION, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR}
 PUBLISHED_HANDLE = {"data": {**{key: PUBLISH_OUTPUT[key] for key in ("operationId", "operationInstanceId",
                                                                     "correlationId", "auditId")},
@@ -688,7 +689,8 @@ def publish(engine):
 
 def test_publication_proposal_is_approved_by_a_person_after_the_operator_is_refused(human_approver):
     features = {"type": "FeatureCollection", "features": copy.deepcopy(LOCAL_TARGET["execution"]["features"])}
-    engine = awaiting_publication_engine(PENDING_PUBLICATION, APPROVED_PUBLICATION, PUBLISHED_HANDLE, features)
+    engine = awaiting_publication_engine(PENDING_PUBLICATION, PENDING_PUBLICATION, APPROVED_PUBLICATION,
+                                         PUBLISHED_HANDLE, features)
     engine.evidence["checks"]["3"] = {
         name: {"id": f"3.{name}", "kind": "artifact", "invocation": name, "status": "pass", "detail": "ok"}
         for name in ("datasource", "import-complete")}
@@ -698,22 +700,23 @@ def test_publication_proposal_is_approved_by_a_person_after_the_operator_is_refu
     assert human_approver.call_args.args == ("https://localhost:8139", "proposal-publish-1",
                                              "private-admin-password", "/run/tls.crt")
     reads = [call.args[0] for call in engine.transport.get_json.call_args_list]
-    assert reads[:3] == ["/api/v1/admin/proposals/proposal-publish-1"] * 2 + [
+    assert reads[:4] == ["/api/v1/admin/proposals/proposal-publish-1"] * 3 + [
         "/api/v1/operations/handles/opinst-publish-1"]
-    assert reads[3] == "/ogc/features/collections/7/items"
+    assert reads[4] == "/ogc/features/collections/7/items"
     assert engine.resources["layerId"] == 7 and engine.resources["serviceLayerIndex"] == 0
     assert engine.resources["serviceUri"] == "honua://published-services/journey"
     assert "proposalId" not in engine.resources and "publicationOperation" not in engine.evidence
     assert engine.evidence["operatorApprovals"]["3"] == {"proposalId": "proposal-publish-1", "requestedBy": OPERATOR_ACTOR,
         "resolvedBy": HUMAN_ACTOR, "approvalChannel": "console-interactive-password", "operatorSelfApproval": "denied"}
     assert result["nativePublication"]["serviceLayerIndex"] == 0
+    assert result["nativePublication"]["serviceUriSource"] == "derived-from-handle"
     assert engine.result(3).status == "pass"
 
 
 def test_publication_refused_by_the_human_session_is_not_a_published_layer(human_approver):
     human_approver.return_value = {"result": "refused", "stage": "session", "httpStatus": 401,
                                    "detail": "bad private-admin-password"}
-    engine = awaiting_publication_engine(PENDING_PUBLICATION)
+    engine = awaiting_publication_engine(PENDING_PUBLICATION, PENDING_PUBLICATION)
     with pytest.raises(ExecutionError, match=r"human approval did not approve the proposal \(result=refused") as error:
         publish(engine)
     assert "private-admin-password" not in error.value.reason
@@ -721,7 +724,7 @@ def test_publication_refused_by_the_human_session_is_not_a_published_layer(human
 
 
 def test_publication_without_an_https_approval_channel_is_blocked():
-    engine = awaiting_publication_engine(PENDING_PUBLICATION)
+    engine = awaiting_publication_engine(PENDING_PUBLICATION, PENDING_PUBLICATION)
     with mock.patch.object(executor.local_fixture, "human_approval_channel", return_value=None):
         with pytest.raises(ExecutionError, match="no HTTPS human approval channel") as error:
             publish(engine)
@@ -733,9 +736,11 @@ def test_publication_without_an_https_approval_channel_is_blocked():
     ({**APPROVED_PUBLICATION, "status": "Rejected"}, PUBLISHED_HANDLE, "separate principal resolution"),
     (APPROVED_PUBLICATION, {"data": {**PUBLISHED_HANDLE["data"], "status": "Failed"}}, "did not complete"),
     (APPROVED_PUBLICATION, {"data": {**PUBLISHED_HANDLE["data"], "proposalId": "other"}}, "does not join the proposal"),
+    (APPROVED_PUBLICATION, {"data": {**PUBLISHED_HANDLE["data"], "operationId": "style.apply-preset"}},
+     "not the service publication"),
 ])
 def test_approved_publication_must_resolve_separately_and_complete_its_own_handle(approved, handle, reason):
-    engine = awaiting_publication_engine(PENDING_PUBLICATION, approved, handle)
+    engine = awaiting_publication_engine(PENDING_PUBLICATION, PENDING_PUBLICATION, approved, handle)
     with pytest.raises(ExecutionError, match=reason):
         publish(engine)
     assert "layerId" not in engine.resources
@@ -2118,7 +2123,8 @@ def test_journey_stack_serves_the_human_approval_session():
     assert LOCAL_TARGET["compose"]["httpsPort"] == 8139
 
 
-STYLE_PROPOSAL = {"proposalId": "proposal-style-1", "status": "Pending", "requestedBy": OPERATOR_ACTOR}
+STYLE_PROPOSAL = {"proposalId": "proposal-style-1", "status": "Pending", "requestedBy": OPERATOR_ACTOR,
+                  "summary": "Apply style 'journey-solid-red' on service 'journey', layer '0'."}
 STYLE_GATED = {"isError": True, "structuredContent": {
     "status": "error", "code": "failed_precondition", "approvalRequired": True, "proposalId": "proposal-style-1",
     "resourceUri": "honua://proposals/proposal-style-1", "message": "This operation requires approval",
@@ -2148,7 +2154,7 @@ def apply_style(engine):
 
 
 def test_gated_style_application_is_approved_by_a_person_and_joined_on_its_replay(human_approver):
-    engine = style_engine(STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR})
+    engine = style_engine(STYLE_PROPOSAL, STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR})
     apply_style(engine)
     engine.transport.http.assert_called_once_with("POST", "/api/v1/admin/proposals/proposal-style-1/approve",
                                                   principal="operator", expected=(403,))
@@ -2166,8 +2172,8 @@ def test_gated_style_application_is_approved_by_a_person_and_joined_on_its_repla
     ({"data": {**STYLE_HANDLE["data"], "operationInstanceId": "other"}}, "does not join the proposal"),
 ])
 def test_approved_style_replay_must_be_the_completed_style_application(handle, reason):
-    engine = style_engine(STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR},
-                          handle=handle)
+    engine = style_engine(STYLE_PROPOSAL, STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded",
+                          "resolvedBy": HUMAN_ACTOR}, handle=handle)
     with pytest.raises(ExecutionError, match=reason):
         apply_style(engine)
     assert "style-applied" not in engine.evidence["checks"].get("4", {})
@@ -2180,3 +2186,66 @@ def test_approval_refusal_without_its_own_resume_resource_stays_contradictory():
                    {"code": "invalid_argument"}, {"proposalId": "bad id"}):
         assert transport_module.pending_approval({**gated, "structuredContent": {**gated["structuredContent"], **change}}) is None
     assert transport_module.pending_approval({**gated, "isError": False}) is None
+
+
+@pytest.mark.parametrize("summary", ["Apply style 'other' on service 'journey', layer '0'.",
+                                     "Apply style 'journey-solid-red' on service 'journey', layer '1'.", None])
+def test_gated_proposal_for_another_call_is_never_approved(human_approver, summary):
+    engine = style_engine({**STYLE_PROPOSAL, "summary": summary})
+    with pytest.raises(ExecutionError, match="does not describe the operator's call"):
+        apply_style(engine)
+    human_approver.assert_not_called()
+    engine.transport.http.assert_not_called()
+
+
+def test_operator_self_approval_that_changes_the_proposal_is_not_a_refusal(human_approver):
+    engine = style_engine(STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Executing"})
+    with pytest.raises(ExecutionError, match="not refused without mutation"):
+        apply_style(engine)
+    human_approver.assert_not_called()
+
+
+def test_approval_refusal_carrying_other_execution_evidence_stays_contradictory():
+    gated = copy.deepcopy(STYLE_GATED)
+    assert not transport_module.has_execution_evidence(transport_module.without_resume_resource(gated))
+    for extra in ({"jobId": "job-1", "jobStatus": "Completed"}, {"operationInstanceId": "opinst-1"}):
+        tampered = {**gated, "structuredContent": {**gated["structuredContent"], **extra}}
+        assert transport_module.has_execution_evidence(transport_module.without_resume_resource(tampered))
+    text = {**gated, "content": [{"type": "text", "text": json.dumps({**gated["structuredContent"], "jobId": "job-1"})}]}
+    assert transport_module.has_execution_evidence(transport_module.without_resume_resource(text))
+
+
+def test_hung_human_approval_session_is_a_typed_failure(human_approver):
+    human_approver.side_effect = executor.subprocess.TimeoutExpired(["human_approval.py"], 180)
+    engine = style_engine(STYLE_PROPOSAL, STYLE_PROPOSAL)
+    with pytest.raises(ExecutionError, match="did not finish within its budget"):
+        apply_style(engine)
+
+
+def test_stage_eight_waits_for_a_submitted_replay_to_complete():
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "approver": "private-approver"})
+    engine = approval_engine(transport)
+    pending = {"proposalId": "proposal-1", "status": "Pending", "requestedBy": "actor-proposer", "diff": SEALED_DIFF}
+    handle = {"operationInstanceId": "opinst-exec", "operationId": "studio.content.create-publication-request",
+              "proposalId": "proposal-1", "auditId": "audit-approval", "correlationId": "00-corr-approval",
+              **SEALED_HANDLE}
+    transport.get_json.side_effect = [pending, pending,
+        {**pending, "status": "Submitted", "resolvedBy": "actor-approver", "executionOperationId": "opinst-exec"},
+        {"data": {**handle, "status": "Running"}}, {"data": handle}]
+    transport.cli_approve.side_effect = [(1, None)]
+    with mock.patch.object(executor.time, "sleep"):
+        assert engine.approve("proposal-1")["executionOperationId"] == "opinst-exec"
+    assert engine.evidence["checks"]["8"]["separation"]["status"] == "pass"
+
+
+def test_human_approval_channel_is_the_local_https_endpoint_with_the_bootstrap_password(
+        tmp_path, monkeypatch, unpatched_human_approval_channel):
+    channel = unpatched_human_approval_channel
+    monkeypatch.delenv("HONUA_JOURNEY_HTTPS_PORT", raising=False)
+    monkeypatch.delenv("HONUA_ADMIN_PASSWORD", raising=False)
+    assert channel(copy.deepcopy(LOCAL_TARGET), tmp_path) == {
+        "baseUrl": "https://localhost:8139", "password": "honua-console-dev-key", "cafile": str(tmp_path / "tls" / "tls.crt")}
+    no_https = copy.deepcopy(LOCAL_TARGET)
+    del no_https["compose"]["httpsPort"]
+    assert channel(no_https, tmp_path) is None
+    assert channel({**copy.deepcopy(LOCAL_TARGET), "kind": "aws-ecs"}, tmp_path) is None

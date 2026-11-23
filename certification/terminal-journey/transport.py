@@ -131,6 +131,29 @@ def pending_approval(result):
     return proposal if content.get("resourceUri") == PROPOSAL_URI + proposal else None
 
 
+def without_resume_resource(result):
+    """A pending-approval refusal minus only its proposal's resume URI, so any other evidence still counts."""
+    proposal = pending_approval(result)
+    if proposal is None:
+        return result
+
+    def strip(value):
+        if isinstance(value, dict) and value.get("resourceUri") == PROPOSAL_URI + proposal:
+            return {key: item for key, item in value.items() if key != "resourceUri"}
+        return value
+
+    def strip_text(block):
+        if not isinstance(block, dict) or not isinstance(block.get("text"), str):
+            return block
+        try:
+            return {**block, "text": json.dumps(strip(json.loads(block["text"])))}
+        except ValueError:
+            return block
+
+    return {**result, "structuredContent": strip(result["structuredContent"]),
+            "content": [strip_text(block) for block in result.get("content") or []]}
+
+
 def tool_error(result, secrets=()):
     """The typed problem a candidate tool error carries, masked; never raw tool output."""
     content = result.get("structuredContent")
@@ -285,7 +308,7 @@ class Transport:
                                      + (f" ({describe_fields(fields)})" if fields else ""), problem=fields)
             if "isError" in result and type(result["isError"]) is not bool:
                 raise ExecutionError(name, "candidate tool result has a nonboolean error marker")
-            if result.get("isError") is True and pending_approval(result) is None and has_execution_evidence(result):
+            if result.get("isError") is True and has_execution_evidence(without_resume_resource(result)):
                 raise ExecutionError(name, "candidate error carries contradictory execution evidence")
             return result
 

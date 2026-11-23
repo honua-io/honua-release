@@ -12,8 +12,10 @@ import os
 import re
 import time
 import urllib.parse
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Barrier, BrokenBarrierError
 
@@ -123,7 +125,19 @@ PROPOSAL_PENDING = {"Pending", "AwaitingApproval"}
 PROPOSAL_APPROVED = {"Succeeded", "Approved", "Applied", "Submitted"}
 PROPOSAL_RESOLVED = PROPOSAL_APPROVED | {"Rejected", "Failed"}
 HANDLE_IN_FLIGHT = {"Queued", "Running", "RequiresApproval"}
+# What an approval, rejection or replay of a proposal would change.
+PROPOSAL_STATE = ("proposalId", "status", "version", "planHash", "summary", "resolvedBy", "executionOperationId")
+HANDLE_IDS = ("operationId", "operationInstanceId", "correlationId", "auditId")
 CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless|aws-eks)/(redis-on|redis-off)\Z")
+
+
+@dataclass(frozen=True)
+class GatedCall:
+    """An operator call the server filed as a proposal: its stage, proposal, replay instance and summary."""
+    stage: int
+    proposal_id: str
+    instance_id: str
+    summary: str
 
 
 def declared_redis_topology(target):
@@ -350,8 +364,9 @@ class JourneyExecutor:
             injected = {"id": fault["id"], "recoverable": True}
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
-        if name == "honua_apply_style_preset" and pending_approval(result):
-            result = {"structuredContent": self.approve_style(pending_approval(result), arguments)}
+        gated_proposal = pending_approval(result) if name == "honua_apply_style_preset" else None
+        if gated_proposal:
+            result = {"structuredContent": self.approve_style(gated_proposal, arguments)}
         try:
             output = structured(result, name, credential_values(self.transport.credentials))
         except ExecutionError as exc:
@@ -362,7 +377,7 @@ class JourneyExecutor:
                 raise ExecutionError(name, "candidate did not apply the selected canonical style")
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
         if name == "honua_publish_service":
-            output = self.record_publication(output)
+            output = self.record_publication(output, arguments)
         if number == 6 and name in {"honua_studio_create_draft", "honua_studio_update_draft",
                                      *stages.STUDIO_COMPOSITION_TOOLS}:
             self.record_map_draft(name, arguments, output)
@@ -587,9 +602,9 @@ class JourneyExecutor:
         if any(arguments.get(key) != value for key, value in wanted.items()):
             raise ActionRejected("honua_publish_service", "publication does not bind the uploaded dataset and connection")
 
-    def record_publication(self, output):
+    def record_publication(self, output, arguments):
         if output.get("status") == "RequiresApproval" and output.get("requiresApproval") is True:
-            output = self.approve_publication(output)
+            output = self.approve_publication(output, arguments)
         if output.get("status") != "Completed" or output.get("requiresApproval") is not False:
             # Name the state the publication ended in (masked; never the raw tool output).
             seen = masked_fields({name: output.get(name) for name in (
@@ -621,6 +636,7 @@ class JourneyExecutor:
         self.evidence["nativePublication"] = {
             "serviceNameSha256": hashlib.sha256(service_bytes).hexdigest(),
             "serviceUriSha256": hashlib.sha256(uri.encode()).hexdigest(),
+            "serviceUriSource": output.get("serviceUriSource", "candidate"),
             "layerId": storage_layer,
             "serviceLayerIndex": layer_index,
             "fixtureServiceNameMatches": service == self.fixture.get("serviceId"),
@@ -628,43 +644,70 @@ class JourneyExecutor:
         self.check_features()
         return output
 
-    def approve_publication(self, submitted):
+    def approve_publication(self, submitted, arguments):
         """Service publication is the human approval point: the operator proposes, a person approves.
 
         The approved replay reuses the submitted operation instance, so its completed handle is the
         publication's identity.
         """
-        proposal_id = identity(submitted.get("proposalId"), "honua_publish_service")
-        instance_id = identity(submitted.get("operationInstanceId"), "honua_publish_service")
-        return self.project_publication(self.approve_gated(3, proposal_id, instance_id))
+        gate = GatedCall(3, identity(submitted.get("proposalId"), "honua_publish_service"),
+                         identity(submitted.get("operationInstanceId"), "honua_publish_service"),
+                         f"Publish '{arguments.get('schema')}.{arguments.get('table')}' "
+                         f"as layer '{arguments.get('layerName')}'.")
+        handle = self.approve_gated(gate)
+        if handle.get("operationId") != "service.publish":
+            raise ExecutionError("GET approved publication handle", "approved replay is not the service publication")
+        return self.project_publication(handle)
 
     def approve_style(self, proposal_id, arguments):
-        """An operator's style application on an agent transport is gated the same way."""
-        handle = self.approve_gated(4, proposal_id, self.proposal_operation_instance(proposal_id))
+        """An operator's style application on an agent transport is gated the same way.
+
+        The handle names no style, so the style is bound by the proposal a person approved.
+        """
+        gate = GatedCall(4, proposal_id, self.proposal_operation_instance(proposal_id),
+                         f"Apply style '{arguments.get('styleId')}' on service '{arguments.get('serviceId')}', "
+                         f"layer '{arguments.get('serviceLayerIndex')}'.")
+        handle = self.approve_gated(gate)
         if handle.get("operationId") != "style.apply-preset":
             raise ExecutionError("GET approved style handle", "approved replay is not the style application")
         return {"status": handle.get("status"), "applied": handle.get("status") == "Completed",
-                "styleId": arguments.get("styleId"),
-                **{key: handle.get(key) for key in ("operationId", "operationInstanceId", "correlationId", "auditId")}}
+                "styleId": arguments.get("styleId"), **{key: handle.get(key) for key in HANDLE_IDS}}
 
-    def approve_gated(self, number, proposal_id, instance_id):
-        """A gated operator call: the operator's own approval is refused first, then a person approves.
+    def approve_gated(self, gate):
+        """A gated operator call: a person approves the exact proposal after the operator is refused.
 
-        Returns the approved replay's settled handle, joined on the proposal.
+        The proposal must name the gated call before anyone approves it, and the operator's refused
+        attempt must leave it untouched. Returns the approved replay's settled handle.
         """
-        path = "/api/v1/admin/proposals/" + proposal_id
-        operator = self.principal(number)
-        pending = self.transport.get_json(path, principal=operator)
-        if (pending.get("proposalId") != proposal_id or pending.get("status") not in PROPOSAL_PENDING
+        path = "/api/v1/admin/proposals/" + gate.proposal_id
+        operator = self.principal(gate.stage)
+        pending = self.pending_gated_proposal(gate, operator)
+        self.transport.http("POST", path + "/approve", principal=operator, expected=(403,))
+        after = self.transport.get_json(path, principal=operator)
+        if any(after.get(key) != pending.get(key) for key in PROPOSAL_STATE):
+            raise ExecutionError("approve as operator", "operator self-approval was not refused without mutation")
+        _, resolution = self.resolve_by_human(gate.proposal_id, pending, operator)
+        handle = self.settled_handle(gate.instance_id, operator)
+        if handle.get("proposalId") not in {None, gate.proposal_id}:
+            raise ExecutionError("GET approved operation handle", "approved replay handle does not join the proposal")
+        self.evidence.setdefault("operatorApprovals", {})[str(gate.stage)] = {
+            **resolution, "operatorSelfApproval": "denied"}
+        return handle
+
+    def pending_gated_proposal(self, gate, operator):
+        pending = self.transport.get_json("/api/v1/admin/proposals/" + gate.proposal_id, principal=operator)
+        if (pending.get("proposalId") != gate.proposal_id or pending.get("status") not in PROPOSAL_PENDING
                 or pending.get("resolvedBy")):
             raise ExecutionError("GET gated proposal", "gated operator call did not persist awaiting approval")
-        self.transport.http("POST", path + "/approve", principal=operator, expected=(403,))
-        _, resolution = self.resolve_by_human(proposal_id, pending, operator)
-        handle = self.poll("GET approved operation handle", lambda: self.operation_handle(instance_id, operator),
+        if pending.get("summary") != gate.summary:
+            raise ExecutionError("GET gated proposal", "gated proposal does not describe the operator's call")
+        return pending
+
+    def settled_handle(self, instance_id, principal):
+        handle = self.poll("GET approved operation handle", lambda: self.operation_handle(instance_id, principal),
                            lambda value: value.get("status") not in HANDLE_IN_FLIGHT)
-        if handle.get("operationInstanceId") != instance_id or handle.get("proposalId") not in {None, proposal_id}:
+        if handle.get("operationInstanceId") != instance_id:
             raise ExecutionError("GET approved operation handle", "approved replay handle does not join the proposal")
-        self.evidence.setdefault("operatorApprovals", {})[str(number)] = {**resolution, "operatorSelfApproval": "denied"}
         return handle
 
     def proposal_operation_instance(self, proposal_id):
@@ -684,9 +727,10 @@ class JourneyExecutor:
         """The fields honua_publish_service projects from a completed handle (McpPublishServiceOutput)."""
         published = {**(handle.get("resourceIds") or {}), **((handle.get("result") or {}).get("details") or {})}
         service = published.get("serviceName")
+        # The handle names no URI; honua_publish_service derives it from the service name the same way.
         return {"status": handle.get("status"), "requiresApproval": False,
-                **{key: handle.get(key) for key in ("operationId", "operationInstanceId", "correlationId", "auditId")},
-                "serviceName": service,
+                **{key: handle.get(key) for key in HANDLE_IDS},
+                "serviceName": service, "serviceUriSource": "derived-from-handle",
                 "serviceUri": ("honua://published-services/" + urllib.parse.quote(service, safe="")
                                if isinstance(service, str) else None),
                 **{key: published.get(key) for key in ("storageLayerId", "serviceLayerIndex")}}
@@ -716,8 +760,11 @@ class JourneyExecutor:
         channel = local_fixture.human_approval_channel(self.target, self.transport.workdir)
         if channel is None:
             raise ExecutionError(command, "target exposes no HTTPS human approval channel", blocked=True)
-        outcome = human_approval.approve_in_child(channel["baseUrl"], proposal_id, channel["password"],
-                                                  channel["cafile"])
+        try:
+            outcome = human_approval.approve_in_child(channel["baseUrl"], proposal_id, channel["password"],
+                                                      channel["cafile"])
+        except subprocess.TimeoutExpired as exc:
+            raise ExecutionError(command, "human approval session did not finish within its budget") from exc
         if outcome.get("result") != "approved":
             seen = masked_fields({key: outcome.get(key) for key in ("result", "stage", "httpStatus", "detail")},
                                  [*credential_values(self.transport.credentials), channel["password"]])
@@ -1266,8 +1313,7 @@ class JourneyExecutor:
             source = "publication-handle"
         else:
             raise ExecutionError("GET approved proposal", "candidate reported no execution for the approved proposal")
-        handle = self.transport.get_json("/api/v1/operations/handles/" + execution_id, principal=self.principal(8))
-        handle = handle.get("data", handle)
+        handle = self.settled_handle(execution_id, self.principal(8))
         sealed = {"itemId": self.resources.get("itemId"), "versionId": self.resources.get("versionId")}
         diff = set(final.get("diff") or [])
         if (handle.get("operationInstanceId") != execution_id or handle.get("proposalId") not in {None, proposal_id}

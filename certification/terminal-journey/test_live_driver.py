@@ -181,7 +181,7 @@ def test_next_stage_context_exposes_native_publication_identity_separately_from_
     with mock.patch.object(engine, "check_features"):
         engine.record_publication({"status": "Completed", "requiresApproval": False, "storageLayerId": "17",
             "serviceLayerIndex": "0",
-            "serviceName": "observed-published", "serviceUri": "honua://published-services/observed-published"})
+            "serviceName": "observed-published", "serviceUri": "honua://published-services/observed-published"}, {})
     stage = json.loads((live_driver.HERE / "journey.v1.json").read_text())["stages"][3]
     status = {"number": 4, "id": stage["id"], "command": stage["command"], "checks": [], "status": "blocked"}
     with mock.patch.object(live_driver, "_rehydrate", return_value=(engine.state, target, {}, engine.observation, None)), \
