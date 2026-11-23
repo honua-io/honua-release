@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -23,6 +24,9 @@ PROPOSAL_RESOLVED = PROPOSAL_APPROVED | {"Rejected", "Failed"}
 HANDLE_IN_FLIGHT = {"Queued", "Running", "RequiresApproval"}
 # Proposal fields an operator's refused approval must leave untouched.
 PROPOSAL_STATE = ("proposalId", "status", "version", "planHash", "summary", "resolvedBy", "executionOperationId")
+# The style proposal names the service by its catalog metadata id, which the server resolves from the
+# requested service; the style and layer index are the operator's own values.
+SERVICE_METADATA_ID = r"[^'\s]{1,200}"
 HANDLE_IDS = ("operationId", "operationInstanceId", "correlationId", "auditId")
 
 
@@ -32,7 +36,7 @@ class GatedCall:
     stage: int
     proposal_id: str
     instance_id: str
-    summary: str
+    summary: re.Pattern
 
 
 class GatedApprovals:
@@ -46,8 +50,8 @@ class GatedApprovals:
         """
         gate = GatedCall(3, identity(submitted.get("proposalId"), "honua_publish_service"),
                          identity(submitted.get("operationInstanceId"), "honua_publish_service"),
-                         f"Publish '{arguments.get('schema')}.{arguments.get('table')}' "
-                         f"as layer '{arguments.get('layerName')}'.")
+                         re.compile(re.escape(f"Publish '{arguments.get('schema')}.{arguments.get('table')}' "
+                                              f"as layer '{arguments.get('layerName')}'.")))
         handle = self.approve_gated(gate)
         if handle.get("operationId") != "service.publish":
             raise ExecutionError("GET approved publication handle", "approved replay is not the service publication")
@@ -61,8 +65,9 @@ class GatedApprovals:
         The handle names no style, so the style is bound by the proposal a person approved.
         """
         gate = GatedCall(4, proposal_id, self.proposal_operation_instance(proposal_id),
-                         f"Apply style '{arguments.get('styleId')}' on service '{arguments.get('serviceId')}', "
-                         f"layer '{arguments.get('serviceLayerIndex')}'.")
+                         re.compile(re.escape(f"Apply style '{arguments.get('styleId')}' on service '")
+                                    + SERVICE_METADATA_ID
+                                    + re.escape(f"', layer '{arguments.get('serviceLayerIndex')}'.")))
         handle = self.approve_gated(gate)
         if handle.get("operationId") != "style.apply-preset":
             raise ExecutionError("GET approved style handle", "approved replay is not the style application")
@@ -95,7 +100,7 @@ class GatedApprovals:
         if (pending.get("proposalId") != gate.proposal_id or pending.get("status") not in PROPOSAL_PENDING
                 or pending.get("resolvedBy")):
             raise ExecutionError("GET gated proposal", "gated operator call did not persist awaiting approval")
-        if pending.get("summary") != gate.summary:
+        if not isinstance(pending.get("summary"), str) or not gate.summary.fullmatch(pending["summary"]):
             raise ExecutionError("GET gated proposal", "gated proposal does not describe the operator's call")
         return pending
 

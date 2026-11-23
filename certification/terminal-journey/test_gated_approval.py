@@ -191,7 +191,9 @@ def test_approval_refusal_without_its_own_resume_resource_stays_contradictory():
 
 
 @pytest.mark.parametrize("summary", ["Apply style 'other' on service 'journey', layer '0'.",
-                                     "Apply style 'journey-solid-red' on service 'journey', layer '1'.", None])
+                                     "Apply style 'journey-solid-red' on service 'journey', layer '1'.",
+                                     "Apply style 'journey-solid-red' on service '', layer '0'.",
+                                     "Preview style 'journey-solid-red' on service 'journey', layer '0'.", None])
 def test_gated_proposal_for_another_call_is_never_approved(human_approver, summary):
     engine = style_engine({**STYLE_PROPOSAL, "summary": summary})
     with pytest.raises(ExecutionError, match="does not describe the operator's call"):
@@ -251,3 +253,11 @@ def test_human_approval_channel_is_the_local_https_endpoint_with_the_bootstrap_p
     del no_https["compose"]["httpsPort"]
     assert channel(no_https, tmp_path) is None
     assert channel({**copy.deepcopy(LOCAL_TARGET), "kind": "aws-ecs"}, tmp_path) is None
+
+
+def test_style_proposal_names_the_service_by_its_catalog_metadata_id(human_approver):
+    canonical = {**STYLE_PROPOSAL, "summary": "Apply style 'journey-solid-red' on service 'svc-4f1c2a', layer '0'."}
+    engine = style_engine(canonical, canonical, {**canonical, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR})
+    apply_style(engine)
+    assert engine.evidence["checks"]["4"]["style-applied"]["status"] == "pass"
+    assert human_approver.call_count == 1
