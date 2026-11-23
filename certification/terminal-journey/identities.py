@@ -15,10 +15,8 @@ TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
 #   operation gateway records as requestedBy for honua_studio_propose_publication):
 #     `subject:<issuer>:<subject>@tenant:<tenant>` for an issuer-bearing token, else the bare
 #     api_key_id / api_key_name / identity name (a legacy TOKEN-shaped id).
-# e2e-cloud-aws run 40947860102 refused the `%` in the signed bearer proposer; #1075 then admitted
-# `%XX` but not the `@tenant:` suffix, so run 40981429785 (aws-eks/redis-on, proposer
-# `subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:public`) still failed
-# 8.execution with "omitted a bounded canonical identity (requestedBy)".
+# Both the `%XX` escapes and the `@tenant:` suffix are admitted, e.g. the signed bearer proposer
+# `subject:https%3A%2F%2Fterminal-journey.invalid:journey-author@tenant:public`.
 _ACTOR_ESCAPED = r"(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})"
 _ACTOR_SCHEME = r"[a-z0-9][a-z0-9._-]{0,63}"
 PRINCIPAL_MAX = 512
