@@ -95,18 +95,19 @@ def test_a_record_of_other_skill_content_fails():
     assert 'other skill content' in gap(result(digest='sha256:y'))
 
 
-OLD = (NOW - dt.timedelta(days=15)).isoformat().replace('+00:00', 'Z')
-FUTURE = (NOW + dt.timedelta(days=1)).isoformat().replace('+00:00', 'Z')
+def days_ago(days):
+    return (NOW - dt.timedelta(days=days)).isoformat().replace('+00:00', 'Z')
 
 
 @pytest.mark.parametrize('field,value,expected', [
     ('serverSha', None, 'serverSha'), ('serverSha', 'abc', 'serverSha'), ('serverSha', 'A' * 40, 'serverSha'),
-    ('observedAt', None, 'observedAt'), ('observedAt', OLD, 'observedAt'), ('observedAt', FUTURE, 'observedAt'),
-    ('observedAt', STAMP.replace('Z', '+00:00'), 'observedAt'),
+    ('observedAt', None, 'observedAt'), ('observedAt', 15, 'observedAt'), ('observedAt', -1, 'observedAt'),
+    ('observedAt', '2026-11-22T00:00:00+00:00', 'observedAt'),
     ('evidence', None, 'evidence'), ('evidence', '', 'evidence'), ('evidence', 'http://x.test', 'evidence'),
     ('evidence', 'evals/missing.md', 'evidence'), ('evidence', '../outside.md', 'evidence'),
 ])
 def test_a_record_without_provenance_fails(field, value, expected):
+    value = days_ago(value) if type(value) is int else value
     assert expected in gap({**result(), field: value})
 
 
