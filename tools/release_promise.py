@@ -27,7 +27,7 @@ REQUIRED_IDS = frozenset({*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 1
                          'clients-installed', 'operates-telemetry', 'operates-restore'})
 AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection'))
 
-GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity'}
+GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity', 'ga-capabilities'}
 ALL_IDS = REQUIRED_IDS | GA_ONLY_IDS
 SECURITY_SUMMARY_ROW = 'security-open-high'
 SECURITY_SUMMARY_ACTORS = frozenset({'mikemcdougall'})

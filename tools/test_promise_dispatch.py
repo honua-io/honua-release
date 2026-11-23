@@ -134,7 +134,8 @@ def test_a_release_train_in_flight_holds_back_only_the_producers_it_calls(monkey
     argv = ['--manifest', str(manifest), '--dispatch', '--summary', str(summary)]
     assert dispatch.main(argv, run=fake_gh(commands, busy={'nightly-certification.yml'})) == 0
     dispatched = {command[3] for command in commands if command[:3] == ['gh', 'workflow', 'run']}
-    assert dispatched == PINNED == {'gate-source-facts.yml', 'gate-agent-safety.yml'}
+    assert dispatched == PINNED == {'gate-source-facts.yml', 'gate-agent-safety.yml',
+                                   'gate-ga-capabilities.yml'}
     assert dispatch.train_called() >= set(dispatch.DISPATCHED) - PINNED
     assert 'skipped: a release train is in flight (nightly-certification.yml run 7 in flight)' in summary.read_text()
 

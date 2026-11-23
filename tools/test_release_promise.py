@@ -48,13 +48,14 @@ def test_contract_covers_every_required_promise():
         'security-hardened', 'security-open-high', 'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot', 'cloud-no-redis-source',
         'security-agent-default-deny', 'operates-8-upgrade',
         'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable', 'clients-installed',
-        'operates-telemetry', 'operates-restore', 'protocol-compat', 'operates-capacity'}
-    assert len(rows) == 33
+        'operates-telemetry', 'operates-restore', 'protocol-compat', 'operates-capacity',
+        'ga-capabilities'}
+    assert len(rows) == 34
 
 
 def test_missing_rows_fail_closed():
     results = p.evaluate(p.load_contract(CONTRACT), {}, (CANDIDATE, NOW))
-    assert len(results) == 33
+    assert len(results) == 34
     assert all(r['status'] == 'missing' for r in results)
 
 
