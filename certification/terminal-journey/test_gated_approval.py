@@ -261,3 +261,37 @@ def test_style_proposal_names_the_service_by_its_catalog_metadata_id(human_appro
     apply_style(engine)
     assert engine.evidence["checks"]["4"]["style-applied"]["status"] == "pass"
     assert human_approver.call_count == 1
+
+
+def test_proposal_ids_share_the_one_bounded_token_validator():
+    import identities
+    assert transport_module.TOKEN is identities.TOKEN
+    assert not hasattr(transport_module, "PROPOSAL_ID")
+
+
+def _journey_calls():
+    import discovery
+    return {(row["surface"], row["name"]) for row in discovery.calls()}
+
+
+def test_human_session_admin_calls_enter_the_roster_inventory(human_approver):
+    import discovery
+    discovery.reset_calls()
+    engine = style_engine(STYLE_PROPOSAL, STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR})
+    apply_style(engine)
+    calls = _journey_calls()
+    assert {("rest", "GET /api/v1/admin/auth/csrf"), ("rest", "POST /api/v1/admin/auth/session"),
+            ("rest", "POST /api/v1/admin/proposals/proposal-style-1/approve"),
+            ("human-session", "GET /api/v1/admin/proposals/proposal-style-1/approval-review")} <= calls
+
+
+def test_refused_human_session_records_only_the_calls_it_reached(human_approver):
+    import discovery
+    discovery.reset_calls()
+    human_approver.return_value = {"result": "refused", "stage": "session", "httpStatus": 401, "detail": "denied"}
+    engine = style_engine(STYLE_PROPOSAL, STYLE_PROPOSAL)
+    with pytest.raises(ExecutionError, match="human approval did not approve"):
+        apply_style(engine)
+    calls = _journey_calls()
+    assert ("rest", "POST /api/v1/admin/auth/session") in calls
+    assert not any("approval-review" in name for _, name in calls)

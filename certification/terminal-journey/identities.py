@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import re
 
-from transport import ExecutionError
+from transport import TOKEN, ExecutionError
 
-TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
 # A proposal's requestedBy/resolvedBy is a server actor id, not an opaque token. honua-server emits
 # exactly these shapes, every free component Uri.EscapeDataString-encoded (unreserved
 # [A-Za-z0-9._~-] kept, everything else as uppercase %XX):

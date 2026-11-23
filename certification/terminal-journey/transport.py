@@ -111,7 +111,8 @@ def has_execution_evidence(value):
     return False
 
 
-PROPOSAL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
+# A bounded opaque identity the candidate returns (proposal, operation, resource ids).
+TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
 PROPOSAL_URI = "honua://proposals/"
 
 
@@ -126,7 +127,7 @@ def pending_approval(result):
             or content.get("approvalRequired") is not True or content.get("code") != "failed_precondition"):
         return None
     proposal = content.get("proposalId")
-    if not isinstance(proposal, str) or not PROPOSAL_ID.fullmatch(proposal):
+    if not isinstance(proposal, str) or not TOKEN.fullmatch(proposal):
         return None
     return proposal if content.get("resourceUri") == PROPOSAL_URI + proposal else None
 
@@ -317,7 +318,7 @@ class Transport:
         import probes
 
         if uri != "honua://catalog/processes" and not (uri.startswith(PROPOSAL_URI)
-                                                         and PROPOSAL_ID.fullmatch(uri[len(PROPOSAL_URI):])):
+                                                         and TOKEN.fullmatch(uri[len(PROPOSAL_URI):])):
             raise ActionRejected("resource read", "resource is outside the current stage and bounded view")
         if not self.proxy or not self.proxy.is_file():
             raise ExecutionError("resource read", "verified installed proxy is unavailable", blocked=True)

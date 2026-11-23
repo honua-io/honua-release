@@ -9,6 +9,7 @@ import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
+import discovery
 import local_fixture
 from identities import _token, identity, principal_identity
 from transport import PROPOSAL_URI, ExecutionError, credential_values, describe_fields, masked_fields
@@ -27,6 +28,13 @@ PROPOSAL_STATE = ("proposalId", "status", "version", "planHash", "summary", "res
 # The style proposal names the service by its catalog metadata id, which the server resolves from the
 # requested service; the style and layer index are the operator's own values.
 SERVICE_METADATA_ID = r"[^'\s]{1,200}"
+# The human session helper's requests, in order, by the stage name it reports on refusal. The approval
+# review is excluded from the server's OpenAPI description by design (only a person opens it), so it is
+# inventoried on its own surface; the others are Admin routes the roster judges.
+HUMAN_SESSION_CALLS = (("csrf", "rest", "GET /api/v1/admin/auth/csrf"),
+                       ("session", "rest", "POST /api/v1/admin/auth/session"),
+                       ("review", "human-session", "GET /api/v1/admin/proposals/{id}/approval-review"),
+                       ("approve", "rest", "POST /api/v1/admin/proposals/{id}/approve"))
 HANDLE_IDS = ("operationId", "operationInstanceId", "correlationId", "auditId")
 
 
@@ -165,8 +173,23 @@ class GatedApprovals:
                                                       channel["cafile"])
         except subprocess.TimeoutExpired as exc:
             raise ExecutionError(command, "human approval session did not finish within its budget") from exc
+        record_human_session_calls(proposal_id, outcome)
         if outcome.get("result") != "approved":
             seen = masked_fields({key: outcome.get(key) for key in ("result", "stage", "httpStatus", "detail")},
                                  [*credential_values(self.transport.credentials), channel["password"]])
             raise ExecutionError(command, "human approval did not approve the proposal (" + describe_fields(seen) + ")")
         return outcome
+
+
+def record_human_session_calls(proposal_id, outcome):
+    """Register the requests the child helper made, up to the stage it reached, in the run's inventory."""
+    stages = [stage for stage, _, _ in HUMAN_SESSION_CALLS]
+    if outcome.get("result") == "approved":
+        reached = len(stages)
+    elif outcome.get("result") == "refused" and outcome.get("stage") in stages:
+        reached = stages.index(outcome["stage"]) + 1
+    else:
+        reached = 0
+    quoted = urllib.parse.quote(proposal_id, safe="")
+    for _, surface, route in HUMAN_SESSION_CALLS[:reached]:
+        discovery.record_call(surface, route.replace("{id}", quoted))
