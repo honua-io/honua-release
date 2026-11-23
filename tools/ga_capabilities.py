@@ -44,6 +44,7 @@ ROW = 'ga-capabilities'
 RECEIPT = Path('ga-capabilities.json')
 REPORT = Path('ga-capabilities-report.json')
 SHOWN_FINDINGS = 200
+FULL_PASS_RATE = 100.0
 LEDGER_KEYS = frozenset({'schema', 'authority', 'minProvingTests', 'interopMaxAgeDays',
                          'nonGaStatuses', 'protocolCategories', 'aiCategories',
                          'securityTestPattern', 'evaluations'})
@@ -180,7 +181,7 @@ def interop_gap(entry: dict, ledger: dict, now: dt.datetime) -> str | None:
 
 def cite_gap(entry: dict) -> str | None:
     short = [suite for suite in entry.get('cite') or []
-             if not isinstance(suite, dict) or (suite.get('passRate') or 0) < 100.0]
+             if not isinstance(suite, dict) or (suite.get('passRate') or 0) < FULL_PASS_RATE]
     if not short:
         return None
     names = ', '.join(f"{suite.get('suite')} {suite.get('passRate')}%" if isinstance(suite, dict)
@@ -226,9 +227,8 @@ def evaluate_capability(entry: dict, context: tuple) -> dict:
     }
 
 
-def evaluate(matrix: dict, catalog: dict, ledger: dict, rows: set[str],
-             now: dt.datetime) -> list[dict]:
-    context = (tests_by_capability(catalog), ledger, rows, now)
+def evaluate(matrix: dict, catalog: dict, ledger: dict, now: dt.datetime) -> list[dict]:
+    context = (tests_by_capability(catalog), ledger, promise_rows(), now)
     corpus = ga_corpus(matrix, ledger)
     if any(not isinstance(entry.get('key'), str) for entry in corpus):
         raise Unavailable('a GA capability has no key')
@@ -292,14 +292,15 @@ def head_sha(checkout: Path) -> str:
         return 'unknown'
 
 
-def run(checkout: Path, diagnostic: bool, now: dt.datetime) -> tuple[list[dict], dict | None]:
-    candidate = None
-    if not diagnostic:
-        candidate = source_facts.candidate_from_environment()
-        source_facts.require_candidate_checkout(checkout, candidate)
-    results = evaluate(read_json(checkout, MATRIX), read_json(checkout, CATALOG),
-                       load_ledger(), promise_rows(), now)
-    return results, (receipt(candidate, results, now) if candidate else None)
+def diagnose(checkout: Path, now: dt.datetime) -> tuple[list[dict], None]:
+    return evaluate(read_json(checkout, MATRIX), read_json(checkout, CATALOG), load_ledger(), now), None
+
+
+def certify(checkout: Path, now: dt.datetime) -> tuple[list[dict], dict]:
+    candidate = source_facts.candidate_from_environment()
+    source_facts.require_candidate_checkout(checkout, candidate)
+    results, _ = diagnose(checkout, now)
+    return results, receipt(candidate, results, now)
 
 
 def write_outputs(results: list[dict], document: dict | None, server_sha: str) -> None:
@@ -324,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     checkout = Path(os.environ.get('SERVER_CHECKOUT', 'server'))
     now = dt.datetime.now(dt.timezone.utc)
     try:
-        results, document = run(checkout, args.diagnostic, now)
+        results, document = (diagnose if args.diagnostic else certify)(checkout, now)
     except (Unavailable, source_facts.FactsUnavailable, OSError, ValueError, KeyError,
             subprocess.CalledProcessError) as error:
         print(f'GA capability gate unavailable: {error}', file=sys.stderr)

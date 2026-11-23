@@ -55,7 +55,7 @@ def evaluate(entries=None, tests=None):
     entries = GOOD if entries is None else entries
     return {result['key']: result for result in ga.evaluate(
         matrix(*entries.values()), catalog(GOOD_TESTS if tests is None else tests),
-        ga.load_ledger(), ga.promise_rows(), NOW)}
+        ga.load_ledger(), NOW)}
 
 
 def test_shipped_ledger_is_valid_and_every_evaluation_resolves():
