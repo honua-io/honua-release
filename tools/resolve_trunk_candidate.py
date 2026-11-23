@@ -121,6 +121,12 @@ class CiVerdict(tuple):
         return verdict
 
 
+def _require_object_rows(path, page, rows):
+    """Keyed and unkeyed listings share one row-shape contract: every row is a JSON object."""
+    if not all(isinstance(row, dict) for row in rows):
+        raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
+
+
 class GitHub:
     def __init__(self):
         self.commit_dates = {}
@@ -167,8 +173,7 @@ class GitHub:
                     moved = f'gh api {path} total_count moved from {total} to {count} while paging'
                     break
                 total = count
-                if not all(isinstance(row, dict) for row in rows):
-                    raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
+                _require_object_rows(path, page, rows)
                 seen += len(rows)
                 collected.extend(rows)
                 if len(rows) < page_size:
@@ -190,8 +195,7 @@ class GitHub:
             rows = self.json(f'{path}{separator}per_page={page_size}&page={page}')
             if not isinstance(rows, list):
                 raise ResolutionError(f'gh api {path} page {page} is not a list')
-            if not all(isinstance(row, dict) for row in rows):
-                raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
+            _require_object_rows(path, page, rows)
             yield from rows
             if len(rows) < page_size:
                 return
