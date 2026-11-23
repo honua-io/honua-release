@@ -1,0 +1,16 @@
+{
+  "schema": "honua.ga-capabilities/v1",
+  "authority": "Main ruling 22 Nov 19:11 HST (founder 19:45 HST): test plan, evaluations and gates for every capability that is not preview. honua-release#1556.",
+  "minProvingTests": 5,
+  "interopMaxAgeDays": 7,
+  "nonGaStatuses": ["preview", "experimental", "internal", "deferred"],
+  "protocolCategories": ["Serve"],
+  "aiCategories": ["AI"],
+  "securityTestPattern": "(\\.Security\\.|Unauthori[sz]ed|Unauthenticated|Forbidden|Anonymous|Returns?40[13]|Denied|Deny|(?<!Dependency)Injection|Traversal|Csrf|Xss|Ssrf|CrossTenant|(?:Tenant|Scope|Owner|Org|Workspace|User|Principal|Data)Isolation|Escalat|WithoutAuth|NoAuth|NotAuthori|RequiresAuth|RequiresRole|Permission|Unprivileged|NonAdmin|Tamper|Forged|InvalidToken|ExpiredToken|InvalidSignature)",
+  "evaluations": {
+    "ai.grounding": ["promise:ai-build", "promise:ai-injection"],
+    "ai.mcp-discovery": ["promise:ai-operate", "promise:ai-injection"],
+    "ai.spec-apply": ["promise:ai-publish", "promise:ai-injection"],
+    "ai.spec-artifacts": ["promise:ai-build"]
+  }
+}

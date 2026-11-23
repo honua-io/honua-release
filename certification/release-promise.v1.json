@@ -500,6 +500,20 @@
       "assertions": {
         "producerPassed": true
       }
+    },
+    {
+      "id": "ga-capabilities",
+      "required": [
+        "ga"
+      ],
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-ga-capabilities.yml",
+      "artifact": "release-promise-receipts",
+      "receipt": "ga-capabilities.json",
+      "assertions": {
+        "capabilitiesFailing": 0
+      },
+      "criterion": "Every GA capability at the candidate has proving tests, a security test, a client-interop result no older than 7 days when protocol-facing, 100% on every joined CITE suite, and a declared evaluation when it is an AI capability."
     }
   ],
   "outcomes": [

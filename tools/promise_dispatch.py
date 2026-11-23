@@ -42,6 +42,7 @@ DISPATCHED = {
     'gate-executable-docs.yml': {},
     'gate-source-facts.yml': {'server_sha': '{server_sha}', 'server_digest': '{server_digest}'},
     'gate-agent-safety.yml': {'server_sha': '{server_sha}', 'server_digest': '{server_digest}'},
+    'gate-ga-capabilities.yml': {'server_sha': '{server_sha}', 'server_digest': '{server_digest}'},
 }
 EXCLUDED = {
     'gate-runs-itself.yml': 'fault injection on an installed Launch Stack',

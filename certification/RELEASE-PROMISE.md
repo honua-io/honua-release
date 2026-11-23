@@ -1,9 +1,10 @@
 # Release promise receipts
 
 `release-promise.v1.json` is the producer contract for the founder's 14 November
-2026 amendments and the 15 November approved release gates plan. Its 33 promise
+2026 amendments and the 15 November approved release gates plan. Its 34 promise
 rows include four additional RC and GA requirements: `cloud-image-aot`,
-`cloud-no-redis-source`, `security-agent-default-deny`, and `operates-8-upgrade`.
+`cloud-no-redis-source`, `security-agent-default-deny`, and `operates-8-upgrade`,
+and the GA-only `ga-capabilities` row (honua-release#1556).
 RC requires these alongside the ten fault rows, hardened default, zero open high
 findings, cloud install, white-hat and chaos evidence.
 AI journeys and injection evidence are reported for RC and required for GA.
@@ -135,6 +136,7 @@ identity and authenticated execution) are:
 | `cloud-no-redis-source` | `gate-source-facts.yml` | `redisPackages`, `redisSourceReferences`: integer zero at the candidate SHA; this is source evidence, without a live-stack assertion. Both counts use the candidate's own `scripts/ci/check-retired-cache.py` predicate and exemptions. `redisPackages` counts Redis-named package declarations in MSBuild, `package.json`, `requirements*.txt` and `pyproject.toml` files; `redisSourceReferences` counts matching lines in every other tracked regular file, manifests included, except `docs/`, `tests/` and migrations whose content matches their pin under `eng/schema/migration-hashes/`. A missing checker, or a checkout that is not exactly the candidate commit, leaves no receipt. |
 | `security-agent-default-deny` | `gate-agent-safety.yml` | `live`, `allMutatingRoutesChecked`, `proposalOnly`, `agentIdentityAudited`: true. Every mutating route must return a proposal without making a direct change. |
 | `operates-8-upgrade` | `gate-upgrade.yml` | `live`, `rollingUpgrade`, `nMinusOneReaderCompatible`, `rollbackPassed`, `launchStack`: true, using the previous release image on the Launch Stack. |
+| `ga-capabilities` | `gate-ga-capabilities.yml` | `capabilitiesFailing`: integer zero; GA only, reported at RC. The producer reads the candidate's `docs/gis/data/capability-matrix.v1.json` and `feature-catalog.json`. A capability is GA when it has its own surface, at least one implemented entry, and is not preview, experimental, internal or deferred. Each GA capability needs `provingTestCount` at or above the floor in `certification/ga-capabilities.v1.json`, a proving test whose name shows an authentication, authorization, isolation or injection check, a passing (`fresh`) client-interop result no older than 7 days when it is protocol-facing (a `Serve` capability, a joined CITE suite or an interop crosswalk), 100% on every joined CITE suite, and, for an `AI` capability, an evaluation in the ledger that resolves to a release-promise row or a file in this repository. The ledger has no exemption list. A missing input, an empty GA corpus, or a checkout that is not exactly the candidate commit leaves no receipt. `sourceObservedAt` is the oldest interop result the verdict relies on, and the aggregate refuses the receipt once that result is more than 7 days old. `ga-capabilities-report.json` lists the gaps for each capability. |
 
 These interfaces reserve evidence requirements; they do not implement producers
 or certify a live pass. Shell runs are debugging evidence only.
