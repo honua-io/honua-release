@@ -21,7 +21,7 @@ import probes
 import sdk
 import stages
 import discovery
-from gated_approval import HANDLE_IDS, PROPOSAL_PENDING, GatedApprovals
+from gated_approval import PROPOSAL_PENDING, GatedApprovals
 from identities import PRINCIPAL, PRINCIPAL_MAX, TOKEN, _token, identity, principal_identity, principal_shape  # noqa: F401
 from transport import (ActionRejected, ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
                        masked_fields, pending_approval, tool_error)
@@ -94,7 +94,6 @@ TOPOLOGY_REFUSAL_STAGES = {
 CLOUD_CELL = re.compile(r"(?:aws-ecs|aws-serverless|aws-eks)/(redis-on|redis-off)\Z")
 
 
-
 def declared_redis_topology(target):
     """The Redis topology a target declares: a cloud cell's id, or a local target's redisTopology."""
     target = target or {}
@@ -103,8 +102,6 @@ def declared_redis_topology(target):
         return match.group(1) if match else None
     declared = target.get("redisTopology")
     return declared if declared in ("redis-on", "redis-off") else None
-
-
 
 
 def structured(result, command, secrets=()):

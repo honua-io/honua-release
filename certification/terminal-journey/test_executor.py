@@ -19,7 +19,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import executor
-import gated_approval
 import oracles
 import stages
 import transport as transport_module
@@ -2015,4 +2014,3 @@ def test_catalog_transport_forwards_candidate_mcp_result(tmp_path):
                                      mock.call("resources/read", {"uri": uri})])
     with pytest.raises(transport_module.ActionRejected):
         t.resource_read("honua://catalog/other", view, "operator")
-

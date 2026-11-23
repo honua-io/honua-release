@@ -8,11 +8,11 @@ import pytest
 
 import executor
 import gated_approval
-import transport as transport_module
-from test_executor import (CANARY_NATIVE_PUBLICATION_KEYS, LOCAL_TARGET, PUBLISH_OUTPUT, SEALED_DIFF, SEALED_HANDLE, approval_engine, publish_arguments,
-                           upload_engine)
-from transport import ExecutionError
 import stages
+import transport as transport_module
+from test_executor import (CANARY_NATIVE_PUBLICATION_KEYS, LOCAL_TARGET, PUBLISH_OUTPUT, SEALED_DIFF, SEALED_HANDLE,
+                           approval_engine, publish_arguments, upload_engine)
+from transport import ExecutionError
 
 AWAITING_PUBLICATION = {**{key: PUBLISH_OUTPUT[key] for key in ("operationId", "operationInstanceId", "correlationId",
                                                                   "auditId")},
