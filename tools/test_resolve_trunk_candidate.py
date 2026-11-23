@@ -489,6 +489,35 @@ def test_transient_network_retry_keeps_same_command(monkeypatch):
     assert calls == ['same'] * 3
 
 
+@pytest.mark.parametrize('stderr', [
+    'gh: Server Error (HTTP 500)', 'gh: Server Error (HTTP 502)',
+    'gh: Service Unavailable (HTTP 503)', 'gh: Gateway Timeout (HTTP 504)',
+    'gh: Too Many Requests (HTTP 429)'])
+def test_a_gh_cli_server_error_is_retried(monkeypatch, stderr):
+    # The 22 Nov cut rehearsal lost honua-server to one `gh api` 502 on a trunk commit page.
+    calls, sleeps = [], []
+    def request():
+        calls.append('same')
+        if len(calls) < 2:
+            raise subprocess.CalledProcessError(1, ['gh', 'api'], stderr=stderr)
+        return 42
+    monkeypatch.setattr(resolver.time, 'sleep', sleeps.append)
+    assert resolver.retry(request) == 42
+    assert sleeps == [10]
+
+
+def test_commits_reads_only_the_pages_the_limit_needs(monkeypatch):
+    # honua-server trunk has thousands of commits; --max-commits must bound the API reads too.
+    def page(path):
+        number = int(path.rsplit('page=', 1)[1])
+        return [{'sha': f'{number:04d}{n:036d}'} for n in range(100 if number < 25 else 1)]
+    gh = FakeGh({'repos/honua-io/server/commits?sha=trunk': page})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    shas = list(resolver.GitHub().commits('honua-io/server', 150))
+    assert len(shas) == 150 and shas[-1] == f'0002{49:036d}'
+    assert len(gh.calls) == 2
+
+
 class FakeGh:
     """`gh api` as subprocess.run sees it: a JSON body per path, or a failing exit."""
 

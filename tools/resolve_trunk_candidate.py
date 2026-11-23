@@ -96,7 +96,8 @@ def retry(operation):
             detail = detail.lower()
             transient = isinstance(exc, urllib.error.URLError) or any(term in detail for term in (
                 'error connecting', 'could not resolve host', 'connection reset',
-                'timeout', 'timed out', 'tls', '403'))
+                'timeout', 'timed out', 'tls', '403', '(http 429)', '(http 500)', '(http 502)',
+                '(http 503)', '(http 504)'))
             if isinstance(exc, urllib.error.HTTPError):
                 transient = exc.code in {403, 429, 500, 502, 503, 504}
             if not transient or index == len(DELAYS) - 1:
@@ -143,25 +144,25 @@ class GitHub:
 
         A keyed listing is read in full before any row is yielded, so a total_count that moves
         under the reader can be re-read from page 1 (PAGING_ATTEMPTS) instead of refusing on the
-        first movement; a count that keeps moving still refuses."""
+        first movement; a count that keeps moving still refuses. An unkeyed listing (trunk commits)
+        has no count to check, so it streams page by page and a caller that stops early stops the
+        API reads there."""
         separator = '&' if '?' in path else '?'
+        if not key:
+            yield from self._stream(path, separator, page_size)
+            return
         for attempt in range(1, PAGING_ATTEMPTS + 1):
             page, seen, total, collected, moved = 1, 0, None, [], None
             while True:
                 result = self.json(f'{path}{separator}per_page={page_size}&page={page}')
-                if key:
-                    rows = result.get(key) if isinstance(result, dict) else None
-                    count = result.get('total_count') if isinstance(result, dict) else None
-                    if not isinstance(rows, list) or not isinstance(count, int) or isinstance(count, bool):
-                        raise ResolutionError(f'gh api {path} page {page} has no {key} list and total_count')
-                    if total is not None and count != total:
-                        moved = f'gh api {path} total_count moved from {total} to {count} while paging'
-                        break
-                    total = count
-                else:
-                    rows = result
-                    if not isinstance(rows, list):
-                        raise ResolutionError(f'gh api {path} page {page} is not a list')
+                rows = result.get(key) if isinstance(result, dict) else None
+                count = result.get('total_count') if isinstance(result, dict) else None
+                if not isinstance(rows, list) or not isinstance(count, int) or isinstance(count, bool):
+                    raise ResolutionError(f'gh api {path} page {page} has no {key} list and total_count')
+                if total is not None and count != total:
+                    moved = f'gh api {path} total_count moved from {total} to {count} while paging'
+                    break
+                total = count
                 if not all(isinstance(row, dict) for row in rows):
                     raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
                 seen += len(rows)
@@ -170,7 +171,7 @@ class GitHub:
                     break
                 page += 1
             if moved is None:
-                if total is not None and seen != total:
+                if seen != total:
                     raise ResolutionError(f'gh api {path} returned {seen} of {total} {key}; refusing a truncated page')
                 yield from collected
                 return
@@ -178,6 +179,19 @@ class GitHub:
                 raise ResolutionError(f'{moved} ({attempt} attempts)')
             print(f'{moved}; re-reading (attempt {attempt + 1} of {PAGING_ATTEMPTS})', file=sys.stderr)
             time.sleep(PAGING_RETRY_DELAY)
+
+    def _stream(self, path, separator, page_size):
+        page = 1
+        while True:
+            rows = self.json(f'{path}{separator}per_page={page_size}&page={page}')
+            if not isinstance(rows, list):
+                raise ResolutionError(f'gh api {path} page {page} is not a list')
+            if not all(isinstance(row, dict) for row in rows):
+                raise ResolutionError(f'gh api {path} page {page} contains a non-object row')
+            yield from rows
+            if len(rows) < page_size:
+                return
+            page += 1
 
     def commits(self, repository, limit):
         for index, row in enumerate(self.pages(f'repos/{repository}/commits?sha=trunk')):
