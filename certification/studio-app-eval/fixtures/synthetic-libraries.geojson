@@ -1,0 +1,197 @@
+{
+"type": "FeatureCollection",
+"features": [
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 01",
+"district": "East",
+"annual_visits": 61884,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-74.01511,
+40.76784
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 02",
+"district": "West",
+"annual_visits": 17450,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.99388,
+40.78049
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 03",
+"district": "North",
+"annual_visits": 63017,
+"open_weekends": "no"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.96174,
+40.73061
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 04",
+"district": "South",
+"annual_visits": 69281,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.9031,
+40.72461
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 05",
+"district": "East",
+"annual_visits": 16087,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.98171,
+40.7489
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 06",
+"district": "West",
+"annual_visits": 6347,
+"open_weekends": "no"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.91771,
+40.77981
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 07",
+"district": "North",
+"annual_visits": 7972,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.9942,
+40.76894
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 08",
+"district": "South",
+"annual_visits": 87959,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.98778,
+40.76127
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 09",
+"district": "East",
+"annual_visits": 51758,
+"open_weekends": "no"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.9075,
+40.71231
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 10",
+"district": "West",
+"annual_visits": 59260,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.95565,
+40.71568
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 11",
+"district": "North",
+"annual_visits": 85980,
+"open_weekends": "yes"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.93456,
+40.76287
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"library_name": "Synthetic Library 12",
+"district": "South",
+"annual_visits": 55642,
+"open_weekends": "no"
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.94197,
+40.74207
+]
+}
+}
+]
+}

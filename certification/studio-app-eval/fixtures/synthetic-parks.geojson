@@ -1,0 +1,261 @@
+{
+"type": "FeatureCollection",
+"features": [
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 01",
+"district": "South",
+"category": "garden",
+"acres": 6.4
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.96027,
+40.72159
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 02",
+"district": "East",
+"category": "sports",
+"acres": 36.3
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.92433,
+40.78156
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 03",
+"district": "West",
+"category": "nature",
+"acres": 23.8
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.96064,
+40.72057
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 04",
+"district": "North",
+"category": "playground",
+"acres": 20.8
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.91701,
+40.7289
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 05",
+"district": "South",
+"category": "garden",
+"acres": 12.3
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-74.0004,
+40.75782
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 06",
+"district": "East",
+"category": "sports",
+"acres": 8.5
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.93928,
+40.72367
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 07",
+"district": "West",
+"category": "nature",
+"acres": 5.1
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.93004,
+40.73362
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 08",
+"district": "North",
+"category": "playground",
+"acres": 13.3
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.94315,
+40.71027
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 09",
+"district": "South",
+"category": "garden",
+"acres": 37.1
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.93438,
+40.75368
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 10",
+"district": "East",
+"category": "sports",
+"acres": 38.0
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.92693,
+40.75988
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 11",
+"district": "West",
+"category": "nature",
+"acres": 24.5
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.90371,
+40.7481
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 12",
+"district": "North",
+"category": "playground",
+"acres": 17.8
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-74.01943,
+40.79528
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 13",
+"district": "South",
+"category": "garden",
+"acres": 38.9
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.97596,
+40.78469
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 14",
+"district": "East",
+"category": "sports",
+"acres": 4.0
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-74.00132,
+40.76942
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 15",
+"district": "West",
+"category": "nature",
+"acres": 14.1
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-74.01649,
+40.71841
+]
+}
+},
+{
+"type": "Feature",
+"properties": {
+"park_name": "Synthetic Park 16",
+"district": "North",
+"category": "playground",
+"acres": 23.4
+},
+"geometry": {
+"type": "Point",
+"coordinates": [
+-73.99705,
+40.74074
+]
+}
+}
+]
+}
