@@ -329,6 +329,17 @@ A platform candidate is Honua-certified only when:
 | Broken or orphaned scheduled lanes | 0 |
 | Accepted defects without linked evidence | 0 |
 
+### Nightly capability observations
+
+The GA capability gate consumes optional nightly observations from the server capability matrix.
+It rechecks collection and observation dates against its evaluation clock, with a maximum age of
+14 days; republishing a matrix cannot refresh the underlying results. Missing, future, stale or
+unknown nightly CITE observations cannot satisfy the full-pass criterion. The existing seven-day
+interop criterion still applies, and admission receipts retain the oldest CITE, interop or skill
+observation used by the verdict. Matrices without nightly metadata retain the legacy criteria.
+GA diagnostics include interop, CITE and load observations with their provenance. Load observations
+add no admission requirement, and nightly results do not replace evidence bound to the candidate.
+
 ### Backlog ownership
 
 `honua-release` owns the umbrella program, aggregate gate, release binding, and published certification bundle.

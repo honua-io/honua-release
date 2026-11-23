@@ -39,6 +39,8 @@ import re
 import sys
 from pathlib import Path
 
+import nightly_capabilities
+
 try:
     import yaml
 except ImportError as exc:  # pragma: no cover
@@ -116,6 +118,7 @@ def resolve_capability_key(ref: str, matrix: dict | None,
     """
     if matrix is None:
         return "blocked", "capability matrix unavailable (unfetchable/stale honua-evidence snapshot) — cannot evaluate"
+    matrix = nightly_capabilities.assess(matrix)
     entry = _capability_entry(matrix, ref)
     if entry is None:
         return "fail", f"capability key {ref!r} not found in the capability matrix"
