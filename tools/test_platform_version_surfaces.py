@@ -1,5 +1,6 @@
 """One platform version on every surface: server, OCI label, Console, CLI and docs."""
 import json
+import urllib.error
 
 import pytest
 
@@ -142,3 +143,27 @@ def test_oci_label_reads_docker_and_treats_failure_as_absent():
 
 def test_fetch_json_treats_transport_and_decoding_failures_as_absent():
     assert surfaces.fetch_json("http://127.0.0.1:9/version.json") is None
+
+
+def test_redirects_are_refused_so_the_api_key_stays_on_its_origin():
+    import urllib.request
+    request = urllib.request.Request("https://candidate.example/api/v1/admin/version",
+                                     headers={"X-API-Key": "secret-key"})
+    handler = surfaces._NoRedirect()
+    assert handler.redirect_request(request, None, 302, "Found", {}, "http://other.example/version") is None
+    redirect = urllib.error.HTTPError("https://candidate.example", 302, "Found", {}, None)
+
+    class Redirecting:
+        def open(self, request, timeout):
+            raise redirect
+
+    assert surfaces.fetch_json("https://candidate.example/v", {"X-API-Key": "k"}, opener=Redirecting()) is None
+
+
+def test_collect_keeps_only_identity_fields_of_surface_documents(tmp_path, monkeypatch):
+    monkeypatch.delenv("HONUA_API_KEY", raising=False)
+    leaked = {"version": "0.1.0", "platformVersion": "2026.1.0", "token": "secret-token", "areas": ["x"]}
+    result = surfaces.collect(collect_args(tmp_path), fetch=lambda url, headers=None: dict(leaked),
+                              label=lambda image: "2026.1.0")
+    assert result["console"] == result["docs"] == {"version": "0.1.0", "platformVersion": "2026.1.0"}
+    assert "secret-token" not in json.dumps(result)

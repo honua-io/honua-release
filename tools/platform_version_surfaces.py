@@ -20,7 +20,8 @@ missing, reports no platform version or reports another one fails the comparison
 `collect` builds that file from an installed candidate: the anonymous capabilities endpoint,
 the admin version endpoint (API key from HONUA_API_KEY, never written out), `docker image
 inspect` of the candidate reference, the Console `/version.json`, a CLI's JSON version output
-and the published docs `version.json`. An unreachable surface is recorded as absent.
+and the published docs `version.json`. Redirects are refused, only the name, version, commit and
+platformVersion fields of a surface document are kept, and an unreachable surface is absent.
 """
 from __future__ import annotations
 
@@ -81,14 +82,34 @@ def compare(label: str, observed: dict) -> dict:
     return {"schema": SCHEMA, "status": "pass", "expectedVersion": expected, "why": why, "surfaces": surfaces}
 
 
-def fetch_json(url: str, headers: dict | None = None):
-    """GET a JSON document; any transport or decoding failure is an absent surface."""
+RETAINED_FIELDS = ("name", "version", "commit", "platformVersion")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects so an API key never follows a response to another origin."""
+
+    def redirect_request(self, *_redirect):  # urllib passes req, fp, code, msg, headers, newurl
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def fetch_json(url: str, headers: dict | None = None, opener=_OPENER):
+    """GET a JSON document without following redirects; any failure is an absent surface."""
     request = urllib.request.Request(url, headers={"Accept": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310 - operator URLs
+        with opener.open(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def _retained(document):
+    """Keep only the identity fields of a surface document; nothing else is written out."""
+    if not isinstance(document, dict):
+        return None
+    return {key: document[key] for key in RETAINED_FIELDS if key in document}
 
 
 def _data(document, key: str):
@@ -115,11 +136,11 @@ def collect(args, fetch=fetch_json, label=oci_label) -> dict:
                            "admin": _data(admin, "version")},
                 "oci": label(args.image)}
     if args.console:
-        observed["console"] = fetch(args.console.rstrip("/") + "/version.json")
+        observed["console"] = _retained(fetch(args.console.rstrip("/") + "/version.json"))
     if args.cli_json:
-        observed["cli"] = _read_json(args.cli_json)
+        observed["cli"] = _retained(_read_json(args.cli_json))
     if args.docs:
-        observed["docs"] = fetch(args.docs)
+        observed["docs"] = _retained(fetch(args.docs))
     return observed
 
 
