@@ -44,7 +44,7 @@ def test_old_cite_is_not_refreshed_by_collection():
     assert 'cite' in judge(matrix)['gaps']
 
 
-@pytest.mark.parametrize('run_date', [stamp(15), None])
+@pytest.mark.parametrize('run_date', [stamp(15), None], ids=['stale', 'missing'])
 def test_cite_without_suite_cannot_bypass_freshness(run_date):
     matrix = snapshot()
     row = matrix['capabilities'][0]['cite'][0]
