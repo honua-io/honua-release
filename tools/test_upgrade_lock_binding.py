@@ -48,9 +48,9 @@ def _case(tmp_path: Path):
         "candidateLockDigest": binding.bytes_digest(candidate_path),
         "lockValidation": {"prior": "verified", "candidate": "verified"}, "charts": charts,
         "phases": {
-            "install": {"imageID": f"docker-pullable://x@{a_img}", "runtimeIdentity": {"imageDigest": a_img, "sourceRevision": "a" * 40, "observedVersion": "1.0.0+aaaaaaaa", "platformLockDigest": binding.bytes_digest(prior_path)}},
-            "candidate": {"imageID": f"docker-pullable://x@{b_img}", "runtimeIdentity": {"imageDigest": b_img, "sourceRevision": "b" * 40, "observedVersion": "1.0.0+bbbbbbbb", "platformLockDigest": binding.bytes_digest(candidate_path)}},
-            "rollback": {"imageID": f"docker-pullable://x@{a_img}", "runtimeIdentity": {"imageDigest": a_img, "sourceRevision": "a" * 40, "observedVersion": "1.0.0+aaaaaaaa", "platformLockDigest": binding.bytes_digest(prior_path)}, "databaseSchema": "107"},
+            "install": {"imageID": f"docker-pullable://x@{a_img}", "runtimeIdentity": {"imageDigest": a_img, "sourceRevision": "a" * 40, "observedVersion": "1.0.0+aaaaaaa", "platformLockDigest": binding.bytes_digest(prior_path)}},
+            "candidate": {"imageID": f"docker-pullable://x@{b_img}", "runtimeIdentity": {"imageDigest": b_img, "sourceRevision": "b" * 40, "observedVersion": "1.0.0+bbbbbbb", "platformLockDigest": binding.bytes_digest(candidate_path)}},
+            "rollback": {"imageID": f"docker-pullable://x@{a_img}", "runtimeIdentity": {"imageDigest": a_img, "sourceRevision": "a" * 40, "observedVersion": "1.0.0+aaaaaaa", "platformLockDigest": binding.bytes_digest(prior_path)}, "databaseSchema": "107"},
         },
         "schema": {"observed": "107", "journal": list(JOURNAL), "journalSha256": JOURNAL_SHA256, "declaredJournalSha256": JOURNAL_SHA256},
         "seededData": {"checksumsMatched": True, "rollbackQueryPassed": True},
@@ -98,6 +98,21 @@ def test_runtime_identity_must_match_every_phase(tmp_path, phase):
     prior, candidate, evidence = _case(tmp_path)
     evidence["phases"][phase]["runtimeIdentity"]["sourceRevision"] = "f" * 40
     with pytest.raises(binding.BindingError, match=f"{phase} runtime source"):
+        binding.verify(prior, candidate, evidence)
+
+
+def test_runtime_version_may_carry_the_full_candidate_revision(tmp_path):
+    prior, candidate, evidence = _case(tmp_path)
+    evidence["phases"]["candidate"]["runtimeIdentity"]["observedVersion"] = "1.0.0+" + "b" * 40
+    assert binding.verify(prior, candidate, evidence)["classification"] == "exact-lock-upgrade-rollback-certified"
+
+
+@pytest.mark.parametrize("version", ["1.0.0+bbbbbbbb", "1.0.0+fbbbbbb",
+                                     "1.0.0-nightly.gbbbbbbb", "1.0.0+bbbbbbb.dirty", ""])
+def test_runtime_version_must_end_with_the_candidate_build_suffix(tmp_path, version):
+    prior, candidate, evidence = _case(tmp_path)
+    evidence["phases"]["candidate"]["runtimeIdentity"]["observedVersion"] = version
+    with pytest.raises(binding.BindingError, match="candidate runtime version"):
         binding.verify(prior, candidate, evidence)
 
 

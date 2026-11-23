@@ -34,6 +34,7 @@ from xml.etree import ElementTree
 
 import yaml
 import bsr_archive
+import no_redirect
 from digests import sha256_digest, sha256_hex
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -209,7 +210,7 @@ class UrllibTransport:
         if request.has_header("Authorization") and not bearer:
             raise PreflightError(f"refusing to send Authorization to {url}")
         # The anonymous GHCR pull token goes only to ghcr.io/v2/ and never follows a redirect.
-        opener = urllib.request.build_opener(_NoRedirect).open if bearer else urllib.request.urlopen
+        opener = no_redirect.opener().open if bearer else urllib.request.urlopen
         try:
             with opener(request, timeout=60) as response:
                 final = response.geturl()
@@ -230,11 +231,6 @@ class _TransientProbeFailure(Exception):
 def _header_map(response) -> dict:
     headers = getattr(response, "headers", None)
     return dict(headers.items()) if headers is not None and hasattr(headers, "items") else {}
-
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):  # noqa: ARG002
-        return None
 
 
 def _ghcr_bearer_headers(url: str, headers: dict | None) -> bool:

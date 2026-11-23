@@ -49,6 +49,25 @@ def test_ga_requires_normalized_version_from_the_selected_manifest():
         "imageVersion": "2026.1.0", "why": "installed runtime and OCI versions match the candidate"}
 
 
+def test_runtime_build_suffix_must_name_the_candidate_revision():
+    """The shipped image reports `<version>+<sha7>`; only the candidate's own revision is accepted."""
+    pair, phases = evidence()
+    phases["candidate"]["runtimeIdentity"]["observedVersion"] = "2026.1.0+ccccccc"
+    result = receipt(pair, phases)
+    assert result["status"] == "pass"
+    assert result["versionEvidence"]["runtimeVersion"] == "2026.1.0+ccccccc"
+
+
+@pytest.mark.parametrize("value", ["2026.1.0+ddddddd", "2026.1.0+cccccc", "2026.1.0+cccccccc",
+                                   "2026.1.0+", "2026.1.0+ccccccc+ccccccc", "2026.1.0-rc.2+ccccccc"])
+def test_foreign_or_malformed_runtime_build_suffix_fails_admission(value):
+    pair, phases = evidence()
+    phases["candidate"]["runtimeIdentity"]["observedVersion"] = value
+    result = receipt(pair, phases)
+    assert result["status"] == "fail"
+    assert result["versionEvidence"]["status"] == "fail"
+
+
 @pytest.mark.parametrize("value", [None, "", "2026.1.0-rc.2", "2026.1.1", "2026.1", " 2026.1.0", 2026])
 @pytest.mark.parametrize("surface", ["runtime", "oci"])
 def test_missing_stale_or_inexact_versions_fail_admission(surface, value):
