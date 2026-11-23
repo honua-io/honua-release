@@ -28,16 +28,20 @@ AUDIENCE = "terminal-journey"
 # The operator publishes, styles and runs GP as a full admin. The proposer is the
 # Studio author and must NOT resolve to the `admin` role: an admin caller publishes
 # immediately (StudioProposePublicationTool PublishImmediately) and stage 7 would never
-# observe a durable AwaitingApproval proposal. `write:journey` is the narrowest key
-# grant that authenticates as the non-admin `layer-write-key` role; Studio authoring
-# for that role comes from the RBAC grants below. The approver is a separate
-# principal holding only `admin:approve`.
+# observe a durable AwaitingApproval proposal. The approver is a separate principal
+# holding only `admin:approve`.
 GRANTS = {"operator": ["admin:write"], "proposer": ["write:journey"], "approver": ["admin:approve"],
           "viewer": ["read:journey"]}
-# API keys carry only server-stamped roles (ApiKeyAuthenticationHandler); there is no
-# key grant that confers Studio authoring to a non-admin key. The isolated fixture
-# therefore binds StudioDraft operator grants to the proposer's stamped role.
-AUTHOR_ROLE = "layer-write-key"
+# API keys carry only server-stamped roles (ApiKeyAuthenticationHandler), and the server refuses
+# a stored role under any name it stamps (honua-server ReservedRoleNames), so an API key cannot
+# hold StudioDraft grants on a server that reserves them. Where the run signs its own author
+# (local Docker, a declared cloud tenant fixture) the author is a bearer carrying this
+# fixture-owned role, which receives the StudioDraft grants below.
+AUTHOR_ROLE = "journey-studio-author"
+# A cloud cell trusts no issuer the harness holds a key for unless its tenant fixture is
+# declared, so there the proposer stays a `write:journey` key and its grants go on the role the
+# server stamps on it. A server that reserves this name refuses the grant.
+KEY_AUTHOR_ROLE = "layer-write-key"
 AUTHOR_GRANTS = [{"service": "StudioDraft", "layer": "*", "operation": operation}
                  for operation in ("Create", "Read", "Update", "Publish")]
 # Targets whose principals are minted through the candidate's own admin API.
@@ -230,11 +234,12 @@ def credentials(target, workdir, base_url, *, mint=False, tenant_signing_key=Non
         raise ExecutionError("tenant fixture", "the declared run-owned issuer has no sealed signing key")
     if tenant_fixture is not None:
         validate_tenant_signing_key(tenant_signing_key)
+    signed_author = tenant_fixture is not None or bool(private.get("signingKey"))
     if mint:
         transport = Transport(base_url, None, None, workdir, {"bootstrap": _bootstrap(target)})
-        _grant_author_role(transport)
+        _grant_author_role(transport, AUTHOR_ROLE if signed_author else KEY_AUTHOR_ROLE)
         for name, grants in GRANTS.items():
-            if tenant_fixture is not None and name == "proposer":
+            if signed_author and name == "proposer":
                 continue
             raw, _ = transport.http("POST", "/api/v1/admin/api-keys/", principal="bootstrap", expected=(201,), body={
                 "name": f"journey-{Path(workdir).name}-{name}", "permissions": grants,
@@ -262,6 +267,9 @@ def credentials(target, workdir, base_url, *, mint=False, tenant_signing_key=Non
                 role=TENANT_FIXTURE["role"])
     elif private.get("signingKey"):
         # A fresh single-use bearer avoids weakening the candidate's replay protection.
+        resolved["proposer"] = lambda: _tenant_token(
+            private["signingKey"], subject=TENANT_FIXTURE["subject"], tenant=TENANT_FIXTURE["authorTenant"],
+            role=AUTHOR_ROLE)
         resolved["other-tenant"] = lambda: _other_tenant_token(private["signingKey"])
     return resolved
 
@@ -304,14 +312,14 @@ def revoke(target, workdir, base_url):
     return revoked, failed
 
 
-def _grant_author_role(transport):
+def _grant_author_role(transport, role_name):
     roles = transport.get_json("/api/v1/admin/roles/", principal="bootstrap")["data"]
-    existing = [role for role in roles if role.get("name") == AUTHOR_ROLE]
+    existing = [role for role in roles if role.get("name") == role_name]
     if existing:
         role_id = existing[0]["roleId"]
     else:
         raw, _ = transport.http("POST", "/api/v1/admin/roles/", principal="bootstrap", expected=(201,),
-                                body={"name": AUTHOR_ROLE, "description": "terminal journey Studio author"})
+                                body={"name": role_name, "description": "terminal journey Studio author"})
         role_id = json.loads(raw)["data"]["roleId"]
     raw, _ = transport.http("PUT", f"/api/v1/admin/roles/{role_id}/permissions", principal="bootstrap",
                             body={"permissions": AUTHOR_GRANTS})
