@@ -489,6 +489,29 @@ def test_transient_network_retry_keeps_same_command(monkeypatch):
     assert calls == ['same'] * 3
 
 
+def test_commits_reads_only_the_pages_the_limit_needs(monkeypatch):
+    # honua-server trunk has thousands of commits; --max-commits must bound the API reads too.
+    def page(path):
+        number = int(path.rsplit('page=', 1)[1])
+        return [{'sha': f'{number:04d}{n:036d}'} for n in range(100 if number < 25 else 1)]
+    gh = FakeGh({'repos/honua-io/server/commits?sha=trunk': page})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    shas = list(resolver.GitHub().commits('honua-io/server', 150))
+    assert len(shas) == 150 and shas[-1] == f'0002{49:036d}'
+    assert len(gh.calls) == 2
+    gh.calls.clear()
+    assert len(list(resolver.GitHub().commits('honua-io/server', 200))) == 200
+    assert len(gh.calls) == 2
+
+
+@pytest.mark.parametrize('page', [{'sha': 'not a list'}, ['not an object']])
+def test_an_unkeyed_page_of_the_wrong_shape_refuses(monkeypatch, page):
+    gh = FakeGh({'repos/honua-io/server/commits?sha=trunk': page})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    with pytest.raises(resolver.ResolutionError, match='is not a list|non-object row'):
+        list(resolver.GitHub().commits('honua-io/server', 10))
+
+
 class FakeGh:
     """`gh api` as subprocess.run sees it: a JSON body per path, or a failing exit."""
 
