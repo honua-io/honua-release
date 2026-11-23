@@ -111,6 +111,17 @@ def test_capabilities_outside_ga_are_not_judged(overrides):
     assert set(evaluate(entries)) == set(GOOD)
 
 
+@pytest.mark.parametrize('malformed', [None, 'serve.x', {'key': 'serve.x', 'category': 'Serve'},
+                                       {**capability('serve.x'), 'maturity': None},
+                                       {**capability('serve.x'), 'maturity': {'implemented': '2'}},
+                                       {k: v for k, v in capability('serve.x').items() if k != 'status'},
+                                       {k: v for k, v in capability('serve.x').items() if k != 'key'}])
+def test_a_malformed_matrix_entry_fails_closed_beside_healthy_ones(malformed):
+    with pytest.raises(ga.Unavailable, match='lack key'):
+        ga.evaluate({'capabilities': [*GOOD.values(), malformed]}, catalog(GOOD_TESTS),
+                    ga.load_ledger(), NOW)
+
+
 def test_an_empty_ga_corpus_fails_closed():
     with pytest.raises(ga.Unavailable, match='vacuous'):
         evaluate({'raster.x': capability('raster.x', status='preview')})

@@ -106,14 +106,26 @@ def read_json(checkout: Path, relative: str) -> dict:
     return document
 
 
+def well_formed(entry) -> bool:
+    """A matrix entry the corpus filter can judge; anything else fails the gate closed."""
+    if not isinstance(entry, dict) or not isinstance(entry.get('key'), str) or not entry['key']:
+        return False
+    maturity = entry.get('maturity')
+    return (isinstance(maturity, dict) and 'noSurface' in entry and 'status' in entry
+            and all(type(count) is int and count >= 0 for count in maturity.values()))
+
+
 def ga_corpus(matrix: dict, ledger: dict) -> list[dict]:
     entries = matrix.get('capabilities')
     if not isinstance(entries, list):
         raise Unavailable('capability matrix has no capabilities list')
+    malformed = [index for index, entry in enumerate(entries) if not well_formed(entry)]
+    if malformed:
+        raise Unavailable(f'capability matrix entries {malformed[:10]} lack key, maturity, status or noSurface')
     excluded = set(ledger['nonGaStatuses'])
-    corpus = [entry for entry in entries if isinstance(entry, dict) and not entry.get('noSurface')
-              and ((entry.get('maturity') or {}).get('implemented') or 0) > 0
-              and entry.get('status') not in excluded]
+    corpus = [entry for entry in entries if not entry['noSurface']
+              and (entry['maturity'].get('implemented') or 0) > 0
+              and entry['status'] not in excluded]
     if not corpus:
         raise Unavailable('capability matrix has no GA capability; refusing a vacuous pass')
     return corpus
@@ -244,8 +256,6 @@ def evaluate_capability(entry: dict, context: tuple) -> dict:
 def evaluate(matrix: dict, catalog: dict, ledger: dict, now: dt.datetime) -> list[dict]:
     context = (tests_by_capability(catalog), ledger, promise_rows(), now)
     corpus = ga_corpus(matrix, ledger)
-    if any(not isinstance(entry.get('key'), str) for entry in corpus):
-        raise Unavailable('a GA capability has no key')
     return [evaluate_capability(entry, context) for entry in sorted(corpus, key=lambda e: e['key'])]
 
 
