@@ -704,7 +704,7 @@ def test_publication_proposal_is_approved_by_a_person_after_the_operator_is_refu
     assert engine.resources["layerId"] == 7 and engine.resources["serviceLayerIndex"] == 0
     assert engine.resources["serviceUri"] == "honua://published-services/journey"
     assert "proposalId" not in engine.resources and "publicationOperation" not in engine.evidence
-    assert engine.evidence["publicationApproval"] == {"proposalId": "proposal-publish-1", "requestedBy": OPERATOR_ACTOR,
+    assert engine.evidence["operatorApprovals"]["3"] == {"proposalId": "proposal-publish-1", "requestedBy": OPERATOR_ACTOR,
         "resolvedBy": HUMAN_ACTOR, "approvalChannel": "console-interactive-password", "operatorSelfApproval": "denied"}
     assert result["nativePublication"]["serviceLayerIndex"] == 0
     assert engine.result(3).status == "pass"
@@ -717,7 +717,7 @@ def test_publication_refused_by_the_human_session_is_not_a_published_layer(human
     with pytest.raises(ExecutionError, match=r"human approval did not approve the proposal \(result=refused") as error:
         publish(engine)
     assert "private-admin-password" not in error.value.reason
-    assert "layerId" not in engine.resources and "publicationApproval" not in engine.evidence
+    assert "layerId" not in engine.resources and "operatorApprovals" not in engine.evidence
 
 
 def test_publication_without_an_https_approval_channel_is_blocked():
@@ -2116,3 +2116,67 @@ def test_journey_stack_serves_the_human_approval_session():
     assert "${HONUA_JOURNEY_HTTPS_PORT:-8139}:8443" in server["ports"]
     assert any(volume.endswith(":/certs:ro") for volume in server["volumes"])
     assert LOCAL_TARGET["compose"]["httpsPort"] == 8139
+
+
+STYLE_PROPOSAL = {"proposalId": "proposal-style-1", "status": "Pending", "requestedBy": OPERATOR_ACTOR}
+STYLE_GATED = {"isError": True, "structuredContent": {
+    "status": "error", "code": "failed_precondition", "approvalRequired": True, "proposalId": "proposal-style-1",
+    "resourceUri": "honua://proposals/proposal-style-1", "message": "This operation requires approval",
+    "error": {"kind": "ApprovalRequired"}}}
+STYLE_RESOURCE = {"contents": [{"uri": "honua://proposals/proposal-style-1", "text": json.dumps(
+    {"proposalId": "proposal-style-1", "operationInstanceId": "opinst-style-1", "status": "Pending"})}]}
+STYLE_HANDLE = {"data": {"operationInstanceId": "opinst-style-1", "operationId": "style.apply-preset",
+                         "correlationId": "00-corr-style", "auditId": "audit-style-1", "status": "Completed"}}
+
+
+def style_engine(*reads, handle=STYLE_HANDLE):
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "operator": "private-operator"})
+    observation = stages.Observation(setup_view_present=True, setup_discovery={
+        "tools": [{"name": "honua_apply_style_preset", "inputSchema": {"type": "object"}}], "metadata": {"view": "setup"}})
+    engine = executor.JourneyExecutor({"workspaceId": "workspace"}, {"execution": {"serviceId": "journey",
+        "styleId": "journey-solid-red"}}, observation, transport)
+    engine.resources.update(layerId=7, serviceLayerIndex=0)
+    transport.tool.return_value = copy.deepcopy(STYLE_GATED)
+    transport.resource_read.return_value = copy.deepcopy(STYLE_RESOURCE)
+    transport.get_json.side_effect = [copy.deepcopy(read) for read in (*reads, handle)]
+    return engine
+
+
+def apply_style(engine):
+    return engine.execute(4, {"kind": "tool_call", "tool": "honua_apply_style_preset", "arguments": {
+        "serviceId": "journey", "serviceLayerIndex": 0, "styleId": "journey-solid-red"}})
+
+
+def test_gated_style_application_is_approved_by_a_person_and_joined_on_its_replay(human_approver):
+    engine = style_engine(STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR})
+    apply_style(engine)
+    engine.transport.http.assert_called_once_with("POST", "/api/v1/admin/proposals/proposal-style-1/approve",
+                                                  principal="operator", expected=(403,))
+    assert engine.transport.resource_read.call_args.args[0] == "honua://proposals/proposal-style-1"
+    assert human_approver.call_args.args[1] == "proposal-style-1"
+    assert engine.transport.get_json.call_args.args[0] == "/api/v1/operations/handles/opinst-style-1"
+    assert engine.evidence["checks"]["4"]["style-applied"]["status"] == "pass"
+    assert engine.evidence["operatorApprovals"]["4"]["resolvedBy"] == HUMAN_ACTOR
+    assert engine.evidence["canonicalIds"]["4"]["operationInstanceId"] == "opinst-style-1"
+
+
+@pytest.mark.parametrize("handle,reason", [
+    ({"data": {**STYLE_HANDLE["data"], "operationId": "service.publish"}}, "not the style application"),
+    ({"data": {**STYLE_HANDLE["data"], "status": "Failed"}}, "did not apply the selected canonical style"),
+    ({"data": {**STYLE_HANDLE["data"], "operationInstanceId": "other"}}, "does not join the proposal"),
+])
+def test_approved_style_replay_must_be_the_completed_style_application(handle, reason):
+    engine = style_engine(STYLE_PROPOSAL, {**STYLE_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR},
+                          handle=handle)
+    with pytest.raises(ExecutionError, match=reason):
+        apply_style(engine)
+    assert "style-applied" not in engine.evidence["checks"].get("4", {})
+
+
+def test_approval_refusal_without_its_own_resume_resource_stays_contradictory():
+    gated = copy.deepcopy(STYLE_GATED)
+    assert transport_module.pending_approval(gated) == "proposal-style-1"
+    for change in ({"resourceUri": "honua://proposals/other"}, {"approvalRequired": False},
+                   {"code": "invalid_argument"}, {"proposalId": "bad id"}):
+        assert transport_module.pending_approval({**gated, "structuredContent": {**gated["structuredContent"], **change}}) is None
+    assert transport_module.pending_approval({**gated, "isError": False}) is None

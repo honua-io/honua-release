@@ -23,8 +23,8 @@ import probes
 import sdk
 import stages
 import discovery
-from transport import (ActionRejected, ExecutionError, Transport, credential_values, describe_fields, describe_tool_error,
-                       masked_fields, tool_error)
+from transport import (PROPOSAL_URI, ActionRejected, ExecutionError, Transport, credential_values, describe_fields,
+                       describe_tool_error, masked_fields, pending_approval, tool_error)
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "e2e" / "harness" / "lib"))
 import human_approval  # noqa: E402
@@ -350,6 +350,8 @@ class JourneyExecutor:
             injected = {"id": fault["id"], "recoverable": True}
             return {"status": "fail", "accepted": False, "injectedError": injected,
                     "recoveredError": None, "reason": "candidate refused the injected invalid render width"}
+        if name == "honua_apply_style_preset" and pending_approval(result):
+            result = {"structuredContent": self.approve_style(pending_approval(result), arguments)}
         try:
             output = structured(result, name, credential_values(self.transport.credentials))
         except ExecutionError as exc:
@@ -629,25 +631,53 @@ class JourneyExecutor:
     def approve_publication(self, submitted):
         """Service publication is the human approval point: the operator proposes, a person approves.
 
-        The operator's own approval must be refused first. The approved replay reuses the submitted
-        operation instance, so its completed handle is the publication's identity.
+        The approved replay reuses the submitted operation instance, so its completed handle is the
+        publication's identity.
         """
         proposal_id = identity(submitted.get("proposalId"), "honua_publish_service")
         instance_id = identity(submitted.get("operationInstanceId"), "honua_publish_service")
+        return self.project_publication(self.approve_gated(3, proposal_id, instance_id))
+
+    def approve_style(self, proposal_id, arguments):
+        """An operator's style application on an agent transport is gated the same way."""
+        handle = self.approve_gated(4, proposal_id, self.proposal_operation_instance(proposal_id))
+        if handle.get("operationId") != "style.apply-preset":
+            raise ExecutionError("GET approved style handle", "approved replay is not the style application")
+        return {"status": handle.get("status"), "applied": handle.get("status") == "Completed",
+                "styleId": arguments.get("styleId"),
+                **{key: handle.get(key) for key in ("operationId", "operationInstanceId", "correlationId", "auditId")}}
+
+    def approve_gated(self, number, proposal_id, instance_id):
+        """A gated operator call: the operator's own approval is refused first, then a person approves.
+
+        Returns the approved replay's settled handle, joined on the proposal.
+        """
         path = "/api/v1/admin/proposals/" + proposal_id
-        operator = self.principal(3)
+        operator = self.principal(number)
         pending = self.transport.get_json(path, principal=operator)
         if (pending.get("proposalId") != proposal_id or pending.get("status") not in PROPOSAL_PENDING
                 or pending.get("resolvedBy")):
-            raise ExecutionError("GET publication proposal", "service.publish did not persist awaiting approval")
+            raise ExecutionError("GET gated proposal", "gated operator call did not persist awaiting approval")
         self.transport.http("POST", path + "/approve", principal=operator, expected=(403,))
         _, resolution = self.resolve_by_human(proposal_id, pending, operator)
-        handle = self.poll("GET approved publication handle", lambda: self.operation_handle(instance_id, operator),
+        handle = self.poll("GET approved operation handle", lambda: self.operation_handle(instance_id, operator),
                            lambda value: value.get("status") not in HANDLE_IN_FLIGHT)
         if handle.get("operationInstanceId") != instance_id or handle.get("proposalId") not in {None, proposal_id}:
-            raise ExecutionError("GET approved publication handle", "approved replay handle does not join the proposal")
-        self.evidence["publicationApproval"] = {**resolution, "operatorSelfApproval": "denied"}
-        return self.project_publication(handle)
+            raise ExecutionError("GET approved operation handle", "approved replay handle does not join the proposal")
+        self.evidence.setdefault("operatorApprovals", {})[str(number)] = {**resolution, "operatorSelfApproval": "denied"}
+        return handle
+
+    def proposal_operation_instance(self, proposal_id):
+        """The operation instance a gated proposal will replay, from its MCP resume resource."""
+        command = "read proposal resource"
+        result = self.transport.resource_read(PROPOSAL_URI + proposal_id, self.view(), self.principal(4))
+        try:
+            document = json.loads(result["contents"][0]["text"])
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise ExecutionError(command, "candidate proposal resource omitted its content") from exc
+        if not isinstance(document, dict) or document.get("proposalId") != proposal_id:
+            raise ExecutionError(command, "candidate proposal resource names another proposal")
+        return identity(document.get("operationInstanceId"), command)
 
     @staticmethod
     def project_publication(handle):

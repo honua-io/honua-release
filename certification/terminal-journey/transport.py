@@ -111,6 +111,26 @@ def has_execution_evidence(value):
     return False
 
 
+PROPOSAL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\Z")
+PROPOSAL_URI = "honua://proposals/"
+
+
+def pending_approval(result):
+    """The proposal id of a typed approval-required refusal, else None.
+
+    honua-server returns `failed_precondition` with approvalRequired and the proposal's resume
+    resource when a gated call was filed as a proposal. That resource URI is not execution evidence.
+    """
+    content = result.get("structuredContent") if isinstance(result, dict) else None
+    if (not isinstance(content, dict) or result.get("isError") is not True
+            or content.get("approvalRequired") is not True or content.get("code") != "failed_precondition"):
+        return None
+    proposal = content.get("proposalId")
+    if not isinstance(proposal, str) or not PROPOSAL_ID.fullmatch(proposal):
+        return None
+    return proposal if content.get("resourceUri") == PROPOSAL_URI + proposal else None
+
+
 def tool_error(result, secrets=()):
     """The typed problem a candidate tool error carries, masked; never raw tool output."""
     content = result.get("structuredContent")
@@ -265,7 +285,7 @@ class Transport:
                                      + (f" ({describe_fields(fields)})" if fields else ""), problem=fields)
             if "isError" in result and type(result["isError"]) is not bool:
                 raise ExecutionError(name, "candidate tool result has a nonboolean error marker")
-            if result.get("isError") is True and has_execution_evidence(result):
+            if result.get("isError") is True and pending_approval(result) is None and has_execution_evidence(result):
                 raise ExecutionError(name, "candidate error carries contradictory execution evidence")
             return result
 
@@ -273,7 +293,8 @@ class Transport:
         """Read the admitted catalog through the same initialized, authority-checked proxy."""
         import probes
 
-        if uri != "honua://catalog/processes":
+        if uri != "honua://catalog/processes" and not (uri.startswith(PROPOSAL_URI)
+                                                         and PROPOSAL_ID.fullmatch(uri[len(PROPOSAL_URI):])):
             raise ActionRejected("resource read", "resource is outside the current stage and bounded view")
         if not self.proxy or not self.proxy.is_file():
             raise ExecutionError("resource read", "verified installed proxy is unavailable", blocked=True)
