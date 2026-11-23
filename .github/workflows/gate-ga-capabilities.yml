@@ -22,8 +22,9 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install PyYAML
       # The candidate source is fetched as git objects, never built or installed. The producer reads
-      # two JSON files from it (the capability matrix and the feature catalog), so only commits
-      # already merged to honua-server trunk are accepted: a fork or pull request head is refused.
+      # two JSON files from it (the capability matrix and the feature catalog) and the committed
+      # skills/ tree, so only commits already merged to honua-server trunk are accepted: a fork or
+      # pull request head is refused.
       - name: Fetch the candidate server source
         env:
           SERVER_SHA: ${{ inputs.server_sha }}

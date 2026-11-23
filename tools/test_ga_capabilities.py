@@ -198,6 +198,7 @@ def test_proven_candidate_writes_a_receipt_the_contract_accepts(candidate_tree):
     assert receipt['status'] == 'PASS' and receipt['serverSha'] == candidate.server_sha
     assert receipt['assertions']['capabilitiesFailing'] == 0
     assert receipt['assertions']['gaCapabilities'] == 3
+    assert receipt['assertions']['shippedSkills'] == 0 and receipt['assertions']['skillsFailing'] == 0
     assert receipt['sourceObservedAt'] == FRESH
     assert accepted_by_contract(receipt)
     report = json.loads(ga.REPORT.read_text())
@@ -270,6 +271,7 @@ def record_skill_result(monkeypatch, tmp_path, name, digest):
     arms = {'withSkill': {'runs': 3, 'successes': 3, 'medianSeconds': 200, 'medianToolCalls': 20},
             'withoutSkill': {'runs': 3, 'successes': 2, 'medianSeconds': 300, 'medianToolCalls': 30}}
     result = {'schema': 'honua.skill-eval/v1', 'skill': name, 'skillTreeSha256': digest,
+              'serverSha': 'e' * 40, 'observedAt': FRESH, 'evidence': 'https://example.test/run',
               'models': {'opus': arms, 'sol': arms}}
     results = tmp_path / 'release' / 'certification/skill-evals'
     results.mkdir(parents=True)
@@ -287,14 +289,15 @@ def test_a_shipped_skill_without_a_passing_evaluation_fails_the_receipt(candidat
     assert not accepted_by_contract(receipt)
 
 
-def test_a_shipped_skill_with_a_passing_evaluation_of_its_content_passes(candidate_tree, monkeypatch, tmp_path):
+def test_a_shipped_skill_with_a_passing_evaluation_of_its_content_passes(candidate_tree, monkeypatch, tmp_path, capsys):
     candidate_tree(skills={'honua-ops': '# ops'})
-    digest = ga.skill_evals.tree_digest(tmp_path / 'server/skills/honua-ops')
+    digest = ga.skill_evals.tree_digest(tmp_path / 'server', 'honua-ops')
     record_skill_result(monkeypatch, tmp_path, 'honua-ops', digest)
     assert ga.main([]) == 0
     receipt = json.loads(ga.RECEIPT.read_text())
     assert receipt['assertions']['skillsFailing'] == 0 and accepted_by_contract(receipt)
     assert json.loads(ga.REPORT.read_text())['skills'][0]['gap'] is None
+    assert '0 of 1 shipped skills lack' in capsys.readouterr().out
 
 
 def test_a_skill_evaluation_of_older_skill_content_fails(candidate_tree, monkeypatch, tmp_path):

@@ -16,7 +16,7 @@ experimental, internal or deferred. Each GA capability fails the gate when it la
   evaluation   for an AI capability, a declared evaluation in certification/ga-capabilities.v1.json
                that resolves to a release-promise row or an evaluation file in this repository.
 
-Every skill the candidate ships (`skills/*/SKILL.md`) also fails the gate without a passing
+Every skill the candidate ships (`skills/*/SKILL.md`) also fails the gate without a fresh, passing
 with/without evaluation of that exact skill content; see tools/skill_evals.py.
 
 The ledger has no exemption list; a capability leaves the gate only by leaving GA at the candidate.
@@ -64,7 +64,7 @@ class Verdict(NamedTuple):
 
 
 class CandidateFiles(NamedTuple):
-    """The two server files the gate reads at the candidate SHA."""
+    """The two JSON files the gate reads at the candidate SHA; skills are read from the checkout."""
     matrix: dict
     catalog: dict
 
@@ -372,14 +372,11 @@ def head_sha(checkout: Path) -> str:
         return 'unknown'
 
 
-def _read_result(path: Path) -> dict:
-    return json.loads(path.read_text())
-
-
 def diagnose(checkout: Path, now: dt.datetime) -> tuple[Verdict, None]:
     files = CandidateFiles(read_json(checkout, MATRIX), read_json(checkout, CATALOG))
     ledger = load_ledger()
-    skills = skill_evals.evaluate_skills(checkout, ledger['skillEvaluations'], ROOT, _read_result)
+    skills = skill_evals.evaluate_skills(
+        checkout, skill_evals.SkillContext(ledger['skillEvaluations'], ROOT, now))
     return Verdict(evaluate(files, ledger, now), skills), None
 
 

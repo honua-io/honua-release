@@ -13,5 +13,5 @@
     "ai.spec-apply": ["promise:ai-publish", "promise:ai-injection"],
     "ai.spec-artifacts": ["promise:ai-build"]
   },
-  "skillEvaluations": {"resultsDir": "certification/skill-evals", "models": ["opus", "sol"], "minRunsPerArm": 3, "minCutPercent": 20}
+  "skillEvaluations": {"resultsDir": "certification/skill-evals", "models": ["opus", "sol"], "minRunsPerArm": 3, "minCutPercent": 20, "maxAgeDays": 14}
 }
