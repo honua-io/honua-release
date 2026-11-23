@@ -2,7 +2,7 @@ name: Repository hygiene
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -13,4 +13,4 @@ concurrency:
 
 jobs:
   repo-hygiene:
-    uses: honua-io/.github/.github/workflows/repo-hygiene.yml@238e7feb9a4b0b344388cdb0bc5a85561acec9c5 # v1 - repository hygiene policy interface
+    uses: honua-io/.github/.github/workflows/repo-hygiene.yml@ad47af2702c4064695f6a1fd35aac5298b5b65fa # v1 - repository hygiene policy interface (three-ticket bundle rule)
