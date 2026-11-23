@@ -32,6 +32,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import NamedTuple
 
 import source_facts
 
@@ -52,6 +53,12 @@ LEDGER_KEYS = frozenset({'schema', 'authority', 'minProvingTests', 'interopMaxAg
 
 class Unavailable(Exception):
     pass
+
+
+class CandidateFiles(NamedTuple):
+    """The two server files the gate reads at the candidate SHA."""
+    matrix: dict
+    catalog: dict
 
 
 def _positive_int(ledger: dict, key: str) -> int:
@@ -284,9 +291,9 @@ def evaluate_capability(entry: dict, context: tuple) -> dict:
     }
 
 
-def evaluate(matrix: dict, catalog: dict, ledger: dict, now: dt.datetime) -> list[dict]:
-    context = (tests_by_capability(catalog), ledger, promise_rows(), now)
-    corpus = ga_corpus(matrix, ledger)
+def evaluate(files: CandidateFiles, ledger: dict, now: dt.datetime) -> list[dict]:
+    context = (tests_by_capability(files.catalog), ledger, promise_rows(), now)
+    corpus = ga_corpus(files.matrix, ledger)
     return [evaluate_capability(entry, context) for entry in sorted(corpus, key=lambda e: e['key'])]
 
 
@@ -349,7 +356,8 @@ def head_sha(checkout: Path) -> str:
 
 
 def diagnose(checkout: Path, now: dt.datetime) -> tuple[list[dict], None]:
-    return evaluate(read_json(checkout, MATRIX), read_json(checkout, CATALOG), load_ledger(), now), None
+    files = CandidateFiles(read_json(checkout, MATRIX), read_json(checkout, CATALOG))
+    return evaluate(files, load_ledger(), now), None
 
 
 def certify(checkout: Path, now: dt.datetime) -> tuple[list[dict], dict]:

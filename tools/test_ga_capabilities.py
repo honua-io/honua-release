@@ -53,9 +53,8 @@ GOOD_TESTS = {
 
 def evaluate(entries=None, tests=None):
     entries = GOOD if entries is None else entries
-    return {result['key']: result for result in ga.evaluate(
-        matrix(*entries.values()), catalog(GOOD_TESTS if tests is None else tests),
-        ga.load_ledger(), NOW)}
+    files = ga.CandidateFiles(matrix(*entries.values()), catalog(GOOD_TESTS if tests is None else tests))
+    return {result['key']: result for result in ga.evaluate(files, ga.load_ledger(), NOW)}
 
 
 def test_shipped_ledger_is_valid_and_every_evaluation_resolves():
@@ -132,7 +131,7 @@ def test_capabilities_outside_ga_are_not_judged(overrides):
                                        {**capability('serve.x'), 'status': False}])
 def test_a_malformed_matrix_entry_fails_closed_beside_healthy_ones(malformed):
     with pytest.raises(ga.Unavailable, match='lack a well-formed'):
-        ga.evaluate({'capabilities': [*GOOD.values(), malformed]}, catalog(GOOD_TESTS),
+        ga.evaluate(ga.CandidateFiles({'capabilities': [*GOOD.values(), malformed]}, catalog(GOOD_TESTS)),
                     ga.load_ledger(), NOW)
 
 
@@ -142,8 +141,8 @@ def test_a_malformed_matrix_entry_fails_closed_beside_healthy_ones(malformed):
                                    {'proving_tests': ['A.Forbidden']}])
 def test_a_malformed_catalog_entry_fails_closed(entry):
     with pytest.raises(ga.Unavailable, match='feature catalog entries'):
-        ga.evaluate(matrix(*GOOD.values()), {'entries': [*catalog(GOOD_TESTS)['entries'], entry]},
-                    ga.load_ledger(), NOW)
+        files = ga.CandidateFiles(matrix(*GOOD.values()), {'entries': [*catalog(GOOD_TESTS)['entries'], entry]})
+        ga.evaluate(files, ga.load_ledger(), NOW)
 
 
 def test_an_empty_ga_corpus_fails_closed():
