@@ -115,9 +115,13 @@ def test_capabilities_outside_ga_are_not_judged(overrides):
                                        {**capability('serve.x'), 'maturity': None},
                                        {**capability('serve.x'), 'maturity': {'implemented': '2'}},
                                        {k: v for k, v in capability('serve.x').items() if k != 'status'},
-                                       {k: v for k, v in capability('serve.x').items() if k != 'key'}])
+                                       {k: v for k, v in capability('serve.x').items() if k != 'key'},
+                                       {k: v for k, v in capability('ai.x').items() if k != 'category'},
+                                       {**capability('serve.x'), 'provingTestCount': None},
+                                       {**capability('serve.x'), 'cite': None},
+                                       {**capability('serve.x'), 'interop': ['js']}])
 def test_a_malformed_matrix_entry_fails_closed_beside_healthy_ones(malformed):
-    with pytest.raises(ga.Unavailable, match='lack key'):
+    with pytest.raises(ga.Unavailable, match='lack a well-formed'):
         ga.evaluate({'capabilities': [*GOOD.values(), malformed]}, catalog(GOOD_TESTS),
                     ga.load_ledger(), NOW)
 

@@ -106,13 +106,22 @@ def read_json(checkout: Path, relative: str) -> dict:
     return document
 
 
+def _counts(value) -> bool:
+    return isinstance(value, dict) and all(type(count) is int and count >= 0 for count in value.values())
+
+
+def _objects(value) -> bool:
+    return isinstance(value, list) and all(isinstance(item, dict) for item in value)
+
+
 def well_formed(entry) -> bool:
-    """A matrix entry the corpus filter can judge; anything else fails the gate closed."""
-    if not isinstance(entry, dict) or not isinstance(entry.get('key'), str) or not entry['key']:
+    """An entry every criterion can judge: each field a check reads has its matrix type."""
+    if not isinstance(entry, dict):
         return False
-    maturity = entry.get('maturity')
-    return (isinstance(maturity, dict) and 'noSurface' in entry and 'status' in entry
-            and all(type(count) is int and count >= 0 for count in maturity.values()))
+    named = all(isinstance(entry.get(field), str) and entry[field] for field in ('key', 'category'))
+    proving = type(entry.get('provingTestCount')) is int and entry['provingTestCount'] >= 0
+    return (named and proving and _counts(entry.get('maturity')) and 'noSurface' in entry
+            and 'status' in entry and _objects(entry.get('cite')) and _objects(entry.get('interop')))
 
 
 def ga_corpus(matrix: dict, ledger: dict) -> list[dict]:
@@ -121,7 +130,7 @@ def ga_corpus(matrix: dict, ledger: dict) -> list[dict]:
         raise Unavailable('capability matrix has no capabilities list')
     malformed = [index for index, entry in enumerate(entries) if not well_formed(entry)]
     if malformed:
-        raise Unavailable(f'capability matrix entries {malformed[:10]} lack key, maturity, status or noSurface')
+        raise Unavailable(f'capability matrix entries {malformed[:10]} lack a well-formed key, category, provingTestCount, maturity, status, noSurface, cite or interop')
     excluded = set(ledger['nonGaStatuses'])
     corpus = [entry for entry in entries if not entry['noSurface']
               and (entry['maturity'].get('implemented') or 0) > 0
