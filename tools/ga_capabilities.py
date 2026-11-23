@@ -120,8 +120,14 @@ def well_formed(entry) -> bool:
         return False
     named = all(isinstance(entry.get(field), str) and entry[field] for field in ('key', 'category'))
     proving = type(entry.get('provingTestCount')) is int and entry['provingTestCount'] >= 0
-    return (named and proving and _counts(entry.get('maturity')) and 'noSurface' in entry
-            and 'status' in entry and _objects(entry.get('cite')) and _objects(entry.get('interop')))
+    labels = _optional(entry, 'noSurface', dict) and _optional(entry, 'status', str)
+    return (named and proving and labels and _counts(entry.get('maturity'))
+            and _objects(entry.get('cite')) and _objects(entry.get('interop')))
+
+
+def _optional(entry: dict, field: str, kind: type) -> bool:
+    """Present, and either null or a non-empty value of the matrix's type for that field."""
+    return field in entry and (entry[field] is None or (isinstance(entry[field], kind) and bool(entry[field])))
 
 
 def ga_corpus(matrix: dict, ledger: dict) -> list[dict]:
@@ -213,9 +219,14 @@ def source_observed_at(results: list[dict], now: dt.datetime) -> str:
     return min(dates, key=instant) if dates else stamp(now)
 
 
+def _full_pass(suite) -> bool:
+    """Exactly 100%: a missing, non-numeric, non-finite or out-of-range rate is a gap."""
+    rate = suite.get('passRate') if isinstance(suite, dict) else None
+    return type(rate) in (int, float) and rate == FULL_PASS_RATE
+
+
 def cite_gap(entry: dict) -> str | None:
-    short = [suite for suite in entry.get('cite') or []
-             if not isinstance(suite, dict) or (suite.get('passRate') or 0) < FULL_PASS_RATE]
+    short = [suite for suite in entry.get('cite') or [] if not _full_pass(suite)]
     if not short:
         return None
     names = ', '.join(f"{suite.get('suite')} {suite.get('passRate')}%" if isinstance(suite, dict)

@@ -83,6 +83,9 @@ GAPS = [
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH, 'stale')])}, None),
     ('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
                                       cite=[{'suite': 'WFS 2.0', 'passRate': 99.3}])}, None),
+    *[('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
+                                        cite=[{'suite': 'WFS 2.0', 'passRate': rate}])}, None)
+      for rate in (float('nan'), float('inf'), 101.0, '100', None, True)],
     ('evaluation', {'ai.unlisted': capability('ai.unlisted', 'AI')}, {'ai.unlisted': ['A.Forbidden']}),
 ]
 
@@ -104,7 +107,7 @@ def test_a_broken_evaluation_reference_fails(monkeypatch):
 
 
 @pytest.mark.parametrize('overrides', [{'status': 'preview'}, {'status': 'experimental'},
-                                       {'status': 'internal'}, {'noSurface': 'config-flag'},
+                                       {'status': 'internal'}, {'noSurface': {'reason': 'config-flag'}},
                                        {'maturity': {'experimental': 2}}])
 def test_capabilities_outside_ga_are_not_judged(overrides):
     entries = {**GOOD, 'raster.x': capability('raster.x', provingTestCount=0, **overrides)}
@@ -119,7 +122,11 @@ def test_capabilities_outside_ga_are_not_judged(overrides):
                                        {k: v for k, v in capability('ai.x').items() if k != 'category'},
                                        {**capability('serve.x'), 'provingTestCount': None},
                                        {**capability('serve.x'), 'cite': None},
-                                       {**capability('serve.x'), 'interop': ['js']}])
+                                       {**capability('serve.x'), 'interop': ['js']},
+                                       {**capability('serve.x'), 'noSurface': 0},
+                                       {**capability('serve.x'), 'noSurface': {}},
+                                       {**capability('serve.x'), 'noSurface': 'config-flag'},
+                                       {**capability('serve.x'), 'status': False}])
 def test_a_malformed_matrix_entry_fails_closed_beside_healthy_ones(malformed):
     with pytest.raises(ga.Unavailable, match='lack a well-formed'):
         ga.evaluate({'capabilities': [*GOOD.values(), malformed]}, catalog(GOOD_TESTS),
