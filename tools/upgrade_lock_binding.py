@@ -134,8 +134,7 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
             raise BindingError(f"{phase} runtime image identity mismatch")
         if runtime.get("sourceRevision") != expected[phase]["sourceRevision"]:
             raise BindingError(f"{phase} runtime source identity mismatch")
-        # Images report `<version>+<sha7>` since the explicit InformationalVersion stamp; older ones
-        # carry the full revision.
+        # The runtime version ends with `+<sha7>` or `+<full revision>` of the image's source.
         revision = expected[phase]["sourceRevision"]
         if not str(runtime.get("observedVersion") or "").endswith(("+" + revision[:7], "+" + revision)):
             raise BindingError(f"{phase} runtime version does not identify the expected source")

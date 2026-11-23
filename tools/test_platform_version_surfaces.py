@@ -4,6 +4,7 @@ import urllib.error
 
 import pytest
 
+import no_redirect
 import platform_version_surfaces as surfaces
 
 REVISION = "c" * 40
@@ -149,7 +150,7 @@ def test_redirects_are_refused_so_the_api_key_stays_on_its_origin():
     import urllib.request
     request = urllib.request.Request("https://candidate.example/api/v1/admin/version",
                                      headers={"X-API-Key": "secret-key"})
-    handler = surfaces._NoRedirect()
+    handler = no_redirect.NoRedirect()
     assert handler.redirect_request(request, None, 302, "Found", {}, "http://other.example/version") is None
     redirect = urllib.error.HTTPError("https://candidate.example", 302, "Found", {}, None)
 

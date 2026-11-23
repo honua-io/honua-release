@@ -33,6 +33,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+import no_redirect
 from compose_upgrade_version import runtime_platform_version
 from platform_version import artifact_version
 
@@ -85,14 +86,7 @@ def compare(label: str, observed: dict) -> dict:
 RETAINED_FIELDS = ("name", "version", "commit", "platformVersion")
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuse redirects so an API key never follows a response to another origin."""
-
-    def redirect_request(self, *_redirect):  # urllib passes req, fp, code, msg, headers, newurl
-        return None
-
-
-_OPENER = urllib.request.build_opener(_NoRedirect)
+_OPENER = no_redirect.opener()  # an API key never follows a response to another origin
 
 
 def fetch_json(url: str, headers: dict | None = None, opener=_OPENER):

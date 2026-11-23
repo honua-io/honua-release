@@ -38,6 +38,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from jsonschema import Draft202012Validator
 
+import no_redirect
+
 ROOT = Path(__file__).resolve().parents[1]
 CANARY_DIR = ROOT / "certification" / "terminal-model-canary"
 DEFAULT_JOURNEY = ROOT / "certification" / "terminal-journey" / "journey.v1.json"
@@ -1111,11 +1113,6 @@ def complete_with_provider_retry(
     raise CanaryError("unreachable provider retry state")  # pragma: no cover
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
-
-
 class CandidateProxyClient:
     """Dependency-free client for the candidate's signed Studio SSE proxy."""
 
@@ -1132,7 +1129,7 @@ class CandidateProxyClient:
 
     @staticmethod
     def _open(request, *, timeout):
-        return urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout)
+        return no_redirect.opener().open(request, timeout=timeout)
 
     @staticmethod
     def _read(response) -> bytes:
