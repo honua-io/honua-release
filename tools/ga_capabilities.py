@@ -16,6 +16,9 @@ experimental, internal or deferred. Each GA capability fails the gate when it la
   evaluation   for an AI capability, a declared evaluation in certification/ga-capabilities.v1.json
                that resolves to a release-promise row or an evaluation file in this repository.
 
+Every skill the candidate ships (`skills/*/SKILL.md`) also fails the gate without a passing
+with/without evaluation of that exact skill content; see tools/skill_evals.py.
+
 The ledger has no exemption list; a capability leaves the gate only by leaving GA at the candidate.
 A missing or malformed input fails closed. `--diagnostic` reports without writing a receipt.
 """
@@ -31,6 +34,7 @@ import subprocess
 import sys
 from typing import NamedTuple
 
+import skill_evals
 import source_facts  # imports rc_gate_window, which puts certification/ on sys.path
 from execution_order import instant  # noqa: E402  the admission parser: UTC 'Z' stamps only
 
@@ -46,11 +50,17 @@ SHOWN_FINDINGS = 200
 FULL_PASS_RATE = 100.0
 LEDGER_KEYS = frozenset({'schema', 'authority', 'minProvingTests', 'interopMaxAgeDays',
                          'nonGaStatuses', 'protocolCategories', 'aiCategories',
-                         'securityTestPattern', 'evaluations'})
+                         'securityTestPattern', 'evaluations', 'skillEvaluations'})
 
 
 class Unavailable(Exception):
     pass
+
+
+class Verdict(NamedTuple):
+    """Per-capability results and per-shipped-skill rows of one candidate."""
+    capabilities: list[dict]
+    skills: list[dict]
 
 
 class CandidateFiles(NamedTuple):
@@ -94,6 +104,10 @@ def load_ledger(path: Path = LEDGER) -> dict:
         raise Unavailable('ledger evaluations must map capability keys to references')
     for key, refs in evaluations.items():
         _string_list(refs, f'evaluations[{key}]')
+    try:
+        skill_evals.check_policy(ledger['skillEvaluations'])
+    except skill_evals.PolicyError as error:
+        raise Unavailable(str(error)) from error
     return ledger
 
 
@@ -285,43 +299,58 @@ def evaluate(files: CandidateFiles, ledger: dict, now: dt.datetime) -> list[dict
     return [evaluate_capability(entry, context) for entry in sorted(corpus, key=lambda e: e['key'])]
 
 
-def totals(results: list[dict]) -> dict:
+def totals(verdict: Verdict) -> dict:
     criteria = ('proving', 'security', 'interop', 'cite', 'evaluation')
+    results = verdict.capabilities
     return {
         'gaCapabilities': len(results),
         'capabilitiesFailing': sum(1 for result in results if result['gaps']),
         **{f'missing{name.capitalize()}': sum(1 for result in results if name in result['gaps'])
            for name in criteria},
+        'shippedSkills': len(verdict.skills),
+        'skillsFailing': sum(1 for row in verdict.skills if row['gap']),
     }
+
+
+def failing(counts: dict) -> bool:
+    return counts['capabilitiesFailing'] > 0 or counts['skillsFailing'] > 0
 
 
 def stamp(moment: dt.datetime) -> str:
     return moment.isoformat().replace('+00:00', 'Z')
 
 
-def findings(results: list[dict]) -> list[str]:
-    return [f"{result['key']}: {criterion}: {detail}"
-            for result in results for criterion, detail in result['gaps'].items()]
+def findings(verdict: Verdict) -> list[str]:
+    skills = [f"skill {row['skill']}: {row['gap']}" for row in verdict.skills if row['gap']]
+    return skills + [f"{result['key']}: {criterion}: {detail}"
+                     for result in verdict.capabilities for criterion, detail in result['gaps'].items()]
 
 
-def receipt(candidate, results: list[dict], now: dt.datetime) -> dict:
-    counts = totals(results)
+def receipt(candidate, verdict: Verdict, now: dt.datetime) -> dict:
+    counts = totals(verdict)
     return {
         'schema': 'honua.release-promise-receipt/v1',
         'row': ROW,
-        'status': 'PASS' if counts['capabilitiesFailing'] == 0 else 'FAIL',
+        'status': 'FAIL' if failing(counts) else 'PASS',
         'serverSha': candidate.server_sha,
         'imageDigest': candidate.server_digest,
         'platformLockDigest': candidate.platform_lock,
         'observedAt': stamp(now),
-        'sourceObservedAt': source_observed_at(results, now),
+        'sourceObservedAt': source_observed_at(verdict.capabilities, now),
         'assertions': counts,
-        'findings': findings(results)[:SHOWN_FINDINGS],
+        'findings': findings(verdict)[:SHOWN_FINDINGS],
     }
 
 
-def summary(results: list[dict], server_sha: str) -> str:
-    counts = totals(results)
+def skill_lines(verdict: Verdict) -> list[str]:
+    counts = totals(verdict)
+    lines = ['', f"{counts['skillsFailing']} of {counts['shippedSkills']} shipped skills lack a passing "
+             'with/without evaluation.', '', '| Skill | Missing |', '|---|---|']
+    return lines + [f"| `{row['skill']}` | {row['gap'] or 'none'} |" for row in verdict.skills]
+
+
+def summary(verdict: Verdict, server_sha: str) -> str:
+    counts, results = totals(verdict), verdict.capabilities
     lines = [f'## GA capability gate at `{server_sha}`', '',
              f"{counts['capabilitiesFailing']} of {counts['gaCapabilities']} GA capabilities lack proof "
              f"(proving {counts['missingProving']}, security {counts['missingSecurity']}, "
@@ -332,7 +361,7 @@ def summary(results: list[dict], server_sha: str) -> str:
         missing = '; '.join(f'{name}: {detail}' for name, detail in result['gaps'].items()) or 'none'
         lines.append(f"| `{result['key']}` | {result['category']} | {result['provingTests']} "
                      f"| {result['securityTests']} | {missing} |")
-    return '\n'.join(lines) + '\n'
+    return '\n'.join(lines + skill_lines(verdict)) + '\n'
 
 
 def head_sha(checkout: Path) -> str:
@@ -343,24 +372,31 @@ def head_sha(checkout: Path) -> str:
         return 'unknown'
 
 
-def diagnose(checkout: Path, now: dt.datetime) -> tuple[list[dict], None]:
+def _read_result(path: Path) -> dict:
+    return json.loads(path.read_text())
+
+
+def diagnose(checkout: Path, now: dt.datetime) -> tuple[Verdict, None]:
     files = CandidateFiles(read_json(checkout, MATRIX), read_json(checkout, CATALOG))
-    return evaluate(files, load_ledger(), now), None
+    ledger = load_ledger()
+    skills = skill_evals.evaluate_skills(checkout, ledger['skillEvaluations'], ROOT, _read_result)
+    return Verdict(evaluate(files, ledger, now), skills), None
 
 
-def certify(checkout: Path, now: dt.datetime) -> tuple[list[dict], dict]:
+def certify(checkout: Path, now: dt.datetime) -> tuple[Verdict, dict]:
     candidate = source_facts.candidate_from_environment()
     source_facts.require_candidate_checkout(checkout, candidate)
-    results, _ = diagnose(checkout, now)
-    return results, receipt(candidate, results, now)
+    verdict, _ = diagnose(checkout, now)
+    return verdict, receipt(candidate, verdict, now)
 
 
-def write_outputs(results: list[dict], document: dict | None, server_sha: str) -> None:
-    REPORT.write_text(json.dumps({'serverSha': server_sha, 'totals': totals(results),
-                                  'capabilities': results}, indent=2) + '\n')
+def write_outputs(verdict: Verdict, document: dict | None, server_sha: str) -> None:
+    REPORT.write_text(json.dumps({'serverSha': server_sha, 'totals': totals(verdict),
+                                  'capabilities': verdict.capabilities, 'skills': verdict.skills},
+                                 indent=2) + '\n')
     if document is not None:
         RECEIPT.write_text(json.dumps(document, indent=2) + '\n')
-    text = summary(results, server_sha)
+    text = summary(verdict, server_sha)
     step_summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if step_summary:
         with open(step_summary, 'a', encoding='utf-8') as handle:
@@ -377,13 +413,13 @@ def main(argv: list[str] | None = None) -> int:
     checkout = Path(os.environ.get('SERVER_CHECKOUT', 'server'))
     now = dt.datetime.now(dt.timezone.utc)
     try:
-        results, document = (diagnose if args.diagnostic else certify)(checkout, now)
+        verdict, document = (diagnose if args.diagnostic else certify)(checkout, now)
     except (Unavailable, source_facts.FactsUnavailable, OSError, ValueError, KeyError,
             subprocess.CalledProcessError) as error:
         print(f'GA capability gate unavailable: {error}', file=sys.stderr)
         return 1
-    write_outputs(results, document, head_sha(checkout))
-    return 0 if totals(results)['capabilitiesFailing'] == 0 else 1
+    write_outputs(verdict, document, head_sha(checkout))
+    return 1 if failing(totals(verdict)) else 0
 
 
 if __name__ == '__main__':

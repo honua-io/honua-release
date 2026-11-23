@@ -1,6 +1,6 @@
 {
   "schema": "honua.ga-capabilities/v1",
-  "authority": "Main ruling 22 Nov 19:11 HST (founder 19:45 HST): test plan, evaluations and gates for every capability that is not preview. honua-release#1556.",
+  "authority": "Main ruling 22 Nov 19:11 HST (founder 19:45 HST): test plan, evaluations and gates for every capability that is not preview. honua-release#1556. Skill evaluations: main 22 Nov 19:35 HST, SKILL-REFRESH-PLAN section 5.",
   "minProvingTests": 5,
   "interopMaxAgeDays": 7,
   "nonGaStatuses": ["preview", "experimental", "internal", "deferred"],
@@ -12,5 +12,6 @@
     "ai.mcp-discovery": ["promise:ai-operate", "promise:ai-injection"],
     "ai.spec-apply": ["promise:ai-publish", "promise:ai-injection"],
     "ai.spec-artifacts": ["promise:ai-build"]
-  }
+  },
+  "skillEvaluations": {"resultsDir": "certification/skill-evals", "models": ["opus", "sol"], "minRunsPerArm": 3, "minCutPercent": 20}
 }

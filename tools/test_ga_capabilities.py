@@ -100,7 +100,7 @@ def test_each_missing_proof_fails_its_capability(criterion, entries, tests):
     results = evaluate(entries, tests)
     (result,) = results.values()
     assert criterion in result['gaps']
-    assert ga.totals(list(results.values()))['capabilitiesFailing'] == 1
+    assert ga.totals(ga.Verdict(list(results.values()), []))['capabilitiesFailing'] == 1
 
 
 def test_a_broken_evaluation_reference_fails(monkeypatch):
@@ -158,7 +158,7 @@ def commit_tree(root, files):
     for name, document in files.items():
         target = root / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(document))
+        target.write_text(document if isinstance(document, str) else json.dumps(document))
     git = ['git', '-C', str(root), '-c', 'user.name=t', '-c', 'user.email=t@example.test']
     subprocess.run([*git, 'init', '-q'], check=True)
     subprocess.run([*git, 'add', '-A'], check=True)
@@ -168,9 +168,10 @@ def commit_tree(root, files):
 
 @pytest.fixture
 def candidate_tree(monkeypatch, tmp_path):
-    def build(entries=None, drop=()):
+    def build(entries=None, drop=(), skills=None):
         files = {ga.MATRIX: matrix(*(GOOD if entries is None else entries).values()),
-                 ga.CATALOG: catalog(GOOD_TESTS)}
+                 ga.CATALOG: catalog(GOOD_TESTS),
+                 **{f'skills/{name}/SKILL.md': text for name, text in (skills or {}).items()}}
         sha = commit_tree(tmp_path / 'server', {k: v for k, v in files.items() if k not in drop})
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv('GITHUB_STEP_SUMMARY', raising=False)
@@ -263,3 +264,51 @@ def test_workflow_fetches_the_candidate_and_uploads_the_contract_receipt():
     uploads = [step['with'] for step in steps if 'upload-artifact' in step.get('uses', '')]
     assert {'name': 'release-promise-receipts', 'path': ga.RECEIPT.name} == {
         key: uploads[0][key] for key in ('name', 'path')}
+
+
+def record_skill_result(monkeypatch, tmp_path, name, digest):
+    arms = {'withSkill': {'runs': 3, 'successes': 3, 'medianSeconds': 200, 'medianToolCalls': 20},
+            'withoutSkill': {'runs': 3, 'successes': 2, 'medianSeconds': 300, 'medianToolCalls': 30}}
+    result = {'schema': 'honua.skill-eval/v1', 'skill': name, 'skillTreeSha256': digest,
+              'models': {'opus': arms, 'sol': arms}}
+    results = tmp_path / 'release' / 'certification/skill-evals'
+    results.mkdir(parents=True)
+    (results / f'{name}.json').write_text(json.dumps(result))
+    monkeypatch.setattr(ga, 'ROOT', tmp_path / 'release')
+
+
+def test_a_shipped_skill_without_a_passing_evaluation_fails_the_receipt(candidate_tree):
+    candidate_tree(skills={'honua-ops': '# ops'})
+    assert ga.main([]) == 1
+    receipt = json.loads(ga.RECEIPT.read_text())
+    assert receipt['status'] == 'FAIL' and receipt['assertions']['capabilitiesFailing'] == 0
+    assert receipt['assertions']['shippedSkills'] == 1 and receipt['assertions']['skillsFailing'] == 1
+    assert receipt['findings'] == ['skill honua-ops: no with/without evaluation result recorded']
+    assert not accepted_by_contract(receipt)
+
+
+def test_a_shipped_skill_with_a_passing_evaluation_of_its_content_passes(candidate_tree, monkeypatch, tmp_path):
+    candidate_tree(skills={'honua-ops': '# ops'})
+    digest = ga.skill_evals.tree_digest(tmp_path / 'server/skills/honua-ops')
+    record_skill_result(monkeypatch, tmp_path, 'honua-ops', digest)
+    assert ga.main([]) == 0
+    receipt = json.loads(ga.RECEIPT.read_text())
+    assert receipt['assertions']['skillsFailing'] == 0 and accepted_by_contract(receipt)
+    assert json.loads(ga.REPORT.read_text())['skills'][0]['gap'] is None
+
+
+def test_a_skill_evaluation_of_older_skill_content_fails(candidate_tree, monkeypatch, tmp_path):
+    candidate_tree(skills={'honua-ops': '# ops, rewritten'})
+    record_skill_result(monkeypatch, tmp_path, 'honua-ops', 'sha256:' + '0' * 64)
+    assert ga.main([]) == 1
+    (finding,) = json.loads(ga.RECEIPT.read_text())['findings']
+    assert finding.startswith('skill honua-ops: evaluation ran against other skill content')
+
+
+def test_ledger_with_a_malformed_skill_policy_is_refused(tmp_path):
+    ledger = json.loads(ga.LEDGER.read_text())
+    ledger['skillEvaluations']['minRunsPerArm'] = 0
+    path = tmp_path / 'ledger.json'
+    path.write_text(json.dumps(ledger))
+    with pytest.raises(ga.Unavailable, match='minRunsPerArm'):
+        ga.load_ledger(path)
