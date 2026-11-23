@@ -31,7 +31,8 @@ import subprocess
 import sys
 from typing import NamedTuple
 
-import source_facts
+import source_facts  # imports rc_gate_window, which puts certification/ on sys.path
+from execution_order import instant  # noqa: E402  the admission parser: UTC 'Z' stamps only
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER = ROOT / 'certification/ga-capabilities.v1.json'
@@ -168,16 +169,6 @@ def tests_by_capability(catalog: dict) -> dict[str, set[str]]:
     for entry in entries:
         tests.setdefault(entry['capability'], set()).update(entry['proving_tests'])
     return tests
-
-
-def instant(value) -> dt.datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = dt.datetime.fromisoformat(value.replace('Z', '+00:00'))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else None
 
 
 def proving_gap(entry: dict, ledger: dict) -> str | None:

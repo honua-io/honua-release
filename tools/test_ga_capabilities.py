@@ -82,6 +82,7 @@ GAPS = [
     ('interop', {'analytics.h3': capability('analytics.h3', cite=[{'suite': 'X', 'passed': 1, 'total': 1, 'passRate': 100.0}])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(None)])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH, 'stale')])}, None),
+    ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH.replace('Z', '+00:00'))])}, None),
     ('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
                                       cite=[{'suite': 'WFS 2.0', 'passRate': 99.3}])}, None),
     *[('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
