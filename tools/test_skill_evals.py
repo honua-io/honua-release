@@ -14,8 +14,8 @@ STAMP = (NOW - dt.timedelta(days=1)).isoformat().replace('+00:00', 'Z')
 ROW = {'skill': 'honua-ops', 'skillTreeSha256': 'sha256:x'}
 
 
-def arm(successes=3, seconds=300, calls=30, runs=3):
-    return {'runs': runs, 'successes': successes, 'medianSeconds': seconds, 'medianToolCalls': calls}
+def arm(successes=3, seconds=300, calls=30):
+    return {'runs': 3, 'successes': successes, 'medianSeconds': seconds, 'medianToolCalls': calls}
 
 
 def result(digest='sha256:x', **models):
@@ -64,7 +64,7 @@ ZERO = {'withSkill': arm(successes=0, seconds=10, calls=1), 'withoutSkill': arm(
       'sol': {'withSkill': arm(calls=25), 'withoutSkill': arm()}}, 'no model shows'),
     ({'opus': ZERO, 'sol': ZERO}, 'no model shows'),
     ({'sol': {'withSkill': arm(successes=1), 'withoutSkill': arm(successes=2)}}, 'sol: success fell'),
-    ({'sol': {'withSkill': arm(runs=2, successes=2), 'withoutSkill': arm()}}, 'sol: fewer than 3 runs'),
+    ({'sol': {'withSkill': {**arm(successes=2), 'runs': 2}, 'withoutSkill': arm()}}, 'sol: fewer than 3 runs'),
     ({'sol': None}, 'sol: arms'),
     ({'sol': {'withSkill': arm(successes=4), 'withoutSkill': arm()}}, 'sol: arms'),
     ({'sol': {'withSkill': {**arm(), 'medianSeconds': '200'}, 'withoutSkill': arm()}}, 'sol: arms'),
