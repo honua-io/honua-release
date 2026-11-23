@@ -240,12 +240,13 @@ def engine_for(transport, **target):
     return executor.JourneyExecutor({"workspaceId": "workspace"}, target, observation, transport)
 
 
-def test_self_approval_cli_usage_error_cannot_substitute_for_candidate_denial(live_http):
+def test_self_approval_cli_usage_error_cannot_substitute_for_candidate_denial(live_http, human_approver):
     url, seen = live_http
     transport = transport_for(url)
     engine = approval_engine(transport)
-    with mock.patch.object(transport, "cli_approve", side_effect=[(2, None), (1, None)]) as cli:
-        with pytest.raises(ExecutionError, match="separate-principal approval failed"):
+    human_approver.return_value = {"result": "refused", "stage": "approve", "httpStatus": 403, "detail": "denied"}
+    with mock.patch.object(transport, "cli_approve", side_effect=[(2, None)]) as cli:
+        with pytest.raises(ExecutionError, match="human approval did not approve the proposal"):
             engine.approve("proposal-1")
     assert cli.call_args_list[0].args == ("proposal-1", "proposer")
     assert ("POST", "/api/v1/admin/proposals/proposal-1/approve", "private-proposer") in seen
@@ -579,7 +580,8 @@ def test_failed_cli_upload_is_not_a_pass():
 
 PUBLISH_OUTPUT = {"status": "Completed", "requiresApproval": False, "operationId": "service.publish",
                   "operationInstanceId": "opinst-publish-1", "correlationId": "00-corr-publish",
-                  "auditId": "audit-publish-1", "layerId": "7", "serviceName": "journey",
+                  "auditId": "audit-publish-1", "storageLayerId": "7", "serviceLayerIndex": "0",
+                  "serviceName": "journey",
                   "serviceUri": "honua://published-services/journey"}
 
 
@@ -656,15 +658,95 @@ def test_completed_service_publish_supplies_stage_3_operation_ids_and_feature_pr
         "service.publish", "opinst-publish-1", "00-corr-publish", "audit-publish-1")
 
 
-def test_publish_awaiting_operator_approval_is_not_a_published_layer():
-    engine = upload_engine()
+AWAITING_PUBLICATION = {**{key: PUBLISH_OUTPUT[key] for key in ("operationId", "operationInstanceId", "correlationId",
+                                                                  "auditId")},
+                        "status": "RequiresApproval", "requiresApproval": True, "proposalId": "proposal-publish-1",
+                        "policyOutcome": "RequireApproval", "message": "Proposal created and awaiting approval."}
+OPERATOR_ACTOR = "apikey:api-key:0b6f2f8e-0a4e-4b8a-9d55-6f1d2c3b4a59"
+HUMAN_ACTOR = "cookie:name:admin"
+PENDING_PUBLICATION = {"proposalId": "proposal-publish-1", "status": "Pending", "requestedBy": OPERATOR_ACTOR}
+APPROVED_PUBLICATION = {**PENDING_PUBLICATION, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR}
+PUBLISHED_HANDLE = {"data": {**{key: PUBLISH_OUTPUT[key] for key in ("operationId", "operationInstanceId",
+                                                                    "correlationId", "auditId")},
+                             "proposalId": "proposal-publish-1", "status": "Completed",
+                             "resourceIds": {"storageLayerId": "7", "serviceName": "journey"},
+                             "result": {"summary": "published", "details": {"storageLayerId": "7",
+                                        "serviceLayerIndex": "0", "serviceName": "journey"}}}}
+
+
+def awaiting_publication_engine(*reads):
+    engine = upload_engine(operator="private-operator")
     engine.resources.update(importTable="imported_journey_source", importSchema="public")
-    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "status": "RequiresApproval",
-                                                                "requiresApproval": True, "layerId": None}}
-    with pytest.raises(ExecutionError, match="did not complete"):
-        engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service",
-                           "arguments": publish_arguments(engine)})
+    engine.transport.tool.return_value = {"structuredContent": copy.deepcopy(AWAITING_PUBLICATION)}
+    engine.transport.get_json.side_effect = [copy.deepcopy(read) for read in reads]
+    return engine
+
+
+def publish(engine):
+    return engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
+
+
+def test_publication_proposal_is_approved_by_a_person_after_the_operator_is_refused(human_approver):
+    features = {"type": "FeatureCollection", "features": copy.deepcopy(LOCAL_TARGET["execution"]["features"])}
+    engine = awaiting_publication_engine(PENDING_PUBLICATION, APPROVED_PUBLICATION, PUBLISHED_HANDLE, features)
+    engine.evidence["checks"]["3"] = {
+        name: {"id": f"3.{name}", "kind": "artifact", "invocation": name, "status": "pass", "detail": "ok"}
+        for name in ("datasource", "import-complete")}
+    result = publish(engine)
+    engine.transport.http.assert_called_once_with("POST", "/api/v1/admin/proposals/proposal-publish-1/approve",
+                                                  principal="operator", expected=(403,))
+    assert human_approver.call_args.args == ("https://localhost:8139", "proposal-publish-1",
+                                             "private-admin-password", "/run/tls.crt")
+    reads = [call.args[0] for call in engine.transport.get_json.call_args_list]
+    assert reads[:3] == ["/api/v1/admin/proposals/proposal-publish-1"] * 2 + [
+        "/api/v1/operations/handles/opinst-publish-1"]
+    assert reads[3] == "/ogc/features/collections/7/items"
+    assert engine.resources["layerId"] == 7 and engine.resources["serviceLayerIndex"] == 0
+    assert engine.resources["serviceUri"] == "honua://published-services/journey"
+    assert "proposalId" not in engine.resources and "publicationOperation" not in engine.evidence
+    assert engine.evidence["publicationApproval"] == {"proposalId": "proposal-publish-1", "requestedBy": OPERATOR_ACTOR,
+        "resolvedBy": HUMAN_ACTOR, "approvalChannel": "console-interactive-password", "operatorSelfApproval": "denied"}
+    assert result["nativePublication"]["serviceLayerIndex"] == 0
+    assert engine.result(3).status == "pass"
+
+
+def test_publication_refused_by_the_human_session_is_not_a_published_layer(human_approver):
+    human_approver.return_value = {"result": "refused", "stage": "session", "httpStatus": 401,
+                                   "detail": "bad private-admin-password"}
+    engine = awaiting_publication_engine(PENDING_PUBLICATION)
+    with pytest.raises(ExecutionError, match=r"human approval did not approve the proposal \(result=refused") as error:
+        publish(engine)
+    assert "private-admin-password" not in error.value.reason
+    assert "layerId" not in engine.resources and "publicationApproval" not in engine.evidence
+
+
+def test_publication_without_an_https_approval_channel_is_blocked():
+    engine = awaiting_publication_engine(PENDING_PUBLICATION)
+    with mock.patch.object(executor.local_fixture, "human_approval_channel", return_value=None):
+        with pytest.raises(ExecutionError, match="no HTTPS human approval channel") as error:
+            publish(engine)
+    assert error.value.blocked is True
+
+
+@pytest.mark.parametrize("approved,handle,reason", [
+    ({**APPROVED_PUBLICATION, "resolvedBy": OPERATOR_ACTOR}, PUBLISHED_HANDLE, "separate principal resolution"),
+    ({**APPROVED_PUBLICATION, "status": "Rejected"}, PUBLISHED_HANDLE, "separate principal resolution"),
+    (APPROVED_PUBLICATION, {"data": {**PUBLISHED_HANDLE["data"], "status": "Failed"}}, "did not complete"),
+    (APPROVED_PUBLICATION, {"data": {**PUBLISHED_HANDLE["data"], "proposalId": "other"}}, "does not join the proposal"),
+])
+def test_approved_publication_must_resolve_separately_and_complete_its_own_handle(approved, handle, reason):
+    engine = awaiting_publication_engine(PENDING_PUBLICATION, approved, handle)
+    with pytest.raises(ExecutionError, match=reason):
+        publish(engine)
     assert "layerId" not in engine.resources
+
+
+def test_publication_proposal_that_is_not_pending_is_never_approved(human_approver):
+    engine = awaiting_publication_engine({**PENDING_PUBLICATION, "status": "Succeeded", "resolvedBy": OPERATOR_ACTOR})
+    with pytest.raises(ExecutionError, match="did not persist awaiting approval"):
+        publish(engine)
+    human_approver.assert_not_called()
+    engine.transport.http.assert_not_called()
 
 
 @pytest.mark.parametrize("service", ["native-published", "default", 'Hālau district/"North"'])
@@ -691,7 +773,8 @@ def test_returned_publication_identity_replaces_fixture_alias_without_changing_e
     {"serviceName": "not/a/service"}, {"serviceName": ""}, {"serviceName": " padded "},
     {"serviceName": "line\nbreak"}, {"serviceName": "a" * 201},
     {"requiresApproval": None}, {"requiresApproval": 0},
-    {"layerId": None}, {"layerId": True}, {"layerId": "not-a-layer"}])
+    {"storageLayerId": None}, {"storageLayerId": True}, {"storageLayerId": "not-a-layer"},
+    {"serviceLayerIndex": None}, {"serviceLayerIndex": "-1"}])
 def test_completed_publish_cannot_supply_partial_or_contradictory_identity_from_requested_names(changes):
     engine = upload_engine()
     engine.resources.update(importTable="imported_journey_source", importSchema="public")
@@ -718,7 +801,7 @@ def test_decimal_layer_identity_cannot_normalize_a_credential_into_model_context
     secret = "012345678901234567"
     engine = upload_engine(operator=secret)
     engine.resources.update(importTable="imported_journey_source", importSchema="public")
-    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "layerId": layer}}
+    engine.transport.tool.return_value = {"structuredContent": {**PUBLISH_OUTPUT, "storageLayerId": layer}}
     with pytest.raises(ExecutionError):
         engine.execute(3, {"kind": "tool_call", "tool": "honua_publish_service", "arguments": publish_arguments(engine)})
     assert "nativePublication" not in engine.evidence and "layerId" not in engine.resources
@@ -1962,7 +2045,7 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
         {"workspaceId": "workspace"},
         {"execution": {"serviceId": "journey", "styleId": "journey-solid-red", "renderSize": [128, 128], "bbox": [-2, -2, 2, 2]}},
         observation, transport)
-    engine.resources["layerId"] = 7
+    engine.resources.update(layerId=7, serviceLayerIndex=0)
     transport.tool.return_value = {"isError": True, "structuredContent": {"code": "invalid_argument"}}
 
     def rejected(tool, arguments):
@@ -1970,13 +2053,13 @@ def test_only_authored_fixture_arguments_mark_a_validation_error_proven():
             engine.execute(4, {"kind": "tool_call", "tool": tool, "arguments": arguments})
         return caught.value
 
-    layer = {"serviceId": "journey", "layerId": 7}
+    layer = {"serviceId": "journey", "serviceLayerIndex": 0}
     style = {**layer, "styleId": "journey-solid-red"}
     render = {"layers": [layer], "width": 128, "height": 128, "bbox": [-2, -2, 2, 2]}
     assert rejected("honua_apply_style_preset", {**style, "styleId": "unknown"}).problem.get("argumentsProven") is not True
-    assert rejected("honua_apply_style_preset", {**style, "layerId": 8}).problem.get("argumentsProven") is not True
+    assert rejected("honua_apply_style_preset", {**style, "serviceLayerIndex": 7}).problem.get("argumentsProven") is not True
     assert rejected("honua_apply_style_preset", style).problem["argumentsProven"] is True
-    for changed in [{"width": 20}, {"bbox": [0, 0, 1, 1]}, {"layers": [{**layer, "layerId": 8}]},
+    for changed in [{"width": 20}, {"bbox": [0, 0, 1, 1]}, {"layers": [{**layer, "serviceLayerIndex": 7}]},
                     {"encoding": "unsupported"}, {"bboxSrid": 999999}]:
         assert rejected("honua_render_map", {**render, **changed}).problem.get("argumentsProven") is not True
     assert rejected("honua_render_map", render).problem["argumentsProven"] is True

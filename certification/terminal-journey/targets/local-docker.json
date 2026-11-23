@@ -12,7 +12,9 @@
     "port": 8137,
     "replicaPortEnv": "HONUA_JOURNEY_REPLICA_PORT",
     "replicaPort": 8138,
-    "notes": "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled."
+    "httpsPortEnv": "HONUA_JOURNEY_HTTPS_PORT",
+    "httpsPort": 8139,
+    "notes": "Isolated PostGIS, Redis, authored GeoServices source, and two exact-candidate server replicas. Licensing remains disabled. The server also serves HTTPS from a per-run self-signed certificate so a person can approve proposals over a password session."
   },
   "adminPassword": {
     "env": "HONUA_ADMIN_PASSWORD",

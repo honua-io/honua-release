@@ -16,12 +16,15 @@ import json
 import os
 import re
 import secrets
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import probes
 from transport import ExecutionError, Transport
+
+TLS_CERT_SCRIPT = Path(__file__).resolve().parents[2] / "e2e" / "harness" / "lib" / "tls-cert.sh"
 
 ISSUER = "https://terminal-journey.invalid"
 AUDIENCE = "terminal-journey"
@@ -135,16 +138,50 @@ def compose_env(target, workdir):
         _save(path, {"signingKey": secrets.token_urlsafe(48), "keys": {}})
     secret = json.loads(path.read_text())["signingKey"]
     restore_datasource_environment(target)
-    return {"HONUA_JOURNEY_SIGNING_KEY": secret,
-            "HONUA_JOURNEY_REPLICA_PORT": str(replica_port(target))}
+    env = {"HONUA_JOURNEY_SIGNING_KEY": secret,
+           "HONUA_JOURNEY_REPLICA_PORT": str(replica_port(target))}
+    if "httpsPort" in target["compose"]:
+        env.update({"HONUA_JOURNEY_TLS_DIR": str(tls_certificate_dir(workdir)),
+                    target["compose"]["httpsPortEnv"]: str(https_port(target))})
+    return env
+
+
+def _configured_port(target, name):
+    cfg = target["compose"]
+    port = int(os.environ.get(cfg[name + "Env"], cfg[name]))
+    if not 1 <= port <= 65535:
+        raise ExecutionError(name, "configured port is outside the TCP range")
+    return port
 
 
 def replica_port(target):
-    cfg = target["compose"]
-    port = int(os.environ.get(cfg["replicaPortEnv"], cfg["replicaPort"]))
-    if not 1 <= port <= 65535:
-        raise ExecutionError("replica port", "configured port is outside the TCP range")
-    return port
+    return _configured_port(target, "replicaPort")
+
+
+def https_port(target):
+    return _configured_port(target, "httpsPort")
+
+
+def tls_certificate_dir(workdir):
+    """A throwaway self-signed localhost certificate for the server's HTTPS endpoint, per run."""
+    directory = Path(workdir) / "tls"
+    if subprocess.run(["bash", str(TLS_CERT_SCRIPT), str(directory)], capture_output=True, check=False).returncode:
+        raise ExecutionError("tls certificate", "could not write the run's HTTPS certificate", blocked=True)
+    return directory
+
+
+def human_approval_channel(target, workdir):
+    """Where and as whom a person approves on this target: the HTTPS endpoint and the bootstrap password.
+
+    The server mints a password session only over HTTPS, so a target without an HTTPS port has none.
+    """
+    if target.get("kind") != "local-docker" or "httpsPort" not in (target.get("compose") or {}):
+        return None
+    password = _bootstrap(target)
+    if not password:
+        return None
+    return {"baseUrl": f"https://localhost:{https_port(target)}", "password": password,
+            "cafile": str(Path(workdir) / "tls" / "tls.crt")}
 
 
 def replica_url(target):
