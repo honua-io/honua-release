@@ -494,7 +494,6 @@ def test_transient_network_retry_keeps_same_command(monkeypatch):
     'gh: Service Unavailable (HTTP 503)', 'gh: Gateway Timeout (HTTP 504)',
     'gh: Too Many Requests (HTTP 429)'])
 def test_a_gh_cli_server_error_is_retried(monkeypatch, stderr):
-    # The 22 Nov cut rehearsal lost honua-server to one `gh api` 502 on a trunk commit page.
     calls, sleeps = [], []
     def request():
         calls.append('same')
@@ -516,6 +515,17 @@ def test_commits_reads_only_the_pages_the_limit_needs(monkeypatch):
     shas = list(resolver.GitHub().commits('honua-io/server', 150))
     assert len(shas) == 150 and shas[-1] == f'0002{49:036d}'
     assert len(gh.calls) == 2
+    gh.calls.clear()
+    assert len(list(resolver.GitHub().commits('honua-io/server', 200))) == 200
+    assert len(gh.calls) == 2
+
+
+@pytest.mark.parametrize('page', [{'sha': 'not a list'}, ['not an object']])
+def test_an_unkeyed_page_of_the_wrong_shape_refuses(monkeypatch, page):
+    gh = FakeGh({'repos/honua-io/server/commits?sha=trunk': page})
+    monkeypatch.setattr(resolver.subprocess, 'run', gh)
+    with pytest.raises(resolver.ResolutionError, match='is not a list|non-object row'):
+        list(resolver.GitHub().commits('honua-io/server', 10))
 
 
 class FakeGh:

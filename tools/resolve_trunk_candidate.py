@@ -14,6 +14,7 @@ import base64
 import copy
 from datetime import datetime, timezone
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -194,9 +195,7 @@ class GitHub:
             page += 1
 
     def commits(self, repository, limit):
-        for index, row in enumerate(self.pages(f'repos/{repository}/commits?sha=trunk')):
-            if index >= limit:
-                break
+        for row in itertools.islice(self.pages(f'repos/{repository}/commits?sha=trunk'), limit):
             sha = str(row.get('sha') or '')
             committed = ((row.get('commit') or {}).get('committer') or {}).get('date')
             if committed:
