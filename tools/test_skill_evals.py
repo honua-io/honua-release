@@ -194,3 +194,11 @@ def test_tree_digest_changes_with_the_file_mode(tmp_path):
     (tmp_path / 'skills/s/run.sh').chmod(0o755)
     commit_skills(tmp_path, {})
     assert skill_evals.tree_digest(tmp_path, 's') != before
+
+
+def test_a_newline_in_a_file_name_cannot_imitate_two_files(tmp_path):
+    two, one = tmp_path / 'two', tmp_path / 'one'
+    commit_skills(two, {'skills/x/SKILL.md': 's', 'skills/x/b': 'b'})
+    blob = subprocess.check_output(['git', '-C', str(two), 'rev-parse', 'HEAD:skills/x/b'], text=True).strip()
+    commit_skills(one, {f'skills/x/SKILL.md\n100644 blob {blob}\tskills/x/b': 's', 'skills/x/SKILL.md': 's'})
+    assert skill_evals.tree_digest(one, 'x') != skill_evals.tree_digest(two, 'x')

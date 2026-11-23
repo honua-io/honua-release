@@ -65,11 +65,11 @@ def repo_file(root: Path, relative) -> bool:
     return path.is_relative_to(root.resolve()) and path.is_file()
 
 
-def _bounded(policy: dict, key: str, low: int, high: int | None = None) -> None:
-    value = policy[key]
+def _bounded(policy: dict, key: str, bounds: tuple[int, int | None]) -> None:
+    value, (low, high) = policy[key], bounds
     if not positive_int(value) or value < low or (high is not None and value > high):
-        bounds = f'between {low} and {high}' if high else f'at least {low}'
-        raise PolicyError(f'ledger skillEvaluations.{key} must be an integer {bounds}')
+        allowed = f'between {low} and {high}' if high else f'at least {low}'
+        raise PolicyError(f'ledger skillEvaluations.{key} must be an integer {allowed}')
 
 
 def check_policy(policy) -> dict:
@@ -81,9 +81,9 @@ def check_policy(policy) -> dict:
         raise PolicyError('ledger skillEvaluations.models must be a list of strings')
     if not REQUIRED_MODELS <= set(models):
         raise PolicyError(f'ledger skillEvaluations.models must include {sorted(REQUIRED_MODELS)}')
-    _bounded(policy, 'minRunsPerArm', MIN_RUNS_FLOOR)
-    _bounded(policy, 'minCutPercent', MIN_CUT_FLOOR, 100)
-    _bounded(policy, 'maxAgeDays', 1, MAX_AGE_CEILING)
+    _bounded(policy, 'minRunsPerArm', (MIN_RUNS_FLOOR, None))
+    _bounded(policy, 'minCutPercent', (MIN_CUT_FLOOR, 100))
+    _bounded(policy, 'maxAgeDays', (1, MAX_AGE_CEILING))
     results = policy['resultsDir']
     path = PurePosixPath(results) if isinstance(results, str) and results else None
     if path is None or path.is_absolute() or '..' in path.parts:
@@ -110,7 +110,7 @@ def shipped_skills(checkout: Path) -> list[str]:
 def tree_digest(checkout: Path, name: str) -> str:
     """sha256 over each committed file's path, mode and blob id under `skills/<name>/` at HEAD."""
     entries = sorted(_tree(checkout, f'{SKILLS_DIR}/{name}/'), key=lambda record: record.split('\t', 1)[1])
-    return 'sha256:' + hashlib.sha256('\n'.join(entries).encode()).hexdigest()
+    return 'sha256:' + hashlib.sha256('\0'.join(entries).encode()).hexdigest()
 
 
 def _median(value) -> bool:
