@@ -6,7 +6,7 @@
   "nonGaStatuses": ["preview", "experimental", "internal", "deferred"],
   "protocolCategories": ["Serve"],
   "aiCategories": ["AI"],
-  "securityTestPattern": "(\\.Security\\.|Unauthori[sz]ed|Unauthenticated|Forbidden|Anonymous|Returns?40[13]|Denied|Deny|Injection|Traversal|Csrf|Xss|Ssrf|CrossTenant|Isolation|Escalat|WithoutAuth|NoAuth|NotAuthori|RequiresAuth|RequiresRole|Permission|Unprivileged|NonAdmin|Tamper|Forged|InvalidToken|ExpiredToken|InvalidSignature)",
+  "securityTestPattern": "(\\.Security\\.|Unauthori[sz]ed|Unauthenticated|Forbidden|Anonymous|Returns?40[13]|Denied|Deny|(?<!Dependency)Injection|Traversal|Csrf|Xss|Ssrf|CrossTenant|(?:Tenant|Scope|Owner|Org|Workspace|User|Principal|Data)Isolation|Escalat|WithoutAuth|NoAuth|NotAuthori|RequiresAuth|RequiresRole|Permission|Unprivileged|NonAdmin|Tamper|Forged|InvalidToken|ExpiredToken|InvalidSignature)",
   "evaluations": {
     "ai.grounding": ["promise:ai-build", "promise:ai-injection"],
     "ai.mcp-discovery": ["promise:ai-operate", "promise:ai-injection"],

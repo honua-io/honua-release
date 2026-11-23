@@ -46,7 +46,7 @@ GOOD = {
 }
 GOOD_TESTS = {
     'analytics.h3': ['H3Tests.Bins_ReturnCells', 'H3Tests.Bins_Anonymous_ReturnsUnauthorized'],
-    'serve.wfs': ['WfsTests.Transaction_WithoutRole_IsForbidden'],
+    'serve.wfs': ['WfsTests.Transaction_WithoutRole_IsForbidden', 'StudioTenantIsolationTests.Read_OtherTenant_Hidden'],
     'ai.grounding': ['GroundingTests.Turn_PromptInjection_IsRejected'],
 }
 
@@ -74,7 +74,9 @@ def test_a_fully_proven_corpus_has_no_gaps():
 
 GAPS = [
     ('proving', {'analytics.h3': capability('analytics.h3', provingTestCount=4)}, None),
-    ('security', {'analytics.h3': capability('analytics.h3')}, {'analytics.h3': ['H3Tests.Bins_ReturnCells']}),
+    *[('security', {'analytics.h3': capability('analytics.h3')}, {'analytics.h3': [name]})
+      for name in ('H3Tests.Bins_ReturnCells', 'ServiceDependencyInjectionTests.Resolve_ReturnsService',
+                   'DataStoreTests.BeginTransaction_UsesSnapshotIsolation', 'MapServerFaultIsolationTests.Fault_IsContained')],
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(STALE)])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve')}, None),
     ('interop', {'analytics.h3': capability('analytics.h3', cite=[{'suite': 'X', 'passed': 1, 'total': 1, 'passRate': 100.0}])}, None),
