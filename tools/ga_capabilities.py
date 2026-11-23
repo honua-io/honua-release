@@ -35,6 +35,7 @@ import sys
 from typing import NamedTuple
 
 import skill_evals
+import nightly_capabilities
 import source_facts  # imports rc_gate_window, which puts certification/ on sys.path
 from execution_order import instant  # noqa: E402  the admission parser: UTC 'Z' stamps only
 
@@ -231,8 +232,9 @@ def interop_observed_at(entry: dict, ledger: dict) -> str | None:
 
 
 def source_observed_at(verdict, now: dt.datetime) -> str:
-    """Oldest interop or skill evaluation evidence the verdict relies on; admission re-checks its 7-day window."""
+    """Oldest evidence the verdict relies on; admission re-checks its 7-day window."""
     dates = [result['interopObservedAt'] for result in verdict.capabilities if result['interopObservedAt']]
+    dates += [result['citeObservedAt'] for result in verdict.capabilities if result.get('citeObservedAt')]
     dates += [row['observedAt'] for row in verdict.skills if row['observedAt']]
     return min(dates, key=instant) if dates else stamp(now)
 
@@ -275,7 +277,7 @@ def evaluation_gap(entry: dict, ledger: dict, rows: set[str]) -> str | None:
 
 
 def evaluate_capability(entry: dict, context: tuple) -> dict:
-    tests, ledger, rows, now = context
+    tests, ledger, rows, now, nightly = context
     found = security_tests(entry, tests, ledger)
     gaps = {
         'proving': proving_gap(entry, ledger),
@@ -289,13 +291,16 @@ def evaluate_capability(entry: dict, context: tuple) -> dict:
         'category': entry.get('category'), 'provingTests': entry.get('provingTestCount') or 0,
         'securityTests': len(found), 'protocolFacing': protocol_facing(entry, ledger),
         'interopObservedAt': interop_observed_at(entry, ledger),
+        **({'nightlyObservations': nightly_capabilities.observations(entry),
+            'citeObservedAt': nightly_capabilities.cite_observed_at(entry)} if nightly else {}),
         'gaps': {criterion: detail for criterion, detail in gaps.items() if detail},
     }
 
 
 def evaluate(files: CandidateFiles, ledger: dict, now: dt.datetime) -> list[dict]:
-    context = (tests_by_capability(files.catalog), ledger, promise_rows(), now)
-    corpus = ga_corpus(files.matrix, ledger)
+    matrix = nightly_capabilities.assess(files.matrix, now)
+    context = (tests_by_capability(files.catalog), ledger, promise_rows(), now, 'nightlyEvidence' in matrix)
+    corpus = ga_corpus(matrix, ledger)
     return [evaluate_capability(entry, context) for entry in sorted(corpus, key=lambda e: e['key'])]
 
 
