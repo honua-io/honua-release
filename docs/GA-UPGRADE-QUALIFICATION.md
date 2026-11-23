@@ -55,9 +55,20 @@ material and must be deleted without uploading it. Faults, missing evidence and
 version mismatches must refuse admission. Python self-tests establish validator
 behavior; they do not constitute installed qualification.
 
+The server image reports its runtime version as `2026.1.0+<sha7>`. The build suffix
+is accepted only when it names the candidate's own source revision; the OCI label
+carries no suffix.
+
 Console, Studio, CLI and documentation version surfaces require separate installed
 observations bound to the same platform lock. Component package versions keep
-their own version policy. The server receipt does not certify those surfaces.
+their own version policy, so those surfaces report the platform version in a
+separate `platformVersion` field. `tools/platform_version_surfaces.py compare --label
+<lock label> --observed <file>` compares the server capabilities and admin version
+endpoints, the OCI label and the Console, CLI and docs `platformVersion` fields, and
+fails when any surface is missing or reports another version. Its `collect` command
+builds the observations from the installed candidate; pass the admin API key in
+`HONUA_API_KEY`, which is never written to the observations. The server receipt
+does not certify those surfaces.
 
 ## Recovery
 
