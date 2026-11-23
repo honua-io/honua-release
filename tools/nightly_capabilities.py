@@ -22,7 +22,7 @@ def collection_window(matrix: dict, now: dt.datetime) -> tuple:
     return anchor, dt.timedelta(days=limit)
 
 
-def age_row(row: dict, window: tuple, now: dt.datetime) -> None:
+def age_row(row: dict, window: tuple, now: dt.datetime, observation: str) -> None:
     anchor, limit = window
     freshness = row.get('freshness') or {}
     observed = instant(freshness.get('runDate'))
@@ -32,7 +32,7 @@ def age_row(row: dict, window: tuple, now: dt.datetime) -> None:
         freshness['state'] = 'stale'
     freshness['ageDays'] = round((now - observed).total_seconds() / 86400, 3) if observed else None
     row['freshness'] = freshness
-    if 'suite' in row and freshness.get('state') != 'fresh':
+    if observation == 'cite' and freshness.get('state') != 'fresh':
         row['passRate'] = 0.0
 
 
@@ -45,7 +45,7 @@ def assess(matrix: dict, now: dt.datetime | None = None) -> dict:
     for entry in result.get('capabilities', []):
         for name in OBSERVATIONS:
             for row in entry.get(name) or []:
-                age_row(row, window, now)
+                age_row(row, window, now, name)
     return result
 
 

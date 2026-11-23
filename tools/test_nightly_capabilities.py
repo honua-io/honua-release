@@ -44,6 +44,16 @@ def test_old_cite_is_not_refreshed_by_collection():
     assert 'cite' in judge(matrix)['gaps']
 
 
+@pytest.mark.parametrize('run_date', [stamp(15), None])
+def test_cite_without_suite_cannot_bypass_freshness(run_date):
+    matrix = snapshot()
+    row = matrix['capabilities'][0]['cite'][0]
+    del row['suite']
+    row['freshness']['runDate'] = run_date
+    assert 'cite' in judge(matrix)['gaps']
+    assert claims.resolve_capability_key('serve.wfs', matrix)[0] == 'fail'
+
+
 @pytest.mark.parametrize('state', ['unknown', 'stale'])
 def test_nonpassing_cite_freshness_cannot_pass_on_counters(state):
     matrix = snapshot()
