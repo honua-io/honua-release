@@ -16,11 +16,8 @@ experimental, internal or deferred. Each GA capability fails the gate when it la
   evaluation   for an AI capability, a declared evaluation in certification/ga-capabilities.v1.json
                that resolves to a release-promise row or an evaluation file in this repository.
 
-The ledger never lists capabilities as exempt: a capability leaves the gate only by becoming
-preview, experimental or internal at the candidate. A missing or malformed input fails closed.
-
-  python tools/ga_capabilities.py                 # producer: receipt for the candidate env
-  python tools/ga_capabilities.py --diagnostic    # report only, no receipt (local or PR use)
+The ledger has no exemption list; a capability leaves the gate only by leaving GA at the candidate.
+A missing or malformed input fails closed. `--diagnostic` reports without writing a receipt.
 """
 from __future__ import annotations
 
