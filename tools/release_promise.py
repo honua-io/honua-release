@@ -37,6 +37,8 @@ SECURITY_SUMMARY_FIELDS = frozenset({
 })
 MAX_MANIFEST_INPUT_BYTES = 4096
 IMAGE_SIZE_BUDGETS = {'rc': 370_000_000, 'ga': 220_000_000}
+# Rows whose verdict rests on older source evidence; its time must stay inside the window too.
+SOURCE_DATED_IDS = frozenset({'operates-capacity', 'ga-capabilities'})
 COMPANIONS = {'contract-compat': ['gate-contract-live.yml'],
               'docs-executable': ['gate-docs.yml']}
 
@@ -162,7 +164,7 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
             return False
     if row['id'] == 'cloud-image-aot' and not _image_budget_met(doc, 'rc'):
         return False
-    if row['id'] in ('operates-capacity', 'ga-capabilities'):
+    if row['id'] in SOURCE_DATED_IDS:
         source = instant(doc.get('sourceObservedAt'))
         if source is None or not now - dt.timedelta(days=7) <= source <= observed:
             return False
@@ -269,7 +271,7 @@ def evaluate_row(row: dict, runs: list[dict], context: tuple) -> dict:
         passed and row['id'] in outcomes.IDS) else {}
     if passed and row['id'] == 'cloud-image-aot':
         measured['imageSizeBytes'] = max(run['reports'][0]['imageSizeBytes'] for run in deciding)
-    if passed and row['id'] == 'operates-capacity':
+    if passed and row['id'] in SOURCE_DATED_IDS:
         measured['sourceObservedAt'] = min(
             (run['reports'][0]['sourceObservedAt'] for run in deciding), key=instant)
     return {**result, 'status': 'PASS' if passed else 'invalid',
@@ -410,7 +412,7 @@ def _report_row_fresh(row: dict, now: dt.datetime, profile: str) -> bool:
                 and bool(re.fullmatch(r'[0-9a-f]{64}', str(row.get('summarySha256', '')))))
     if row['id'] == 'cloud-image-aot':
         return _image_budget_met(row, profile)
-    if row['id'] == 'operates-capacity':
+    if row['id'] in SOURCE_DATED_IDS:
         source = instant(row.get('sourceObservedAt'))
         return source is not None and oldest <= source <= observed
     return True
