@@ -95,12 +95,15 @@ def retry(operation):
             if isinstance(detail, bytes):
                 detail = detail.decode('utf-8', errors='replace')
             detail = detail.lower()
+            # A 403 is a rate limit only when it says so; a permission refusal is final, not waited out.
             transient = isinstance(exc, urllib.error.URLError) or any(term in detail for term in (
                 'error connecting', 'could not resolve host', 'connection reset',
-                'timeout', 'timed out', 'tls', '403', '(http 429)', '(http 500)', '(http 502)',
+                'timeout', 'timed out', 'tls', 'rate limit', '(http 429)', '(http 500)', '(http 502)',
                 '(http 503)', '(http 504)'))
             if isinstance(exc, urllib.error.HTTPError):
-                transient = exc.code in {403, 429, 500, 502, 503, 504}
+                limited = exc.headers is not None and (
+                    exc.headers.get('Retry-After') or exc.headers.get('X-RateLimit-Remaining') == '0')
+                transient = exc.code in {429, 500, 502, 503, 504} or (exc.code == 403 and bool(limited))
             if not transient or index == len(DELAYS) - 1:
                 raise
 
