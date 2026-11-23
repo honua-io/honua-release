@@ -134,7 +134,10 @@ def verify(prior_path: Path, candidate_path: Path, evidence: dict[str, Any]) -> 
             raise BindingError(f"{phase} runtime image identity mismatch")
         if runtime.get("sourceRevision") != expected[phase]["sourceRevision"]:
             raise BindingError(f"{phase} runtime source identity mismatch")
-        if expected[phase]["sourceRevision"][:8] not in str(runtime.get("observedVersion") or ""):
+        # Images report `<version>+<sha7>` since the explicit InformationalVersion stamp; older ones
+        # carry the full revision.
+        revision = expected[phase]["sourceRevision"]
+        if not str(runtime.get("observedVersion") or "").endswith(("+" + revision[:7], "+" + revision)):
             raise BindingError(f"{phase} runtime version does not identify the expected source")
         lock_digest = evidence["priorLockDigest"] if phase in ("install", "rollback") else evidence["candidateLockDigest"]
         if runtime.get("platformLockDigest") != lock_digest:
