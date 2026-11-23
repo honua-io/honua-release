@@ -83,6 +83,9 @@ services:
       Kestrel__Endpoints__Https__Certificate__Path: "/certs/tls.crt"
       Kestrel__Endpoints__Https__Certificate__KeyPath: "/certs/tls.key"
       Security__DisableHttpsRedirection: "true"
+      # Human review capabilities are bound to the configured public base URL; without one the server
+      # answers the approval review 503. It is the plain HTTP address the journey driver uses.
+      Public__BaseUrl: "http://127.0.0.1:${HONUA_SERVER_PORT:-8137}"
     volumes:
       - "${HONUA_JOURNEY_TLS_DIR:?fixture must write the run certificate}:/certs:ro"
     ports:

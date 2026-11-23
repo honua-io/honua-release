@@ -2102,3 +2102,17 @@ def test_catalog_transport_forwards_candidate_mcp_result(tmp_path):
                                      mock.call("resources/read", {"uri": uri})])
     with pytest.raises(transport_module.ActionRejected):
         t.resource_read("honua://catalog/other", view, "operator")
+
+
+def test_journey_stack_serves_the_human_approval_session():
+    import yaml
+    compose = yaml.safe_load((Path(__file__).parent / "targets" / "build-compose.yml").read_text())
+    server = compose["services"]["server"]
+    env = server["environment"]
+    assert env["Kestrel__Endpoints__Https__Url"] == "https://+:8443"
+    assert env["Security__DisableHttpsRedirection"] == "true"
+    # The server answers the approval review 503 until a public base URL binds the capability.
+    assert env["Public__BaseUrl"] == "http://127.0.0.1:${HONUA_SERVER_PORT:-8137}"
+    assert "${HONUA_JOURNEY_HTTPS_PORT:-8139}:8443" in server["ports"]
+    assert any(volume.endswith(":/certs:ro") for volume in server["volumes"])
+    assert LOCAL_TARGET["compose"]["httpsPort"] == 8139
