@@ -5,10 +5,13 @@ Every skill the candidate ships (`skills/<name>/SKILL.md` committed at the candi
 recorded with/without evaluation in `certification/skill-evals/<name>.json`. The record is bound to
 the skill by `skillTreeSha256`, a digest of the committed files under `skills/<name>/`, and to its
 run by `serverSha`, `observedAt` (no older than `maxAgeDays`) and an `evidence` reference that is an
-https URL or a file in this repository. It must meet the keep rule: on every policy model at least
+https URL or a file in this repository. Equivalence rule: a record run on another server commit
+counts for the candidate only when the candidate commits the same skill content (equal digest) and
+the record is still inside the freshness window; the receipt carries the oldest record's stamp so
+admission rechecks that window. It must meet the keep rule: on every policy model at least
 `minRunsPerArm` runs per arm and no lower success rate with the skill, and on at least one model a
-higher success rate, or a median wall time or tool-call count cut by `minCutPercent` or more while
-the with-skill arm succeeds. A skill without such a record fails.
+higher success rate, or a median wall time or tool-call count over successful runs cut by
+`minCutPercent` or more when both arms have successful runs (medians are null for an arm with none). A skill without such a record fails.
 
 `python tools/skill_evals.py digest <server checkout> <skill>` prints the digest to record.
 """
@@ -32,6 +35,8 @@ RESULT_SCHEMA = 'honua.skill-eval/v1'
 POLICY_KEYS = frozenset({'resultsDir', 'models', 'minRunsPerArm', 'minCutPercent', 'maxAgeDays'})
 REQUIRED_MODELS = frozenset({'opus', 'sol'})
 MIN_RUNS_FLOOR = 3
+MIN_CUT_FLOOR = 10
+MAX_AGE_CEILING = 7
 ARM_COUNTS = ('runs', 'successes')
 ARM_MEDIANS = ('medianSeconds', 'medianToolCalls')
 SHA = re.compile(r'[0-9a-f]{40}')
@@ -48,10 +53,23 @@ class SkillContext(NamedTuple):
     now: dt.datetime
 
 
-def _positive(policy: dict, key: str) -> int:
-    if type(policy[key]) is not int or policy[key] <= 0:
-        raise PolicyError(f'ledger skillEvaluations.{key} must be a positive integer')
-    return policy[key]
+def positive_int(value) -> bool:
+    return type(value) is int and value > 0
+
+
+def repo_file(root: Path, relative) -> bool:
+    """A regular file inside `root` after symlinks resolve; never an absolute or escaping path."""
+    if not isinstance(relative, str) or relative == '' or PurePosixPath(relative).is_absolute():
+        return False
+    path = (root / relative).resolve()
+    return path.is_relative_to(root.resolve()) and path.is_file()
+
+
+def _bounded(policy: dict, key: str, low: int, high: int | None = None) -> None:
+    value = policy[key]
+    if not positive_int(value) or value < low or (high is not None and value > high):
+        bounds = f'between {low} and {high}' if high else f'at least {low}'
+        raise PolicyError(f'ledger skillEvaluations.{key} must be an integer {bounds}')
 
 
 def check_policy(policy) -> dict:
@@ -63,19 +81,14 @@ def check_policy(policy) -> dict:
         raise PolicyError('ledger skillEvaluations.models must be a list of strings')
     if not REQUIRED_MODELS <= set(models):
         raise PolicyError(f'ledger skillEvaluations.models must include {sorted(REQUIRED_MODELS)}')
-    if _positive(policy, 'minRunsPerArm') < MIN_RUNS_FLOOR:
-        raise PolicyError(f'ledger skillEvaluations.minRunsPerArm must be at least {MIN_RUNS_FLOOR}')
-    _positive(policy, 'minCutPercent')
-    _positive(policy, 'maxAgeDays')
+    _bounded(policy, 'minRunsPerArm', MIN_RUNS_FLOOR)
+    _bounded(policy, 'minCutPercent', MIN_CUT_FLOOR, 100)
+    _bounded(policy, 'maxAgeDays', 1, MAX_AGE_CEILING)
     results = policy['resultsDir']
-    if not isinstance(results, str) or not _inside(results):
+    path = PurePosixPath(results) if isinstance(results, str) and results else None
+    if path is None or path.is_absolute() or '..' in path.parts:
         raise PolicyError('ledger skillEvaluations.resultsDir must be a relative path inside the repository')
     return policy
-
-
-def _inside(relative: str) -> bool:
-    path = PurePosixPath(relative)
-    return relative != '' and not path.is_absolute() and '..' not in path.parts
 
 
 def _git(checkout: Path, *args: str) -> str:
@@ -83,27 +96,38 @@ def _git(checkout: Path, *args: str) -> str:
                                    stderr=subprocess.DEVNULL)
 
 
+def _tree(checkout: Path, prefix: str) -> list[str]:
+    """`git ls-tree -r -z` records at HEAD: unquoted, so any byte in a path survives."""
+    return [record for record in _git(checkout, 'ls-tree', '-r', '-z', 'HEAD', '--', prefix).split('\0') if record]
+
+
 def shipped_skills(checkout: Path) -> list[str]:
     """Skills committed at HEAD: each `skills/<name>/SKILL.md`."""
-    paths = _git(checkout, 'ls-tree', '-r', '--name-only', 'HEAD', '--', SKILLS_DIR).splitlines()
-    return sorted(PurePosixPath(p).parts[1] for p in paths
-                  if len(PurePosixPath(p).parts) == 3 and PurePosixPath(p).name == 'SKILL.md')
+    paths = [PurePosixPath(record.split('\t', 1)[1]) for record in _tree(checkout, SKILLS_DIR)]
+    return sorted(path.parts[1] for path in paths if len(path.parts) == 3 and path.name == 'SKILL.md')
 
 
 def tree_digest(checkout: Path, name: str) -> str:
-    """sha256 over each committed file's path and blob id under `skills/<name>/` at HEAD."""
-    listing = _git(checkout, 'ls-tree', '-r', 'HEAD', '--', f'{SKILLS_DIR}/{name}/')
-    entries = sorted(line.split('\t', 1)[1] + '\0' + line.split()[2] for line in listing.splitlines())
+    """sha256 over each committed file's path, mode and blob id under `skills/<name>/` at HEAD."""
+    entries = sorted(_tree(checkout, f'{SKILLS_DIR}/{name}/'), key=lambda record: record.split('\t', 1)[1])
     return 'sha256:' + hashlib.sha256('\n'.join(entries).encode()).hexdigest()
 
 
+def _median(value) -> bool:
+    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+
 def _arm(value) -> bool:
+    """Counts, and medians over successful runs: finite numbers, or null when no run succeeded."""
     if not isinstance(value, dict):
         return False
-    counts = all(type(value.get(field)) is int and value[field] >= 0 for field in ARM_COUNTS)
-    medians = all(type(value.get(field)) in (int, float) and math.isfinite(value[field])
-                  and value[field] >= 0 for field in ARM_MEDIANS)
-    return counts and medians and value['successes'] <= value['runs']
+    if not all(type(value.get(field)) is int and value[field] >= 0 for field in ARM_COUNTS):
+        return False
+    if value['successes'] > value['runs']:
+        return False
+    if value['successes'] == 0:
+        return all(field in value and (value[field] is None or _median(value[field])) for field in ARM_MEDIANS)
+    return all(_median(value.get(field)) for field in ARM_MEDIANS)
 
 
 def _cut(without: float, with_skill: float, percent: int) -> bool:
@@ -113,14 +137,14 @@ def _cut(without: float, with_skill: float, percent: int) -> bool:
 def model_verdict(arms, policy: dict) -> tuple[str | None, bool]:
     """(gap, gain) for one model: a gap fails the skill; a gain is what the keep rule asks for."""
     if not isinstance(arms, dict) or not _arm(arms.get('withSkill')) or not _arm(arms.get('withoutSkill')):
-        return 'arms withSkill and withoutSkill must each carry runs, successes and finite medians', False
+        return 'arms withSkill and withoutSkill must each carry runs, successes and finite medians of successful runs', False
     treated, control = arms['withSkill'], arms['withoutSkill']
     if min(treated['runs'], control['runs']) < policy['minRunsPerArm']:
         return f"fewer than {policy['minRunsPerArm']} runs per arm", False
     if treated['successes'] * control['runs'] < control['successes'] * treated['runs']:
         return f"success fell with the skill ({treated['successes']}/{treated['runs']} vs {control['successes']}/{control['runs']})", False
     percent = policy['minCutPercent']
-    faster = treated['successes'] > 0 and (
+    faster = min(treated['successes'], control['successes']) > 0 and (
         _cut(control['medianSeconds'], treated['medianSeconds'], percent)
         or _cut(control['medianToolCalls'], treated['medianToolCalls'], percent))
     return None, treated['successes'] * control['runs'] > control['successes'] * treated['runs'] or faster
@@ -134,8 +158,7 @@ def provenance_gap(result: dict, context: SkillContext) -> str | None:
     if observed is None or observed > context.now or context.now - observed > dt.timedelta(days=limit):
         return f'observedAt must be a UTC stamp no older than {limit} days'
     evidence = result.get('evidence')
-    if not isinstance(evidence, str) or not (
-            evidence.startswith('https://') or (_inside(evidence) and (context.root / evidence).is_file())):
+    if not (isinstance(evidence, str) and evidence.startswith('https://')) and not repo_file(context.root, evidence):
         return 'evidence must be an https URL or a file in this repository'
     return None
 
@@ -170,13 +193,16 @@ def evaluate_skills(checkout: Path, context: SkillContext) -> list[dict]:
     """One row per shipped skill, with the reason it fails or None."""
     rows = []
     for name in shipped_skills(checkout):
-        row = {'skill': name, 'skillTreeSha256': tree_digest(checkout, name), 'gap': None}
+        row = {'skill': name, 'skillTreeSha256': tree_digest(checkout, name), 'observedAt': None, 'gap': None}
         path = context.root / context.policy['resultsDir'] / f'{name}.json'
         try:
-            row['gap'] = result_gap(_read(path), row, context) if path.is_file() else \
-                'no with/without evaluation result recorded'
+            record = _read(path) if path.is_file() else None
+            row['gap'] = 'no with/without evaluation result recorded' if record is None else \
+                result_gap(record, row, context)
         except (OSError, ValueError) as error:
             row['gap'] = f'evaluation result is unreadable: {error}'
+        else:
+            row['observedAt'] = None if row['gap'] else record['observedAt']
         rows.append(row)
     return rows
 

@@ -8,7 +8,7 @@ import pytest
 import skill_evals
 
 POLICY = {'resultsDir': 'evals', 'models': ['opus', 'sol'], 'minRunsPerArm': 3, 'minCutPercent': 20,
-          'maxAgeDays': 14}
+          'maxAgeDays': 7}
 NOW = dt.datetime.now(dt.timezone.utc)
 STAMP = (NOW - dt.timedelta(days=1)).isoformat().replace('+00:00', 'Z')
 ROW = {'skill': 'honua-ops', 'skillTreeSha256': 'sha256:x'}
@@ -70,6 +70,7 @@ ZERO = {'withSkill': arm(successes=0, seconds=10, calls=1), 'withoutSkill': arm(
     ({'sol': {'withSkill': {**arm(), 'medianSeconds': '200'}, 'withoutSkill': arm()}}, 'sol: arms'),
     ({'sol': {'withSkill': arm(), 'withoutSkill': arm(seconds=float('inf'))}}, 'sol: arms'),
     ({'sol': {'withSkill': arm(calls=float('nan')), 'withoutSkill': arm()}}, 'sol: arms'),
+    ({'sol': {'withSkill': {**arm(), 'medianSeconds': None}, 'withoutSkill': arm()}}, 'sol: arms'),
 ])
 def test_a_result_short_of_the_keep_rule_fails(models, expected):
     assert expected in gap(result(**models))
@@ -101,7 +102,7 @@ def days_ago(days):
 
 @pytest.mark.parametrize('field,value,expected', [
     ('serverSha', None, 'serverSha'), ('serverSha', 'abc', 'serverSha'), ('serverSha', 'A' * 40, 'serverSha'),
-    ('observedAt', None, 'observedAt'), ('observedAt', 15, 'observedAt'), ('observedAt', -1, 'observedAt'),
+    ('observedAt', None, 'observedAt'), ('observedAt', 8, 'observedAt'), ('observedAt', -1, 'observedAt'),
     ('observedAt', '2026-11-22T00:00:00+00:00', 'observedAt'),
     ('evidence', None, 'evidence'), ('evidence', '', 'evidence'), ('evidence', 'http://x.test', 'evidence'),
     ('evidence', 'evals/missing.md', 'evidence'), ('evidence', '../outside.md', 'evidence'),
@@ -150,7 +151,8 @@ def test_a_candidate_without_skills_ships_none(tmp_path):
 @pytest.mark.parametrize('policy', [
     None, {**POLICY, 'extra': 1}, {**POLICY, 'models': []}, {**POLICY, 'models': ['opus']},
     {**POLICY, 'models': ['opus', 'sol', 3]}, {**POLICY, 'minRunsPerArm': 1}, {**POLICY, 'minRunsPerArm': 3.0},
-    {**POLICY, 'minCutPercent': 0}, {**POLICY, 'minCutPercent': True}, {**POLICY, 'maxAgeDays': 0},
+    {**POLICY, 'minCutPercent': 0}, {**POLICY, 'minCutPercent': True}, {**POLICY, 'minCutPercent': 5},
+    {**POLICY, 'minCutPercent': 101}, {**POLICY, 'maxAgeDays': 0}, {**POLICY, 'maxAgeDays': 30},
     {**POLICY, 'resultsDir': ''}, {**POLICY, 'resultsDir': '/tmp/evals'}, {**POLICY, 'resultsDir': '../evals'},
 ])
 def test_a_malformed_or_weakened_policy_is_refused(policy):
@@ -164,3 +166,31 @@ def test_digest_command_prints_the_digest(tmp_path, capsys):
     assert capsys.readouterr().out.strip() == skill_evals.tree_digest(tmp_path, 'honua-ops')
     assert skill_evals.main(['digest', str(tmp_path), 'missing']) == 1
     assert skill_evals.main(['digest', str(tmp_path / 'nowhere'), 'honua-ops']) == 1
+
+
+def test_an_arm_without_successes_may_leave_its_medians_null():
+    zero = arm(successes=0, seconds=None, calls=None)
+    record = result(opus={'withSkill': arm(), 'withoutSkill': zero}, sol={'withSkill': zero, 'withoutSkill': zero})
+    assert gap(record) is None
+
+
+def test_evidence_symlinked_outside_the_repository_is_refused(tmp_path):
+    root, outside = tmp_path / 'release', tmp_path / 'outside.md'
+    (root / 'evals').mkdir(parents=True)
+    outside.write_text('x')
+    (root / 'evals/link.md').symlink_to(outside)
+    assert 'evidence' in gap({**result(), 'evidence': 'evals/link.md'}, root)
+
+
+def test_a_skill_directory_with_non_ascii_or_quoted_bytes_is_still_judged(tmp_path):
+    commit_skills(tmp_path, {'skills/donnees-\u00e9/SKILL.md': 'x', 'skills/a"b/SKILL.md': 'y'})
+    assert skill_evals.shipped_skills(tmp_path) == ['a"b', 'donnees-\u00e9']
+    assert skill_evals.tree_digest(tmp_path, 'donnees-\u00e9') != skill_evals.tree_digest(tmp_path, 'missing')
+
+
+def test_tree_digest_changes_with_the_file_mode(tmp_path):
+    commit_skills(tmp_path, {'skills/s/SKILL.md': '# s', 'skills/s/run.sh': 'echo'})
+    before = skill_evals.tree_digest(tmp_path, 's')
+    (tmp_path / 'skills/s/run.sh').chmod(0o755)
+    commit_skills(tmp_path, {})
+    assert skill_evals.tree_digest(tmp_path, 's') != before

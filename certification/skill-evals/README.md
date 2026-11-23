@@ -2,8 +2,8 @@
 
 The GA capability gate (`tools/ga_capabilities.py`, row `ga-capabilities`) fails the candidate when a
 skill it ships (`skills/<name>/SKILL.md` in honua-server) has no passing with/without evaluation here.
-The policy is `skillEvaluations` in `certification/ga-capabilities.v1.json`; the rule is section 5 of
-`handoffs/rc2-lanes/takeover/SKILL-REFRESH-PLAN.md` (honua-io workspace).
+The policy is `skillEvaluations` in `certification/ga-capabilities.v1.json`; the rule is the
+skill-refresh plan's keep rule (main ruling, 22 Nov 2026).
 
 One file per skill, `<name>.json`:
 
@@ -34,7 +34,12 @@ One file per skill, `<name>.json`:
 - `serverSha` is the 40-character server commit the runs used; `observedAt` is a UTC `Z` stamp no
   older than the policy's `maxAgeDays`; `evidence` is an https URL or a path in this repository.
 - `successes` counts independently verified successes, not the agent's own report.
+- `medianSeconds` and `medianToolCalls` are medians over the arm's successful runs; they are `null`
+  when the arm has no successful run.
+- Equivalence: a record run on an earlier server commit still counts while the candidate commits the
+  same skill content and the record is inside `maxAgeDays`. The receipt's `sourceObservedAt` is the
+  oldest stamp it relies on, so admission rechecks the window.
 - Keep rule, checked by the gate: every model in the policy has at least `minRunsPerArm` runs per arm
   and no lower success rate with the skill; and on at least one model the skill raises the success
-  rate, or cuts the median wall time or median tool calls by `minCutPercent` or more while the
-  with-skill arm has successful runs. Medians must be finite numbers.
+  rate, or cuts the median wall time or median tool calls by `minCutPercent` or more when both arms
+  have successful runs.

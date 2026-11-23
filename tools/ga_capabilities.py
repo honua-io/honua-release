@@ -71,7 +71,7 @@ class CandidateFiles(NamedTuple):
 
 def _positive_int(ledger: dict, key: str) -> int:
     value = ledger.get(key)
-    if type(value) is not int or value <= 0:
+    if not skill_evals.positive_int(value):
         raise Unavailable(f'ledger {key} must be a positive integer')
     return value
 
@@ -230,9 +230,10 @@ def interop_observed_at(entry: dict, ledger: dict) -> str | None:
     return stamp(newest) if newest else None
 
 
-def source_observed_at(results: list[dict], now: dt.datetime) -> str:
-    """Oldest interop evidence the verdict relies on; admission re-checks its 7-day window."""
-    dates = [result['interopObservedAt'] for result in results if result['interopObservedAt']]
+def source_observed_at(verdict, now: dt.datetime) -> str:
+    """Oldest interop or skill evaluation evidence the verdict relies on; admission re-checks its 7-day window."""
+    dates = [result['interopObservedAt'] for result in verdict.capabilities if result['interopObservedAt']]
+    dates += [row['observedAt'] for row in verdict.skills if row['observedAt']]
     return min(dates, key=instant) if dates else stamp(now)
 
 
@@ -259,8 +260,7 @@ def evaluation_resolves(ref: str, rows: set[str]) -> bool:
     if kind == 'promise':
         return target in rows
     if kind == 'path':
-        path = (ROOT / target).resolve()
-        return target != '' and path.is_relative_to(ROOT) and path.is_file()
+        return skill_evals.repo_file(ROOT, target)
     return False
 
 
@@ -336,7 +336,7 @@ def receipt(candidate, verdict: Verdict, now: dt.datetime) -> dict:
         'imageDigest': candidate.server_digest,
         'platformLockDigest': candidate.platform_lock,
         'observedAt': stamp(now),
-        'sourceObservedAt': source_observed_at(verdict.capabilities, now),
+        'sourceObservedAt': source_observed_at(verdict, now),
         'assertions': counts,
         'findings': findings(verdict)[:SHOWN_FINDINGS],
     }

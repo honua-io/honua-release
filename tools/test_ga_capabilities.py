@@ -267,11 +267,14 @@ def test_workflow_fetches_the_candidate_and_uploads_the_contract_receipt():
         key: uploads[0][key] for key in ('name', 'path')}
 
 
+SKILL_STAMP = (NOW - dt.timedelta(days=3)).isoformat().replace('+00:00', 'Z')
+
+
 def record_skill_result(monkeypatch, tmp_path, name, digest):
     arms = {'withSkill': {'runs': 3, 'successes': 3, 'medianSeconds': 200, 'medianToolCalls': 20},
             'withoutSkill': {'runs': 3, 'successes': 2, 'medianSeconds': 300, 'medianToolCalls': 30}}
     result = {'schema': 'honua.skill-eval/v1', 'skill': name, 'skillTreeSha256': digest,
-              'serverSha': 'e' * 40, 'observedAt': FRESH, 'evidence': 'https://example.test/run',
+              'serverSha': 'e' * 40, 'observedAt': SKILL_STAMP, 'evidence': 'https://example.test/run',
               'models': {'opus': arms, 'sol': arms}}
     results = tmp_path / 'release' / 'certification/skill-evals'
     results.mkdir(parents=True)
@@ -296,6 +299,7 @@ def test_a_shipped_skill_with_a_passing_evaluation_of_its_content_passes(candida
     assert ga.main([]) == 0
     receipt = json.loads(ga.RECEIPT.read_text())
     assert receipt['assertions']['skillsFailing'] == 0 and accepted_by_contract(receipt)
+    assert receipt['sourceObservedAt'] == min(FRESH, SKILL_STAMP)
     assert json.loads(ga.REPORT.read_text())['skills'][0]['gap'] is None
     assert '0 of 1 shipped skills lack' in capsys.readouterr().out
 
