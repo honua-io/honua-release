@@ -7,6 +7,8 @@ on:
       - e2e/local-docker/docker-compose.yml
       - e2e/harness/boot.sh
       - e2e/harness/compose.candidate.yml
+      - e2e/harness/lib/human_approval.py
+      - e2e/harness/lib/tls-cert.sh
       - certification/terminal-journey/**
       - certification/native-docker-first/**
       - platform-manifest.yaml
@@ -124,6 +126,7 @@ jobs:
           python -m pytest certification/terminal-journey/test_live_driver.py
           certification/terminal-journey/test_style_fixture.py
           certification/terminal-journey/test_executor.py
+          certification/terminal-journey/test_gated_approval.py
           certification/terminal-journey/test_map_readback.py
           tools/test_terminal_model_canary.py -q
 

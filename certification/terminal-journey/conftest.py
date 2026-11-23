@@ -5,9 +5,9 @@ from unittest import mock
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-import executor  # noqa: E402
+import gated_approval  # noqa: E402
 
-UNPATCHED_HUMAN_APPROVAL_CHANNEL = executor.local_fixture.human_approval_channel
+UNPATCHED_HUMAN_APPROVAL_CHANNEL = gated_approval.local_fixture.human_approval_channel
 
 HUMAN_CHANNEL = {"baseUrl": "https://localhost:8139", "password": "private-admin-password", "cafile": "/run/tls.crt"}
 APPROVED = {"result": "approved", "proposalId": "proposal-1", "httpStatus": 200, "status": "Succeeded",
@@ -17,8 +17,8 @@ APPROVED = {"result": "approved", "proposalId": "proposal-1", "httpStatus": 200,
 @pytest.fixture(autouse=True)
 def human_approver():
     """Unit tests never open a real HTTPS session: the human approval helper returns an approval."""
-    with mock.patch.object(executor.local_fixture, "human_approval_channel", return_value=dict(HUMAN_CHANNEL)), \
-            mock.patch.object(executor.human_approval, "approve_in_child", return_value=dict(APPROVED)) as approve:
+    with mock.patch.object(gated_approval.local_fixture, "human_approval_channel", return_value=dict(HUMAN_CHANNEL)), \
+            mock.patch.object(gated_approval.human_approval, "approve_in_child", return_value=dict(APPROVED)) as approve:
         yield approve
 
 
