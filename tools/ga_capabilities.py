@@ -146,15 +146,23 @@ def ga_corpus(matrix: dict, ledger: dict) -> list[dict]:
     return corpus
 
 
+def _catalog_entry(entry) -> bool:
+    if not isinstance(entry, dict) or not isinstance(entry.get('capability'), str):
+        return False
+    names = entry.get('proving_tests')
+    return isinstance(names, list) and all(isinstance(name, str) and name for name in names)
+
+
 def tests_by_capability(catalog: dict) -> dict[str, set[str]]:
     entries = catalog.get('entries')
     if not isinstance(entries, list):
         raise Unavailable('feature catalog has no entries list')
+    malformed = [index for index, entry in enumerate(entries) if not _catalog_entry(entry)]
+    if malformed:
+        raise Unavailable(f'feature catalog entries {malformed[:10]} lack a capability or a proving_tests list')
     tests: dict[str, set[str]] = {}
     for entry in entries:
-        if isinstance(entry, dict) and isinstance(entry.get('capability'), str):
-            names = [name for name in entry.get('proving_tests') or [] if isinstance(name, str)]
-            tests.setdefault(entry['capability'], set()).update(names)
+        tests.setdefault(entry['capability'], set()).update(entry['proving_tests'])
     return tests
 
 
@@ -220,9 +228,12 @@ def source_observed_at(results: list[dict], now: dt.datetime) -> str:
 
 
 def _full_pass(suite) -> bool:
-    """Exactly 100%: a missing, non-numeric, non-finite or out-of-range rate is a gap."""
-    rate = suite.get('passRate') if isinstance(suite, dict) else None
-    return type(rate) in (int, float) and rate == FULL_PASS_RATE
+    """Every test of a non-empty suite passed and the rate agrees; anything else is a gap."""
+    if not isinstance(suite, dict):
+        return False
+    rate, passed, total = suite.get('passRate'), suite.get('passed'), suite.get('total')
+    counts = type(passed) is int and type(total) is int and 0 < total == passed
+    return counts and type(rate) in (int, float) and rate == FULL_PASS_RATE
 
 
 def cite_gap(entry: dict) -> str | None:

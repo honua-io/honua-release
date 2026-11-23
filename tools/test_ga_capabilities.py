@@ -41,7 +41,7 @@ def catalog(tests):
 GOOD = {
     'analytics.h3': capability('analytics.h3'),
     'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(STALE), lane(FRESH)],
-                            cite=[{'suite': 'WFS 2.0', 'passRate': 100.0}]),
+                            cite=[{'suite': 'WFS 2.0', 'passed': 9, 'total': 9, 'passRate': 100.0}]),
     'ai.grounding': capability('ai.grounding', 'AI'),
 }
 GOOD_TESTS = {
@@ -78,14 +78,17 @@ GAPS = [
     ('security', {'analytics.h3': capability('analytics.h3')}, {'analytics.h3': ['H3Tests.Bins_ReturnCells']}),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(STALE)])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve')}, None),
-    ('interop', {'analytics.h3': capability('analytics.h3', cite=[{'suite': 'X', 'passRate': 100.0}])}, None),
+    ('interop', {'analytics.h3': capability('analytics.h3', cite=[{'suite': 'X', 'passed': 1, 'total': 1, 'passRate': 100.0}])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(None)])}, None),
     ('interop', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH, 'stale')])}, None),
     ('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
                                       cite=[{'suite': 'WFS 2.0', 'passRate': 99.3}])}, None),
     *[('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
-                                        cite=[{'suite': 'WFS 2.0', 'passRate': rate}])}, None)
+                                        cite=[{'suite': 'WFS 2.0', 'passed': 9, 'total': 9, 'passRate': rate}])}, None)
       for rate in (float('nan'), float('inf'), 101.0, '100', None, True)],
+    *[('cite', {'serve.wfs': capability('serve.wfs', 'Serve', interop=[lane(FRESH)],
+                                        cite=[{'suite': 'WFS 2.0', 'passRate': 100.0, **counts}])}, None)
+      for counts in ({'passed': 0, 'total': 100}, {'passed': 0, 'total': 0}, {}, {'passed': '9', 'total': 9})],
     ('evaluation', {'ai.unlisted': capability('ai.unlisted', 'AI')}, {'ai.unlisted': ['A.Forbidden']}),
 ]
 
@@ -130,6 +133,16 @@ def test_capabilities_outside_ga_are_not_judged(overrides):
 def test_a_malformed_matrix_entry_fails_closed_beside_healthy_ones(malformed):
     with pytest.raises(ga.Unavailable, match='lack a well-formed'):
         ga.evaluate({'capabilities': [*GOOD.values(), malformed]}, catalog(GOOD_TESTS),
+                    ga.load_ledger(), NOW)
+
+
+@pytest.mark.parametrize('entry', [None, {'capability': 'serve.wfs'},
+                                   {'capability': 'serve.wfs', 'proving_tests': {'Invented.Security.Test': False}},
+                                   {'capability': 'serve.wfs', 'proving_tests': ['', 'A.Forbidden']},
+                                   {'proving_tests': ['A.Forbidden']}])
+def test_a_malformed_catalog_entry_fails_closed(entry):
+    with pytest.raises(ga.Unavailable, match='feature catalog entries'):
+        ga.evaluate(matrix(*GOOD.values()), {'entries': [*catalog(GOOD_TESTS)['entries'], entry]},
                     ga.load_ledger(), NOW)
 
 
