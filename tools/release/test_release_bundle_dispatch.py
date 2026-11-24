@@ -32,7 +32,12 @@ case "$1 $2" in
     echo 'https://github.com/honua-io/honua-sdk-python/actions/runs/123' ;;
   'run watch') exit 0 ;;
   'api repos/honua-io/honua-sdk-python/actions/runs/123')
-    printf '{"event":"workflow_dispatch","head_sha":"%s","conclusion":"success"}\\n' "$ACTUAL_HEAD" ;;
+    printf '{"event":"workflow_dispatch","head_sha":"%s","conclusion":"success","path":".github/workflows/conformance.yml","name":"Python SDK Conformance","run_attempt":2}\\n' "$ACTUAL_HEAD" ;;
+  'api repos/honua-io/honua-sdk-python/actions/runs/123/artifacts?per_page=100')
+    echo '{"artifacts":[{"id":3,"name":"python-sdk-conformance-123-2","expired":false,"workflow_run":{"id":123}}]}' ;;
+  'run download')
+    [[ "$3" == 123 && "$6 $7 $8" == "--name python-sdk-conformance-123-2 --dir" ]]
+    echo '{"fixture":true}' > "$9/protocol-certification-fragment.json" ;;
   *) exit 99 ;;
 esac
 """)
@@ -63,7 +68,8 @@ def test_protected_harness_must_contain_release_wheel_binding(fake_gh, branch, a
         assert Path(env["GITHUB_OUTPUT"]).read_text() == f"sha={HEAD}\n"
 
 
-def test_release_dispatch_forwards_governed_inputs_and_rejects_a_moved_head(fake_gh):
+@pytest.mark.parametrize("actual_head", [HEAD, "e" * 40])
+def test_release_dispatch_checks_head_and_collects_matching_artifact(fake_gh, tmp_path, actual_head):
     checkout = STEPS[0]
     assert checkout["with"]["ref"] == DISPATCH["env"]["REQUIREMENTS_REF"] == "${{ github.sha }}"
     assert DISPATCH["env"]["REQUIREMENTS_REVISION"] == "${{ steps.producer_pins.outputs.requirements_revision }}"
@@ -78,7 +84,9 @@ def test_release_dispatch_forwards_governed_inputs_and_rejects_a_moved_head(fake
 
     commands = DISPATCH["run"].replace("\\\n", "").splitlines()
     command = next(line for line in commands if "--id sdk-python" in line)
-    env = {**fake_gh, "REQUIREMENTS_REVISION": revision, "ACTUAL_HEAD": "e" * 40}
+    out = tmp_path / "collected"
+    command = command.replace("evidence/sdk-python", shlex.quote(str(out)))
+    env = {**fake_gh, "REQUIREMENTS_REVISION": revision, "ACTUAL_HEAD": actual_head}
     result = subprocess.run(
         ["bash", "-ec", command], cwd=ROOT, env=env, capture_output=True, text=True, check=False,
     )
@@ -93,5 +101,13 @@ def test_release_dispatch_forwards_governed_inputs_and_rejects_a_moved_head(fake
         "-f", f"requirements_ref={RELEASE_SHA}",
         "-f", f"requirements_revision={revision}",
     ]
-    assert result.returncode == 1
-    assert f"head SHA does not match expected producer pin {HEAD}" in result.stderr
+    if actual_head == HEAD:
+        assert result.returncode == 0, result.stderr
+        metadata = json.loads((out / "metadata.json").read_text())
+        assert (metadata["runId"], metadata["runAttempt"], metadata["artifactId"]) == ("123", "2", "3")
+        assert metadata["headSha"] == HEAD
+        assert json.loads(Path(metadata["receipt"]).read_text()) == {"fixture": True}
+    else:
+        assert result.returncode == 1
+        assert f"head SHA does not match expected producer pin {HEAD}" in result.stderr
+        assert not out.exists()

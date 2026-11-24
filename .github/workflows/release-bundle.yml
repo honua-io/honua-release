@@ -324,7 +324,8 @@ jobs:
             --input release_cut="$CANDIDATE_CUT"
           python3 tools/release/collect-candidate-evidence.py \
             --evidence-dir evidence --candidate-digest "$CANDIDATE_DIGEST" \
-            --candidate-source-sha "$SERVER_REVISION" --output evidence/candidate-evidence.json
+            --candidate-source-sha "$SERVER_REVISION" --output evidence/candidate-evidence.json \
+            --manifest platform-manifest.yaml --requirements-revision "$REQUIREMENTS_REVISION"
 
       - name: Upload candidate-bound evidence
         if: always()

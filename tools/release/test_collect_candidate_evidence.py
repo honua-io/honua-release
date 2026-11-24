@@ -76,3 +76,38 @@ def test_stale_receipt_fails_closed(tmp_path):
     result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
     assert result["status"] == "fail"
     assert all("receipt is stale" in error for row in result["evidence"] for error in row["errors"])
+
+
+def test_python_receipt_must_match_manifest_wheel_and_requirements(tmp_path):
+    for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
+        _write(tmp_path, name)
+    wheel = {
+        "version": "0.3.2",
+        "filename": "honua_sdk-0.3.2-py3-none-any.whl",
+        "digest": "sha256:" + "c" * 64,
+        "sourceSha": "d" * 40,
+    }
+    revision = "requirements-v1"
+    package = {"filename": wheel["filename"], "sha256": "c" * 64}
+    observation = {
+        "client_version": wheel["version"],
+        "producer_source_sha": wheel["sourceSha"],
+        "client_package": package,
+    }
+    path = tmp_path / "sdk-python" / "receipt.json"
+    receipt = json.loads(path.read_text())
+    receipt.update(requirements_revision=revision, observations=[observation])
+    cases = [
+        ({}, "pass"),
+        ({"requirements_revision": "stale"}, "fail"),
+        ({"observations": []}, "fail"),
+        ({"observations": [observation, {**observation, "producer_source_sha": SHA}]}, "fail"),
+        ({"observations": [{**observation, "client_package": {**package, "sha256": "e" * 64}}]}, "fail"),
+    ]
+    for changes, expected in cases:
+        path.write_text(json.dumps({**receipt, **changes}))
+        result = collect(
+            tmp_path, digest=DIGEST, source_sha=SHA, now=NOW,
+            python_wheel=wheel, requirements_revision=revision,
+        )
+        assert result["status"] == expected, result

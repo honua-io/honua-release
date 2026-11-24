@@ -92,7 +92,36 @@ def validate_receipt(meta: dict[str, Any], receipt: Any, *, digest: str, source_
     }
 
 
-def collect(directory: Path, *, digest: str, source_sha: str, now: datetime) -> dict[str, Any]:
+def validate_python_identity(receipt: dict[str, Any], wheel: dict[str, str], revision: str) -> list[str]:
+    if not isinstance(receipt, dict) or receipt.get("requirements_revision") != revision:
+        return ["Python receipt has a different requirements revision"]
+    observations = receipt.get("observations")
+    if not isinstance(observations, list) or not observations:
+        return ["Python receipt has no certification observations"]
+
+    expected = {
+        "client_version": wheel["version"],
+        "producer_source_sha": wheel["sourceSha"],
+    }
+    expected_package = {
+        "filename": wheel["filename"],
+        "sha256": wheel["digest"].removeprefix("sha256:"),
+    }
+    errors = []
+    for index, observation in enumerate(observations):
+        package = observation.get("client_package") if isinstance(observation, dict) else None
+        if not isinstance(package, dict) or (
+            any(package.get(key) != value for key, value in expected_package.items())
+            or any(observation.get(key) != value for key, value in expected.items())
+        ):
+            errors.append(f"Python observation {index} differs from the manifest wheel identity")
+    return errors
+
+
+def collect(
+    directory: Path, *, digest: str, source_sha: str, now: datetime,
+    python_wheel: dict[str, str] | None = None, requirements_revision: str = "",
+) -> dict[str, Any]:
     if not DIGEST.fullmatch(digest):
         raise ValueError("candidate image must be an exact sha256 digest")
     if not SHA.fullmatch(source_sha):
@@ -106,7 +135,12 @@ def collect(directory: Path, *, digest: str, source_sha: str, now: datetime) -> 
             rows.append({"id": meta.get("id"), "status": "fail", "errors": ["receipt file is missing"]})
             continue
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        rows.append(validate_receipt(meta, receipt, digest=digest, source_sha=source_sha, now=now))
+        row = validate_receipt(meta, receipt, digest=digest, source_sha=source_sha, now=now)
+        if meta.get("id") == "sdk-python" and python_wheel is not None:
+            row["errors"].extend(validate_python_identity(receipt, python_wheel, requirements_revision))
+            if row["errors"]:
+                row["status"] = "fail"
+        rows.append(row)
 
     ids = {row.get("id") for row in rows}
     for required in sorted(REQUIRED - ids):
@@ -126,11 +160,22 @@ def main() -> int:
     parser.add_argument("--candidate-digest", required=True)
     parser.add_argument("--candidate-source-sha", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--requirements-revision", required=True)
     args = parser.parse_args()
+
+    import yaml
+
     try:
-        result = collect(args.evidence_dir, digest=args.candidate_digest, source_sha=args.candidate_source_sha, now=datetime.now(timezone.utc))
+        manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
+        wheel = manifest["clientArtifacts"]["honua-sdk-python-wheel"]
+        result = collect(
+            args.evidence_dir, digest=args.candidate_digest, source_sha=args.candidate_source_sha,
+            now=datetime.now(timezone.utc), python_wheel=wheel,
+            requirements_revision=args.requirements_revision,
+        )
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError) as exc:
         print(f"[ERROR] candidate evidence collection: {exc}", file=sys.stderr)
         return 1
     print(f"candidate evidence: {result['status']} ({args.output})")
