@@ -22,6 +22,8 @@ Document precedence is `fail > needs-input > blocked > pass`. Any blocked docume
 nightly gate `blocked` and red; there is no waiver. Documented `jq`, `python`, `sudo` and `xvfb`
 prerequisites use the reader container’s tool installation mechanism. The `xvfb` prerequisite
 installs both `xvfb` and `xauth` so documented `xvfb-run` commands can start a display.
+For a documented `gh` prerequisite, the runner verifies the pinned GitHub CLI archive's SHA-256
+and mounts the binary read-only. The session uses a fresh home and receives no host GitHub credentials.
 
 A getting-started page that names the release channel (`ghcr.io/honua-io/honua-server:2026.1-rc`, or
 `:2026.1` at GA; honua-io/honua-server#5738) is executed against the candidate behind that channel:

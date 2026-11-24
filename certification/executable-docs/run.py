@@ -23,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -31,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.request import urlopen
 
 import yaml
 
@@ -49,6 +51,13 @@ from registry_guard import pins_from_manifest, NPM_HONUA, pypi_normalize  # noqa
 import source_build  # noqa: E402
 import publish_inputs  # noqa: E402
 import stage_paths  # noqa: E402
+
+# https://github.com/cli/cli/releases/tag/v2.105.0
+GH_VERSION = "2.105.0"
+GH_LINUX_SHA256 = {
+    "amd64": "79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f",
+    "arm64": "b1278c75107423d818f1937fd92cafc9e5e9b606631568f68d7fb816f5885a02",
+}
 
 TAIL = 2000
 SERVE = re.compile(
@@ -251,7 +260,7 @@ class Session:
 
     # container lifecycle
     def prerequisite_runtimes(self, runtime: str) -> tuple[list[str], str]:
-        """Mounts and PATH prefix for the node or .NET install a document lists as a prerequisite."""
+        """Mounts and PATH prefix for the pinned tools a document lists as prerequisites."""
         mounts, prefix = [], ""
         if "node" in self.prerequisites and runtime != "node":
             mounts += ["-v", f"{self.tools / 'node'}:/opt/node:ro"]
@@ -259,6 +268,9 @@ class Session:
         if "dotnet" in self.prerequisites and runtime != "dotnet":
             mounts += ["-v", f"{self.tools / 'dotnet'}:/opt/dotnet:ro", "-e", "DOTNET_ROOT=/opt/dotnet"]
             prefix += "/opt/dotnet:"
+        if "gh" in self.prerequisites:
+            mounts += ["-v", f"{self.tools / 'gh'}:/opt/github-cli/gh:ro"]
+            prefix += "/opt/github-cli:"
         return mounts, prefix
 
     def container(self, runtime: str) -> str:
@@ -1113,9 +1125,44 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
 
 # ── orchestration ────────────────────────────────────────────────────────────────────────────────
 
-def prepare_tools(runtimes: dict[str, str], work: Path) -> Path:
+def copy_github_cli_binary(archive: Path, release: str, binary: Path) -> None:
+    with tarfile.open(archive, "r:gz") as package:
+        member = package.getmember(f"{release}/bin/gh")
+        if not member.isfile():
+            raise RunError(f"GitHub CLI archive has no regular binary for {release}")
+        with package.extractfile(member) as executable, binary.open("wb") as output:
+            shutil.copyfileobj(executable, output)
+
+
+def prepare_github_cli(tools: Path) -> None:
+    # Use the Docker host architecture because gh executes inside the runtime container.
+    machine = docker("info", "--format", "{{.Architecture}}", check=True).stdout.strip()
+    arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(machine, machine)
+    checksum = GH_LINUX_SHA256.get(arch)
+    if checksum is None:
+        raise RunError(f"no pinned GitHub CLI release for Docker architecture {machine!r}")
+    release = f"gh_{GH_VERSION}_linux_{arch}"
+    url = f"https://github.com/cli/cli/releases/download/v{GH_VERSION}/{release}.tar.gz"
+    with tempfile.TemporaryDirectory(dir=tools) as temporary:
+        directory = Path(temporary)
+        archive = directory / "gh.tar.gz"
+        with urlopen(url, timeout=60) as response, archive.open("wb") as output:
+            shutil.copyfileobj(response, output)
+        with archive.open("rb") as downloaded:
+            actual = hashlib.file_digest(downloaded, "sha256").hexdigest()
+        if actual != checksum:
+            raise RunError(f"GitHub CLI archive checksum mismatch for {release}")
+        binary = directory / "gh"
+        copy_github_cli_binary(archive, release, binary)
+        binary.chmod(0o755)
+        binary.replace(tools / "gh")
+
+
+def prepare_tools(runtimes: dict[str, str], work: Path, prerequisites: set[str] | None = None) -> Path:
     tools = work / "tools"
     tools.mkdir(parents=True, exist_ok=True)
+    if prerequisites and "gh" in prerequisites:
+        prepare_github_cli(tools)
     for runtime in ("node", "python", "dotnet"):
         docker("pull", runtimes[runtime], timeout=1800, check=True)
     node = tools / "node"
@@ -1431,7 +1478,8 @@ def main() -> int:
             print(f"   {row['status']} {row['counts']}", flush=True)
 
     try:
-        tools = prepare_tools(sources["runtimes"], work)
+        prerequisites = {p for document in selected for p in document.get("prerequisites", {})}
+        tools = prepare_tools(sources["runtimes"], work, prerequisites)
         run_phase(install_docs, "host", tools)
         if client_docs:
             if args.boot:
