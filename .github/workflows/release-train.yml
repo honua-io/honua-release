@@ -30,6 +30,7 @@ on:
       freeze_only: { description: "Authenticate candidate inputs only; no qualification gates, release signature or publication", required: false, type: boolean, default: false }
       capacity_receipt_url: { description: "HTTPS URL of the attested candidate capacity-soak evidence ZIP", required: false, type: string }
       dr_receipt_url: { description: "HTTPS URL of the candidate full-platform DR receipt", required: false, type: string }
+      native_qualification_run_id: { description: "Run ID of the matching native ECS qualification producer", required: false, type: string }
 
   # Only nightly callers may adopt candidate_ref. Preparation authenticates the
   # exact trunk source inputs and never reaches gates, reporting or promotion.

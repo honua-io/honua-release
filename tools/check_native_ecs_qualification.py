@@ -41,12 +41,12 @@ class Qualification:
     require_model: bool
 
 
-def verify_run(run, repository, run_id, attempt):
-    expected = {"id": int(run_id), "run_attempt": int(attempt), "head_branch": "trunk",
+def verify_run(run, producer):
+    expected = {"id": int(producer.run_id), "run_attempt": int(producer.attempt), "head_branch": "trunk",
                 "path": PRODUCER, "event": "workflow_dispatch", "status": "completed",
                 "conclusion": "success"}
     if not re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", "")) or any(run.get(key) != value for key, value in expected.items()) or any(
-        run.get(key, {}).get("full_name") != repository for key in ("repository", "head_repository")
+        run.get(key, {}).get("full_name") != producer.repository for key in ("repository", "head_repository")
     ):
         raise ValueError("native ECS producer identity or conclusion mismatch")
 
@@ -58,7 +58,9 @@ def timestamp(value):
     return stamp
 
 
-def verify_envelope(root, producer, candidate, server):
+def verify_envelope(root, qualification, server):
+    producer = qualification.producer
+    candidate = qualification.candidate
     envelope = load_json(root / "qualification.json")
     expected = {
         "schemaVersion": 1, "status": "pass", "cell": CELL, "deployment": "cloudformation-ecs-fargate",
@@ -75,7 +77,7 @@ def verify_envelope(root, producer, candidate, server):
     return envelope
 
 
-def verify_installation(envelope, run, server, now):
+def verify_installation(envelope, run, server):
     stack = envelope["stackId"]
     if not isinstance(stack, str) or not re.fullmatch(
         r"arn:aws:cloudformation:[a-z0-9-]+:[0-9]{12}:stack/honua-gate-[A-Za-z0-9-]+/[0-9a-f-]+", stack
@@ -87,7 +89,7 @@ def verify_installation(envelope, run, server, now):
         raise ValueError("cleanup did not verify deletion of the qualified stack and its resources")
     start, end = timestamp(run["run_started_at"]), timestamp(run["updated_at"])
     installed, deleted = timestamp(envelope["installedAt"]), timestamp(cleanup["observedAt"])
-    if not start <= installed <= deleted <= end <= (now or datetime.now(timezone.utc)):
+    if not start <= installed <= deleted <= end:
         raise ValueError("installation and cleanup fall outside the authenticated producer attempt")
     observation = envelope["installation"]
     architecture = {"X86_64": "amd64", "ARM64": "arm64"}.get(observation.get("cpuArchitecture"))
@@ -111,10 +113,12 @@ def verify_installation(envelope, run, server, now):
 def verify(root, run, qualification, *, now=None):
     producer = qualification.producer
     candidate = qualification.candidate
-    verify_run(run, producer.repository, producer.run_id, producer.attempt)
+    verify_run(run, producer)
+    if timestamp(run["updated_at"]) > (now or datetime.now(timezone.utc)):
+        raise ValueError("producer attempt ends in the future")
     server = yaml.safe_load(candidate.manifest.read_bytes())["components"]["honua-server"]
-    envelope = verify_envelope(root, producer, candidate, server)
-    installed, deleted = verify_installation(envelope, run, server, now)
+    envelope = verify_envelope(root, qualification, server)
+    installed, deleted = verify_installation(envelope, run, server)
     if load_json(root / REPORT).get("cell") != CELL:
         raise ValueError("top-level journey report is outside the GA cell")
     journey = evaluate(root, candidate.manifest, candidate.digest, producer.run_id, producer.attempt, at=now)
@@ -129,28 +133,48 @@ def verify(root, run, qualification, *, now=None):
             receipt["generatedAt"], record["completedAt"], *observations
         ]):
             raise ValueError("installed journey observations fall outside the qualified stack lifetime")
+    evidence = InstalledJourney(root, installed, deleted, attempts, now)
     model_report = None
     if qualification.require_model:
-        paths = sorted(root.glob("model-attempt-*.json"))
-        try:
-            model_report = build_model_report(
-                paths, cell=CELL, lock_digest=candidate.lock_digest or None, candidate_digest=candidate.digest,
-                run_id=producer.run_id, run_attempt=producer.attempt, now=now)
-            journey_hashes = {
-                hashlib.sha256((root / record["receipt"]).read_bytes()).hexdigest()
-                for record in attempts if record["status"] == "pass"
-            }
-            receipts = [load_json(path) for path in paths]
-            if model_report["status"] == "pass" and any(
-                receipt.get("serverImage", {}).get("reference") != candidate.server_image
-                or not installed <= timestamp(receipt["completedAt"]) <= deleted
-                or receipt["linkedEvidence"]["deterministicReceipt"].get("sha256") not in journey_hashes
-                for receipt in receipts
-            ):
-                raise ValueError("mismatched genuine-model qualification")
-        except (KeyError, AttributeError, TypeError, ValueError, OSError) as error:
-            model_report = {"status": "fail", "why": str(error), "cells": []}
+        model_report = verify_model(qualification, evidence)
     return journey, model_report
+
+
+@dataclass(frozen=True)
+class InstalledJourney:
+    root: Path
+    installed: datetime
+    deleted: datetime
+    attempts: list
+    now: datetime | None
+
+
+def verify_model(qualification, evidence):
+    candidate = qualification.candidate
+    producer = qualification.producer
+    paths = sorted(evidence.root.glob("model-attempt-*.json"))
+    try:
+        report = build_model_report(
+            paths, cell=CELL, lock_digest=candidate.lock_digest or None, candidate_digest=candidate.digest,
+            run_id=producer.run_id, run_attempt=producer.attempt, now=evidence.now)
+        if report["status"] == "pass":
+            verify_model_links(paths, candidate, evidence)
+        return report
+    except (KeyError, AttributeError, TypeError, ValueError, OSError) as error:
+        return {"status": "fail", "why": str(error), "cells": []}
+
+
+def verify_model_links(paths, candidate, evidence):
+    journey_hashes = {
+        hashlib.sha256((evidence.root / record["receipt"]).read_bytes()).hexdigest()
+        for record in evidence.attempts if record["status"] == "pass"
+    }
+    for path in paths:
+        receipt = load_json(path)
+        if (receipt.get("serverImage", {}).get("reference") != candidate.server_image
+            or not evidence.installed <= timestamp(receipt["completedAt"]) <= evidence.deleted
+            or receipt["linkedEvidence"]["deterministicReceipt"].get("sha256") not in journey_hashes):
+            raise ValueError("mismatched genuine-model qualification")
 
 
 def main():

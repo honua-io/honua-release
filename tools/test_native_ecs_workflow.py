@@ -37,6 +37,16 @@ def test_nightly_orders_native_producer_after_ledger_and_pins_run():
     assert gate["with"]["producer_run_id"] == "${{ inputs.native_qualification_run_id }}"
 
 
+def test_manual_train_accepts_the_native_producer_run():
+    train = workflow("release-train")
+    dispatch_input = train[True]["workflow_dispatch"]["inputs"]["native_qualification_run_id"]
+    assert dispatch_input["type"] == "string"
+    assert dispatch_input["required"] is False
+    assert train["jobs"]["gate_cloud_parity"]["with"]["producer_run_id"] == (
+        "${{ inputs.native_qualification_run_id }}"
+    )
+
+
 @pytest.mark.parametrize("run_id", ["", "invalid"])
 def test_train_gate_rejects_missing_or_invalid_producer_run(run_id):
     steps = workflow("gate-native-ecs-qualification")["jobs"]["qualification"]["steps"]
