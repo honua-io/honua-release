@@ -51,16 +51,12 @@ jobs:
           identity="$(printf '%s\n' "$CANDIDATE_DIGEST" "$LOCK_DIGEST" | sha256sum | cut -d' ' -f1)"
           artifact="native-ecs-qualification-$identity"
           run_id="$PRODUCER_RUN_ID"
-          if [[ -z "$run_id" ]]; then
-            run_id="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" -f name="$artifact" \
-              --jq '.artifacts | map(select(.expired == false)) | first | .workflow_run.id // empty')"
-          fi
-          [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || { echo "::error::No native ECS qualification for the frozen candidate"; exit 1; }
+          [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || { echo "::error::An exact native ECS producer run is required"; exit 1; }
           api="repos/$GITHUB_REPOSITORY/actions/runs/$run_id"
           attempt="$(gh api "$api" --jq .run_attempt)"
           [[ "$attempt" =~ ^[1-9][0-9]*$ ]]
-          if [[ -n "$PRODUCER_RUN_ID" && "$attempt" != 1 ]]; then
-            echo "::error::Nightly qualification requires the original dispatched attempt"
+          if [[ "$attempt" != 1 ]]; then
+            echo "::error::Native ECS qualification requires the original dispatched attempt"
             exit 1
           fi
           gh api "$api/attempts/$attempt" > producer-run.json

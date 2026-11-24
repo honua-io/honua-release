@@ -37,6 +37,17 @@ def test_nightly_orders_native_producer_after_ledger_and_pins_run():
     assert gate["with"]["producer_run_id"] == "${{ inputs.native_qualification_run_id }}"
 
 
+@pytest.mark.parametrize("run_id", ["", "invalid"])
+def test_train_gate_rejects_missing_or_invalid_producer_run(run_id):
+    steps = workflow("gate-native-ecs-qualification")["jobs"]["qualification"]["steps"]
+    resolve = next(step for step in steps if step.get("id") == "producer")
+    env = {**os.environ, "PRODUCER_RUN_ID": run_id, "CANDIDATE_DIGEST": "a" * 64,
+           "LOCK_DIGEST": "sha256:" + "b" * 64}
+    result = subprocess.run(["bash", "-c", resolve["run"]], env=env, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "An exact native ECS producer run is required" in result.stdout
+
+
 @pytest.mark.parametrize("branch", ["trunk", "another-branch"])
 def test_native_dispatch_checks_returned_run(branch):
     api = Mock(side_effect=[

@@ -61,21 +61,11 @@ def _native_run(run_id=1):
     return {**_run(1, report=report, run_id=run_id), "event": "workflow_dispatch"}
 
 
-def test_native_ecs_requires_candidate_bound_producer_receipt():
+def test_native_ecs_standalone_admission_requires_strict_verification():
     run = _native_run()
     records = {w.NATIVE_ECS_GATE: {"runs": [run]}}
-    assert _eval(records)["admissible"] is True
+    assert _eval(records)["admissible"] is False
     run["report"] = _report()
-    assert _eval(records)["admissible"] is False
-
-
-def test_native_ecs_rejects_mismatched_attempt_and_incomplete_cleanup():
-    run = _native_run()
-    records = {w.NATIVE_ECS_GATE: {"runs": [run]}}
-    run["run_attempt"] = 2
-    assert _eval(records)["admissible"] is False
-    run["run_attempt"] = 1
-    run["report"]["cleanup"]["remainingResources"] = ["ServerService"]
     assert _eval(records)["admissible"] is False
 
 
@@ -301,17 +291,16 @@ def test_unbound_diagnostic_or_stale_or_missing_run_does_not_pass():
     assert "pin commit was not found" in unpinned["gates"]["manifest-validate.yml"]["reason"]
 
 
-def test_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green():
+def test_other_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green():
     pin = NOW - dt.timedelta(days=3)
     records = {}
-    for index, gate in enumerate(g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE)):
+    for index, gate in enumerate(g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE, w.NATIVE_ECS_GATE)):
         records[gate] = {"runs": [_run(1, report=_report(), run_id=index + 1)]}
-    records[w.NATIVE_ECS_GATE] = {"runs": [_native_run()]}
     result = _eval(records, advisory=w.RC_ADVISORY, pin_at=pin)
     assert result["admissible"] is True
     assert result["red"] == []
     md = w.render_markdown(result)
-    for gate in (g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE)):
+    for gate in (g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE, w.NATIVE_ECS_GATE)):
         row = result["gates"][gate]
         assert row["verdict"] == "green"
         if gate in w.CANDIDATE_BOUND_GATES:

@@ -12,6 +12,6 @@ The trusted producer is a successful manual run of `.github/workflows/native-ecs
 GitHub supplies the run and attempt records independently of the artifact. The train retains its verification decision and the producer identity together. A missing artifact, a mismatched attempt, or a failed installation, deterministic journey, refusal, or cleanup check leaves the gate red. Model evidence has a separate advisory verdict.
 
 
-Nightly dispatches the trunk producer after protocol certification binds the candidate snapshot. The train accepts the exact dispatched run and its original attempt. Standalone RC admission reads the producer's candidate-bound envelope, and the train independently verifies the installed evidence.
+Nightly dispatches the trunk producer after protocol certification binds the candidate snapshot. The train requires an explicit producer run ID and its original attempt. Standalone RC admission remains closed until it can verify the complete frozen bundle.
 
 The producer currently freezes the candidate and retains failure diagnostics under `native-ecs-diagnostics-<run>-<attempt>`. Completing the live producer requires the approved immutable gate-bound Marketplace template URL and parameter contract in `us-east-1`, gate identity and terminal operator bootstrap, and a maintained Redis-off lifecycle harness. That harness must install the pinned image, capture the installed-journey and refusal evidence, and verify stack deletion and an empty residual resource inventory. Track admission and those dependencies in release #1546.

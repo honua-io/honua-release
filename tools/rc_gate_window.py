@@ -714,32 +714,14 @@ def _title_bound_without_receipt(run, candidate, gate):
             and not any(matches_candidate(doc, candidate) for doc in _documents(run)))
 
 
-def _native_ecs_verdict(run, docs, candidate):
-    matching = [doc for doc in docs if doc.get("deployment") == "cloudformation-ecs-fargate"
-                and matches_candidate(doc, candidate)]
-    if not matching:
-        return "unrelated"
-    if len(matching) != 1 or run.get("conclusion") != "success" or run.get("event") != "workflow_dispatch":
-        return "superseding"
-    receipt = matching[0]
-    cleanup = receipt.get("cleanup")
-    valid = (receipt.get("schemaVersion") == 1 and receipt.get("status") == "pass"
-             and receipt.get("cell") == "aws-ecs/redis-off"
-             and receipt.get("runId") == str(run.get("id"))
-             and receipt.get("runAttempt") == str(run.get("run_attempt"))
-             and isinstance(receipt.get("stackId"), str) and bool(receipt["stackId"])
-             and isinstance(cleanup, dict) and cleanup.get("stackId") == receipt["stackId"]
-             and cleanup.get("stackStatus") == "DELETE_COMPLETE" and cleanup.get("remainingResources") == [])
-    return "qualifying" if valid else "superseding"
-
-
 def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") -> str:
     """'qualifying', 'superseding', or 'unrelated' for one completed run."""
     if run.get("status") not in (None, "completed"):
         return "unrelated"
     docs = _documents(run)
     if gate == NATIVE_ECS_GATE:
-        return _native_ecs_verdict(run, docs, candidate)
+        # Reopen standalone admission only when it can verify the full frozen bundle.
+        return "superseding" if any(matches_candidate(doc, candidate) for doc in docs) else "unrelated"
     if gate == ARC_GATE:
         # A malformed required-arm receipt must not hide by dropping its schema or required flag.
         matching = any(d.get("arm") == arm and matches_candidate(d.get("candidate"), candidate)
