@@ -1125,6 +1125,15 @@ def run_document(doc: dict[str, Any], text: str, session: Session, context: dict
 
 # ── orchestration ────────────────────────────────────────────────────────────────────────────────
 
+def copy_github_cli_binary(archive: Path, release: str, binary: Path) -> None:
+    with tarfile.open(archive, "r:gz") as package:
+        member = package.getmember(f"{release}/bin/gh")
+        if not member.isfile():
+            raise RunError(f"GitHub CLI archive has no regular binary for {release}")
+        with package.extractfile(member) as executable, binary.open("wb") as output:
+            shutil.copyfileobj(executable, output)
+
+
 def prepare_github_cli(tools: Path) -> None:
     # Use the Docker host architecture because gh executes inside the runtime container.
     machine = docker("info", "--format", "{{.Architecture}}", check=True).stdout.strip()
@@ -1144,12 +1153,7 @@ def prepare_github_cli(tools: Path) -> None:
         if actual != checksum:
             raise RunError(f"GitHub CLI archive checksum mismatch for {release}")
         binary = directory / "gh"
-        with tarfile.open(archive, "r:gz") as package:
-            member = package.getmember(f"{release}/bin/gh")
-            if not member.isfile():
-                raise RunError(f"GitHub CLI archive has no regular binary for {release}")
-            with package.extractfile(member) as executable, binary.open("wb") as output:
-                shutil.copyfileobj(executable, output)
+        copy_github_cli_binary(archive, release, binary)
         binary.chmod(0o755)
         binary.replace(tools / "gh")
 
