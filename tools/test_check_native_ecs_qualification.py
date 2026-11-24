@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from check_native_ecs_qualification import CELL, PRODUCER, REPORT, FrozenCandidate, ProducerRun, verify
+from check_native_ecs_qualification import CELL, PRODUCER, REPORT, FrozenCandidate, ProducerRun, Qualification, verify
 from test_check_journey_receipts import MANIFEST, NOW, RUN, RUN_ATTEMPT, Intake
 
 REPO = "honua-io/honua-release"
@@ -45,7 +45,7 @@ def check(qualification, *, require_model=False):
     (root / "qualification.json").write_text(json.dumps(envelope))
     producer = ProducerRun(REPO, RUN, RUN_ATTEMPT)
     candidate = FrozenCandidate(intake.candidate, intake.digest, IMAGE, "")
-    return verify(root, run, producer, candidate, require_model, now=NOW)
+    return verify(root, run, Qualification(producer, candidate, require_model), now=NOW)
 
 
 def test_accepts_authenticated_installed_refusal_and_cleanup(qualification):

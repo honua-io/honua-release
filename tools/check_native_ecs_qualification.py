@@ -34,6 +34,13 @@ class FrozenCandidate:
     lock_digest: str
 
 
+@dataclass(frozen=True)
+class Qualification:
+    producer: ProducerRun
+    candidate: FrozenCandidate
+    require_model: bool
+
+
 def verify_run(run, repository, run_id, attempt):
     expected = {"id": int(run_id), "run_attempt": int(attempt), "head_branch": "trunk",
                 "path": PRODUCER, "event": "workflow_dispatch", "status": "completed",
@@ -68,7 +75,7 @@ def verify_envelope(root, producer, candidate, server):
     return envelope
 
 
-def verify_installation(envelope, run, server_image, platform_digests, now):
+def verify_installation(envelope, run, server, now):
     stack = envelope["stackId"]
     if not isinstance(stack, str) or not re.fullmatch(
         r"arn:aws:cloudformation:[a-z0-9-]+:[0-9]{12}:stack/honua-gate-[A-Za-z0-9-]+/[0-9a-f-]+", stack
@@ -84,7 +91,11 @@ def verify_installation(envelope, run, server_image, platform_digests, now):
         raise ValueError("installation and cleanup fall outside the authenticated producer attempt")
     observation = envelope["installation"]
     architecture = {"X86_64": "amd64", "ARM64": "arm64"}.get(observation.get("cpuArchitecture"))
+    platform_digests = image_platform_digests(
+        server.get("platformDigests"), index_digest=server["digest"], architectures=server.get("architectures")
+    )
     expected_digest = platform_digests.get(architecture)
+    server_image = server["image"].split("@", 1)[0] + "@" + server["digest"]
     if (observation["stackName"] != stack.split("/")[1]
         or observation["declaredImage"] != server_image
         or expected_digest is None
@@ -97,14 +108,13 @@ def verify_installation(envelope, run, server_image, platform_digests, now):
     return installed, deleted
 
 
-def verify(root, run, producer, candidate, require_model, *, now=None):
+def verify(root, run, qualification, *, now=None):
+    producer = qualification.producer
+    candidate = qualification.candidate
     verify_run(run, producer.repository, producer.run_id, producer.attempt)
     server = yaml.safe_load(candidate.manifest.read_bytes())["components"]["honua-server"]
     envelope = verify_envelope(root, producer, candidate, server)
-    platform_digests = image_platform_digests(
-        server.get("platformDigests"), index_digest=server["digest"], architectures=server.get("architectures")
-    )
-    installed, deleted = verify_installation(envelope, run, candidate.server_image, platform_digests, now)
+    installed, deleted = verify_installation(envelope, run, server, now)
     if load_json(root / REPORT).get("cell") != CELL:
         raise ValueError("top-level journey report is outside the GA cell")
     journey = evaluate(root, candidate.manifest, candidate.digest, producer.run_id, producer.attempt, at=now)
@@ -120,7 +130,7 @@ def verify(root, run, producer, candidate, require_model, *, now=None):
         ]):
             raise ValueError("installed journey observations fall outside the qualified stack lifetime")
     model_report = None
-    if require_model:
+    if qualification.require_model:
         paths = sorted(root.glob("model-attempt-*.json"))
         try:
             model_report = build_model_report(
@@ -163,7 +173,7 @@ def main():
         run = load_json(args.run)
         producer_run = ProducerRun(args.repository, args.run_id, args.attempt)
         candidate = FrozenCandidate(args.candidate, args.candidate_digest, args.server_image, args.lock_digest)
-        journey, model = verify(args.root, run, producer_run, candidate, args.require_model)
+        journey, model = verify(args.root, run, Qualification(producer_run, candidate, args.require_model))
     except (KeyError, AttributeError, TypeError, ValueError, OSError, yaml.YAMLError) as error:
         parser.exit(1, f"Native ECS qualification rejected: {error}\n")
     # The train signs its verification decision. Preserve the original producer identity
