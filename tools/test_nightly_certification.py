@@ -177,7 +177,7 @@ def test_write_scopes_live_only_on_the_jobs_that_use_them():
         'protocol_ledger': ['contents'],         # refs/nightly-requirements/<sha>, refs/nightly-candidates/<sha>
         'capacity': [],                          # cross-repo work uses RELEASE_GH_TOKEN
         'dr': ['actions'],                       # dispatches the drill in this repository
-        'train': ['actions', 'attestations', 'id-token'],  # release-train's own declared scopes
+        'train': ['attestations', 'id-token'],  # release-train's own declared scopes
         'mint': ['contents', 'id-token'],        # lock tag + keyless signature
     }
     train = workflow('release-train.yml')
@@ -275,28 +275,21 @@ def test_only_the_live_nightly_selects_precut_qualification(tmp_path, dry_run, n
     assert json.loads(log.read_text()) == ['tools/validate_platform.py', *expected]
 
 
-def test_the_strict_train_runs_the_real_journey_gate():
-    train = workflow('release-train.yml')
-    jobs = train['jobs']
-    assert 'gate_journey_todo' not in jobs
-    journey = jobs['gate_journey']
-    assert journey['uses'] == './.github/workflows/gate-journey.yml'
-    assert journey['with'] == {
-        'receipts_run_id': '${{ github.run_id }}',
-        'receipts_run_attempt': '${{ github.run_attempt }}',
+def test_the_strict_train_runs_native_ecs_qualification():
+    jobs = workflow('release-train.yml')['jobs']
+    qualification = jobs['gate_cloud_parity']
+    assert qualification['uses'] == './.github/workflows/gate-native-ecs-qualification.yml'
+    assert qualification['with'] == {
         'candidate_digest': '${{ needs.freeze.outputs.manifest_sha256 }}',
-        'candidate_bundle': True,
+        'server_image': '${{ needs.freeze.outputs.server_image }}',
+        'lock_digest': '${{ needs.freeze.outputs.lock_digest }}',
+        'require_model': '${{ inputs.nightly && inputs.genuine_model }}',
     }
-    assert set(journey['needs']) == {'freeze', 'gate_cloud_parity'}
-    # Cloud red still lets the journey checker judge GA receipts; a skipped freeze does not.
-    assert evaluate(journey['if'], {'needs.freeze.result': 'success'}, needs_ok=False)
-    assert not evaluate(journey['if'], {'needs.freeze.result': 'skipped'}, needs_ok=False)
-    assert not evaluate(journey['if'], {'needs.freeze.result': 'success'}, cancelled=True)
-    assert jobs['freeze']['outputs']['manifest_sha256'] == '${{ steps.candidate.outputs.manifest_sha256 }}'
-    assert 'gate_journey' in jobs['report']['needs']
+    assert set(qualification['needs']) == {'freeze', 'gate_e2e'}
+    assert 'gate_cloud_parity' in jobs['report']['needs']
     assemble = step(jobs['report'], 'Assemble platform gate-report.json')
-    assert assemble['env']['S_JOURNEY'] == \
-        '${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}'
+    assert assemble['env']['S_JOURNEY'] == assemble['env']['S_CLOUD']
+    assert "needs.gate_cloud_parity.result == 'success'" in assemble['env']['S_JOURNEY']
     assert 'journey|$S_JOURNEY' in assemble['run']
 
 

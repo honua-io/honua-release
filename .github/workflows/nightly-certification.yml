@@ -501,7 +501,7 @@ jobs:
       id-token: write
       packages: read
       checks: read
-      actions: write
+      actions: read
       attestations: write
     uses: ./.github/workflows/release-train.yml
     with:

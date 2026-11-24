@@ -56,7 +56,7 @@ permissions:
   id-token: write               # OIDC for keyless signing / cloud auth (no static creds)
   packages: read                # pull staging images / OCI charts in the artifact-consume gate
   checks: read                  # gate-build-test reads each pinned component's check-runs (subset guard)
-  actions: write                # e2e-cloud-aws dispatches the honua-iac cloud harness (iac-live wrapper)
+  actions: read                 # native ECS gate authenticates the qualification artifact
   attestations: write            # called gates (rollback-certification, gate-dr, capacity-soak) need
                                   # attestations read/write; a called workflow cannot be granted a scope
                                   # the caller's top-level permissions don't declare (write covers read).
@@ -73,6 +73,7 @@ jobs:
     outputs:
       server_sha: ${{ steps.candidate.outputs.server_sha }}
       server_digest: ${{ steps.candidate.outputs.server_digest }}
+      server_image: ${{ steps.candidate.outputs.server_image }}
       server_certification_sha: ${{ steps.candidate.outputs.server_certification_sha }}
       sdk_js_sha: ${{ steps.candidate.outputs.sdk_js_sha }}
       sdk_python_sha: ${{ steps.candidate.outputs.sdk_python_sha }}
@@ -205,6 +206,7 @@ jobs:
           ledger = certification["ledger"]
           print(f"server_sha={server['sha']}")
           print(f"server_digest={server['digest']}")
+          print("server_image=" + server["image"].split("@", 1)[0] + "@" + server["digest"])
           print(f"server_certification_sha={certification['serverCertificationProducerSha']}")
           print(f"sdk_js_sha={manifest['components']['honua-sdk-js']['sha']}")
           print(f"sdk_python_sha={manifest['components']['honua-sdk-python']['sha']}")
@@ -313,24 +315,15 @@ jobs:
       require_real: ${{ !inputs.dry_run }}
     secrets: inherit           # RELEASE_GH_TOKEN for the private frozen-SDK source checkouts
 
-  gate_cloud_parity:           # e) Slice-2 cloud CERT — six serialized runtime cells
+  gate_cloud_parity:
     if: ${{ !inputs.freeze_only }}
-    needs: [freeze, gate_e2e]  #    + asserts MCP/Studio/GP/demo scenarios. Self-skips (cloud-creds-unset).
-    uses: ./.github/workflows/e2e-cloud-aws.yml
+    needs: [freeze, gate_e2e]
+    uses: ./.github/workflows/gate-native-ecs-qualification.yml
     with:
-      candidate_ref: ${{ inputs.candidate_ref }}
-      # a real cut promotes BLOCKED (infra half-wired) / parity divergence / not-certified scenarios to
-      # FAIL. When cloud/OIDC creds are unset the whole tier SELF-SKIPS (status: skipped) so a local cut
-      # is not reddened — but it is ready to enforce per-RC once HONUA_AWS_ROLE_ARN is wired.
-      require_real: ${{ !inputs.dry_run }}
-      # The supplemental IaC harness has its own budget and is not part of this train.
-      run_iac_live: false
-      cost_ceiling_usd: "20"
-      # The nightly's genuine-model canary runs in this ECS Redis-off cell after its journey (the
-      # cell admits only this run's journey runner, so a second workflow cannot reach it).
-      genuine_model_bedrock: ${{ inputs.nightly && inputs.genuine_model }}
+      candidate_digest: ${{ needs.freeze.outputs.manifest_sha256 }}
+      server_image: ${{ needs.freeze.outputs.server_image }}
       lock_digest: ${{ needs.freeze.outputs.lock_digest }}
-    secrets: inherit            # RELEASE_GH_TOKEN for the honua-iac dispatch wrapper + cross-repo checkout
+      require_model: ${{ inputs.nightly && inputs.genuine_model }}
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25)
     if: ${{ !inputs.freeze_only }}
@@ -494,19 +487,6 @@ jobs:
     needs: freeze                  # record is one of the inputs to the nightly lock's $.fixtures (#231 WI-8)
     uses: ./.github/workflows/terminal-journey-contract.yml
 
-  gate_journey:                 # promise journeys (#381): every GA cloud cell has a passing receipt
-    needs: [freeze, gate_cloud_parity]
-    # The per-cell receipts are judged even when the cloud aggregate is red: Preview cells cannot
-    # block, and a missing GA receipt fails here. A skipped freeze has no candidate to judge.
-    if: ${{ !inputs.freeze_only && (!cancelled() && needs.freeze.result == 'success') }}
-    uses: ./.github/workflows/gate-journey.yml
-    with:
-      # e2e-cloud-aws runs inside this run, so its per-cell receipts carry this run's identity.
-      receipts_run_id: ${{ github.run_id }}
-      receipts_run_attempt: ${{ github.run_attempt }}
-      candidate_digest: ${{ needs.freeze.outputs.manifest_sha256 }}
-      candidate_bundle: true
-
   gate_installed_clients:       # installed-client SDK regression (#381, #386): the published Python, JS and
     if: ${{ !inputs.freeze_only }}
     needs: freeze                # .NET SDKs drive the exact candidate through every scenario contract
@@ -537,7 +517,6 @@ jobs:
       - gate_protocol_certification
       - gate_capacity_soak
       - gate_dr
-      - gate_journey
       - gate_executable_docs
       - gate_installed_clients
     if: ${{ !inputs.freeze_only && (always()) }}
@@ -583,7 +562,7 @@ jobs:
           S_MANIFEST: ${{ needs.gate_manifest.result }}
           S_ARTIFACT: ${{ needs.gate_artifact_consume.outputs.overall_status || needs.gate_artifact_consume.result }}
           S_E2E: ${{ needs.gate_e2e.result }}
-          S_CLOUD: ${{ needs.gate_cloud_parity.outputs.overall_status || needs.gate_cloud_parity.result }}
+          S_CLOUD: ${{ needs.gate_cloud_parity.result == 'success' && needs.gate_cloud_parity.outputs.overall_status || 'failure' }}
           S_BUILD: ${{ needs.gate_build_test.result == 'success' && needs.gate_build_test.outputs.overall_status || needs.gate_build_test.result }}
           S_CONTRACT: ${{ needs.gate_contract.result == 'success' && needs.gate_contract.outputs.overall_status || needs.gate_contract.result }}
           S_CONTRACT_LIVE: ${{ needs.gate_contract_live.result == 'success' && needs.gate_contract_live.outputs.overall_status || needs.gate_contract_live.result }}
@@ -599,7 +578,7 @@ jobs:
           S_PROTOCOL: ${{ needs.gate_protocol_certification.outputs.overall_status || needs.gate_protocol_certification.result }}
           S_CAPACITY: ${{ needs.gate_capacity_soak.result }}
           S_DR: ${{ needs.gate_dr.result }}
-          S_JOURNEY: ${{ needs.gate_journey.outputs.overall_status || needs.gate_journey.result }}
+          S_JOURNEY: ${{ needs.gate_cloud_parity.result == 'success' && needs.gate_cloud_parity.outputs.overall_status || 'failure' }}
           S_EXEC_DOCS: ${{ needs.gate_executable_docs.outputs.overall_status || needs.gate_executable_docs.result }}
           S_INSTALLED: ${{ needs.gate_installed_clients.outputs.overall_status || needs.gate_installed_clients.result }}
         run: |
