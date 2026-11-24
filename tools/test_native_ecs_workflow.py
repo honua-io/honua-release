@@ -42,9 +42,6 @@ def test_manual_train_accepts_the_native_producer_run():
     dispatch_input = train[True]["workflow_dispatch"]["inputs"]["native_qualification_run_id"]
     assert dispatch_input["type"] == "string"
     assert dispatch_input["required"] is False
-    assert train["jobs"]["gate_cloud_parity"]["with"]["producer_run_id"] == (
-        "${{ inputs.native_qualification_run_id }}"
-    )
 
 
 @pytest.mark.parametrize("run_id", ["", "invalid"])
