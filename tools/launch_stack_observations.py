@@ -38,14 +38,31 @@ def stack_state(aws, stack_name, stack_id=None, *, describe=None):
     return stack
 
 
+def resource_summaries(aws, stack_identity):
+    resources = []
+    seen_tokens = set()
+    page_args = ()
+    while True:
+        response = aws('cloudformation', 'list-stack-resources', '--stack-name', stack_identity, *page_args)
+        page = response.get('StackResourceSummaries')
+        require(isinstance(page, list), 'Incomplete stack resource response')
+        resources.extend(page)
+        token = response.get('NextToken')
+        if token is None:
+            return resources
+        require(isinstance(token, str) and token and token not in seen_tokens,
+                'Incomplete stack resource response: invalid continuation')
+        seen_tokens.add(token)
+        page_args = ('--next-token', token)
+
+
 def stack_resources(aws, stack_name):
-    response = aws('cloudformation', 'list-stack-resources', '--stack-name', stack_name)
-    require(not response.get('NextToken'), 'Incomplete stack resource response')
+    summaries = resource_summaries(aws, stack_name)
     resources = {}
     for logical, kind in (('Cluster', 'AWS::ECS::Cluster'), ('Service', 'AWS::ECS::Service'),
                           ('ServerTask', 'AWS::ECS::TaskDefinition'),
                           ('Targets', 'AWS::ElasticLoadBalancingV2::TargetGroup')):
-        resource = one([r for r in response.get('StackResourceSummaries', [])
+        resource = one([r for r in summaries
                         if r.get('LogicalResourceId') == logical], f'Missing stack resource {logical}')
         require(resource.get('ResourceType') == kind and resource.get('PhysicalResourceId'),
                 f'Invalid stack resource {logical}')

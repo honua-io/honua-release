@@ -2,27 +2,9 @@
 from datetime import datetime, timezone
 
 from image_platforms import DIGEST_RE, image_platform_digests
-from launch_stack_observations import ObservationError, observe_stack, one, require
+from launch_stack_observations import ObservationError, observe_stack, one, require, resource_summaries
 
 from native_ecs_attempt import AmbiguousStackCreate, describe_with_retry, open_attempt
-
-
-def resource_summaries(aws, stack_arg):
-    resources = []
-    seen_tokens = set()
-    page_args = ()
-    while True:
-        response = aws('cloudformation', 'list-stack-resources', *stack_arg, *page_args)
-        page = response.get('StackResourceSummaries')
-        require(isinstance(page, list), 'Incomplete resource deletion response')
-        resources.extend(page)
-        token = response.get('NextToken')
-        if token is None:
-            return resources
-        require(isinstance(token, str) and token and token not in seen_tokens,
-                'Invalid resource deletion continuation')
-        seen_tokens.add(token)
-        page_args = ('--next-token', token)
 
 
 def resource_identities(resources):
@@ -35,7 +17,7 @@ def cleanup_stack(aws, owned, stack):
     stack_arg = ('--stack-name', stack_id)
     deleting = status in ('DELETE_IN_PROGRESS', 'DELETE_COMPLETE')
     known = owned.deletion_inventory(
-        stack_id, lambda: resource_identities(resource_summaries(aws, stack_arg)),
+        stack_id, lambda: resource_identities(resource_summaries(aws, stack_id)),
         already_deleting=deleting,
     )
     if not deleting:
@@ -46,7 +28,7 @@ def cleanup_stack(aws, owned, stack):
     stack = one(response.get('Stacks'), 'Missing or ambiguous deleted stack')
     require(stack.get('StackId') == stack_id and stack.get('StackStatus') == 'DELETE_COMPLETE',
             'Stack deletion was not confirmed')
-    resources = resource_summaries(aws, stack_arg)
+    resources = resource_summaries(aws, stack_id)
     require(known <= resource_identities(resources), 'Incomplete resource deletion inventory')
     require(all(resource.get('ResourceStatus') == 'DELETE_COMPLETE' for resource in resources),
             'Stack resource deletion was not confirmed')

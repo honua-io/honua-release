@@ -254,15 +254,15 @@ def test_retries_describe_during_install_observation(attempt, monkeypatch):
     assert aws.creates == aws.delete_count == 1
 
 
-def test_cleanup_follows_paginated_resource_inventory(attempt):
+def test_install_and_cleanup_follow_paginated_resource_inventory(attempt):
     aws = LifecycleAws()
+    aws.paginate_inventory = True
 
     def fail_journey(_):
-        aws.paginate_inventory = True
         raise RuntimeError('journey failed')
 
     with pytest.raises(RuntimeError, match='journey failed'):
         qualify_installation(aws, CANDIDATE, attempt=attempt,
                              run_journey=fail_journey)
     assert aws.delete_count == 1
-    assert aws.inventory_continuations == 2
+    assert aws.inventory_continuations == 3
