@@ -44,6 +44,7 @@ SERVER_IMAGE = re.compile(r'ghcr\.io/honua-io/honua-server@sha256:[0-9a-f]{64}\Z
 CANDIDATE_TAG = 'refs/tags/nightly-candidate/'
 CAPACITY_WORKFLOW = 'capacity-soak-candidate.yml'
 DR_WORKFLOW = 'dr-drill-local-docker.yml'
+NATIVE_ECS_WORKFLOW = 'native-ecs-qualification.yml'
 AGGREGATE_WORKFLOW = 'aggregate.yml'
 CANDIDATE_PLACEHOLDERS = ('{server_image}', '{server_sha}', '{cut_at}')
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
@@ -209,6 +210,19 @@ def dispatch_dr(api, repository: str, candidate_ref: str, reviewed_sha: str) -> 
     compare = api('GET', f'repos/{repository}/compare/{reviewed_sha}...{head}')
     if (compare or {}).get('status') not in ('identical', 'ahead'):
         raise LookupError(f'DR run {run_id} head {head} does not descend from reviewed {reviewed_sha}')
+    return run_id
+
+
+def dispatch_native_ecs(api, repository: str, candidate_ref: str, platform_label: str) -> int:
+    _repository(repository)
+    if not SHA.fullmatch(candidate_ref) or not platform_label.strip():
+        raise ValueError('native ECS requires a full candidate snapshot sha and a platform label')
+    run_id = dispatch(api, repository, NATIVE_ECS_WORKFLOW, 'refs/heads/trunk', {
+        'candidate_ref': candidate_ref,
+        'platform_label': platform_label,
+    })
+    verify_run(dispatched_run(api, repository, run_id), run_id=run_id,
+               workflow=NATIVE_ECS_WORKFLOW, head_branch='trunk')
     return run_id
 
 
@@ -498,6 +512,10 @@ def main(argv=None, api=None) -> int:
     drill.add_argument('--repository', required=True)
     drill.add_argument('--candidate-ref', required=True)
     drill.add_argument('--reviewed-sha', required=True)
+    native = commands.add_parser('dispatch-native-ecs')
+    native.add_argument('--repository', required=True)
+    native.add_argument('--candidate-ref', required=True)
+    native.add_argument('--platform-label', required=True)
     wait = commands.add_parser('wait')
     wait.add_argument('--repository', required=True)
     wait.add_argument('--run-id', required=True, type=int)
@@ -533,6 +551,8 @@ def main(argv=None, api=None) -> int:
             print(dispatch_capacity(api, args.repository, args.candidate_sha, args.candidate_image, args.lock_ref))
         elif args.command == 'dispatch-dr':
             print(dispatch_dr(api, args.repository, args.candidate_ref, args.reviewed_sha))
+        elif args.command == 'dispatch-native-ecs':
+            print(dispatch_native_ecs(api, args.repository, args.candidate_ref, args.platform_label))
         elif args.command == 'wait':
             run = wait_for_run(api, _repository(args.repository), args.run_id, timeout=args.timeout)
             print(run.get('conclusion'))

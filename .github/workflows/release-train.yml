@@ -41,6 +41,7 @@ on:
       capacity_receipt_url: { required: true, type: string }
       dr_receipt_url: { required: true, type: string }
       candidate_ref: { required: false, type: string, default: "" }
+      native_qualification_run_id: { required: false, type: string, default: "" }
       nightly: { required: false, type: boolean, default: false }
       # Nightly only (fix unit J3): Bedrock on the ECS Redis-off cell and the genuine-model canary
       # after its journey, bound to the qualification lock; its row is the nightly-model-journey class.
@@ -324,6 +325,7 @@ jobs:
       server_image: ${{ needs.freeze.outputs.server_image }}
       lock_digest: ${{ needs.freeze.outputs.lock_digest }}
       require_model: ${{ inputs.nightly && inputs.genuine_model }}
+      producer_run_id: ${{ inputs.native_qualification_run_id }}
 
   gate_conformance:            # c) cross-repo conformance (real, not false-pass; closes mcp#25)
     if: ${{ !inputs.freeze_only }}

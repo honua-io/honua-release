@@ -28,6 +28,8 @@ CLIENTS = {name: {"package": package, "version": "2026.1.0-rc.3",
 MANIFEST = {"platformRelease": "2026.1-rc.3", "clientArtifacts": CLIENTS,
             "components": {"honua-server": {"sha": "b" * 40,
                             "image": "ghcr.io/honua/server", "digest": "sha256:" + "c" * 64,
+                            "platformDigests": {"amd64": "sha256:" + "e" * 64,
+                                                "arm64": "sha256:" + "f" * 64},
                             "awsLambdaImage": "ghcr.io/honua/lambda", "awsLambdaDigest": "sha256:" + "d" * 64}}}
 # Number, stage, command are written independently from the owned journey contract.
 STAGES = [

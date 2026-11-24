@@ -489,11 +489,40 @@ jobs:
             exit 1
           fi
 
+  native_qualification:
+    needs: [resolve, protocol_ledger]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      run_id: ${{ steps.producer.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r tools/requirements-nightly.txt
+      - name: Dispatch native qualification of the ledger-bound candidate
+        id: producer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_REF: ${{ needs.protocol_ledger.outputs.candidate_ref }}
+          PLATFORM_LABEL: ${{ needs.resolve.outputs.platform_label }}
+        run: |
+          set -euo pipefail
+          run_id="$(python tools/nightly_receipts.py dispatch-native-ecs --repository "$GITHUB_REPOSITORY" \
+            --candidate-ref "$CANDIDATE_REF" --platform-label "$PLATFORM_LABEL")"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Native ECS producer: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          python tools/nightly_receipts.py wait --repository "$GITHUB_REPOSITORY" --run-id "$run_id" --timeout 10200
+
   train:
-    needs: [resolve, protocol_ledger, capacity, dr]
+    needs: [resolve, protocol_ledger, capacity, dr, native_qualification]
     # The train alone joins the ledger, capacity and DR; a failed producer that still published a
     # receipt is judged by the train. Cancelled nights stop.
-    if: ${{ !cancelled() && needs.protocol_ledger.result == 'success' && needs.capacity.outputs.receipt_url != '' && needs.dr.outputs.receipt_url != '' }}
+    if: ${{ !cancelled() && needs.protocol_ledger.result == 'success' && needs.native_qualification.result == 'success' && needs.native_qualification.outputs.run_id != '' && needs.capacity.outputs.receipt_url != '' && needs.dr.outputs.receipt_url != '' }}
     # release-train's own top-level scopes; a called workflow cannot exceed its caller job.
     permissions:
       contents: read
@@ -511,9 +540,8 @@ jobs:
       candidate_ref: ${{ needs.protocol_ledger.outputs.candidate_ref }}
       capacity_receipt_url: ${{ needs.capacity.outputs.receipt_url }}
       dr_receipt_url: ${{ needs.dr.outputs.receipt_url }}
-      # R19: every night runs the genuine-model canary on its ECS Redis-off cell; the night takes no
-      # hand-supplied input, so this is not switchable here. Cost-free cloud runs use e2e-cloud-aws,
-      # whose genuine_model input defaults to false.
+      native_qualification_run_id: ${{ needs.native_qualification.outputs.run_id }}
+      # Nightly includes the advisory genuine-model verdict for its ECS Redis-off cell.
       genuine_model: true
     secrets: inherit
 

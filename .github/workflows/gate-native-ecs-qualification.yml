@@ -12,6 +12,9 @@ on:
       lock_digest:
         required: true
         type: string
+      producer_run_id:
+        type: string
+        default: ""
       require_model:
         required: true
         type: boolean
@@ -39,6 +42,7 @@ jobs:
         id: producer
         env:
           GH_TOKEN: ${{ github.token }}
+          PRODUCER_RUN_ID: ${{ inputs.producer_run_id }}
           CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
           LOCK_DIGEST: ${{ inputs.lock_digest }}
         run: |
@@ -46,12 +50,19 @@ jobs:
           [[ "$CANDIDATE_DIGEST" =~ ^[0-9a-f]{64}$ ]]
           identity="$(printf '%s\n' "$CANDIDATE_DIGEST" "$LOCK_DIGEST" | sha256sum | cut -d' ' -f1)"
           artifact="native-ecs-qualification-$identity"
-          run_id="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" -f name="$artifact" \
-            --jq '.artifacts | map(select(.expired == false)) | first | .workflow_run.id // empty')"
+          run_id="$PRODUCER_RUN_ID"
+          if [[ -z "$run_id" ]]; then
+            run_id="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts" -f name="$artifact" \
+              --jq '.artifacts | map(select(.expired == false)) | first | .workflow_run.id // empty')"
+          fi
           [[ "$run_id" =~ ^[1-9][0-9]*$ ]] || { echo "::error::No native ECS qualification for the frozen candidate"; exit 1; }
           api="repos/$GITHUB_REPOSITORY/actions/runs/$run_id"
           attempt="$(gh api "$api" --jq .run_attempt)"
           [[ "$attempt" =~ ^[1-9][0-9]*$ ]]
+          if [[ -n "$PRODUCER_RUN_ID" && "$attempt" != 1 ]]; then
+            echo "::error::Nightly qualification requires the original dispatched attempt"
+            exit 1
+          fi
           gh api "$api/attempts/$attempt" > producer-run.json
           {
             echo "artifact=$artifact"

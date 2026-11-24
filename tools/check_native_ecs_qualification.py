@@ -4,15 +4,34 @@ import argparse
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
+from image_platforms import image_platform_digests
 from check_journey_receipts import GA_CELLS, evaluate, load_json
 from model_journey_report import build as build_model_report
 
 CELL, = GA_CELLS
 PRODUCER = ".github/workflows/native-ecs-qualification.yml"
 REPORT = "gate-report-cloud.json"
+
+
+@dataclass(frozen=True)
+class ProducerRun:
+    repository: str
+    run_id: str
+    attempt: str
+
+
+@dataclass(frozen=True)
+class FrozenCandidate:
+    manifest: Path
+    digest: str
+    server_image: str
+    lock_digest: str
 
 
 def verify_run(run, repository, run_id, attempt):
@@ -32,22 +51,24 @@ def timestamp(value):
     return stamp
 
 
-def verify_envelope(root, run_id, attempt, candidate_digest, server_image, lock_digest):
+def verify_envelope(root, producer, candidate, server):
     envelope = load_json(root / "qualification.json")
     expected = {
-        "schemaVersion": 1, "cell": CELL, "deployment": "cloudformation-ecs-fargate",
-        "runId": run_id, "runAttempt": attempt, "candidateDigest": candidate_digest,
-        "serverImage": server_image, "lockDigest": lock_digest,
+        "schemaVersion": 1, "status": "pass", "cell": CELL, "deployment": "cloudformation-ecs-fargate",
+        "runId": producer.run_id, "runAttempt": producer.attempt, "candidateDigest": candidate.digest,
+        "serverImage": candidate.server_image, "lockDigest": candidate.lock_digest,
+        "serverSha": server["sha"], "imageDigest": server["digest"],
         "journeyReportSha256": hashlib.sha256((root / REPORT).read_bytes()).hexdigest(),
     }
-    if (not re.fullmatch(r"[0-9a-f]{64}", candidate_digest)
-        or not re.fullmatch(r"[^@]+@sha256:[0-9a-f]{64}", server_image)
+    if (not re.fullmatch(r"[0-9a-f]{64}", candidate.digest)
+        or candidate.server_image != server["image"].split("@", 1)[0] + "@" + server["digest"]
+        or not re.fullmatch(r"[^@]+@sha256:[0-9a-f]{64}", candidate.server_image)
         or any(envelope.get(key) != value for key, value in expected.items())):
         raise ValueError("native ECS qualification does not match the frozen candidate and journey report")
     return envelope
 
 
-def verify_installation(envelope, run, server_image, now):
+def verify_installation(envelope, run, server_image, platform_digests, now):
     stack = envelope["stackId"]
     if not isinstance(stack, str) or not re.fullmatch(
         r"arn:aws:cloudformation:[a-z0-9-]+:[0-9]{12}:stack/honua-gate-[A-Za-z0-9-]+/[0-9a-f-]+", stack
@@ -62,9 +83,12 @@ def verify_installation(envelope, run, server_image, now):
     if not start <= installed <= deleted <= end <= (now or datetime.now(timezone.utc)):
         raise ValueError("installation and cleanup fall outside the authenticated producer attempt")
     observation = envelope["installation"]
+    architecture = {"X86_64": "amd64", "ARM64": "arm64"}.get(observation.get("cpuArchitecture"))
+    expected_digest = platform_digests.get(architecture)
     if (observation["stackName"] != stack.split("/")[1]
         or observation["declaredImage"] != server_image
-        or not re.fullmatch(r"sha256:[0-9a-f]{64}", observation["resolvedPlatformImageDigest"])
+        or expected_digest is None
+        or observation["resolvedPlatformImageDigest"] != expected_digest
         or observation["observedPlatformImageDigest"] != observation["resolvedPlatformImageDigest"]
         or type(observation["healthyTaskCount"]) is not int or observation["healthyTaskCount"] < 1
         or timestamp(observation["completedAt"]) != installed
@@ -73,14 +97,17 @@ def verify_installation(envelope, run, server_image, now):
     return installed, deleted
 
 
-def verify(root, run, repository, run_id, attempt, candidate, candidate_digest, server_image, lock_digest,
-           require_model, *, now=None):
-    verify_run(run, repository, run_id, attempt)
-    envelope = verify_envelope(root, run_id, attempt, candidate_digest, server_image, lock_digest)
-    installed, deleted = verify_installation(envelope, run, server_image, now)
+def verify(root, run, producer, candidate, require_model, *, now=None):
+    verify_run(run, producer.repository, producer.run_id, producer.attempt)
+    server = yaml.safe_load(candidate.manifest.read_bytes())["components"]["honua-server"]
+    envelope = verify_envelope(root, producer, candidate, server)
+    platform_digests = image_platform_digests(
+        server.get("platformDigests"), index_digest=server["digest"], architectures=server.get("architectures")
+    )
+    installed, deleted = verify_installation(envelope, run, candidate.server_image, platform_digests, now)
     if load_json(root / REPORT).get("cell") != CELL:
         raise ValueError("top-level journey report is outside the GA cell")
-    journey = evaluate(root, candidate, candidate_digest, run_id, attempt, at=now)
+    journey = evaluate(root, candidate.manifest, candidate.digest, producer.run_id, producer.attempt, at=now)
     if journey["status"] != "pass":
         raise ValueError(journey["why"])
     attempts = next(row["attempts"] for row in journey["cells"] if row["cell"] == CELL)
@@ -97,15 +124,15 @@ def verify(root, run, repository, run_id, attempt, candidate, candidate_digest, 
         paths = sorted(root.glob("model-attempt-*.json"))
         try:
             model_report = build_model_report(
-                paths, cell=CELL, lock_digest=lock_digest or None, candidate_digest=candidate_digest,
-                run_id=run_id, run_attempt=attempt, now=now)
+                paths, cell=CELL, lock_digest=candidate.lock_digest or None, candidate_digest=candidate.digest,
+                run_id=producer.run_id, run_attempt=producer.attempt, now=now)
             journey_hashes = {
                 hashlib.sha256((root / record["receipt"]).read_bytes()).hexdigest()
                 for record in attempts if record["status"] == "pass"
             }
             receipts = [load_json(path) for path in paths]
             if model_report["status"] == "pass" and any(
-                receipt.get("serverImage", {}).get("reference") != server_image
+                receipt.get("serverImage", {}).get("reference") != candidate.server_image
                 or not installed <= timestamp(receipt["completedAt"]) <= deleted
                 or receipt["linkedEvidence"]["deterministicReceipt"].get("sha256") not in journey_hashes
                 for receipt in receipts
@@ -134,10 +161,10 @@ def main():
     args = parser.parse_args()
     try:
         run = load_json(args.run)
-        journey, model = verify(args.root, run, args.repository, args.run_id, args.attempt,
-                                args.candidate, args.candidate_digest, args.server_image,
-                                args.lock_digest, args.require_model)
-    except (KeyError, AttributeError, TypeError, ValueError, OSError) as error:
+        producer_run = ProducerRun(args.repository, args.run_id, args.attempt)
+        candidate = FrozenCandidate(args.candidate, args.candidate_digest, args.server_image, args.lock_digest)
+        journey, model = verify(args.root, run, producer_run, candidate, args.require_model)
+    except (KeyError, AttributeError, TypeError, ValueError, OSError, yaml.YAMLError) as error:
         parser.exit(1, f"Native ECS qualification rejected: {error}\n")
     # The train signs its verification decision. Preserve the original producer identity
     # beside it while binding the decision to the train that the nightly mint consumes.

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from check_native_ecs_qualification import CELL, PRODUCER, REPORT, verify
+from check_native_ecs_qualification import CELL, PRODUCER, REPORT, FrozenCandidate, ProducerRun, verify
 from test_check_journey_receipts import MANIFEST, NOW, RUN, RUN_ATTEMPT, Intake
 
 REPO = "honua-io/honua-release"
@@ -21,14 +21,17 @@ def qualification(tmp_path):
            "conclusion": "success", "repository": {"full_name": REPO},
            "head_repository": {"full_name": REPO}, "head_sha": "a" * 40,
            "run_started_at": "2026-10-02T19:55:00Z", "updated_at": "2026-10-02T20:00:00Z"}
-    envelope = {"schemaVersion": 1, "cell": CELL, "deployment": "cloudformation-ecs-fargate",
+    envelope = {"schemaVersion": 1, "status": "pass", "cell": CELL, "deployment": "cloudformation-ecs-fargate",
                 "runId": RUN, "runAttempt": RUN_ATTEMPT, "candidateDigest": intake.digest,
-                "serverImage": IMAGE, "lockDigest": "",
+                "serverImage": IMAGE, "lockDigest": "", "serverSha": SERVER["sha"],
+                "imageDigest": SERVER["digest"],
                 "journeyReportSha256": hashlib.sha256((root / REPORT).read_bytes()).hexdigest(),
                 "stackId": STACK, "installedAt": "2026-10-02T19:58:00Z",
                 "installation": {"stackName": "honua-gate-fixture", "declaredImage": IMAGE,
-                                 "resolvedPlatformImageDigest": SERVER["digest"],
-                                 "observedPlatformImageDigest": SERVER["digest"], "healthyTaskCount": 1,
+                                 "cpuArchitecture": "X86_64",
+                                 "resolvedPlatformImageDigest": SERVER["platformDigests"]["amd64"],
+                                 "observedPlatformImageDigest": SERVER["platformDigests"]["amd64"],
+                                 "healthyTaskCount": 1,
                                  "startedAt": "2026-10-02T19:57:00+00:00",
                                  "completedAt": "2026-10-02T19:58:00+00:00"},
                 "cleanup": {"stackId": STACK, "stackStatus": "DELETE_COMPLETE",
@@ -40,8 +43,9 @@ def check(qualification, *, require_model=False):
     intake, run, envelope = qualification
     root = intake.directory(CELL)
     (root / "qualification.json").write_text(json.dumps(envelope))
-    return verify(root, run, REPO, RUN, RUN_ATTEMPT, intake.candidate, intake.digest,
-                  IMAGE, "", require_model, now=NOW)
+    producer = ProducerRun(REPO, RUN, RUN_ATTEMPT)
+    candidate = FrozenCandidate(intake.candidate, intake.digest, IMAGE, "")
+    return verify(root, run, producer, candidate, require_model, now=NOW)
 
 
 def test_accepts_authenticated_installed_refusal_and_cleanup(qualification):
@@ -108,5 +112,13 @@ def test_missing_model_does_not_change_required_verdict(qualification):
 
 def test_rejects_a_different_running_platform_digest(qualification):
     qualification[2]["installation"]["observedPlatformImageDigest"] = "sha256:" + "f" * 64
+    with pytest.raises(ValueError, match="installation observation"):
+        check(qualification)
+
+
+def test_rejects_consistent_platform_digest_for_the_wrong_architecture(qualification):
+    installation = qualification[2]["installation"]
+    installation["resolvedPlatformImageDigest"] = SERVER["platformDigests"]["arm64"]
+    installation["observedPlatformImageDigest"] = SERVER["platformDigests"]["arm64"]
     with pytest.raises(ValueError, match="installation observation"):
         check(qualification)

@@ -52,11 +52,38 @@ def _eval(records, advisory=(), unbound=None, pin_at=None):
     return w.evaluate(records, NOW, 7, **kwargs)
 
 
+def _native_run(run_id=1):
+    stack = "arn:aws:cloudformation:us-east-1:123456789012:stack/honua-gate-fixture/abc-def"
+    report = {**_report(), "schemaVersion": 1, "cell": "aws-ecs/redis-off",
+              "deployment": "cloudformation-ecs-fargate", "runId": str(run_id), "runAttempt": "1",
+              "stackId": stack, "cleanup": {"stackId": stack, "stackStatus": "DELETE_COMPLETE",
+                                          "remainingResources": []}}
+    return {**_run(1, report=report, run_id=run_id), "event": "workflow_dispatch"}
+
+
+def test_native_ecs_requires_candidate_bound_producer_receipt():
+    run = _native_run()
+    records = {w.NATIVE_ECS_GATE: {"runs": [run]}}
+    assert _eval(records)["admissible"] is True
+    run["report"] = _report()
+    assert _eval(records)["admissible"] is False
+
+
+def test_native_ecs_rejects_mismatched_attempt_and_incomplete_cleanup():
+    run = _native_run()
+    records = {w.NATIVE_ECS_GATE: {"runs": [run]}}
+    run["run_attempt"] = 2
+    assert _eval(records)["admissible"] is False
+    run["run_attempt"] = 1
+    run["report"]["cleanup"]["remainingResources"] = ["ServerService"]
+    assert _eval(records)["admissible"] is False
+
+
 def test_exact_candidate_match_is_admissible():
-    records = {"e2e-cloud-aws.yml": {"runs": [_run(1, report=_report(), run_id=7)]}}
+    records = {"gate-upgrade.yml": {"runs": [_run(1, report=_report(), run_id=7)]}}
     result = _eval(records, unbound={})
     assert result["admissible"] is True
-    gate = result["gates"]["e2e-cloud-aws.yml"]
+    gate = result["gates"]["gate-upgrade.yml"]
     assert gate["verdict"] == "green"
     assert gate["candidate_bound"] is True
     assert gate["last_green_build"] == SHA[:12]
@@ -81,10 +108,10 @@ def test_a_different_candidate_does_not_admit():
         None,
     )
     for report in others:
-        result = _eval({"e2e-cloud-aws.yml": {"runs": [_run(0.5, report=report)]}}, unbound={})
+        result = _eval({"gate-upgrade.yml": {"runs": [_run(0.5, report=report)]}}, unbound={})
         assert result["admissible"] is False, report
-        assert "no completed run binds" in result["gates"]["e2e-cloud-aws.yml"]["reason"]
-    mixed = _eval({"e2e-cloud-aws.yml": {"runs": [
+        assert "no completed run binds" in result["gates"]["gate-upgrade.yml"]["reason"]
+    mixed = _eval({"gate-upgrade.yml": {"runs": [
         _run(2, report=_report(sha="d" * 40), run_id=1),
         _run(0.4, report=_report(), run_id=2),
     ]}}, unbound={})
@@ -92,19 +119,19 @@ def test_a_different_candidate_does_not_admit():
 
 
 def test_older_green_plus_newer_red_for_the_same_candidate_refuses():
-    records = {"e2e-cloud-aws.yml": {"runs": [
+    records = {"gate-upgrade.yml": {"runs": [
         _run(2, "success", _report(certifying=True), run_id=1),
         _run(0.2, "failure", _report(status="fail", certifying=False), run_id=2),
     ]}}
     result = _eval(records, unbound={})
     assert result["admissible"] is False
-    assert result["red"] == ["e2e-cloud-aws.yml"]
-    assert "supersedes an older green" in result["gates"]["e2e-cloud-aws.yml"]["reason"]
-    assert "conclusion failure" in result["gates"]["e2e-cloud-aws.yml"]["reason"]
+    assert result["red"] == ["gate-upgrade.yml"]
+    assert "supersedes an older green" in result["gates"]["gate-upgrade.yml"]["reason"]
+    assert "conclusion failure" in result["gates"]["gate-upgrade.yml"]["reason"]
 
 
 def test_a_newer_failure_of_another_candidate_does_not_supersede():
-    records = {"e2e-cloud-aws.yml": {"runs": [
+    records = {"gate-upgrade.yml": {"runs": [
         _run(1, "success", _report(), run_id=1),
         _run(0.1, "failure", _report(sha="d" * 40, status="fail", certifying=False), run_id=2),
     ]}}
@@ -112,39 +139,39 @@ def test_a_newer_failure_of_another_candidate_does_not_supersede():
 
 
 def test_diagnostic_run_does_not_count_and_supersedes_an_older_green():
-    records = {"e2e-cloud-aws.yml": {"runs": [
+    records = {"gate-upgrade.yml": {"runs": [
         _run(2, "success", _report(certifying=True), run_id=1),
         _run(0.2, "success", _report(certifying=False), run_id=2),
     ]}}
     result = _eval(records, unbound={})
-    gate = result["gates"]["e2e-cloud-aws.yml"]
+    gate = result["gates"]["gate-upgrade.yml"]
     assert result["admissible"] is False
     assert gate["verdict"] == "red"
     assert "diagnostic or focused run" in gate["reason"]
     assert "supersedes an older green" in gate["reason"]
 
-    alone = _eval({"e2e-cloud-aws.yml": {"runs": [_run(0.2, "success", _report(certifying=False))]}}, unbound={})
+    alone = _eval({"gate-upgrade.yml": {"runs": [_run(0.2, "success", _report(certifying=False))]}}, unbound={})
     assert alone["admissible"] is False
-    assert "diagnostic or focused run" in alone["gates"]["e2e-cloud-aws.yml"]["reason"]
+    assert "diagnostic or focused run" in alone["gates"]["gate-upgrade.yml"]["reason"]
 
 
 def test_a_diagnostic_run_that_does_not_name_the_candidate_does_not_count():
     diagnostic = {"status": "pass", "certifying": False, "certifyingScope": False,
                   "requestedScope": {"target": "aws-eks", "redis": "off"}}
-    hidden = _eval({"e2e-cloud-aws.yml": {"runs": [
+    hidden = _eval({"gate-upgrade.yml": {"runs": [
         _run(1, "success", _report(), run_id=1),
         _run(0.1, "success", diagnostic, run_id=2),
     ]}}, unbound={})
     assert hidden["admissible"] is True
-    alone = _eval({"e2e-cloud-aws.yml": {"runs": [_run(0.1, "success", diagnostic)]}}, unbound={})
+    alone = _eval({"gate-upgrade.yml": {"runs": [_run(0.1, "success", diagnostic)]}}, unbound={})
     assert alone["admissible"] is False
 
 
 def test_partial_target_does_not_count_even_when_the_workflow_succeeded():
     report = _report(certifying=True, scope={"target": "aws-ecs", "redis": "off"})
-    result = _eval({"e2e-cloud-aws.yml": {"runs": [_run(0.2, "success", report)]}}, unbound={})
+    result = _eval({"gate-upgrade.yml": {"runs": [_run(0.2, "success", report)]}}, unbound={})
     assert result["admissible"] is False
-    assert "diagnostic or focused run" in result["gates"]["e2e-cloud-aws.yml"]["reason"]
+    assert "diagnostic or focused run" in result["gates"]["gate-upgrade.yml"]["reason"]
 
 
 def test_canary_and_upgrade_receipt_shapes_match_the_candidate():
@@ -279,6 +306,7 @@ def test_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green
     records = {}
     for index, gate in enumerate(g for g in w.RC_GATES if g not in (w.ARC_GATE, w.PROMISE_GATE)):
         records[gate] = {"runs": [_run(1, report=_report(), run_id=index + 1)]}
+    records[w.NATIVE_ECS_GATE] = {"runs": [_native_run()]}
     result = _eval(records, advisory=w.RC_ADVISORY, pin_at=pin)
     assert result["admissible"] is True
     assert result["red"] == []
@@ -296,17 +324,17 @@ def test_required_gates_pass_when_bound_match_and_unbound_are_manifest_pin_green
 
 
 def test_never_run_and_stale_bound_gates_block():
-    never = _eval({"e2e-cloud-aws.yml": {"runs": []}}, unbound={})
-    assert never["red"] == ["e2e-cloud-aws.yml"]
-    assert "no completed run binds" in never["gates"]["e2e-cloud-aws.yml"]["reason"]
-    stale = _eval({"e2e-cloud-aws.yml": {"runs": [_run(7.01, report=_report())]}}, unbound={})
-    assert stale["red"] == ["e2e-cloud-aws.yml"]
-    assert "outside the 7-day window" in stale["gates"]["e2e-cloud-aws.yml"]["reason"]
+    never = _eval({"gate-upgrade.yml": {"runs": []}}, unbound={})
+    assert never["red"] == ["gate-upgrade.yml"]
+    assert "no completed run binds" in never["gates"]["gate-upgrade.yml"]["reason"]
+    stale = _eval({"gate-upgrade.yml": {"runs": [_run(7.01, report=_report())]}}, unbound={})
+    assert stale["red"] == ["gate-upgrade.yml"]
+    assert "outside the 7-day window" in stale["gates"]["gate-upgrade.yml"]["reason"]
 
 
 def test_a_red_advisory_gate_does_not_block_when_the_required_gate_qualifies():
     records = {
-        "e2e-cloud-aws.yml": {"runs": [_run(1, report=_report(), run_id=1)]},
+        "gate-upgrade.yml": {"runs": [_run(1, report=_report(), run_id=1)]},
         "terminal-model-canary.yml": {"runs": []},
     }
     result = _eval(records, advisory=("terminal-model-canary.yml",), unbound={})
@@ -343,8 +371,7 @@ def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)
     assert w.RC_ADVISORY == w.AI_GATES
-    assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-journey.yml",
-                                  "gate-upgrade.yml"}
+    assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-upgrade.yml"}
 
 
 def test_gate_upgrade_is_ga_deferred_but_still_a_train_gate_and_candidate_bound():
@@ -369,10 +396,10 @@ def test_rc_release_passes_the_candidate_and_enforces_before_publish():
 
 
 def test_markdown_names_deferred_gates_and_the_candidate():
-    result = _eval({"e2e-cloud-aws.yml": {"runs": [_run(1, report=_report())]}}, unbound={})
-    result["deferred_to_ga"] = ["gate-journey.yml"]
+    result = _eval({"gate-upgrade.yml": {"runs": [_run(1, report=_report())]}}, unbound={})
+    result["deferred_to_ga"] = ["gate-upgrade.yml"]
     md = w.render_markdown(result)
-    assert "Deferred to GA" in md and "gate-journey.yml" in md
+    assert "Deferred to GA" in md and "gate-upgrade.yml" in md
     assert SHA in md and DIGEST in md and LOCK in md
 
 
