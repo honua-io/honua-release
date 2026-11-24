@@ -205,6 +205,8 @@ jobs:
     steps:
       - name: Check out release coordinator
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -216,6 +218,7 @@ jobs:
           set -euo pipefail
           python3 -m pip install --quiet "pyyaml>=6.0,<7"
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
           import re
           import yaml
 
@@ -223,7 +226,6 @@ jobs:
           components = manifest.get("components") or {}
           pins = {
               "sdk_js_sha": "honua-sdk-js",
-              "sdk_python_sha": "honua-sdk-python",
               "grpc_sha": "geospatial-grpc",
               "mcp_sha": "geospatial-mcp",
           }
@@ -232,7 +234,29 @@ jobs:
               if not re.fullmatch(r"[0-9a-f]{40}", sha):
                   raise SystemExit(f"components.{component}.sha is not a full lowercase SHA")
               print(f"{output}={sha}")
+          with open("certification/protocol-certification-requirements.v1.json", encoding="utf-8") as catalog:
+              revision = json.load(catalog)["revision"]
+          if not isinstance(revision, str) or not re.fullmatch(r"[a-zA-Z0-9._-]+", revision):
+              raise SystemExit("Invalid certification requirements revision")
+          print(f"requirements_revision={revision}")
           PY
+
+      - name: Verify the protected Python release harness
+        id: python_harness
+        env:
+          PYTHON_RELEASE_HARNESS_MINIMUM: 50d7095e790d1b001786cc56bda3d0ba692009b5
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository=repos/honua-io/honua-sdk-python
+          head="$(gh api "$repository/branches/trunk" | jq -er 'select(.protected == true) | .commit.sha')"
+          [[ "$head" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid Python trunk SHA"; exit 1; }
+          relation="$(gh api "$repository/compare/$PYTHON_RELEASE_HARNESS_MINIMUM...$head" --jq .status)"
+          [[ "$relation" == identical || "$relation" == ahead ]] || {
+            echo "::error::Protected Python trunk lacks manifest-bound release conformance"
+            exit 1
+          }
+          echo "sha=$head" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch every required producer against the candidate digest
         env:
@@ -241,6 +265,9 @@ jobs:
           SERVER_REVISION: ${{ needs.candidate.outputs.source_sha }}
           CANDIDATE_CUT: ${{ needs.candidate.outputs.cut_at }}
           CANDIDATE_ENVIRONMENT: ${{ inputs.candidate_environment }}
+          PYTHON_HARNESS_SHA: ${{ steps.python_harness.outputs.sha }}
+          REQUIREMENTS_REF: ${{ github.sha }}
+          REQUIREMENTS_REVISION: ${{ steps.producer_pins.outputs.requirements_revision }}
         shell: bash
         run: |
           set -euo pipefail
@@ -264,12 +291,14 @@ jobs:
             --workflow-name "Python SDK Conformance" \
             --artifact-name 'python-sdk-conformance-{run_id}-{run_attempt}' \
             --receipt-name protocol-certification-fragment.json \
-            --out-dir evidence/sdk-python --ref "${{ steps.producer_pins.outputs.sdk_python_sha }}" \
-            --expected-head-sha "${{ steps.producer_pins.outputs.sdk_python_sha }}" \
+            --out-dir evidence/sdk-python --ref trunk \
+            --expected-head-sha "$PYTHON_HARNESS_SHA" \
             --input server_image="$CANDIDATE_IMAGE" \
             --input server_seed_ref="$SERVER_REVISION" \
             --input candidate_cut_at="$CANDIDATE_CUT" \
-            --input certification_tier=release
+            --input certification_tier=release \
+            --input requirements_ref="$REQUIREMENTS_REF" \
+            --input requirements_revision="$REQUIREMENTS_REVISION"
           ./tools/release/dispatch-and-collect.sh \
             --id protocol-grpc --repo honua-io/geospatial-grpc \
             --workflow protocol-certification.yml \
