@@ -15,3 +15,26 @@ GitHub supplies the run and attempt records independently of the artifact. The t
 Nightly dispatches the trunk producer after protocol certification binds the candidate snapshot. The train requires an explicit producer run ID and its original attempt. Standalone RC admission remains closed until it can verify the complete frozen bundle.
 
 The producer currently freezes the candidate and retains failure diagnostics under `native-ecs-diagnostics-<run>-<attempt>`. Completing the live producer requires the approved immutable gate-bound Marketplace template URL and parameter contract in `us-east-1`, gate identity and terminal operator bootstrap, and a maintained Redis-off lifecycle harness. That harness must install the pinned image, capture the installed-journey and refusal evidence, and verify stack deletion and an empty residual resource inventory. Track admission and those dependencies in release #1546.
+
+`tools/native_ecs_lifecycle.py` supplies the lifecycle core. The injected creator
+binds an admitted template and returns the ARN it created for the attempt. The
+core waits for create, checks the declared image and the running task's platform
+digest, then calls the journey. Once it has the ARN, it requests deletion even
+if installation or the journey fails. It requires a terminal stack record and
+complete CloudFormation resource summaries before returning cleanup evidence.
+
+Live wiring still needs these inputs:
+
+- The immutable `us-east-1` Marketplace template URL or object version and
+  content digest, the `ServerImageUri` parameter, and the approved parameter
+  values or template evidence that establish Redis-off. Release #1546 needs
+  ownership for the template handoff.
+- The admitted GitHub OIDC role and CloudFormation execution role, with the
+  stage account, permissions boundary, template trust and deletion permissions.
+  The s-ci-stages lane owns first-create IAM and rollback under IaC #607.
+- The installed endpoint and supported terminal operator bootstrap and secret
+  references for journey and refusal receipts. Release #1546 needs ownership
+  for that bootstrap. The live runner also needs recovery for an interrupted
+  runner or an ambiguous create response before the ARN is available.
+- The certified Server commit, image index digest and Linux platform digests
+  from the frozen release candidate.

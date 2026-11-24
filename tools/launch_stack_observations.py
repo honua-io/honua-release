@@ -22,10 +22,11 @@ def one(values, reason):
     return values[0]
 
 
-def stack_state(aws, stack_name):
-    response = aws('cloudformation', 'describe-stacks', '--stack-name', stack_name)
+def stack_state(aws, stack_name, stack_id=None):
+    response = aws('cloudformation', 'describe-stacks', '--stack-name', stack_id or stack_name)
     stack = one(response.get('Stacks'), 'Missing or ambiguous stack')
-    require(stack.get('StackName') == stack_name, 'Stack identity differs')
+    require(stack.get('StackName') == stack_name and (stack_id is None or stack.get('StackId') == stack_id),
+            'Stack identity differs')
     require(stack.get('StackStatus') in ('CREATE_COMPLETE', 'UPDATE_COMPLETE'),
             'Stack has not completed the requested deployment')
     require({'Key': 'HonuaGate', 'Value': 'true'} in stack.get('Tags', []),
@@ -172,12 +173,12 @@ def ready_targets(aws, resources, tasks):
     readiness_group(aws, resources)
 
 
-def observe_stack(aws, stack_name):
+def observe_stack(aws, stack_name, *, stack_id=None):
     require(isinstance(stack_name, str) and re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', stack_name),
             'Only disposable gate stacks may be observed')
     started = datetime.now(timezone.utc).isoformat()
-    stack = stack_state(aws, stack_name)
-    resources = stack_resources(aws, stack_name)
+    stack = stack_state(aws, stack_name, stack_id)
+    resources = stack_resources(aws, stack_id or stack_name)
     service = service_state(aws, resources)
     definition = task_definition(aws, resources)
     tasks = running_tasks(aws, resources)
@@ -189,7 +190,7 @@ def observe_stack(aws, stack_name):
     require(task_snapshot(running_tasks(aws, resources), resources) == snapshot,
             'Tasks changed during readiness observation')
     require(service_state(aws, resources) == service, 'Service changed during observation')
-    require(stack_state(aws, stack_name) == stack, 'Stack changed during observation')
+    require(stack_state(aws, stack_name, stack_id) == stack, 'Stack changed during observation')
     return {'stackName': stack_name, 'startedAt': started,
             'completedAt': datetime.now(timezone.utc).isoformat(), **definition,
             'observedPlatformImageDigest': digests.pop(), 'healthyTaskCount': len(tasks)}
