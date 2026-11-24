@@ -4,6 +4,7 @@ import copy
 import pytest
 
 from launch_stack_observations import ObservationError
+from native_ecs_attempt import StackAttempt
 from native_ecs_lifecycle import qualify_installation
 from test_launch_stack_observations import DIGEST, IMAGE, STACK, FakeAws
 
@@ -23,11 +24,25 @@ class LifecycleAws(FakeAws):
         self.delete_count = 0
         self.retained = False
         self.drop_deleted_resource = False
+        self.describe_failures = 0
+        self.wait_interrupted = False
+        self.creates = 0
+
+    def create(self, attempt, image):
+        assert (attempt.stack_name, image) == (STACK, IMAGE)
+        self.creates += 1
+        self.stack['Tags'].extend(attempt.tags)
+        return STACK_ID
 
     def __call__(self, service, operation, *args):
         if service == 'cloudformation':
-            assert args[-2:] == ('--stack-name', STACK_ID)
+            assert args[-2:] in (('--stack-name', STACK_ID), ('--stack-name', STACK))
+        if operation == 'describe-stacks' and self.describe_failures:
+            self.describe_failures -= 1
+            raise TimeoutError('describe timed out')
         if operation == 'wait':
+            if self.wait_interrupted and args[0] == 'stack-create-complete':
+                raise KeyboardInterrupt
             self.calls.append((service, operation, args))
             return {}
         if operation == 'delete-stack':
@@ -42,15 +57,15 @@ class LifecycleAws(FakeAws):
         return super().__call__(service, operation, *args)
 
 
-def test_returns_matching_platform_and_cleanup_evidence():
+@pytest.fixture
+def attempt(tmp_path):
+    return StackAttempt(tmp_path / 'attempt.json', STACK, '000000000000', 'us-east-1', 'run-12-attempt-1')
+
+
+def test_returns_matching_platform_and_cleanup_evidence(attempt):
     aws = LifecycleAws()
-
-    def create_stack(name, image):
-        assert (name, image) == (STACK, IMAGE)
-        return STACK_ID
-
-    result = qualify_installation(aws, CANDIDATE, stack_name=STACK,
-                                  create_stack=create_stack, run_journey=lambda _: None)
+    result = qualify_installation(aws, CANDIDATE, attempt=attempt,
+                                  create_stack=aws.create, run_journey=lambda _: None)
     assert result['stackId'] == STACK_ID
     assert result['installation']['resolvedPlatformImageDigest'] == DIGEST
     assert result['cleanup']['stackStatus'] == 'DELETE_COMPLETE'
@@ -58,7 +73,7 @@ def test_returns_matching_platform_and_cleanup_evidence():
     assert aws.delete_count == 1
 
 
-def test_failed_journey_deletes_on_first_attempt_and_keeps_original_error():
+def test_failed_journey_deletes_on_first_attempt_and_keeps_original_error(attempt):
     aws = LifecycleAws()
 
     def fail_journey(stack_id):
@@ -67,8 +82,8 @@ def test_failed_journey_deletes_on_first_attempt_and_keeps_original_error():
         raise RuntimeError('journey failed')
 
     with pytest.raises(RuntimeError, match='journey failed'):
-        qualify_installation(aws, CANDIDATE, stack_name=STACK,
-                             create_stack=lambda name, image: STACK_ID,
+        qualify_installation(aws, CANDIDATE, attempt=attempt,
+                             create_stack=aws.create,
                              run_journey=fail_journey)
     assert aws.delete_count == 1
     operations = [call[1] for call in aws.calls]
@@ -77,41 +92,102 @@ def test_failed_journey_deletes_on_first_attempt_and_keeps_original_error():
     assert aws.calls[-1][1] == 'list-stack-resources'
 
 
-def test_wrong_runtime_digest_skips_journey_and_still_deletes():
+def test_wrong_runtime_digest_skips_journey_and_still_deletes(attempt):
     aws = LifecycleAws()
     candidate = copy.deepcopy(CANDIDATE)
     candidate['platformDigests']['arm64'] = 'sha256:' + 'd' * 64
     with pytest.raises(ObservationError, match='platform digest'):
-        qualify_installation(aws, candidate, stack_name=STACK,
-                             create_stack=lambda name, image: STACK_ID,
+        qualify_installation(aws, candidate, attempt=attempt,
+                             create_stack=aws.create,
                              run_journey=lambda _: pytest.fail('journey ran'))
     assert aws.delete_count == 1
 
 
-def test_retained_resource_fails_cleanup():
+def test_retained_resource_fails_cleanup(attempt):
     aws = LifecycleAws()
     aws.retained = True
     with pytest.raises(ObservationError, match='resource deletion'):
-        qualify_installation(aws, CANDIDATE, stack_name=STACK,
-                             create_stack=lambda name, image: STACK_ID,
+        qualify_installation(aws, CANDIDATE, attempt=attempt,
+                             create_stack=aws.create,
                              run_journey=lambda _: None)
     assert aws.delete_count == 1
 
 
-def test_inconsistent_candidate_pin_fails_before_creation():
+def test_inconsistent_candidate_pin_fails_before_creation(attempt):
     aws = LifecycleAws()
     candidate = {**CANDIDATE, 'imageDigest': DIGEST}
     with pytest.raises(ObservationError, match='candidate image'):
-        qualify_installation(aws, candidate, stack_name=STACK,
+        qualify_installation(aws, candidate, attempt=attempt,
                              create_stack=lambda name, image: pytest.fail('created'),
                              run_journey=lambda _: None)
     assert not aws.calls
 
 
-def test_incomplete_terminal_inventory_fails_cleanup():
+def test_incomplete_terminal_inventory_fails_cleanup(attempt):
     aws = LifecycleAws()
     aws.drop_deleted_resource = True
     with pytest.raises(ObservationError, match='Incomplete resource deletion inventory'):
-        qualify_installation(aws, CANDIDATE, stack_name=STACK,
-                             create_stack=lambda name, image: STACK_ID, run_journey=lambda _: None)
+        qualify_installation(aws, CANDIDATE, attempt=attempt,
+                             create_stack=aws.create, run_journey=lambda _: None)
     assert aws.delete_count == 1
+
+
+def test_lost_create_response_recovers_by_name(attempt):
+    aws = LifecycleAws()
+
+    def create(identity, image):
+        aws.create(identity, image)
+        raise TimeoutError('create acknowledgement lost')
+
+    result = qualify_installation(aws, CANDIDATE, attempt=attempt,
+                                  create_stack=create, run_journey=lambda _: None)
+    assert result['stackId'] == STACK_ID
+    assert aws.creates == aws.delete_count == 1
+    assert aws.calls[0][2] == ('--stack-name', STACK)
+
+
+def test_retries_transient_first_describe(attempt):
+    aws = LifecycleAws()
+    aws.describe_failures = 1
+    qualify_installation(aws, CANDIDATE, attempt=attempt,
+                         create_stack=aws.create, run_journey=lambda _: None)
+    assert aws.delete_count == 1
+
+
+def test_interrupted_wait_cleans_up_by_arn(attempt):
+    aws = LifecycleAws()
+    aws.wait_interrupted = True
+    with pytest.raises(KeyboardInterrupt):
+        qualify_installation(aws, CANDIDATE, attempt=attempt,
+                             create_stack=aws.create, run_journey=lambda _: pytest.fail('journey ran'))
+    assert aws.delete_count == 1
+
+
+def test_replay_recovers_interrupted_create_without_creating_again(attempt):
+    aws = LifecycleAws()
+
+    def create(identity, image):
+        aws.create(identity, image)
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        qualify_installation(aws, CANDIDATE, attempt=attempt,
+                             create_stack=create, run_journey=lambda _: pytest.fail('journey ran'))
+    with pytest.raises(ObservationError, match='Recovered interrupted attempt'):
+        qualify_installation(aws, CANDIDATE, attempt=attempt, create_stack=aws.create,
+                             run_journey=lambda _: pytest.fail('replay certified the old attempt'))
+    assert aws.creates == aws.delete_count == 1
+
+
+def test_foreign_same_name_is_left_untouched(attempt):
+    aws = LifecycleAws()
+
+    def create(identity, image):
+        aws.create(identity, image)
+        aws.stack['Tags'] = [tag for tag in aws.stack['Tags'] if tag['Key'] != 'HonuaGateOwner']
+        raise TimeoutError('create acknowledgement lost')
+
+    with pytest.raises(ObservationError, match='ownership'):
+        qualify_installation(aws, CANDIDATE, attempt=attempt,
+                             create_stack=create, run_journey=lambda _: pytest.fail('journey ran'))
+    assert aws.delete_count == 0
