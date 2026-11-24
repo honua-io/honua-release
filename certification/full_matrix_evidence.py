@@ -49,6 +49,39 @@ def collect(repo, sha, run, policy, headers, fetch_collection, fetch_json):
             'registryBlobSha': blob, 'registryContent': raw.decode('utf-8'), 'jobs': jobs}
 
 
+def pinned_shard_jobs(evidence, job_name):
+    raw = evidence['registryContent'].encode('utf-8')
+    blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+    if blob != evidence['registryBlobSha']:
+        raise ValueError()
+
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError()
+            result[key] = value
+        return result
+
+    shards = json.loads(raw, object_pairs_hook=pairs)['shards']
+    if not isinstance(shards, list):
+        raise TypeError()
+    jobs = {}
+    for shard in shards:
+        name = shard['shard_name']
+        advisory = shard.get('advisory', False)
+        if not isinstance(name, str) or not name.strip() or type(advisory) is not bool:
+            raise ValueError()
+        job = job_name.format(shard_name=name)
+        if job in jobs:
+            raise ValueError()
+        jobs[job] = advisory
+    required = {job for job, advisory in jobs.items() if not advisory}
+    if not required:
+        raise ValueError()
+    return required, set(jobs)
+
+
 def verify(payload, run, policy, sha):
     """Return bounded failures; every required job links to its authentic Actions check id."""
     evidence = payload.get('_matrix_execution')
@@ -62,29 +95,13 @@ def verify(payload, run, policy, sha):
             or evidence.get('registryPath') != policy['shardInventory']['path']):
         return ['actual Actions execution belongs to another source/run/attempt/suite']
     try:
-        raw = evidence['registryContent'].encode('utf-8')
-        blob = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
-        if blob != evidence['registryBlobSha']:
-            raise ValueError()
-        def pairs(items):
-            result = {}
-            for k, v in items:
-                if k in result:
-                    raise ValueError()
-                result[k] = v
-            return result
-        registry = json.loads(raw, object_pairs_hook=pairs)
-        shards = registry['shards']
-        names = [r['shard_name'] for r in shards]
-        if (not names or any(not isinstance(n, str) or not n.strip() for n in names)
-                or len(names) != len(set(names))):
-            raise ValueError()
-        matrix = {policy['shardInventory']['jobName'].format(shard_name=n) for n in names}
+        required_shards, known_shards = pinned_shard_jobs(evidence, policy['shardInventory']['jobName'])
     except (ValueError, TypeError, KeyError, AttributeError):
         return ['missing, corrupt or ambiguous pinned shard inventory']
     jobs = evidence.get('jobs')
     if not isinstance(jobs, list) or not jobs:
         return ['missing actual Actions jobs']
+    expected = policy['requiredChecks'] | required_shards
     latest, identities = {}, set()
     for job in jobs:
         if (not isinstance(job, dict) or not positive(job.get('id')) or not positive(job.get('run_attempt'))
@@ -94,16 +111,15 @@ def verify(payload, run, policy, sha):
         identities.add(job['id'])
         key = job['name']
         previous = latest.get(key)
-        if previous and previous['run_attempt'] == job['run_attempt'] and key in (policy['requiredChecks'] | matrix):
+        if previous and previous['run_attempt'] == job['run_attempt'] and key in expected:
             return ['actual Actions jobs have duplicate names in one attempt']
         if previous is None or previous['run_attempt'] < job['run_attempt']:
             latest[key] = job
-    expected = policy['requiredChecks'] | matrix
     missing = sorted(expected - latest.keys())
     if missing:
         return ['missing expected lanes ' + str(missing)]
     prefix = policy['shardInventory']['jobName'].split('{shard_name}', 1)[0]
-    extra = sorted({name for name in latest if name.startswith(prefix)} - matrix)
+    extra = sorted({name for name in latest if name.startswith(prefix)} - known_shards)
     if extra:
         return ['unexpected shard lanes outside pinned inventory ' + str(extra)]
     checks = {}
@@ -127,7 +143,7 @@ def verify(payload, run, policy, sha):
                 or not isinstance(check.get('check_suite'), dict) or check['check_suite'].get('id') != run['check_suite_id']
                 or check.get('status') != 'completed' or check.get('conclusion') != 'success'):
             problems.append('missing authentic Actions publisher/check suite: ' + name)
-        if name in matrix:
+        if name in required_shards:
             steps = [s for s in (job.get('steps') if isinstance(job.get('steps'), list) else []) if isinstance(s, dict) and s.get('name') == policy['shardInventory']['testStep']]
             if len(steps) != 1 or steps[0].get('status') != 'completed' or steps[0].get('conclusion') != 'success':
                 problems.append('actual shard test step missing, skipped or failed: ' + name)
