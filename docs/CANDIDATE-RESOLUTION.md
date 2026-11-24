@@ -21,8 +21,8 @@ excluded, the component is blocked. Policy is declared in
 `certification/build_test_policy.py`.
 
 Name-only check metadata cannot certify server execution. Strict server acceptance
-also requires actual Actions job observations and the immutable pinned shard
-selection. Missing evidence refuses the candidate even when classified core checks
+also requires actual Actions job observations for every required shard in the
+immutable pinned inventory. Missing evidence refuses the candidate even when classified core checks
 are green. Synthetic examples in `tools/fixtures/candidate-classification/` test these
 rules; they are not qualification records.
 

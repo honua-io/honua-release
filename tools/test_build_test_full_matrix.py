@@ -35,10 +35,13 @@ FULL_MATRIX_POLICY = {
 
 
 def _full_matrix_payload(*, conclusion="success", omitted=frozenset(), overrides=None,
-                         sha=PINNED_SHA, status="completed"):
+                         sha=PINNED_SHA, status="completed", shards=None):
     run_id, suite = 12345, 67
     overrides = overrides or {}
-    names = sorted(FULL_MATRIX_POLICY["requiredChecks"] | {"Server Tests (Core)", "Server Tests (Mutation)"})
+    if shards is None:
+        shards = [{"shard_name": "Core"}, {"shard_name": "Mutation"}]
+    shard_names = {f"Server Tests ({shard['shard_name']})" for shard in shards}
+    names = sorted(FULL_MATRIX_POLICY["requiredChecks"] | shard_names)
     checks, jobs = [], []
     for index, name in enumerate(names, 1):
         if name in omitted:
@@ -51,7 +54,7 @@ def _full_matrix_payload(*, conclusion="success", omitted=frozenset(), overrides
                      "head_sha": sha, "run_id": run_id, "run_attempt": 1,
                      "check_run_url": f"https://api.github.com/repos/honua-io/honua-server/check-runs/{index}",
                      "steps": [{"name": "Run server test shard", "status": "completed", "conclusion": "success"}]})
-    raw = json.dumps({"shards": [{"shard_name": "Core"}, {"shard_name": "Mutation"}]})
+    raw = json.dumps({"shards": shards})
     blob = hashlib.sha1(b"blob " + str(len(raw.encode())).encode() + b"\0" + raw.encode()).hexdigest()
     return {
         "check_runs": checks,
@@ -112,7 +115,55 @@ def test_full_matrix_ignores_expected_lane_from_an_unrelated_run():
 def test_full_matrix_green_run_with_all_expected_lanes_passes():
     status, why = bt.classify_full_matrix(_full_matrix_payload(), FULL_MATRIX_POLICY, PINNED_SHA)
     assert status == "pass"
-    assert "complete pinned shard execution" in why
+    assert "execution of all pinned required shards" in why
+
+
+RC2_SHARDS = [
+    {"shard_name": "Core"},
+    {"shard_name": "Mutation", "advisory": False},
+    {"shard_name": "Preview", "advisory": True},
+]
+
+
+def test_full_matrix_can_omit_pinned_advisory_shards():
+    payload = _full_matrix_payload(shards=RC2_SHARDS, omitted={"Server Tests (Preview)"})
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "pass", why
+
+
+def test_full_matrix_accepts_known_advisory_jobs_when_present():
+    payload = _full_matrix_payload(shards=RC2_SHARDS)
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "pass", why
+
+
+def test_full_matrix_requires_explicitly_non_advisory_shards():
+    payload = _full_matrix_payload(
+        shards=RC2_SHARDS, omitted={"Server Tests (Preview)", "Server Tests (Mutation)"}
+    )
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "fail"
+    assert "Server Tests (Mutation)" in why
+
+
+def test_full_matrix_requires_required_shard_steps_when_advisory_shard_is_omitted():
+    payload = _full_matrix_payload(shards=RC2_SHARDS, omitted={"Server Tests (Preview)"})
+    core = next(job for job in payload["_matrix_execution"]["jobs"] if job["name"] == "Server Tests (Core)")
+    core["steps"] = []
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "fail"
+    assert "actual shard test step missing" in why
+
+
+@pytest.mark.parametrize("shards", [
+    [{"shard_name": "Preview", "advisory": True}],
+    [{"shard_name": "Core"}, {"shard_name": "Preview", "advisory": "true"}],
+    [{"shard_name": "Core"}, {"shard_name": "Core", "advisory": True}],
+])
+def test_full_matrix_requires_unambiguous_inventory_with_required_shards(shards):
+    status, why = bt.classify_full_matrix(_full_matrix_payload(shards=shards), FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == "fail"
+    assert "corrupt or ambiguous pinned shard inventory" in why
 
 
 def _affected_run(*, run_id=42, updated_at="2026-08-25T01:00:00Z"):

@@ -287,7 +287,7 @@ def classify_full_matrix(payload: object, policy: dict, expected_sha: str | None
     if problems:
         return "fail", f"full-matrix run {selected.get('id')} is not certifiable: " + "; ".join(problems)
     return "pass", (f"full-matrix run {selected['id']} attempt {selected['run_attempt']} completed successfully "
-                    "with authentic expected lanes and complete pinned shard execution")
+                    "with authentic expected lanes and execution of all pinned required shards")
 
 
 def _proof_of_execution(payload: object, policy: ComponentPolicy, sha: str) -> tuple[str, str]:
