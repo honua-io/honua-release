@@ -33,14 +33,14 @@ import { mountSource } from "@honua/sdk-js/map";
 import type { MountedSource } from "@honua/sdk-js/map";
 import { classBreaksRenderer, heatmapRenderer, uniqueValueRenderer } from "@honua/sdk-js/style";
 import type { Renderer } from "@honua/sdk-js/style";
-import { defineHonuaWebComponents } from "@honua/sdk-js/web-components";
+import { defineHonuaWebComponents } from "@honua/app-platform/web-components";
 import type {
   HonuaLayerListElement,
   HonuaLayerModel,
   HonuaLayerVisibilityChangeDetail,
   HonuaLegendElement,
   HonuaLegendItem,
-} from "@honua/sdk-js/web-components";
+} from "@honua/app-platform/web-components";
 import * as maplibregl from "maplibre-gl";
 
 // Registers <honua-map>, <honua-layer-list>, <honua-legend>, <honua-bookmarks>, … from the SDK.
