@@ -16,8 +16,7 @@ Nightly dispatches the trunk producer after protocol certification binds the can
 
 The producer currently freezes the candidate and retains failure diagnostics under `native-ecs-diagnostics-<run>-<attempt>`. Completing the live producer requires the approved immutable gate-bound Marketplace template URL and parameter contract in `us-east-1`, gate identity and terminal operator bootstrap, and a maintained Redis-off lifecycle harness. That harness must install the pinned image, capture the installed-journey and refusal evidence, and verify stack deletion and an empty residual resource inventory. Track admission and those dependencies in release #1546.
 
-`tools/native_ecs_lifecycle.py` supplies the lifecycle core. The injected creator
-uses the admitted template and the persisted attempt token as the CreateStack
+`tools/native_ecs_lifecycle.py` supplies the lifecycle core. The AWS adapter uses one session for creation and cleanup. It uses the admitted template and the persisted attempt token as the CreateStack
 client request token. The core checks the adapter's account and region before
 creation, confirms the stack's ownership tags and ARN, and verifies the running
 task's platform digest before it calls the journey. It saves the pre-delete

@@ -8,11 +8,21 @@ from native_ecs_attempt import AmbiguousStackCreate, describe_with_retry, open_a
 
 
 def resource_summaries(aws, stack_arg):
-    response = aws('cloudformation', 'list-stack-resources', *stack_arg)
-    resources = response.get('StackResourceSummaries')
-    require(isinstance(resources, list) and not response.get('NextToken'),
-            'Incomplete resource deletion response')
-    return resources
+    resources = []
+    seen_tokens = set()
+    page_args = ()
+    while True:
+        response = aws('cloudformation', 'list-stack-resources', *stack_arg, *page_args)
+        page = response.get('StackResourceSummaries')
+        require(isinstance(page, list), 'Incomplete resource deletion response')
+        resources.extend(page)
+        token = response.get('NextToken')
+        if token is None:
+            return resources
+        require(isinstance(token, str) and token and token not in seen_tokens,
+                'Invalid resource deletion continuation')
+        seen_tokens.add(token)
+        page_args = ('--next-token', token)
 
 
 def resource_identities(resources):
@@ -53,13 +63,13 @@ def verify_installation(installation, image, platform_digests):
     return {**installation, 'resolvedPlatformImageDigest': expected}
 
 
-def qualify_installation(aws, candidate, *, attempt, create_stack, run_journey):
+def qualify_installation(aws, candidate, *, attempt, run_journey):
     """Create an owned Redis-off stack and return its installation and deletion evidence.
 
     The creator uses the owned attempt's name, tags and token (as the CreateStack
     client request token), plus the approved template, parameters and gate tag.
-    The creator must share the AWS adapter's session and region. The adapter's
-    scope() returns its verified caller account and effective region. The attempt
+    The AWS adapter owns creation, reads and deletion using one session and
+    region. Its scope() returns the verified caller account and effective region. The attempt
     journal must survive runner replay.
     Replay performs cleanup only, because it cannot attest a complete fresh journey.
     """
@@ -79,7 +89,7 @@ def qualify_installation(aws, candidate, *, attempt, create_stack, run_journey):
             raise ObservationError('Recovered interrupted attempt and verified cleanup')
         owned.begin_create()
         try:
-            stack_id = create_stack(owned, image)
+            stack_id = aws.create_stack(owned, image)
         except (AmbiguousStackCreate, TimeoutError, ConnectionError):
             stack_id = owned.observe(aws)['StackId']
         else:
