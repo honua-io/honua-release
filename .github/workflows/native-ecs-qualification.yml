@@ -1,0 +1,57 @@
+name: native-ecs-qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform_label:
+        description: Platform label in the frozen candidate
+        required: true
+        type: string
+      candidate_ref:
+        description: Ledger-bound nightly snapshot SHA (empty for the committed release candidate)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  qualification:
+    if: github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r tools/requirements-nightly.txt
+      - if: inputs.candidate_ref != ''
+        uses: ./.github/actions/candidate-input
+        with:
+          candidate_ref: ${{ inputs.candidate_ref }}
+      - name: Freeze the qualification identity
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          PLATFORM_LABEL: ${{ inputs.platform_label }}
+        run: |
+          set -euo pipefail
+          bash tools/native_ecs_preflight.sh
+      - name: Require the approved Marketplace lifecycle
+        run: |
+          echo '::error::Native ECS installation is blocked pending an approved gate-bound Marketplace template and the Redis-off lifecycle harness (honua-release#1546).'
+          exit 1
+      - name: Record the failed producer attempt
+        if: failure()
+        run: |
+          mkdir -p native-ecs-diagnostics
+          jq -n --arg runId "$GITHUB_RUN_ID" --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            '{runId: $runId, runAttempt: $runAttempt, status: "failure"}' \
+            > native-ecs-diagnostics/attempt.json
+      - name: Retain candidate identity for diagnosis
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-ecs-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: native-ecs-diagnostics/
+          if-no-files-found: ignore

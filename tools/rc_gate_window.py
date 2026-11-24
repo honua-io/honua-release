@@ -77,19 +77,23 @@ AI_GATES: tuple[str, ...] = (
 )
 # Operator triage 2026-10-22 (release#376): these gates are deferred to GA. They are reported, never
 # required, for rc.N. capacity-soak needs a producer bundle the nightly cannot yet mint; rollback-
-# certification needs a signed lock; gate-journey needs cloud-cell receipts plus the data-driven roster.
+# certification needs a signed lock.
 # gate-upgrade is not required for rc.N. 2026.1-rc.1 was never
 # announced, so no customer upgrades from it. gate-upgrade (and with it the rc upgrade/rollback leg) stays a
 # GA gate: it is still dispatchable, runs on its schedule and is reported here, never required for rc.
 GA_DEFERRED: tuple[str, ...] = (
     "capacity-soak.yml",
     "rollback-certification.yml",
-    "gate-journey.yml",
     "gate-upgrade.yml",
 )
 PROTOCOL_GATE = "protocol-certification-candidate.yml"
 # The train calls the reusable evaluator; standalone admission reads its authenticated wrapper.
-ADMISSION_GATES = tuple(PROTOCOL_GATE if g == "gate-protocol-certification.yml" else g for g in TRAIN_GATES)
+NATIVE_ECS_GATE = "native-ecs-qualification.yml"
+_ADMISSION_WORKFLOWS = {
+    "gate-protocol-certification.yml": PROTOCOL_GATE,
+    "gate-native-ecs-qualification.yml": NATIVE_ECS_GATE,
+}
+ADMISSION_GATES = tuple(_ADMISSION_WORKFLOWS.get(gate, gate) for gate in TRAIN_GATES)
 GA_ONLY_GATES = (PROTOCOL_GATE,)
 # AI gates remain reported as Preview evidence and are advisory for RC admission.
 RC_ADVISORY: tuple[str, ...] = AI_GATES
@@ -99,12 +103,11 @@ PROMISE_GATE = "gate-release-promise.yml"
 RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFERRED + GA_ONLY_GATES) + (ARC_GATE, STUDIO_CUSTOMER_GATE, PROMISE_GATE)
 
 # Workflows whose uploaded report or receipt can carry the honua-server image digest, the honua-server
-# source SHA, and the platform-lock digest. e2e-cloud-aws.yml's gate report also carries certifying /
-# certifyingScope / requestedScope, so a focused run cannot hide behind a green conclusion.
+# source SHA, and the platform-lock digest. Native ECS uses its qualification envelope.
 # gate-upgrade.yml writes runtimeIdentity (imageDigest, sourceRevision, platformLockDigest).
 # terminal-model-canary.yml writes serverImage.digest, serverImage.sourceSha, and lockDigest.
 CANDIDATE_BOUND_GATES: frozenset[str] = frozenset({
-    "e2e-cloud-aws.yml",
+    NATIVE_ECS_GATE,
     STUDIO_CUSTOMER_GATE,
     PROMISE_GATE,
     PROTOCOL_GATE,
@@ -151,8 +154,6 @@ UNBOUND_GATE_LIMITATIONS: dict[str, str] = {
         "executable-docs gate does not publish a honua-server digest, source SHA, and platform-lock receipt",
     "terminal-journey-contract.yml":
         "journey contract check is a schema test; it publishes no candidate receipt",
-    "gate-journey.yml":
-        "GA-deferred; its report is not a candidate binding of digest, source SHA, and platform lock",
     "gate-installed-clients.yml":
         "installed-client gate report does not bind the honua-server digest, source SHA, and platform lock",
     "gate-agent-e2e.yml":
@@ -304,7 +305,7 @@ def matches_candidate(doc: object, candidate: Candidate) -> bool:
 def artifact_carries_evidence(name: str) -> bool:
     """True when a workflow artifact is a report, receipt, or the local canary bundle."""
     lowered = name.lower()
-    return any(hint in lowered for hint in _ARTIFACT_HINTS)
+    return lowered.startswith("native-ecs-qualification-") or any(hint in lowered for hint in _ARTIFACT_HINTS)
 
 
 def is_diagnostic(doc: object) -> bool:
@@ -718,6 +719,9 @@ def _classify(run: dict, candidate: Candidate, gate: str = "", arm: str = "") ->
     if run.get("status") not in (None, "completed"):
         return "unrelated"
     docs = _documents(run)
+    if gate == NATIVE_ECS_GATE:
+        # Reopen standalone admission only when it can verify the full frozen bundle.
+        return "superseding" if any(matches_candidate(doc, candidate) for doc in docs) else "unrelated"
     if gate == ARC_GATE:
         # A malformed required-arm receipt must not hide by dropping its schema or required flag.
         matching = any(d.get("arm") == arm and matches_candidate(d.get("candidate"), candidate)

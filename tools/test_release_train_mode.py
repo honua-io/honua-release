@@ -40,6 +40,15 @@ def test_full_train_still_requires_both_real_receipt_inputs(dry_run):
             validate({**env, key: ''})
 
 
+def test_native_producer_run_requires_rc_lock_mode():
+    env = {'FREEZE_ONLY': 'false', 'DRY_RUN': 'false', 'NATIVE_QUALIFICATION_RUN_ID': '123',
+           'CAPACITY_RECEIPT_URL': 'https://example.test/capacity.zip',
+           'DR_RECEIPT_URL': 'https://example.test/dr.json'}
+    assert validate(env) is False
+    with pytest.raises(ValueError, match='requires dry_run=false'):
+        validate({**env, 'DRY_RUN': 'true'})
+
+
 @pytest.mark.parametrize('needs_ok,cancelled', [(True, False), (False, False), (True, True)])
 def test_preparation_cannot_start_any_gate_or_report_even_after_failed_freeze(needs_ok, cancelled):
     jobs = workflow('release-train.yml')['jobs']

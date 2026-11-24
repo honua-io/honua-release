@@ -20,6 +20,8 @@ def validate(env):
                 env.get('GITHUB_WORKFLOW_REF') != 'honua-io/honua-release/.github/workflows/release-train.yml@refs/heads/trunk'):
             raise ValueError('Preparation requires the actual protected trunk dispatch, current source inputs and dry_run=false')
     else:
+        if env.get('NATIVE_QUALIFICATION_RUN_ID') and env.get('DRY_RUN') == 'true':
+            raise ValueError('Native ECS qualification evidence requires dry_run=false')
         for key in ('CAPACITY_RECEIPT_URL', 'DR_RECEIPT_URL'):
             url = urlparse(env.get(key, ''))
             if url.scheme != 'https' or not url.netloc:
