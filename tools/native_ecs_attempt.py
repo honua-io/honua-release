@@ -49,7 +49,6 @@ class StackAttempt:
 class OwnedAttempt:
     scope: StackAttempt
     token: str
-    replay: bool
 
     @property
     def stack_name(self):
@@ -62,9 +61,29 @@ class OwnedAttempt:
             {'Key': 'HonuaGateOwner', 'Value': self.token},
         ]
 
+    def record_path(self, name):
+        return self.scope.journal.with_suffix(f'{self.scope.journal.suffix}.{name}')
+
     @property
-    def arn_path(self):
-        return self.scope.journal.with_suffix(self.scope.journal.suffix + '.arn')
+    def replay(self):
+        return self.record_path('creating').exists()
+
+    def begin_create(self):
+        persist(self.record_path('creating'), {'creating': True})
+
+    def deletion_inventory(self, stack_id, read_inventory, *, already_deleting):
+        path = self.record_path('inventory')
+        inventory = set()
+        if path.exists():
+            record = json.loads(path.read_text())
+            require(record['stackId'] == stack_id, 'Deletion inventory belongs to another stack')
+            inventory = {tuple(resource) for resource in record['resources']}
+        else:
+            require(not already_deleting, 'Missing pre-delete resource inventory')
+        if not already_deleting:
+            inventory.update(read_inventory())
+            persist(path, {'stackId': stack_id, 'resources': sorted(inventory, key=repr)})
+        return inventory
 
     def check_arn(self, stack_id):
         match = STACK_ARN.fullmatch(stack_id) if isinstance(stack_id, str) else None
@@ -72,9 +91,9 @@ class OwnedAttempt:
                 'Stack ARN differs from the admitted account, region or name')
 
     def retained_arn(self):
-        if not self.arn_path.exists():
+        if not self.record_path('arn').exists():
             return None
-        stack_id = json.loads(self.arn_path.read_text())['stackId']
+        stack_id = json.loads(self.record_path('arn').read_text())['stackId']
         self.check_arn(stack_id)
         return stack_id
 
@@ -82,7 +101,7 @@ class OwnedAttempt:
         self.check_arn(stack_id)
         retained = self.retained_arn()
         if retained is None:
-            persist(self.arn_path, {'stackId': stack_id})
+            persist(self.record_path('arn'), {'stackId': stack_id})
         else:
             require(retained == stack_id, 'Stack ARN differs from the retained immutable identity')
 
@@ -128,8 +147,7 @@ def open_attempt(scope, image):
     journal.parent.mkdir(parents=True, exist_ok=True)
     with journal.with_suffix(journal.suffix + '.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        replay = journal.exists()
-        if replay:
+        if journal.exists():
             record = json.loads(journal.read_text())
             token = record.get('ownershipToken')
             require(isinstance(token, str) and re.fullmatch(r'[0-9a-f]{32}', token)
@@ -138,4 +156,4 @@ def open_attempt(scope, image):
         else:
             token = uuid4().hex
             persist(journal, {**expected, 'ownershipToken': token})
-        yield OwnedAttempt(scope, token, replay)
+        yield OwnedAttempt(scope, token)

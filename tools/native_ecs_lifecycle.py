@@ -19,17 +19,19 @@ def resource_identities(resources):
     return {(resource['LogicalResourceId'], resource.get('PhysicalResourceId')) for resource in resources}
 
 
-def cleanup_stack(aws, stack):
+def cleanup_stack(aws, owned, stack):
     stack_id = stack['StackId']
     status = stack['StackStatus']
     stack_arg = ('--stack-name', stack_id)
-    try:
-        known = resource_identities(resource_summaries(aws, stack_arg))
-    finally:
-        if status not in ('DELETE_IN_PROGRESS', 'DELETE_COMPLETE'):
-            aws('cloudformation', 'delete-stack', *stack_arg)
-        if status != 'DELETE_COMPLETE':
-            aws('cloudformation', 'wait', 'stack-delete-complete', *stack_arg)
+    deleting = status in ('DELETE_IN_PROGRESS', 'DELETE_COMPLETE')
+    known = owned.deletion_inventory(
+        stack_id, lambda: resource_identities(resource_summaries(aws, stack_arg)),
+        already_deleting=deleting,
+    )
+    if not deleting:
+        aws('cloudformation', 'delete-stack', *stack_arg)
+    if status != 'DELETE_COMPLETE':
+        aws('cloudformation', 'wait', 'stack-delete-complete', *stack_arg)
     response = describe_with_retry(aws, stack_id)
     stack = one(response.get('Stacks'), 'Missing or ambiguous deleted stack')
     require(stack.get('StackId') == stack_id and stack.get('StackStatus') == 'DELETE_COMPLETE',
@@ -56,7 +58,9 @@ def qualify_installation(aws, candidate, *, attempt, create_stack, run_journey):
 
     The creator uses the owned attempt's name, tags and token (as the CreateStack
     client request token), plus the approved template, parameters and gate tag.
-    The AWS client is region-bound. The attempt journal must survive runner replay.
+    The creator must share the AWS adapter's session and region. The adapter's
+    scope() returns its verified caller account and effective region. The attempt
+    journal must survive runner replay.
     Replay performs cleanup only, because it cannot attest a complete fresh journey.
     """
     image = candidate.get('serverImage')
@@ -66,24 +70,29 @@ def qualify_installation(aws, candidate, *, attempt, create_stack, run_journey):
             and bool(image.split('@')[0]) and image.endswith(f'@{index_digest}'),
             'Invalid candidate image pin')
     platform_digests = image_platform_digests(candidate.get('platformDigests'), index_digest=index_digest)
+    require(aws.scope() == (attempt.account, attempt.region),
+            'AWS adapter effective account or region differs from the admitted attempt')
     with open_attempt(attempt, image) as owned:
         stack_id = owned.retained_arn()
         if owned.replay:
-            cleanup_stack(aws, owned.observe(aws, stack_id=stack_id))
+            cleanup_stack(aws, owned, owned.observe(aws, stack_id=stack_id))
             raise ObservationError('Recovered interrupted attempt and verified cleanup')
+        owned.begin_create()
         try:
             stack_id = create_stack(owned, image)
         except (AmbiguousStackCreate, TimeoutError, ConnectionError):
             stack_id = owned.observe(aws)['StackId']
         else:
-            owned.pin_arn(stack_id)
-        owned.observe(aws, stack_id=stack_id)
+            owned.observe(aws, stack_id=stack_id)
         try:
             aws('cloudformation', 'wait', 'stack-create-complete', '--stack-name', stack_id)
-            observation = observe_stack(aws, owned.stack_name, stack_id=stack_id)
+            observation = observe_stack(
+                aws, owned.stack_name, stack_id=stack_id,
+                describe=lambda identity: describe_with_retry(aws, identity),
+            )
             installation = verify_installation(observation, image, platform_digests)
             run_journey(stack_id)
         finally:
-            cleanup = cleanup_stack(aws, owned.observe(aws, stack_id=stack_id))
+            cleanup = cleanup_stack(aws, owned, owned.observe(aws, stack_id=stack_id))
     return {'stackId': stack_id, 'installedAt': installation['completedAt'],
             'installation': installation, 'cleanup': cleanup}

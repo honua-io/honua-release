@@ -22,8 +22,12 @@ def one(values, reason):
     return values[0]
 
 
-def stack_state(aws, stack_name, stack_id=None):
-    response = aws('cloudformation', 'describe-stacks', '--stack-name', stack_id or stack_name)
+def stack_state(aws, stack_name, stack_id=None, *, describe=None):
+    identity = stack_id or stack_name
+    if describe is None:
+        response = aws('cloudformation', 'describe-stacks', '--stack-name', identity)
+    else:
+        response = describe(identity)
     stack = one(response.get('Stacks'), 'Missing or ambiguous stack')
     require(stack.get('StackName') == stack_name and (stack_id is None or stack.get('StackId') == stack_id),
             'Stack identity differs')
@@ -173,11 +177,11 @@ def ready_targets(aws, resources, tasks):
     readiness_group(aws, resources)
 
 
-def observe_stack(aws, stack_name, *, stack_id=None):
+def observe_stack(aws, stack_name, *, stack_id=None, describe=None):
     require(isinstance(stack_name, str) and re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', stack_name),
             'Only disposable gate stacks may be observed')
     started = datetime.now(timezone.utc).isoformat()
-    stack = stack_state(aws, stack_name, stack_id)
+    stack = stack_state(aws, stack_name, stack_id, describe=describe)
     resources = stack_resources(aws, stack_id or stack_name)
     service = service_state(aws, resources)
     definition = task_definition(aws, resources)
@@ -190,7 +194,7 @@ def observe_stack(aws, stack_name, *, stack_id=None):
     require(task_snapshot(running_tasks(aws, resources), resources) == snapshot,
             'Tasks changed during readiness observation')
     require(service_state(aws, resources) == service, 'Service changed during observation')
-    require(stack_state(aws, stack_name, stack_id) == stack, 'Stack changed during observation')
+    require(stack_state(aws, stack_name, stack_id, describe=describe) == stack, 'Stack changed during observation')
     return {'stackName': stack_name, 'startedAt': started,
             'completedAt': datetime.now(timezone.utc).isoformat(), **definition,
             'observedPlatformImageDigest': digests.pop(), 'healthyTaskCount': len(tasks)}

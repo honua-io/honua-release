@@ -4,7 +4,7 @@ import copy
 import pytest
 
 from launch_stack_observations import ObservationError
-from native_ecs_attempt import StackAttempt
+from native_ecs_attempt import StackAttempt, open_attempt
 from native_ecs_lifecycle import qualify_installation
 from test_launch_stack_observations import DIGEST, IMAGE, STACK, FakeAws
 
@@ -27,6 +27,9 @@ class LifecycleAws(FakeAws):
         self.describe_failures = 0
         self.wait_interrupted = False
         self.creates = 0
+
+    def scope(self):
+        return '000000000000', 'us-east-1'
 
     def create(self, attempt, image):
         assert (attempt.stack_name, image) == (STACK, IMAGE)
@@ -191,3 +194,52 @@ def test_foreign_same_name_is_left_untouched(attempt):
         qualify_installation(aws, CANDIDATE, attempt=attempt,
                              create_stack=create, run_journey=lambda _: pytest.fail('journey ran'))
     assert aws.delete_count == 0
+
+
+def test_replay_requires_original_pre_delete_inventory(attempt):
+    aws = LifecycleAws()
+    aws.drop_deleted_resource = True
+    for _ in range(2):
+        with pytest.raises(ObservationError, match='Incomplete resource deletion inventory'):
+            qualify_installation(aws, CANDIDATE, attempt=attempt, create_stack=aws.create,
+                                 run_journey=lambda _: None)
+    assert aws.creates == aws.delete_count == 1
+
+
+def test_wrong_effective_scope_fails_before_create(attempt):
+    aws = LifecycleAws()
+    aws.scope = lambda: ('000000000000', 'us-west-2')
+    with pytest.raises(ObservationError, match='effective account or region'):
+        qualify_installation(aws, CANDIDATE, attempt=attempt, create_stack=aws.create,
+                             run_journey=lambda _: pytest.fail('journey ran'))
+    assert aws.creates == aws.delete_count == 0
+
+
+def test_prepared_journal_can_start_create(attempt):
+    aws = LifecycleAws()
+    with open_attempt(attempt, IMAGE) as prepared:
+        token = prepared.token
+
+    def create(owned, image):
+        assert owned.token == token
+        return aws.create(owned, image)
+
+    qualify_installation(aws, CANDIDATE, attempt=attempt, create_stack=create,
+                         run_journey=lambda _: None)
+    assert aws.creates == aws.delete_count == 1
+
+
+def test_retries_describe_during_install_observation(attempt, monkeypatch):
+    monkeypatch.setattr('native_ecs_attempt.time.sleep', lambda _: None)
+
+    class TransientInstallRead(LifecycleAws):
+        def __call__(self, service, operation, *args):
+            result = super().__call__(service, operation, *args)
+            if operation == 'wait' and args[0] == 'stack-create-complete':
+                self.describe_failures = 1
+            return result
+
+    aws = TransientInstallRead()
+    qualify_installation(aws, CANDIDATE, attempt=attempt, create_stack=aws.create,
+                         run_journey=lambda _: None)
+    assert aws.creates == aws.delete_count == 1
