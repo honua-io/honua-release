@@ -941,6 +941,18 @@ def _ui_functions(surface: dict, ui: dict) -> list[str]:
     return functions
 
 
+def _format_cell(row: dict) -> tuple[str, ...]:
+    return (
+        row["capability_key"],
+        row["surface"],
+        row["operation"],
+        row["canonical_client"],
+        row["client_lane"],
+        row["client_version"],
+        row["deployment_target"],
+    )
+
+
 def _load_desktop_source(roster: dict) -> SimpleNamespace:
     source = json.loads((ROOT / "sources" / "desktop-client-certification.v1.json").read_text(encoding="utf-8"))
     qgis = source["clients"]["qgis"]
@@ -968,8 +980,24 @@ def _load_desktop_source(roster: dict) -> SimpleNamespace:
         capability["key"] for capability in matrix["capabilities"]
         if generator.catalog_capability_available(capability)
     }
+    # Negotiated formats share routes, so the matrix has no standalone route maturity.
+    negotiated_formats = {
+        capability["key"] for capability in matrix["capabilities"]
+        if capability["key"].startswith("format.")
+        and capability.get("status") == "live"
+        and (capability.get("noSurface") or {}).get("reasonCode") == "content-negotiation"
+    }
+    format_source = json.loads(
+        (ROOT / "sources" / "cloud-native-format-requirements.v1.json").read_text(encoding="utf-8")
+    )
+    negotiated_format_rows = {
+        _format_cell(row)
+        for row in format_source["requirements"]
+        if row["capability_key"] in negotiated_formats
+    }
     return SimpleNamespace(
-        catalog_keys=catalog_keys, source=source, qgis=qgis, drivers=drivers, must_fix=must_fix, prove=prove,
+        negotiated_format_rows=negotiated_format_rows, catalog_keys=catalog_keys,
+        source=source, qgis=qgis, drivers=drivers, must_fix=must_fix, prove=prove,
         preview=preview, matrix_keys=matrix_keys, implemented=implemented,
     )
 
@@ -1002,7 +1030,9 @@ def _rows_by_driver(rows, desktop) -> dict[str, list[dict]]:
 def _reject_unimplemented(rows, desktop) -> None:
     withheld = [
         row for row in rows
-        if row["capability_key"] in desktop.matrix_keys and row["capability_key"] not in desktop.catalog_keys
+        if row["capability_key"] in desktop.matrix_keys
+        and row["capability_key"] not in desktop.catalog_keys
+        and _format_cell(row) not in desktop.negotiated_format_rows
     ]
     if not withheld:
         return

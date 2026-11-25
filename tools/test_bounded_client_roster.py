@@ -279,6 +279,39 @@ def test_candidate_capability_demotion_regenerates_the_denominator(certification
     assert not {_key(row) for row in catalog["requirements"]} & PREVIEW_CELLS
 
 
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        ("live", "content-negotiation", True),
+        ("preview", "content-negotiation", False),
+        ("live", "shared-data-model", False),
+    ],
+)
+def test_validator_checks_governed_negotiated_geoparquet(
+    certification_copy: Path, scenario: tuple[str, str, bool],
+):
+    status, reason, accepted = scenario
+    matrix_path = certification_copy / "sources" / "server" / "capability-matrix.v1.json"
+    matrix = _load(matrix_path)
+    matrix["capabilities"].append({
+        "key": "format.geoparquet",
+        "status": status,
+        "maturity": {},
+        "noSurface": {"reasonCode": reason},
+    })
+    _write(matrix_path, matrix)
+
+    generated = _run(certification_copy, "generate-protocol-requirements.py")
+    assert generated.returncode == 0, generated.stderr
+    validated = _run(certification_copy, "validate-protocol-requirements.py")
+
+    if accepted:
+        assert validated.returncode == 0, validated.stderr
+    else:
+        assert validated.returncode != 0
+        assert "for 'format.geoparquet', which the pinned matrix has not implemented" in validated.stderr
+
+
 def _move_cell(roster: dict, key: tuple[str, str, str], source: str, target: str, **fields) -> None:
     cell = next(cell for cell in roster[source] if _key(cell) == key)
     roster[source].remove(cell)
