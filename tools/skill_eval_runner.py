@@ -5,11 +5,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import datetime as dt
-import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import statistics
+import subprocess
 from typing import Callable
 
 import skill_evals
@@ -91,6 +91,7 @@ class TrialOutcome:
     passed: bool
     seconds: float
     tool_calls: int
+    observed_at: str
     infra_error: str = ''
 
 
@@ -103,12 +104,18 @@ class CampaignRequest:
     runs_per_arm: int = DEFAULT_RUNS_PER_ARM
 
 
+@dataclass(frozen=True)
+class StageTarget:
+    workdir: Path
+    model_key: str
+    arm: str
+
+
 def assert_isolated_workdir(workdir: Path) -> None:
     resolved = workdir.resolve()
     for parent in (resolved, *resolved.parents):
-        for marker in FORBIDDEN_ANCESTOR_MARKERS:
-            if (parent / marker).exists():
-                raise ValueError(f'workdir leaks repository marker {marker} at {parent}')
+        if any((parent / marker).exists() for marker in FORBIDDEN_ANCESTOR_MARKERS):
+            raise ValueError(f'workdir leaks repository marker under {parent}')
 
 
 def clean_child_env(home_dir: Path) -> dict[str, str]:
@@ -120,51 +127,95 @@ def clean_child_env(home_dir: Path) -> dict[str, str]:
     }
 
 
-def _tree_bytes_hash(root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob('*') if p.is_file()):
-        rel = path.relative_to(root).as_posix()
-        digest.update(rel.encode('utf-8') + b'\0' + path.read_bytes() + b'\0')
-    return digest.hexdigest()
+def _committed_skill_blobs(checkout: Path, skill: str) -> list[tuple[PurePosixPath, str]]:
+    prefix = f'{skill_evals.SKILLS_DIR}/{skill}/'
+    raw = subprocess.check_output(
+        ['git', '-C', str(checkout), 'ls-tree', '-r', '-z', 'HEAD', '--', prefix],
+        text=True, stderr=subprocess.DEVNULL,
+    )
+    entries: list[tuple[PurePosixPath, str]] = []
+    for record in (r for r in raw.split('\0') if r):
+        meta, path_str = record.split('\t', 1)
+        _, kind, oid = meta.split()
+        if kind != 'blob':
+            raise ValueError(f'non-blob entry rejected in committed skill tree: {path_str}')
+        rel = PurePosixPath(path_str).relative_to(PurePosixPath(skill_evals.SKILLS_DIR) / skill)
+        if rel.is_absolute() or '..' in rel.parts:
+            raise ValueError(f'unsafe relative path in committed skill tree: {path_str}')
+        entries.append((rel, oid))
+    if not any(rel == PurePosixPath('SKILL.md') for rel, _ in entries):
+        raise ValueError(f'committed skill {skill} is missing SKILL.md at HEAD')
+    return entries
 
 
-def stage_skill_workspace(
-    request: CampaignRequest, workdir: Path, model_key: str, arm: str,
-) -> str:
-    if model_key not in MODEL_SPECS:
-        raise ValueError(f'unsupported model key: {model_key}')
-    if arm not in ('withSkill', 'withoutSkill'):
-        raise ValueError(f'unsupported arm: {arm}')
-    assert_isolated_workdir(workdir)
+def _export_committed_skill(checkout: Path, skill: str, destination: Path) -> None:
+    entries = _committed_skill_blobs(checkout, skill)
+    destination.mkdir(parents=True, exist_ok=True)
+    for rel, oid in entries:
+        target = destination / Path(*rel.parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        blob = subprocess.check_output(
+            ['git', '-C', str(checkout), 'cat-file', 'blob', oid],
+            stderr=subprocess.DEVNULL,
+        )
+        target.write_bytes(blob)
+
+
+def stage_skill_workspace(request: CampaignRequest, target: StageTarget) -> str:
+    if target.model_key not in MODEL_SPECS:
+        raise ValueError(f'unsupported model key: {target.model_key}')
+    if target.arm not in ('withSkill', 'withoutSkill'):
+        raise ValueError(f'unsupported arm: {target.arm}')
+    assert_isolated_workdir(target.workdir)
     tree_sha = skill_evals.tree_digest(request.server_checkout, request.skill)
-    skill_root = workdir / MODEL_SPECS[model_key]['skillDir'] / request.skill
+    skill_root = target.workdir / MODEL_SPECS[target.model_key]['skillDir'] / request.skill
     if skill_root.exists():
         shutil.rmtree(skill_root)
-    if arm == 'withSkill':
-        src = request.server_checkout / skill_evals.SKILLS_DIR / request.skill
-        if not (src / 'SKILL.md').is_file():
-            raise ValueError(f'missing skill source directory: {src}')
-        shutil.copytree(src, skill_root)
-        if _tree_bytes_hash(src) != _tree_bytes_hash(skill_root):
-            raise ValueError('staged skill bytes diverged from candidate source')
+    if target.arm == 'withSkill':
+        _export_committed_skill(request.server_checkout, request.skill, skill_root)
     return tree_sha
 
 
 def interleaved_schedule(runs_per_arm: int = DEFAULT_RUNS_PER_ARM) -> list[tuple[str, int, str]]:
     if runs_per_arm < skill_evals.MIN_RUNS_FLOOR:
         raise ValueError(f'runs_per_arm must be >= {skill_evals.MIN_RUNS_FLOOR}')
-    schedule: list[tuple[str, int, str]] = []
-    for model_key in ('opus', 'sol'):
-        for trial in range(1, runs_per_arm + 1):
-            schedule.append((model_key, trial, 'withoutSkill'))
-            schedule.append((model_key, trial, 'withSkill'))
-    return schedule
+    return [
+        (model_key, trial, arm)
+        for model_key in ('opus', 'sol')
+        for trial in range(1, runs_per_arm + 1)
+        for arm in ('withoutSkill', 'withSkill')
+    ]
 
 
-def aggregate_arm(outcomes: list[TrialOutcome]) -> dict:
+def _validate_outcomes(outcomes: list[TrialOutcome]) -> str:
+    seen: set[tuple[str, str, int]] = set()
+    timestamps: list[tuple[dt.datetime, str]] = []
     for item in outcomes:
         if item.infra_error:
             raise RuntimeError(f'infrastructure failure aborted campaign: {item.infra_error}')
+        if item.trial < 1:
+            raise ValueError(f'trial id must be >= 1, got {item.trial}')
+        key = (item.model, item.arm, item.trial)
+        if key in seen:
+            raise ValueError(f'duplicate trial identity rejected: {key}')
+        seen.add(key)
+        parsed = skill_evals.instant(item.observed_at)
+        if parsed is None:
+            raise ValueError(f'invalid UTC observedAt on trial {key}: {item.observed_at!r}')
+        timestamps.append((parsed, item.observed_at))
+    if not timestamps:
+        raise ValueError('at least one trial outcome is required')
+    return min(timestamps, key=lambda pair: pair[0])[1]
+
+
+def _validate_paired_coverage(model_key: str, with_items: list[TrialOutcome], without_items: list[TrialOutcome]) -> None:
+    with_ids = {item.trial for item in with_items}
+    without_ids = {item.trial for item in without_items}
+    if with_ids != without_ids:
+        raise ValueError(f'{model_key}: unpaired trial ids ({sorted(with_ids)} vs {sorted(without_ids)})')
+
+
+def aggregate_arm(outcomes: list[TrialOutcome]) -> dict:
     passed = [item for item in outcomes if item.passed]
     if not passed:
         return {
@@ -188,11 +239,13 @@ def model_regressed(with_arm: dict, without_arm: dict) -> bool:
 def build_eval_record(
     request: CampaignRequest, outcomes: list[TrialOutcome], now: dt.datetime | None = None,
 ) -> tuple[dict, str, str | None]:
-    stamp = (now or dt.datetime.now(dt.timezone.utc)).replace(microsecond=0)
+    oldest_observed = _validate_outcomes(outcomes)
+    check_now = (now or dt.datetime.now(dt.timezone.utc)).replace(microsecond=0)
     models: dict[str, dict] = {}
     for model_key in ('opus', 'sol'):
         with_items = [o for o in outcomes if o.model == model_key and o.arm == 'withSkill']
         without_items = [o for o in outcomes if o.model == model_key and o.arm == 'withoutSkill']
+        _validate_paired_coverage(model_key, with_items, without_items)
         models[model_key] = {
             'withSkill': aggregate_arm(with_items),
             'withoutSkill': aggregate_arm(without_items),
@@ -203,7 +256,7 @@ def build_eval_record(
         'skill': request.skill,
         'skillTreeSha256': tree_sha,
         'serverSha': request.server_sha,
-        'observedAt': stamp.isoformat().replace('+00:00', 'Z'),
+        'observedAt': oldest_observed,
         'evidence': request.evidence,
         'models': models,
     }
@@ -215,9 +268,22 @@ def build_eval_record(
         'maxAgeDays': DEFAULT_MAX_AGE_DAYS,
     }
     row = {'skill': request.skill, 'skillTreeSha256': tree_sha}
-    context = skill_evals.SkillContext(policy, Path('.'), stamp)
+    context = skill_evals.SkillContext(policy, Path('.'), check_now)
     gap = skill_evals.result_gap(record, row, context)
     return record, ('KEEP' if gap is None else 'DELETE'), gap
+
+
+def _run_model_schedule(
+    model_key: str, runs_per_arm: int, executor: Callable[[str, int, str], TrialOutcome],
+) -> list[TrialOutcome]:
+    pairs = [(trial, arm) for trial in range(1, runs_per_arm + 1) for arm in ('withoutSkill', 'withSkill')]
+    outcomes: list[TrialOutcome] = []
+    for trial, arm in pairs:
+        outcome = executor(model_key, trial, arm)
+        if outcome.infra_error:
+            raise RuntimeError(f'campaign stopped on infra error: {outcome.infra_error}')
+        outcomes.append(outcome)
+    return outcomes
 
 
 def run_paired_campaign(
@@ -226,14 +292,8 @@ def run_paired_campaign(
 ) -> tuple[dict, str, str | None]:
     collected: list[TrialOutcome] = []
     for model_key in ('opus', 'sol'):
-        model_outcomes: list[TrialOutcome] = []
-        for trial in range(1, request.runs_per_arm + 1):
-            for arm in ('withoutSkill', 'withSkill'):
-                outcome = executor(model_key, trial, arm)
-                if outcome.infra_error:
-                    raise RuntimeError(f'campaign stopped on infra error: {outcome.infra_error}')
-                model_outcomes.append(outcome)
-                collected.append(outcome)
+        model_outcomes = _run_model_schedule(model_key, request.runs_per_arm, executor)
+        collected.extend(model_outcomes)
         with_arm = aggregate_arm([o for o in model_outcomes if o.arm == 'withSkill'])
         without_arm = aggregate_arm([o for o in model_outcomes if o.arm == 'withoutSkill'])
         if model_regressed(with_arm, without_arm):
@@ -265,7 +325,8 @@ def _load_trials(path: Path) -> list[TrialOutcome]:
         outcomes.append(TrialOutcome(
             model=raw['model'], arm=raw['arm'], trial=int(raw['trial']),
             passed=bool(raw['passed']), seconds=float(raw['seconds']),
-            tool_calls=int(raw['toolCalls']), infra_error=str(raw.get('infraError', '')),
+            tool_calls=int(raw['toolCalls']), observed_at=str(raw.get('observedAt', '')),
+            infra_error=str(raw.get('infraError', '')),
         ))
     return outcomes
 
