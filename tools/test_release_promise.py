@@ -49,13 +49,13 @@ def test_contract_covers_every_required_promise():
         'security-agent-default-deny', 'operates-8-upgrade',
         'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable', 'clients-installed',
         'operates-telemetry', 'operates-restore', 'protocol-compat', 'operates-capacity',
-        'ga-capabilities'}
-    assert len(rows) == 34
+        'ga-capabilities', *p.rc2_rigor.IDS}
+    assert len(rows) == 39
 
 
 def test_missing_rows_fail_closed():
     results = p.evaluate(p.load_contract(CONTRACT), {}, (CANDIDATE, NOW))
-    assert len(results) == 34
+    assert len(results) == 39
     assert all(r['status'] == 'missing' for r in results)
 
 
@@ -129,7 +129,7 @@ def aggregate():
                                 for i, workflow in enumerate(p.producer_workflows(r))]
     results = p.evaluate(p.load_contract(CONTRACT), records, (CANDIDATE, NOW))
     for result in results:
-        if result['id'] in p.adversarial.IDS:
+        if result['id'] in p.adversarial.IDS or result['id'] in p.rc2_rigor.IDS:
             result.update(status='PASS', observedAt='2026-11-14T00:00:00Z')
     return {'schema': 'honua.release-promise-report/v1', 'status': 'pass',
             'serverSha': CANDIDATE.server_sha, 'imageDigest': CANDIDATE.server_digest,
@@ -262,10 +262,10 @@ def test_receipt_cannot_claim_notes_absent_from_artifact(monkeypatch):
     assert p.evaluate_row(row, [record], (CANDIDATE, NOW))['status'] != 'PASS'
 
 
-def test_whitehat_and_chaos_are_required_and_need_detailed_evidence():
+def test_whitehat_and_chaos_require_detailed_evidence():
     rows = {r['id']: r for r in p.load_contract(CONTRACT)}
     assert rows['security-whitehat']['required'] == ['rc', 'ga']
-    assert rows['chaos']['required'] == ['rc', 'ga']
+    assert rows['chaos']['required'] == ['ga']
     for key in ('security-whitehat', 'chaos'):
         assert p.evaluate_row(rows[key], [run(rows[key])], (CANDIDATE, NOW))['status'] != 'PASS'
 

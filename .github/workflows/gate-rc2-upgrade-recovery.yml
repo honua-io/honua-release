@@ -1,0 +1,90 @@
+name: gate-rc2-upgrade-recovery
+run-name: RC2 PostGIS upgrade and degraded startup ${{ inputs.server_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_sha:
+        required: true
+        type: string
+      server_digest:
+        required: true
+        type: string
+      platform_lock_digest:
+        required: true
+        type: string
+      source_repo:
+        description: Authenticated repository that produced the evidence artifact
+        required: false
+        type: choice
+        options:
+          - honua-io/honua-release
+          - honua-io/honua-server
+        default: honua-io/honua-release
+      source_run_id:
+        description: Completed trunk or nightly-candidate run ID containing the proof artifact
+        required: true
+        type: string
+      artifact_name:
+        description: Artifact name containing the PostGIS upgrade and recovery proof JSON
+        required: true
+        type: string
+      proof_file:
+        description: Relative path to PostGIS upgrade and recovery proof JSON inside the artifact
+        required: false
+        type: string
+        default: postgis-upgrade-recovery-proof.json
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: gate-rc2-upgrade-recovery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Retrieve authenticated PostGIS upgrade and recovery proof artifact
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          python3 tools/fetch_verified_evidence.py \
+            --repo "$SOURCE_REPO" \
+            --run-id "$SOURCE_RUN_ID" \
+            --artifact "$ARTIFACT_NAME" \
+            --out evidence
+      - name: Validate PostGIS in-place upgrade and degraded startup proof
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          PROOF_FILE: ${{ inputs.proof_file }}
+        run: |
+          set -euo pipefail
+          python3 tools/rc2_rigor.py --row postgis-upgrade-recovery \
+            --proof-root evidence \
+            --proof "$PROOF_FILE" \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --out receipts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-promise-receipts
+          path: receipts/
+          if-no-files-found: error

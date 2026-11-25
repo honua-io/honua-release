@@ -37,7 +37,6 @@ SENTENCE_SOURCE = {
     "recover-incident": "recover-incident", "migrate-service": "migrate-service",
 }
 MINUTE_SOURCE = {
-    "install-console": ("install", "browser", None),
     "developer-map-with-skills": ("upload-publish", "agent", "D"),
     "developer-map-without-skills": ("upload-publish", "agent", "A"),
     "developer-app-with-skills": ("build-app", "agent", "D"),
@@ -251,16 +250,6 @@ def outcome_documents(bound):
     for row_id, (source, modality, arm) in MINUTE_SOURCE.items():
         documents.append(measurement(
             bound, row_id, median_of(rows, source, (modality, arm, "minutes")), {}))
-    recovery = bound["proof"].get("recovery")
-    if not isinstance(recovery, dict):
-        raise Unavailable("recovery timings are missing")
-    for row_id in sorted(row["id"] for row in contract_rows(OUTCOME_WORKFLOW)
-                         if row["id"].startswith("recovery-operates-")):
-        documents.append(measurement(
-            bound, row_id, duration_minutes(bound, recovery.get(row_id), row_id), {}))
-    documents.append(measurement(
-        bound, "unattended-person",
-        duration_minutes(bound, bound["proof"].get("unattended"), "unattended-person"), {}))
     expected = {row["id"] for row in contract_rows(OUTCOME_WORKFLOW)}
     if {doc["row"] for doc in documents} != expected:
         raise Unavailable("outcome coverage does not match the contract")

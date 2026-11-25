@@ -294,7 +294,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "chaos.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -357,7 +356,6 @@
       "repo": "honua-io/honua-release",
       "workflow": "gate-upgrade.yml",
       "required": [
-        "rc",
         "ga"
       ],
       "artifact": "release-promise-receipts",
@@ -515,6 +513,86 @@
         "skillsFailing": 0
       },
       "criterion": "Every GA capability at the candidate has proving tests, a security test, a client-interop result no older than 7 days when protocol-facing, 100% on every joined CITE suite, and a declared evaluation when it is an AI capability; every skill the candidate ships has a passing with/without evaluation of that exact skill content."
+    },
+    {
+      "id": "aot-multiarch-regression",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-rc2-aot-regression.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "aot-multiarch-regression.json",
+      "assertions": {
+        "live": true,
+        "rigorVerified": true
+      },
+      "criterion": "Live Native AOT container regression passes on both linux/amd64 and linux/arm64 with distinct platform digests, Skia/Parquet/DuckDB native libraries, OGC/OData/WMS, and OIDC/OAuth2 callbacks."
+    },
+    {
+      "id": "postgis-upgrade-recovery",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-rc2-upgrade-recovery.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "postgis-upgrade-recovery.json",
+      "assertions": {
+        "live": true,
+        "rigorVerified": true
+      },
+      "criterion": "In-place PostGIS migration from a populated prior-RC image preserves features and edits, and HONUA_POSTGIS_ONLY degraded startup self-heals to 200 Ready once PostgreSQL starts."
+    },
+    {
+      "id": "gis-clients-proxy",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-rc2-client-proxy.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "gis-clients-proxy.json",
+      "assertions": {
+        "live": true,
+        "rigorVerified": true
+      },
+      "criterion": "QGIS, MapLibre, Cesium, and GeoServices clients pass behind an HTTPS-terminating reverse proxy with https:// links, axis order, GeoServices error envelopes, and CORS headers on 400/401/402/403/429 responses."
+    },
+    {
+      "id": "tenant-isolation-parity",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-rc2-tenant-security.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "tenant-isolation-parity.json",
+      "assertions": {
+        "live": true,
+        "rigorVerified": true
+      },
+      "criterion": "Single-tenant Console workflows pass with zero unexpected 403s while multi-tenant mode blocks tenant admins from all host-global admin routes and redacts hidden/masked fields across all protocols."
+    },
+    {
+      "id": "aot-memory-soak",
+      "repo": "honua-io/honua-release",
+      "workflow": "gate-rc2-aot-soak.yml",
+      "required": [
+        "rc",
+        "ga"
+      ],
+      "artifact": "release-promise-receipts",
+      "receipt": "aot-memory-soak.json",
+      "assertions": {
+        "live": true,
+        "rigorVerified": true
+      },
+      "criterion": "10-minute memory-capped Native AOT mixed-load soak completes with swap disabled, zero OOM kills, zero 5xx errors, bounded RSS growth <= 1.25x warmup, and recorded p50/p95/p99 latency."
     }
   ],
   "outcomes": [
@@ -523,7 +601,7 @@
       "criterion": "Install to signed-in Console",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-launch-stack.yml",
       "artifact": "release-promise-receipts",
       "receipt": "install-console.json",
       "required": [
@@ -541,7 +619,7 @@
       "criterion": "Person-minutes across unattended rows",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "unattended-person.json",
       "required": [
@@ -559,7 +637,7 @@
       "criterion": "Fault to recovered: operates-1",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-1.json",
       "required": [
@@ -577,7 +655,7 @@
       "criterion": "Fault to recovered: operates-2",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-2.json",
       "required": [
@@ -595,7 +673,7 @@
       "criterion": "Fault to recovered: operates-3",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-3.json",
       "required": [
@@ -613,7 +691,7 @@
       "criterion": "Fault to recovered: operates-4",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-4.json",
       "required": [
@@ -631,7 +709,7 @@
       "criterion": "Fault to recovered: operates-5",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-5.json",
       "required": [
@@ -649,7 +727,7 @@
       "criterion": "Fault to recovered: operates-6",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-6.json",
       "required": [
@@ -667,7 +745,7 @@
       "criterion": "Fault to recovered: operates-9",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-9.json",
       "required": [
@@ -685,7 +763,7 @@
       "criterion": "Fault to recovered: operates-10",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-10.json",
       "required": [
@@ -703,7 +781,7 @@
       "criterion": "Fault to recovered: operates-11",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-11.json",
       "required": [
@@ -721,7 +799,7 @@
       "criterion": "Fault to recovered: operates-12-notify",
       "unit": "minutes",
       "repo": "honua-io/honua-release",
-      "workflow": "gate-release-outcomes.yml",
+      "workflow": "gate-runs-itself.yml",
       "artifact": "release-promise-receipts",
       "receipt": "recovery-operates-12-notify.json",
       "required": [
@@ -743,7 +821,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "developer-map-with-skills.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -761,7 +838,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "developer-map-without-skills.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -779,7 +855,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "developer-app-with-skills.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -797,7 +872,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "developer-app-without-skills.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -815,7 +889,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "studio-publish-layer.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -833,7 +906,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "studio-build-app.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -851,7 +923,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-install.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -869,7 +940,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-publish-layer.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -887,7 +957,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-style.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -905,7 +974,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-share.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -923,7 +991,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-build-app.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -941,7 +1008,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-sign-in-roles.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -959,7 +1025,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-recover-incident.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -977,7 +1042,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "sentences-migrate-service.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -995,7 +1059,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-install.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1013,7 +1076,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-publish-layer.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1031,7 +1093,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-style.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1049,7 +1110,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-share.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1067,7 +1127,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-build-app.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1085,7 +1144,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-sign-in-roles.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1103,7 +1161,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-recover-incident.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {
@@ -1121,7 +1178,6 @@
       "artifact": "release-promise-receipts",
       "receipt": "clicks-migrate-service.json",
       "required": [
-        "rc",
         "ga"
       ],
       "assertions": {

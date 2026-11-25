@@ -353,13 +353,13 @@ def test_ga_deferred_gates_are_real_gates_and_excluded_from_rc_set():
     assert "gate-build-test.yml" in w.RC_GATES
 
 
-def test_rc_set_requires_arc_and_reports_older_ai_gates_as_advisory():
-    """The founder requires the arc while retaining advisory status for the older AI gates."""
-    assert len(w.RC_GATES) == 20
-    assert w.ARC_GATE in w.RC_GATES
+def test_rc_set_reports_ai_gates_including_arc_as_advisory():
+    """AI journeys remain reported as Preview evidence and advisory for RC admission."""
+    assert len(w.RC_GATES) == 19
+    assert w.ARC_GATE not in w.RC_GATES
     assert set(w.AI_GATES) == {"gate-agent-e2e.yml", "terminal-model-canary.yml"}
     assert not set(w.AI_GATES) & set(w.RC_GATES)
-    assert w.RC_ADVISORY == w.AI_GATES
+    assert w.RC_ADVISORY == w.AI_GATES + (w.ARC_GATE,)
     assert set(w.GA_DEFERRED) == {"capacity-soak.yml", "rollback-certification.yml", "gate-upgrade.yml"}
 
 

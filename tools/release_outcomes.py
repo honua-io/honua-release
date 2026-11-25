@@ -13,11 +13,21 @@ WORKFLOWS = ('install', 'publish-layer', 'style', 'share', 'build-app',
 COUNT_UNITS = {f'{unit}-{workflow}': unit for unit in ('sentences', 'clicks')
                for workflow in WORKFLOWS}
 
-IDS = frozenset({*COUNT_UNITS, 'install-console', 'unattended-person', 'studio-publish-layer', 'studio-build-app',
-                 *(f'recovery-operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
-                 'recovery-operates-12-notify', 'recovery-operates-restore',
-                 *(f'developer-{item}-{mode}-skills' for item in ('map', 'app')
-                   for mode in ('with', 'without'))})
+RC_IDS = frozenset({
+    'install-console', 'unattended-person', 'recovery-operates-restore',
+    *(f'recovery-operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
+    'recovery-operates-12-notify',
+})
+GA_ONLY_IDS = frozenset({
+    *COUNT_UNITS, 'studio-publish-layer', 'studio-build-app',
+    *(f'developer-{item}-{mode}-skills' for item in ('map', 'app')
+      for mode in ('with', 'without')),
+})
+IDS = RC_IDS | GA_ONLY_IDS
+
+
+def expected_profiles(row_id):
+    return ['ga'] if row_id in GA_ONLY_IDS else ['rc', 'ga']
 
 
 def load(path):
@@ -25,8 +35,8 @@ def load(path):
     if len(rows) != len(IDS) or {r['id'] for r in rows} != IDS:
         raise ValueError('release outcome coverage incomplete')
     for row in rows:
-        if row['unit'] != unit_for(row['id']) or row['required'] != ['rc', 'ga']:
-            raise ValueError('outcomes must report their declared unit for RC and GA')
+        if row['unit'] != unit_for(row['id']) or row['required'] != expected_profiles(row['id']):
+            raise ValueError('outcomes must report their declared unit and profile requirements')
         if row['id'] == 'unattended-person' and row.get('gaMaximum') != 0:
             raise ValueError('unattended GA target must be zero person-minutes')
     return rows
@@ -62,22 +72,34 @@ def summarize(row, docs):
                 number(maximum) and all(value <= maximum for value in values))}
 
 
+def _row_valid(row, targets, context):
+    profile, now = context
+    observed = instant(row.get('observedAt'))
+    if (row.get('status') != 'PASS' or not number(row.get('value'))
+            or row.get('unit') != unit_for(row['id']) or row.get('releaseNotesReported') is not True
+            or observed is None or not now - dt.timedelta(days=7) <= observed <= now):
+        return False
+    if profile == 'rc' or unit_for(row['id']) == 'clicks':
+        return True
+    target = targets[row['id']]
+    return number(target) and row['value'] <= target
+
+
 def report_valid(rows, profile, now):
     if (not isinstance(rows, list) or len(rows) != len(IDS)
             or any(not isinstance(r, dict) for r in rows)
             or {r.get('id') for r in rows} != IDS):
         return False
     targets = {r['id']: r.get('gaMaximum') for r in load(CONTRACT)}
-    return all(row.get('status') == 'PASS' and number(row.get('value'))
-               and row.get('unit') == unit_for(row['id']) and row.get('releaseNotesReported') is True
-               and instant(row.get('observedAt')) is not None
-               and now - dt.timedelta(days=7) <= instant(row['observedAt']) <= now
-               and (profile == 'rc' or unit_for(row['id']) == 'clicks' or (number(targets[row['id']])
-                    and row['value'] <= targets[row['id']])) for row in rows)
+    required = IDS if profile == 'ga' else RC_IDS
+    return all(_row_valid(row, targets, (profile, now)) for row in rows if row['id'] in required)
 
 
 def render_markdown(rows):
     lines = ["\n## Measured release outcomes\n"]
-    lines.extend(f"- {row['id']}: " + notes_line({'row': row['id'], 'value': row['value']})
-                 for row in sorted(rows, key=lambda row: row['id']))
+    lines.extend(
+        f"- {row['id']}: " + notes_line({'row': row['id'], 'value': row['value']})
+        for row in sorted(rows, key=lambda row: row['id'])
+        if row.get('status') == 'PASS' and number(row.get('value'))
+    )
     return "\n".join(lines) + "\n"

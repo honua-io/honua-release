@@ -55,6 +55,11 @@ EXCLUDED = {
     'gate-protocol-certification.yml': 'matrix inputs come from the nightly protocol ledger',
     'capacity-soak.yml': 'long soak on a sized stack (GA only)',
     'gate-release-outcomes.yml': 'outcome evaluation on an installed stack',
+    'gate-rc2-aot-regression.yml': 'multi-arch live Native AOT container regression pass',
+    'gate-rc2-upgrade-recovery.yml': 'prior-RC PostGIS migration upgrade and degraded-startup drill',
+    'gate-rc2-client-proxy.yml': 'real GIS client and HTTPS reverse-proxy smoke matrix',
+    'gate-rc2-tenant-security.yml': 'single-tenant parity and multi-tenant isolation matrix',
+    'gate-rc2-aot-soak.yml': '10-minute memory-capped Native AOT mixed-load soak',
 }
 IN_FLIGHT = {'queued', 'in_progress', 'waiting', 'requested', 'pending'}
 # Their release-train calls share the producers' concurrency groups but run under the caller.
