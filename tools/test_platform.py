@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import json
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -1109,13 +1110,26 @@ def test_nightly_staged_requirements_revision_refuses_anything_else(change):
 
 # release-train freeze_only: the resolver's protocol_ledger=produce exemption, nothing wider
 
-def _exact_candidate_cli(tmp_path, monkeypatch, capsys, *extra, ledger=None):
-    """Run the validator CLI offline (no reachability client) on the committed manifest, optionally
-    with a replaced protocolCertification.ledger, and return (exit code, output)."""
-    import yaml
+def _offline_candidate_manifest(monkeypatch):
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    manifest = yaml.safe_load(vp.MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest = vp._load_yaml(vp.MANIFEST_PATH)
+    registry_platforms = {
+        (vp.image_coordinate(component["image"]), component["digest"]): component["platformDigests"]
+        for component in manifest["components"].values()
+        if component.get("image")
+    }
+    monkeypatch.setattr(
+        vp, "verify_image_platform_digests",
+        partial(vp.verify_image_platform_digests,
+                inspector=lambda coordinate, digest: registry_platforms[coordinate, digest]),
+    )
+    return manifest
+
+
+def _exact_candidate_cli(tmp_path, monkeypatch, capsys, *extra, ledger=None):
+    import yaml
+    manifest = _offline_candidate_manifest(monkeypatch)
     if ledger is not None:
         manifest["protocolCertification"]["ledger"] = ledger
     path = tmp_path / "platform-manifest.yaml"
@@ -1159,9 +1173,7 @@ def test_freeze_only_produce_still_refuses_a_malformed_ledger(tmp_path, monkeypa
 
 def test_freeze_only_produce_keeps_every_other_exact_candidate_check(tmp_path, monkeypatch, capsys):
     import yaml
-    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    manifest = yaml.safe_load(vp.MANIFEST_PATH.read_text(encoding="utf-8"))
+    manifest = _offline_candidate_manifest(monkeypatch)
     manifest["protocolCertification"]["ledger"] = PENDING_LEDGER
     manifest["candidate"]["refSource"] = "feature/branch"
     path = tmp_path / "platform-manifest.yaml"
