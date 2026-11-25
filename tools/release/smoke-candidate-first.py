@@ -25,6 +25,7 @@ SPEC.loader.exec_module(MODULE)
 
 SOURCE_SHA = "a" * 40
 CANDIDATE_DIGEST = "sha256:" + "b" * 64
+CANDIDATE = MODULE.CandidateIdentity(CANDIDATE_DIGEST, SOURCE_SHA)
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
 
 
@@ -50,14 +51,14 @@ def main() -> None:
         for producer in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
             print(f"post-candidate evidence collected: {producer}")
             write_receipt(root, producer, CANDIDATE_DIGEST)
-        passed = MODULE.collect(root, digest=CANDIDATE_DIGEST, source_sha=SOURCE_SHA, now=NOW)
+        passed = MODULE.collect(root, CANDIDATE, NOW)
         assert passed["status"] == "pass"
         print("exact-candidate gate: pass")
 
         wrong = root / "wrong-digest"
         wrong.mkdir()
         write_receipt(wrong, "realtime", "sha256:" + "c" * 64)
-        rejected = MODULE.collect(wrong, digest=CANDIDATE_DIGEST, source_sha=SOURCE_SHA, now=NOW)
+        rejected = MODULE.collect(wrong, CANDIDATE, NOW)
         assert rejected["status"] == "fail"
         print("wrong-digest regression: rejected")
 

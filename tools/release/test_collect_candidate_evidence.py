@@ -11,10 +11,13 @@ _module = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 _spec.loader.exec_module(_module)
 collect = _module.collect
+CandidateIdentity = _module.CandidateIdentity
+PythonCertification = _module.PythonCertification
 
 
 SHA = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+CANDIDATE = CandidateIdentity(DIGEST, SHA)
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
 
 
@@ -34,14 +37,14 @@ def _write(root: Path, name: str, *, digest: str = DIGEST, source: str = SHA, ge
 def test_all_required_receipts_bound_to_candidate_pass(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
         _write(tmp_path, name)
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     assert result["status"] == "pass"
 
 
 def test_wrong_digest_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
         _write(tmp_path, name, digest=("sha256:" + "c" * 64 if name == "realtime" else DIGEST))
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     row = next(row for row in result["evidence"] if row["id"] == "realtime")
     assert result["status"] == "fail"
     assert any("does not name candidate digest" in error for error in row["errors"])
@@ -55,7 +58,7 @@ def test_conflicting_source_revision_fails_closed(tmp_path):
     receipt["cells"] = [{"source_sha": "c" * 40}]
     receipt_path.write_text(json.dumps(receipt) + "\n")
 
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     row = next(row for row in result["evidence"] if row["id"] == "realtime")
     assert result["status"] == "fail"
     assert any("cells[0].source_sha" in error for error in row["errors"])
@@ -64,7 +67,7 @@ def test_conflicting_source_revision_fails_closed(tmp_path):
 def test_missing_receipt_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc"):
         _write(tmp_path, name)
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     assert result["status"] == "fail"
     missing = next(row for row in result["evidence"] if row["id"] == "protocol-mcp")
     assert "required post-candidate receipt is missing" in missing["errors"]
@@ -73,6 +76,53 @@ def test_missing_receipt_fails_closed(tmp_path):
 def test_stale_receipt_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
         _write(tmp_path, name, generated="2026-09-02T11:00:00Z")
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     assert result["status"] == "fail"
     assert all("receipt is stale" in error for row in result["evidence"] for error in row["errors"])
+
+
+def test_python_receipt_must_match_manifest_wheel_and_requirements(tmp_path):
+    for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
+        _write(tmp_path, name)
+    wheel = {
+        "version": "0.3.2",
+        "filename": "honua_sdk-0.3.2-py3-none-any.whl",
+        "digest": "sha256:" + "c" * 64,
+        "sourceSha": "d" * 40,
+    }
+    revision = "requirements-v1"
+    package = {"filename": wheel["filename"], "sha256": "c" * 64, "source": "pypi"}
+    observation = {
+        "client_version": wheel["version"],
+        "producer_source_sha": wheel["sourceSha"],
+        "client_package": package,
+    }
+    identity = {**observation, "requirements_revision": revision}
+    observation.update(result="pass", evidence_receipt={"identity": identity})
+    skip = {**observation, "result": "skip", "evidence_receipt": None}
+    path = tmp_path / "sdk-python" / "receipt.json"
+    receipt = json.loads(path.read_text())
+    receipt.update(requirements_revision=revision, observations=[observation])
+    cases = [
+        ({}, "pass"),
+        ({"observations": [observation, skip]}, "pass"),
+        ({"observations": [{**observation, "evidence_receipt": None}]}, "fail"),
+        ({"requirements_revision": "stale"}, "fail"),
+        ({"observations": []}, "fail"),
+        ({"observations": [observation, {**observation, "producer_source_sha": SHA}]}, "fail"),
+        ({"observations": [{**observation, "client_package": {**package, "sha256": "e" * 64}}]}, "fail"),
+    ]
+    for mismatched_package in (
+        {**package, "sha256": "e" * 64},
+        {**package, "source": "other"},
+        {key: value for key, value in package.items() if key != "source"},
+    ):
+        wrong_receipt = {"identity": {**identity, "client_package": mismatched_package}}
+        cases.append(({"observations": [{**observation, "evidence_receipt": wrong_receipt}]}, "fail"))
+        cases.append(({"observations": [{**observation, "client_package": mismatched_package}]}, "fail"))
+    for changes, expected in cases:
+        path.write_text(json.dumps({**receipt, **changes}))
+        result = collect(
+            tmp_path, CANDIDATE, NOW, PythonCertification(wheel, revision),
+        )
+        assert result["status"] == expected, result

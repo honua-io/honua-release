@@ -9,7 +9,7 @@ import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, NamedTuple
 
 
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -18,6 +18,16 @@ REQUIRED = {"realtime", "sdk-python", "protocol-grpc", "protocol-mcp"}
 IDENTITY_KEYS = {"image_digest", "imageDigest", "serverImage", "server_image", "image"}
 SOURCE_KEYS = {"source_sha", "sourceSha", "serverRevision", "server_revision"}
 TIME_KEYS = {"generatedAt", "generated_at", "generated_at_utc"}
+
+
+class CandidateIdentity(NamedTuple):
+    digest: str
+    source_sha: str
+
+
+class PythonCertification(NamedTuple):
+    wheel: dict[str, str]
+    requirements_revision: str
 
 
 def values_at(value: Any, names: set[str], path: str = "") -> Iterator[tuple[str, Any]]:
@@ -44,7 +54,10 @@ def parse_time(value: Any, label: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def validate_receipt(meta: dict[str, Any], receipt: Any, *, digest: str, source_sha: str, now: datetime) -> dict[str, Any]:
+def validate_receipt(
+    meta: dict[str, Any], receipt: Any, candidate: CandidateIdentity, now: datetime,
+) -> dict[str, Any]:
+    digest, source_sha = candidate
     errors: list[str] = []
     if not meta.get("runId") or not meta.get("runAttempt") or not meta.get("artifactId"):
         errors.append("dispatcher metadata is missing immutable run/artifact identity")
@@ -92,7 +105,46 @@ def validate_receipt(meta: dict[str, Any], receipt: Any, *, digest: str, source_
     }
 
 
-def collect(directory: Path, *, digest: str, source_sha: str, now: datetime) -> dict[str, Any]:
+def matches_fields(value: Any, expected: dict[str, Any]) -> bool:
+    return isinstance(value, dict) and all(value.get(key) == field for key, field in expected.items())
+
+
+def validate_python_identity(receipt: dict[str, Any], wheel: dict[str, str], revision: str) -> list[str]:
+    if not isinstance(receipt, dict) or receipt.get("requirements_revision") != revision:
+        return ["Python receipt has a different requirements revision"]
+    observations = receipt.get("observations")
+    if not isinstance(observations, list) or not observations:
+        return ["Python receipt has no certification observations"]
+
+    expected = {
+        "client_version": wheel["version"],
+        "producer_source_sha": wheel["sourceSha"],
+        "client_package": {
+            "filename": wheel["filename"],
+            "sha256": wheel["digest"].removeprefix("sha256:"),
+            "source": "pypi",
+        },
+    }
+    expected_identity = {**expected, "requirements_revision": revision}
+    errors = []
+    for index, observation in enumerate(observations):
+        if not matches_fields(observation, expected):
+            errors.append(f"Python observation {index} differs from the manifest wheel identity")
+            continue
+        evidence = observation.get("evidence_receipt")
+        if observation.get("result") == "skip" and evidence is None:
+            continue
+        identity = evidence.get("identity") if isinstance(evidence, dict) else None
+        if not matches_fields(identity, expected_identity):
+            errors.append(f"Python observation {index} receipt differs from the manifest wheel identity")
+    return errors
+
+
+def collect(
+    directory: Path, candidate: CandidateIdentity, now: datetime,
+    python_certification: PythonCertification | None = None,
+) -> dict[str, Any]:
+    digest, source_sha = candidate
     if not DIGEST.fullmatch(digest):
         raise ValueError("candidate image must be an exact sha256 digest")
     if not SHA.fullmatch(source_sha):
@@ -106,7 +158,14 @@ def collect(directory: Path, *, digest: str, source_sha: str, now: datetime) -> 
             rows.append({"id": meta.get("id"), "status": "fail", "errors": ["receipt file is missing"]})
             continue
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        rows.append(validate_receipt(meta, receipt, digest=digest, source_sha=source_sha, now=now))
+        row = validate_receipt(meta, receipt, candidate, now)
+        if meta.get("id") == "sdk-python" and python_certification is not None:
+            row["errors"].extend(validate_python_identity(
+                receipt, python_certification.wheel, python_certification.requirements_revision,
+            ))
+            if row["errors"]:
+                row["status"] = "fail"
+        rows.append(row)
 
     ids = {row.get("id") for row in rows}
     for required in sorted(REQUIRED - ids):
@@ -126,11 +185,23 @@ def main() -> int:
     parser.add_argument("--candidate-digest", required=True)
     parser.add_argument("--candidate-source-sha", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--requirements-revision", required=True)
     args = parser.parse_args()
+
+    import yaml
+
     try:
-        result = collect(args.evidence_dir, digest=args.candidate_digest, source_sha=args.candidate_source_sha, now=datetime.now(timezone.utc))
+        manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
+        wheel = manifest["clientArtifacts"]["honua-sdk-python-wheel"]
+        result = collect(
+            args.evidence_dir,
+            CandidateIdentity(args.candidate_digest, args.candidate_source_sha),
+            datetime.now(timezone.utc),
+            PythonCertification(wheel, args.requirements_revision),
+        )
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, KeyError, TypeError, ValueError, yaml.YAMLError) as exc:
         print(f"[ERROR] candidate evidence collection: {exc}", file=sys.stderr)
         return 1
     print(f"candidate evidence: {result['status']} ({args.output})")
