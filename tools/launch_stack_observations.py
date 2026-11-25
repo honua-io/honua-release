@@ -22,10 +22,15 @@ def one(values, reason):
     return values[0]
 
 
-def stack_state(aws, stack_name):
-    response = aws('cloudformation', 'describe-stacks', '--stack-name', stack_name)
+def stack_state(aws, stack_name, stack_id=None, *, describe=None):
+    identity = stack_id or stack_name
+    if describe is None:
+        response = aws('cloudformation', 'describe-stacks', '--stack-name', identity)
+    else:
+        response = describe(identity)
     stack = one(response.get('Stacks'), 'Missing or ambiguous stack')
-    require(stack.get('StackName') == stack_name, 'Stack identity differs')
+    require(stack.get('StackName') == stack_name and (stack_id is None or stack.get('StackId') == stack_id),
+            'Stack identity differs')
     require(stack.get('StackStatus') in ('CREATE_COMPLETE', 'UPDATE_COMPLETE'),
             'Stack has not completed the requested deployment')
     require({'Key': 'HonuaGate', 'Value': 'true'} in stack.get('Tags', []),
@@ -33,14 +38,31 @@ def stack_state(aws, stack_name):
     return stack
 
 
+def resource_summaries(aws, stack_identity):
+    resources = []
+    seen_tokens = set()
+    page_args = ()
+    while True:
+        response = aws('cloudformation', 'list-stack-resources', '--stack-name', stack_identity, *page_args)
+        page = response.get('StackResourceSummaries')
+        require(isinstance(page, list), 'Incomplete stack resource response')
+        resources.extend(page)
+        token = response.get('NextToken')
+        if token is None:
+            return resources
+        require(isinstance(token, str) and token and token not in seen_tokens,
+                'Incomplete stack resource response: invalid continuation')
+        seen_tokens.add(token)
+        page_args = ('--next-token', token)
+
+
 def stack_resources(aws, stack_name):
-    response = aws('cloudformation', 'list-stack-resources', '--stack-name', stack_name)
-    require(not response.get('NextToken'), 'Incomplete stack resource response')
+    summaries = resource_summaries(aws, stack_name)
     resources = {}
     for logical, kind in (('Cluster', 'AWS::ECS::Cluster'), ('Service', 'AWS::ECS::Service'),
                           ('ServerTask', 'AWS::ECS::TaskDefinition'),
                           ('Targets', 'AWS::ElasticLoadBalancingV2::TargetGroup')):
-        resource = one([r for r in response.get('StackResourceSummaries', [])
+        resource = one([r for r in summaries
                         if r.get('LogicalResourceId') == logical], f'Missing stack resource {logical}')
         require(resource.get('ResourceType') == kind and resource.get('PhysicalResourceId'),
                 f'Invalid stack resource {logical}')
@@ -172,12 +194,12 @@ def ready_targets(aws, resources, tasks):
     readiness_group(aws, resources)
 
 
-def observe_stack(aws, stack_name):
+def observe_stack(aws, stack_name, *, stack_id=None, describe=None):
     require(isinstance(stack_name, str) and re.fullmatch(r'honua-gate-[a-zA-Z0-9-]+', stack_name),
             'Only disposable gate stacks may be observed')
     started = datetime.now(timezone.utc).isoformat()
-    stack = stack_state(aws, stack_name)
-    resources = stack_resources(aws, stack_name)
+    stack = stack_state(aws, stack_name, stack_id, describe=describe)
+    resources = stack_resources(aws, stack_id or stack_name)
     service = service_state(aws, resources)
     definition = task_definition(aws, resources)
     tasks = running_tasks(aws, resources)
@@ -189,7 +211,7 @@ def observe_stack(aws, stack_name):
     require(task_snapshot(running_tasks(aws, resources), resources) == snapshot,
             'Tasks changed during readiness observation')
     require(service_state(aws, resources) == service, 'Service changed during observation')
-    require(stack_state(aws, stack_name) == stack, 'Stack changed during observation')
+    require(stack_state(aws, stack_name, stack_id, describe=describe) == stack, 'Stack changed during observation')
     return {'stackName': stack_name, 'startedAt': started,
             'completedAt': datetime.now(timezone.utc).isoformat(), **definition,
             'observedPlatformImageDigest': digests.pop(), 'healthyTaskCount': len(tasks)}
