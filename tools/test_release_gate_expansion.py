@@ -7,7 +7,7 @@ import release_promise as p
 WORKFLOWS = ('install', 'publish-layer', 'style', 'share', 'build-app',
              'sign-in-roles', 'recover-incident', 'migrate-service')
 NEW_ROWS = {'cloud-image-aot', 'cloud-no-redis-source',
-            'security-agent-default-deny', 'operates-8-upgrade'}
+            'security-agent-default-deny', *p.rc2_rigor.IDS}
 KEPT_ROWS = {'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable',
              'clients-installed', 'operates-telemetry', 'operates-restore'}
 
@@ -19,6 +19,7 @@ def test_existing_gates_are_required_with_both_companion_receipts():
     assert p.producer_workflows(rows['contract-compat']) == ['gate-contract.yml', 'gate-contract-live.yml']
     assert p.producer_workflows(rows['docs-executable']) == ['gate-executable-docs.yml', 'gate-docs.yml']
     assert rows['operates-8-upgrade']['workflow'] == 'gate-upgrade.yml'
+    assert rows['operates-8-upgrade']['required'] == ['ga']
     assert rows['operates-8-upgrade']['assertions']['launchStack'] is True
     assert rows['protocol-compat']['required'] == rows['operates-capacity']['required'] == ['ga']
 
@@ -54,7 +55,7 @@ def test_sentence_and_click_contract():
         for unit in ('sentences', 'clicks'):
             row = rows[f'{unit}-{workflow}']
             assert row['unit'] == unit
-            assert row['required'] == ['rc', 'ga']
+            assert row['required'] == ['ga']
             assert row['gaMaximum'] is None
 
 
@@ -93,7 +94,8 @@ def test_new_promise_missing_evidence_blocks_admission(row_id):
     assert not p.report_valid(report, 'ga', NOW)
 
 
-@pytest.mark.parametrize('row_id', sorted(NEW_ROWS))
+@pytest.mark.parametrize('row_id', ['cloud-image-aot', 'cloud-no-redis-source',
+                                    'security-agent-default-deny', 'operates-8-upgrade'])
 def test_new_promise_requires_every_assertion(row_id):
     from test_release_promise import run, CANDIDATE, NOW
     row = next(row for row in p.load_contract() if row['id'] == row_id)

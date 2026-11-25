@@ -14,20 +14,24 @@ import urllib.error
 import zipfile
 
 import rc_gate_window as w
+import rc2_rigor
 import release_outcomes as outcomes
 import release_adversarial as adversarial
 from execution_order import AmbiguousOrder, contenders, instant
 
 CONTRACT = Path(__file__).resolve().parents[1] / 'certification/release-promise.v1.json'
+WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / '.github/workflows'
 REQUIRED_IDS = frozenset({*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)),
                          'operates-12-notify', 'security-hardened', 'security-open-high',
-                         'cloud-launch-stack', 'security-whitehat', 'chaos', 'cloud-image-aot',
-                         'cloud-no-redis-source', 'security-agent-default-deny', 'operates-8-upgrade',
+                         'cloud-launch-stack', 'security-whitehat', 'cloud-image-aot',
+                         'cloud-no-redis-source', 'security-agent-default-deny',
                          'supply-sbom', 'supply-scan', 'contract-compat', 'docs-executable',
-                         'clients-installed', 'operates-telemetry', 'operates-restore'})
+                         'clients-installed', 'operates-telemetry', 'operates-restore',
+                         *rc2_rigor.IDS})
 AI_IDS = frozenset(f'ai-{s}' for s in ('operate', 'publish', 'build', 'migrate', 'injection'))
 
-GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity', 'ga-capabilities'}
+GA_ONLY_IDS = AI_IDS | {'protocol-compat', 'operates-capacity', 'ga-capabilities',
+                        'operates-8-upgrade', 'chaos'}
 ALL_IDS = REQUIRED_IDS | GA_ONLY_IDS
 SECURITY_SUMMARY_ROW = 'security-open-high'
 SECURITY_SUMMARY_ACTORS = frozenset({'mikemcdougall'})
@@ -78,6 +82,14 @@ def _validate_contract_row(row: dict) -> None:
                          ('artifact', r'[a-z0-9-]+'), ('receipt', r'[a-z0-9-]+\.json')):
         if not re.fullmatch(pattern, row.get(key, '')):
             raise ValueError(f'invalid producer {key}')
+
+
+def missing_rc_workflows(contract_path: Path = CONTRACT, workflows_dir: Path = WORKFLOWS_DIR) -> list[str]:
+    doc = json.loads(contract_path.read_text())
+    entries = [row for row in doc['rows'] + doc['outcomes'] if 'rc' in row.get('required', [])]
+    needed = {wf for row in entries if row.get('repo') == 'honua-io/honua-release'
+              for wf in producer_workflows(row)}
+    return sorted(wf for wf in needed if not (workflows_dir / wf).is_file())
 
 
 def load_contract(path: Path = CONTRACT) -> list[dict]:
@@ -170,6 +182,8 @@ def _receipt_valid(doc: dict, row: dict, context: tuple) -> bool:
             return False
     if row['id'] in adversarial.IDS:
         return adversarial.valid(doc)
+    if row['id'] in rc2_rigor.IDS:
+        return rc2_rigor.valid(doc)
     if row['id'] in outcomes.IDS:
         return outcomes.valid(doc)
     return True

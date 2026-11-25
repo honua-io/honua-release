@@ -1,14 +1,17 @@
 # Release promise receipts
 
-`release-promise.v1.json` is the producer contract for the founder's 14 November
-2026 amendments and the 15 November approved release gates plan. Its 34 promise
-rows include four additional RC and GA requirements: `cloud-image-aot`,
-`cloud-no-redis-source`, `security-agent-default-deny`, and `operates-8-upgrade`,
-and the GA-only `ga-capabilities` row (honua-release#1556).
-RC requires these alongside the ten fault rows, hardened default, zero open high
-findings, cloud install, white-hat and chaos evidence.
-AI journeys and injection evidence are reported for RC and required for GA.
-Unproven AI journeys must ship marked Preview; a green RC gate does not certify them.
+`release-promise.v1.json` is the producer contract for RC and GA release admission.
+Its 39 promise rows include the ten live fault rows, hardened Launch Stack install,
+zero open high findings, AOT image budget, zero Redis source references, agent
+default-deny, white-hat dual review, kept supply-chain/contract/docs/client/telemetry/DR
+gates, and five RC2 runtime and security rigor gates: `aot-multiarch-regression`,
+`postgis-upgrade-recovery`, `gis-clients-proxy`, `tenant-isolation-parity`, and
+`aot-memory-soak`.
+AI journeys, injection evidence, `protocol-compat`, `operates-capacity`,
+`operates-8-upgrade`, `chaos`, and `ga-capabilities` are reported for RC and
+required for GA. Unproven AI journeys ship marked Preview; a green RC gate does
+not certify them. Every workflow required for RC must exist under `.github/workflows/`
+and pass pinned-action verification.
 
 The workflow names in the contract reserve producer interfaces. They do not claim
 that those workflows exist or that any live test has passed. Missing producers,
@@ -66,10 +69,13 @@ binds the candidate. RC admission includes this gate without a manifest-pin
 fallback. GA admission additionally requires all five AI rows plus protocol compatibility and capacity. Admission rechecks
 row freshness at its own evaluation time.
 
-The outcomes rulings require all 35 measurements in `outcomes` at RC: the existing
-19 timing measurements and 16 sentence/click counts. `gate-dr.yml` supplies
-`recovery-operates-restore`; `gate-release-outcomes.yml` supplies the other 34.
-Both producers use the same measurement interface. It uploads one common-schema receipt per metric with numeric,
+The outcomes contract splits the 35 measurements into two tiers: 13 operator-time
+measurements required at RC and GA (`install-console` from `gate-launch-stack.yml`,
+`unattended-person` and `recovery-operates-1..6, 9..11, 12-notify` from
+`gate-runs-itself.yml`, and `recovery-operates-restore` from `gate-dr.yml`), and
+22 builder-speed measurements required at GA and reported at RC (`sentences-*`,
+`clicks-*`, `developer-*`, `studio-*` from `gate-release-outcomes.yml`).
+All producers use the same measurement interface. It uploads one common-schema receipt per metric with numeric,
 finite, nonnegative `value`, the contract unit (`minutes`, `sentences`, or `clicks`),
 and assertions `live: true` and
 `releaseNotesReported: true`. The same artifact must contain `release-notes.md`

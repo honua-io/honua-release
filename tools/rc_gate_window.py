@@ -95,12 +95,12 @@ _ADMISSION_WORKFLOWS = {
 }
 ADMISSION_GATES = tuple(_ADMISSION_WORKFLOWS.get(gate, gate) for gate in TRAIN_GATES)
 GA_ONLY_GATES = (PROTOCOL_GATE,)
-# AI gates remain reported as Preview evidence and are advisory for RC admission.
-RC_ADVISORY: tuple[str, ...] = AI_GATES
 ARC_GATE = "ai-arc.yml"
+# AI gates remain reported as Preview evidence and are advisory for RC admission.
+RC_ADVISORY: tuple[str, ...] = AI_GATES + (ARC_GATE,)
 STUDIO_CUSTOMER_GATE = "gate-studio-customer-journey.yml"
 PROMISE_GATE = "gate-release-promise.yml"
-RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFERRED + GA_ONLY_GATES) + (ARC_GATE, STUDIO_CUSTOMER_GATE, PROMISE_GATE)
+RC_GATES: tuple[str, ...] = tuple(g for g in ADMISSION_GATES if g not in GA_DEFERRED + GA_ONLY_GATES) + (STUDIO_CUSTOMER_GATE, PROMISE_GATE)
 
 # Workflows whose uploaded report or receipt can carry the honua-server image digest, the honua-server
 # source SHA, and the platform-lock digest. Native ECS uses its qualification envelope.
