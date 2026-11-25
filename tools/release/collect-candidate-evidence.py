@@ -92,6 +92,10 @@ def validate_receipt(meta: dict[str, Any], receipt: Any, *, digest: str, source_
     }
 
 
+def matches_fields(value: Any, expected: dict[str, Any]) -> bool:
+    return isinstance(value, dict) and all(value.get(key) == field for key, field in expected.items())
+
+
 def validate_python_identity(receipt: dict[str, Any], wheel: dict[str, str], revision: str) -> list[str]:
     if not isinstance(receipt, dict) or receipt.get("requirements_revision") != revision:
         return ["Python receipt has a different requirements revision"]
@@ -102,19 +106,24 @@ def validate_python_identity(receipt: dict[str, Any], wheel: dict[str, str], rev
     expected = {
         "client_version": wheel["version"],
         "producer_source_sha": wheel["sourceSha"],
+        "client_package": {
+            "filename": wheel["filename"],
+            "sha256": wheel["digest"].removeprefix("sha256:"),
+            "source": "pypi",
+        },
     }
-    expected_package = {
-        "filename": wheel["filename"],
-        "sha256": wheel["digest"].removeprefix("sha256:"),
-    }
+    expected_identity = {**expected, "requirements_revision": revision}
     errors = []
     for index, observation in enumerate(observations):
-        package = observation.get("client_package") if isinstance(observation, dict) else None
-        if not isinstance(package, dict) or (
-            any(package.get(key) != value for key, value in expected_package.items())
-            or any(observation.get(key) != value for key, value in expected.items())
-        ):
+        if not matches_fields(observation, expected):
             errors.append(f"Python observation {index} differs from the manifest wheel identity")
+            continue
+        evidence = observation.get("evidence_receipt")
+        if observation.get("result") == "skip" and evidence is None:
+            continue
+        identity = evidence.get("identity") if isinstance(evidence, dict) else None
+        if not matches_fields(identity, expected_identity):
+            errors.append(f"Python observation {index} receipt differs from the manifest wheel identity")
     return errors
 
 

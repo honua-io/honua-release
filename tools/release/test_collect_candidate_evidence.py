@@ -88,22 +88,35 @@ def test_python_receipt_must_match_manifest_wheel_and_requirements(tmp_path):
         "sourceSha": "d" * 40,
     }
     revision = "requirements-v1"
-    package = {"filename": wheel["filename"], "sha256": "c" * 64}
+    package = {"filename": wheel["filename"], "sha256": "c" * 64, "source": "pypi"}
     observation = {
         "client_version": wheel["version"],
         "producer_source_sha": wheel["sourceSha"],
         "client_package": package,
     }
+    identity = {**observation, "requirements_revision": revision}
+    observation.update(result="pass", evidence_receipt={"identity": identity})
+    skip = {**observation, "result": "skip", "evidence_receipt": None}
     path = tmp_path / "sdk-python" / "receipt.json"
     receipt = json.loads(path.read_text())
     receipt.update(requirements_revision=revision, observations=[observation])
     cases = [
         ({}, "pass"),
+        ({"observations": [observation, skip]}, "pass"),
+        ({"observations": [{**observation, "evidence_receipt": None}]}, "fail"),
         ({"requirements_revision": "stale"}, "fail"),
         ({"observations": []}, "fail"),
         ({"observations": [observation, {**observation, "producer_source_sha": SHA}]}, "fail"),
         ({"observations": [{**observation, "client_package": {**package, "sha256": "e" * 64}}]}, "fail"),
     ]
+    for mismatched_package in (
+        {**package, "sha256": "e" * 64},
+        {**package, "source": "other"},
+        {key: value for key, value in package.items() if key != "source"},
+    ):
+        wrong_receipt = {"identity": {**identity, "client_package": mismatched_package}}
+        cases.append(({"observations": [{**observation, "evidence_receipt": wrong_receipt}]}, "fail"))
+        cases.append(({"observations": [{**observation, "client_package": mismatched_package}]}, "fail"))
     for changes, expected in cases:
         path.write_text(json.dumps({**receipt, **changes}))
         result = collect(
