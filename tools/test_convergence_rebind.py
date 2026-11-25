@@ -567,7 +567,6 @@ SERVICE_FILES = {
     "src/Honua.Scene/Grpc/HonuaSceneGrpcService.cs": "3" * 40,
     "src/Honua.Server/Program.cs": "4" * 40,
 }
-VERIFIED = "a997a37e6953d19a4db483aa9160a113f06ae5ef"  # the last verified_server_commits entry
 NEXT_SERVER = "d1fc139a64ce33c817bd927bacb2103714221515"
 
 
@@ -597,12 +596,16 @@ def test_nightly_grpc_ruling_carries_only_to_an_identical_grpc_surface(tmp_path)
     root = grpc_root(tmp_path)
     before = (root / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8")
 
+    previous_ruling = next(r for r in json.loads(before)["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    previous_head = previous_ruling["verified_server_commits"][-1]
+
     record = MODULE.verify_grpc_scope(root, ServerTree(), NEXT_SERVER)
 
-    assert record["server_commit"] == NEXT_SERVER and record["same_surface_as"] == VERIFIED
+    assert record["server_commit"] == NEXT_SERVER
+    assert record["same_surface_as"] == previous_head
     after = (root / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8")
     ruling = next(r for r in json.loads(after)["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-2:] == [VERIFIED, NEXT_SERVER]
+    assert ruling["verified_server_commits"][-2:] == [previous_head, NEXT_SERVER]
     # Only the new commit is inserted; the rest of the governed file is byte-identical.
     assert after.replace(f',\n                "{NEXT_SERVER}"', "", 1) == before
     # An already-verified server needs no re-check and changes nothing.
@@ -1141,13 +1144,25 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_cut_candidate_server():
 def test_grpc_ruling_is_rechecked_at_the_2026_11_21_nightly_candidate():
     """Nightly run 44961665462 aborted REBIND at server a997a37e: honua-server b975f45378 changed the
     FeatureService Query RPC body, so the surface hash moved although the mapped services and
-    RPC overrides did not. The hand re-check is recorded as the newest verified commit."""
+    RPC overrides did not. The hand re-check is recorded after de512e8."""
     candidate = "a997a37e6953d19a4db483aa9160a113f06ae5ef"
     document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
     ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
-    assert ruling["verified_server_commits"][-2:] == ["de512e8123bdfbfbe20f692b236e37853b4f8294", candidate]
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1] == "de512e8123bdfbfbe20f692b236e37853b4f8294"
     recheck = ruling["evidence"].split("Re-checked at a997a37e", 1)[1]
     assert "byte-identical to de512e8" in recheck and "b975f45378" in recheck
+
+
+def test_grpc_ruling_is_rechecked_at_the_2026_11_25_nightly_candidate():
+    candidate = "704e2f4aec530674ff52833b9fedfecda565152f"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1] == "a997a37e6953d19a4db483aa9160a113f06ae5ef"
+    added = {"ApplyServiceEdits", "QueryRelatedRecords"}
+    assert added.isdisjoint(row["operation"] for row in document["operations"] + document["excluded_operations"])
+    assert all(rpc in ruling["evidence"].split("Re-checked at 704e2f4a", 1)[1] for rpc in added)
 
 
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
