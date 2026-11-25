@@ -560,7 +560,7 @@
         "live": true,
         "rigorVerified": true
       },
-      "criterion": "QGIS, MapLibre, Cesium, and ArcGIS clients pass behind an HTTPS-terminating reverse proxy with https:// links, axis order, Esri error envelopes, and CORS headers on 400/401/402/403/429 responses."
+      "criterion": "QGIS, MapLibre, Cesium, and GeoServices clients pass behind an HTTPS-terminating reverse proxy with https:// links, axis order, GeoServices error envelopes, and CORS headers on 400/401/402/403/429 responses."
     },
     {
       "id": "tenant-isolation-parity",

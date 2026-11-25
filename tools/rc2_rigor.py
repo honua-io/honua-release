@@ -21,11 +21,11 @@ AOT_REQUIRED_FLAGS = (
 UPGRADE_REQUIRED_FLAGS = (
     'degradedStartupSurvived', 'degradedInitialNotReady', 'editableAfterUpgrade',
 )
-REQUIRED_CLIENTS = frozenset({'qgis', 'maplibre', 'cesium', 'arcgis'})
+REQUIRED_CLIENTS = frozenset({'qgis', 'maplibre', 'cesium', 'geoservices'})
 REQUIRED_CORS_ERROR_CODES = frozenset({400, 401, 402, 403, 429})
 CLIENT_PROXY_FLAGS = (
     'forwardedProtoHttps', 'ogcNextLinksHttps', 'capabilitiesOnlineResourceHttps',
-    'axisOrderVerified', 'esriErrorEnvelopeVerified',
+    'axisOrderVerified', 'geoservicesErrorEnvelopeVerified',
 )
 REQUIRED_HOST_ADMIN_ROUTES = frozenset({
     '/api/v1/admin/connections',
