@@ -13,14 +13,15 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'certification'))
 
+import rc2_rigor as rigor
 import release_adversarial as adversarial
 import release_outcomes as outcomes
-import release_promise as promise
 
 DIGEST_RE = re.compile(r'^sha256:[0-9a-f]{64}$')
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')
 STACK_RE = re.compile(r'^honua-gate-[a-zA-Z0-9-]+$')
 REPORT_RE = re.compile(r'^[a-z0-9-]+\.md$')
+RC_IMAGE_SIZE_BUDGET = 370_000_000
 OPERATES_IDS = tuple(
     [*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)), 'operates-12-notify']
 )
@@ -32,7 +33,7 @@ class EmitContext:
     server_sha: str
     server_digest: str
     lock_digest: str
-    observed_at: str
+    now: dt.datetime
 
 
 def _confined_dir(raw: str) -> Path:
@@ -49,7 +50,16 @@ def _validate_identity(server_sha: str, server_digest: str, lock_digest: str) ->
         raise ValueError('server_digest and lock_digest must be sha256 digests')
 
 
-def _base_receipt(context: EmitContext, row_id: str, stack_name: str) -> dict:
+def _verify_proof_binding(proof: dict, context: EmitContext) -> str:
+    req = rigor.ReceiptContext('live', context.server_sha, context.server_digest, context.lock_digest)
+    return rigor.verify_proof_identity_and_age(proof, req, context.now)
+
+
+def _emitted_at(context: EmitContext) -> str:
+    return context.now.isoformat().replace('+00:00', 'Z')
+
+
+def _base_receipt(context: EmitContext, row_id: str, stack_name: str, source_observed: str) -> dict:
     return {
         'schema': 'honua.release-promise-receipt/v1',
         'row': row_id,
@@ -57,12 +67,15 @@ def _base_receipt(context: EmitContext, row_id: str, stack_name: str) -> dict:
         'serverSha': context.server_sha,
         'imageDigest': context.server_digest,
         'platformLockDigest': context.lock_digest,
-        'observedAt': context.observed_at,
+        'observedAt': _emitted_at(context),
+        'sourceObservedAt': source_observed,
         'stackName': stack_name,
     }
 
 
-def _outcome_receipt(context: EmitContext, row_id: str, value: float | int) -> dict:
+def _outcome_receipt(
+    context: EmitContext, row_id: str, value: float | int, source_observed: str
+) -> dict:
     if not outcomes.number(value):
         raise ValueError(f'invalid measurement for {row_id}')
     return {
@@ -72,7 +85,8 @@ def _outcome_receipt(context: EmitContext, row_id: str, value: float | int) -> d
         'serverSha': context.server_sha,
         'imageDigest': context.server_digest,
         'platformLockDigest': context.lock_digest,
-        'observedAt': context.observed_at,
+        'observedAt': _emitted_at(context),
+        'sourceObservedAt': source_observed,
         'value': value,
         'unit': outcomes.unit_for(row_id),
         'assertions': {'live': True, 'releaseNotesReported': True},
@@ -91,25 +105,29 @@ def _write_bundle(out: Path, receipts: list[dict], notes_docs: list[dict]) -> No
 
 def emit_launch_stack(context: EmitContext, out: Path) -> list[dict]:
     proof = json.loads((context.proof_dir / 'launch-stack-proof.json').read_text(encoding='utf-8'))
+    source_observed = _verify_proof_binding(proof, context)
     stack = str(proof.get('stackName', ''))
     if not STACK_RE.fullmatch(stack):
         raise ValueError('Launch Stack proof requires a honua-gate-* stackName')
     size = proof.get('imageSizeBytes')
-    if type(size) is not int or not 0 < size <= promise.IMAGE_SIZE_BUDGETS['rc']:
+    if type(size) is not int or not 0 < size <= RC_IMAGE_SIZE_BUDGET:
         raise ValueError('Launch Stack AOT image size exceeds RC budget or is invalid')
     if (proof.get('orchestrator') != 'ecs' or proof.get('redis') is not False
             or proof.get('defaultImage') != 'postgis-only'
             or proof.get('protectionProfile') != 'Hardened'
             or proof.get('publishedAotImage') is not True):
         raise ValueError('Launch Stack proof failed ECS/Hardened/AOT assertions')
-    cloud = {**_base_receipt(context, 'cloud-launch-stack', stack),
+    cloud = {**_base_receipt(context, 'cloud-launch-stack', stack, source_observed),
              'assertions': {'live': True, 'orchestrator': 'ecs', 'redis': False,
                             'defaultImage': 'postgis-only'}}
-    aot = {**_base_receipt(context, 'cloud-image-aot', stack), 'imageSizeBytes': size,
+    aot = {**_base_receipt(context, 'cloud-image-aot', stack, source_observed),
+           'imageSizeBytes': size,
            'assertions': {'live': True, 'publishedAotImage': True, 'sizeBudgetMet': True}}
-    hardened = {**_base_receipt(context, 'security-hardened', stack),
+    hardened = {**_base_receipt(context, 'security-hardened', stack, source_observed),
                 'assertions': {'live': True, 'protectionProfile': 'Hardened'}}
-    install_min = _outcome_receipt(context, 'install-console', proof.get('installConsoleMinutes'))
+    install_min = _outcome_receipt(
+        context, 'install-console', proof.get('installConsoleMinutes'), source_observed
+    )
     receipts = [cloud, aot, hardened, install_min]
     _write_bundle(out, receipts, [install_min])
     return receipts
@@ -117,6 +135,7 @@ def emit_launch_stack(context: EmitContext, out: Path) -> list[dict]:
 
 def emit_runs_itself(context: EmitContext, out: Path) -> list[dict]:
     proof = json.loads((context.proof_dir / 'runs-itself-proof.json').read_text(encoding='utf-8'))
+    source_observed = _verify_proof_binding(proof, context)
     stack = str(proof.get('stackName', ''))
     if not STACK_RE.fullmatch(stack):
         raise ValueError('Runs-Itself proof requires a honua-gate-* stackName')
@@ -128,11 +147,17 @@ def emit_runs_itself(context: EmitContext, out: Path) -> list[dict]:
         entry = rows_data.get(row_id)
         if not isinstance(entry, dict) or entry.get('status') != 'PASS':
             raise ValueError(f'Runs-Itself row {row_id} did not pass')
-        receipts.append({**_base_receipt(context, row_id, stack), 'assertions': {'live': True}})
-        rec = _outcome_receipt(context, f'recovery-{row_id}', entry.get('recoveryMinutes'))
+        receipts.append(
+            {**_base_receipt(context, row_id, stack, source_observed), 'assertions': {'live': True}}
+        )
+        rec = _outcome_receipt(
+            context, f'recovery-{row_id}', entry.get('recoveryMinutes'), source_observed
+        )
         receipts.append(rec)
         note_docs.append(rec)
-    unattended = _outcome_receipt(context, 'unattended-person', proof.get('unattendedPersonMinutes'))
+    unattended = _outcome_receipt(
+        context, 'unattended-person', proof.get('unattendedPersonMinutes'), source_observed
+    )
     receipts.append(unattended)
     note_docs.append(unattended)
     _write_bundle(out, receipts, note_docs)
@@ -141,6 +166,7 @@ def emit_runs_itself(context: EmitContext, out: Path) -> list[dict]:
 
 def emit_whitehat(context: EmitContext, out: Path) -> list[dict]:
     proof = json.loads((context.proof_dir / 'whitehat-proof.json').read_text(encoding='utf-8'))
+    source_observed = _verify_proof_binding(proof, context)
     reviews = proof.get('reviews')
     if not isinstance(reviews, list) or len(reviews) != 2:
         raise ValueError('white-hat proof requires exactly two independent reviews')
@@ -164,7 +190,8 @@ def emit_whitehat(context: EmitContext, out: Path) -> list[dict]:
         'serverSha': context.server_sha,
         'imageDigest': context.server_digest,
         'platformLockDigest': context.lock_digest,
-        'observedAt': context.observed_at,
+        'observedAt': _emitted_at(context),
+        'sourceObservedAt': source_observed,
         'assertions': {'live': True},
     }
     check_doc = {**receipt, '_archivedReports': [name for name, _ in archived]}
@@ -195,8 +222,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         proof_dir = _confined_dir(args.proof_dir)
         _validate_identity(args.server_sha, args.server_digest, args.lock_digest)
-        observed_at = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-        context = EmitContext(proof_dir, args.server_sha, args.server_digest, args.lock_digest, observed_at)
+        now = dt.datetime.now(dt.timezone.utc)
+        context = EmitContext(proof_dir, args.server_sha, args.server_digest, args.lock_digest, now)
         EMITTERS[args.mode](context, args.out)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, f'Live promise receipt rejected: {error}\n')

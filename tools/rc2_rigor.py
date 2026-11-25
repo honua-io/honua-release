@@ -12,6 +12,7 @@ import re
 
 DIGEST_RE = re.compile(r'^sha256:[0-9a-f]{64}$')
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')
+MAX_EVIDENCE_AGE = dt.timedelta(days=7)
 
 AOT_ARCHES = frozenset({'amd64', 'arm64'})
 AOT_REQUIRED_FLAGS = (
@@ -77,6 +78,30 @@ def _is_positive_finite(value: object) -> bool:
 
 def _all_true(mapping: dict, keys: tuple[str, ...]) -> bool:
     return all(mapping.get(key) is True for key in keys)
+
+
+def parse_utc(value: object) -> dt.datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo == dt.timezone.utc else None
+
+
+def verify_proof_identity_and_age(
+    proof: dict, context: ReceiptContext, now: dt.datetime
+) -> str:
+    if (proof.get('serverSha') != context.server_sha
+            or proof.get('imageDigest') != context.image_digest
+            or proof.get('platformLockDigest') != context.lock_digest):
+        raise ValueError('proof candidate identity does not match requested candidate')
+    raw_time = proof.get('observedAt')
+    observed = parse_utc(raw_time)
+    if observed is None or not now - MAX_EVIDENCE_AGE <= observed <= now:
+        raise ValueError('proof observedAt must be a UTC timestamp inside the 7-day window')
+    return str(raw_time).strip()
 
 
 def _valid_aot_arch(entry: object) -> str | None:
@@ -205,7 +230,7 @@ def valid(doc: dict) -> bool:
     return validator is not None and validator(doc)
 
 
-def build_receipt(context: ReceiptContext, proof: dict) -> dict:
+def build_receipt(context: ReceiptContext, proof: dict, now: dt.datetime | None = None) -> dict:
     if context.row not in IDS:
         raise ValueError(f'unsupported rigor row: {context.row}')
     if not SHA_RE.fullmatch(context.server_sha):
@@ -214,6 +239,9 @@ def build_receipt(context: ReceiptContext, proof: dict) -> dict:
         raise ValueError('invalid candidate digests')
     if not isinstance(proof, dict):
         raise ValueError('proof document must be a JSON object')
+    current = now or dt.datetime.now(dt.timezone.utc)
+    source_observed = verify_proof_identity_and_age(proof, context, current)
+    emitted_at = current.isoformat().replace('+00:00', 'Z')
     receipt = {
         **proof,
         'schema': 'honua.release-promise-receipt/v1',
@@ -222,7 +250,8 @@ def build_receipt(context: ReceiptContext, proof: dict) -> dict:
         'serverSha': context.server_sha,
         'imageDigest': context.image_digest,
         'platformLockDigest': context.lock_digest,
-        'observedAt': dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z'),
+        'observedAt': emitted_at,
+        'sourceObservedAt': source_observed,
         'assertions': {'live': True, 'rigorVerified': True},
     }
     if not valid(receipt):
@@ -230,19 +259,35 @@ def build_receipt(context: ReceiptContext, proof: dict) -> dict:
     return receipt
 
 
+def _resolve_proof_path(proof_arg: str, proof_root: Path | None) -> Path:
+    path = Path(proof_arg)
+    if proof_root is None:
+        if not path.is_file():
+            raise ValueError(f'missing rigor proof file: {proof_arg}')
+        return path
+    if not proof_arg or path.is_absolute() or '..' in path.parts:
+        raise ValueError('proof path must be a safe relative path')
+    candidate = proof_root / path
+    if candidate.is_symlink() or not candidate.is_file():
+        raise ValueError(f'missing rigor proof file under root: {proof_arg}')
+    if not candidate.resolve().is_relative_to(proof_root.resolve()):
+        raise ValueError('proof path escapes proof root')
+    return candidate
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--row', choices=sorted(IDS), required=True)
-    parser.add_argument('--proof', type=Path, required=True)
+    parser.add_argument('--proof', required=True)
+    parser.add_argument('--proof-root', type=Path, default=None)
     parser.add_argument('--server-sha', required=True)
     parser.add_argument('--server-digest', required=True)
     parser.add_argument('--lock-digest', required=True)
     parser.add_argument('--out', type=Path, required=True)
     args = parser.parse_args(argv)
-    if not args.proof.is_file():
-        parser.exit(1, f'Missing rigor proof file: {args.proof}\n')
     try:
-        proof = json.loads(args.proof.read_text(encoding='utf-8'))
+        proof_path = _resolve_proof_path(args.proof, args.proof_root)
+        proof = json.loads(proof_path.read_text(encoding='utf-8'))
         context = ReceiptContext(args.row, args.server_sha, args.server_digest, args.lock_digest)
         receipt = build_receipt(context, proof)
     except (OSError, ValueError) as error:

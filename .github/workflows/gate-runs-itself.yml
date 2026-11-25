@@ -13,13 +13,26 @@ on:
       platform_lock_digest:
         required: true
         type: string
-      proof_dir:
-        description: Relative directory containing validated Runs-Itself live fault evidence
+      source_repo:
+        description: Authenticated repository that produced the Runs-Itself evidence artifact
+        required: false
+        type: choice
+        options:
+          - honua-io/honua-release
+          - honua-io/honua-server
+        default: honua-io/honua-release
+      source_run_id:
+        description: Completed trunk or nightly-candidate run ID containing the Runs-Itself artifact
+        required: true
+        type: string
+      artifact_name:
+        description: Artifact name containing runs-itself-proof.json
         required: true
         type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: gate-runs-itself-${{ github.ref }}
@@ -37,16 +50,28 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
+      - name: Retrieve authenticated Runs-Itself evidence artifact
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GH_TOKEN || github.token }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          python3 tools/fetch_verified_evidence.py \
+            --repo "$SOURCE_REPO" \
+            --run-id "$SOURCE_RUN_ID" \
+            --artifact "$ARTIFACT_NAME" \
+            --out evidence
       - name: Validate Runs-Itself rows 1-6, 9-11, 12-notify and recovery timings
         env:
           SERVER_SHA: ${{ inputs.server_sha }}
           SERVER_DIGEST: ${{ inputs.server_digest }}
           LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
-          PROOF_DIR: ${{ inputs.proof_dir }}
         run: |
           set -euo pipefail
           python3 tools/emit_live_promise_receipts.py runs-itself \
-            --proof-dir "$PROOF_DIR" \
+            --proof-dir evidence \
             --server-sha "$SERVER_SHA" \
             --server-digest "$SERVER_DIGEST" \
             --lock-digest "$LOCK_DIGEST" \
