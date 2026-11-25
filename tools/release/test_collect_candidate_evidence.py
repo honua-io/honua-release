@@ -11,10 +11,13 @@ _module = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 _spec.loader.exec_module(_module)
 collect = _module.collect
+CandidateIdentity = _module.CandidateIdentity
+PythonCertification = _module.PythonCertification
 
 
 SHA = "a" * 40
 DIGEST = "sha256:" + "b" * 64
+CANDIDATE = CandidateIdentity(DIGEST, SHA)
 NOW = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
 
 
@@ -34,14 +37,14 @@ def _write(root: Path, name: str, *, digest: str = DIGEST, source: str = SHA, ge
 def test_all_required_receipts_bound_to_candidate_pass(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
         _write(tmp_path, name)
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     assert result["status"] == "pass"
 
 
 def test_wrong_digest_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
         _write(tmp_path, name, digest=("sha256:" + "c" * 64 if name == "realtime" else DIGEST))
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     row = next(row for row in result["evidence"] if row["id"] == "realtime")
     assert result["status"] == "fail"
     assert any("does not name candidate digest" in error for error in row["errors"])
@@ -55,7 +58,7 @@ def test_conflicting_source_revision_fails_closed(tmp_path):
     receipt["cells"] = [{"source_sha": "c" * 40}]
     receipt_path.write_text(json.dumps(receipt) + "\n")
 
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     row = next(row for row in result["evidence"] if row["id"] == "realtime")
     assert result["status"] == "fail"
     assert any("cells[0].source_sha" in error for error in row["errors"])
@@ -64,7 +67,7 @@ def test_conflicting_source_revision_fails_closed(tmp_path):
 def test_missing_receipt_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc"):
         _write(tmp_path, name)
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     assert result["status"] == "fail"
     missing = next(row for row in result["evidence"] if row["id"] == "protocol-mcp")
     assert "required post-candidate receipt is missing" in missing["errors"]
@@ -73,7 +76,7 @@ def test_missing_receipt_fails_closed(tmp_path):
 def test_stale_receipt_fails_closed(tmp_path):
     for name in ("realtime", "sdk-python", "protocol-grpc", "protocol-mcp"):
         _write(tmp_path, name, generated="2026-09-02T11:00:00Z")
-    result = collect(tmp_path, digest=DIGEST, source_sha=SHA, now=NOW)
+    result = collect(tmp_path, CANDIDATE, NOW)
     assert result["status"] == "fail"
     assert all("receipt is stale" in error for row in result["evidence"] for error in row["errors"])
 
@@ -120,7 +123,6 @@ def test_python_receipt_must_match_manifest_wheel_and_requirements(tmp_path):
     for changes, expected in cases:
         path.write_text(json.dumps({**receipt, **changes}))
         result = collect(
-            tmp_path, digest=DIGEST, source_sha=SHA, now=NOW,
-            python_wheel=wheel, requirements_revision=revision,
+            tmp_path, CANDIDATE, NOW, PythonCertification(wheel, revision),
         )
         assert result["status"] == expected, result
