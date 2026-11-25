@@ -50,6 +50,7 @@ MAX_MEMORY_LIMIT_BYTES = 4_294_967_296
 MAX_MEMORY_GROWTH_RATIO = 1.25
 MIN_SOAK_REQUESTS = 1000
 MIN_SINGLE_TENANT_WORKFLOWS = 7
+HTTP_OK = 200
 
 IDS = frozenset({
     'aot-multiarch-regression',
@@ -135,7 +136,7 @@ def _valid_postgis_upgrade(doc: dict) -> bool:
         return False
     if not (_is_int(doc.get('migrationLockFailures')) and doc['migrationLockFailures'] == 0):
         return False
-    if not (_is_int(doc.get('recoveredReadyHttpStatus')) and doc['recoveredReadyHttpStatus'] == 200):
+    if not (_is_int(doc.get('recoveredReadyHttpStatus')) and doc['recoveredReadyHttpStatus'] == HTTP_OK):
         return False
     return _all_true(doc, UPGRADE_REQUIRED_FLAGS)
 

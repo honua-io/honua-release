@@ -22,6 +22,7 @@ SHA_RE = re.compile(r'^[0-9a-f]{40}$')
 STACK_RE = re.compile(r'^honua-gate-[a-zA-Z0-9-]+$')
 REPORT_RE = re.compile(r'^[a-z0-9-]+\.md$')
 RC_IMAGE_SIZE_BUDGET = 370_000_000
+REQUIRED_WHITEHAT_REVIEWS = 2
 OPERATES_IDS = tuple(
     [*(f'operates-{i}' for i in (1, 2, 3, 4, 5, 6, 9, 10, 11)), 'operates-12-notify']
 )
@@ -168,7 +169,7 @@ def emit_whitehat(context: EmitContext, out: Path) -> list[dict]:
     proof = json.loads((context.proof_dir / 'whitehat-proof.json').read_text(encoding='utf-8'))
     source_observed = _verify_proof_binding(proof, context)
     reviews = proof.get('reviews')
-    if not isinstance(reviews, list) or len(reviews) != 2:
+    if not isinstance(reviews, list) or len(reviews) != REQUIRED_WHITEHAT_REVIEWS:
         raise ValueError('white-hat proof requires exactly two independent reviews')
     archived: list[tuple[str, bytes]] = []
     for review in reviews:
