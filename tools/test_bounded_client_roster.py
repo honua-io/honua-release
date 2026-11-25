@@ -280,7 +280,7 @@ def test_candidate_capability_demotion_regenerates_the_denominator(certification
 
 
 @pytest.mark.parametrize(
-    ("status", "reason", "accepted"),
+    "scenario",
     [
         ("live", "content-negotiation", True),
         ("preview", "content-negotiation", False),
@@ -288,8 +288,9 @@ def test_candidate_capability_demotion_regenerates_the_denominator(certification
     ],
 )
 def test_validator_checks_governed_negotiated_geoparquet(
-    certification_copy: Path, status: str, reason: str, accepted: bool,
+    certification_copy: Path, scenario: tuple[str, str, bool],
 ):
+    status, reason, accepted = scenario
     matrix_path = certification_copy / "sources" / "server" / "capability-matrix.v1.json"
     matrix = _load(matrix_path)
     matrix["capabilities"].append({
