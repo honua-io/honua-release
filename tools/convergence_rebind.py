@@ -523,6 +523,22 @@ def project_wps_production_gap(root: Path) -> tuple[str, bytes]:
     return _project_reviewed_http_gap(root, "serve.wps", expected, "WPS HTTP", "+wps-http-gap-v1")
 
 
+def project_terrain_production_gap(root: Path) -> tuple[str, bytes]:
+    expected = {
+        "client_lanes": ["protocol-harness-gap-serve-terrain-quantized-mesh"],
+        "owner": "honua-io/honua-release",
+        "issue": "https://github.com/honua-io/honua-release/issues/1586",
+        "missing_producer": (
+            "The selected source lacks a Quantized-Mesh Terrain protocol harness assignment. "
+            "https://github.com/honua-io/honua-server/issues/9730 tracks the Cesium client walk. "
+            "The required receipt must identify the selected candidate."
+        ),
+    }
+    return _project_reviewed_http_gap(
+        root, "serve.terrain-quantized-mesh", expected, "Quantized-Mesh Terrain", "+quantized-mesh-gap-v1"
+    )
+
+
 SERVER_SEED_FIXTURES = Path("certification/sources/canonical-client-fixtures.v1.json")
 
 
@@ -582,10 +598,9 @@ def prepare(root: Path, gh: GitHub, receipt_min_arg: str) -> tuple[dict[str, Any
         (trial / assignments_path).write_bytes(assignments_bytes)
         applicability_path, applicability_bytes = project_canonical_client_applicability(trial)
         (trial / applicability_path).write_bytes(applicability_bytes)
-        production_path, production_bytes = project_h3_production_gap(trial)
-        (trial / production_path).write_bytes(production_bytes)
-        production_path, production_bytes = project_wps_production_gap(trial)
-        (trial / production_path).write_bytes(production_bytes)
+        for project_gap in (project_h3_production_gap, project_wps_production_gap, project_terrain_production_gap):
+            production_path, production_bytes = project_gap(trial)
+            (trial / production_path).write_bytes(production_bytes)
         seed_path, seed_bytes = project_server_seed_fixture(trial, gh, pins)
         (trial / seed_path).write_bytes(seed_bytes)
         run_catalog(trial, receipt_min)

@@ -500,18 +500,25 @@ def stage_reviewed_unassigned_gap(candidate, capability):
         path, data = REBIND.project_canonical_client_applicability(candidate.parent)
         (candidate.parent / path).write_bytes(data)
         path, data = REBIND.project_h3_production_gap(candidate.parent)
-    elif capability == "serve.wps":
-        fixture = read(ROOT / "tools/fixtures/wps-contract-input.json")
-        drop_matrix_capability(candidate, "serve.wps")
+    else:
+        drop_matrix_capability(candidate, capability)
         matrix_path = candidate / "sources/server/capability-matrix.v1.json"
         matrix = read(matrix_path)
-        matrix["capabilities"].append(fixture["capability"])
+        if capability == "serve.wps":
+            fixture = read(ROOT / "tools/fixtures/wps-contract-input.json")
+            matrix["capabilities"].append(fixture["capability"])
+            project = REBIND.project_wps_production_gap
+        elif capability == "serve.terrain-quantized-mesh":
+            matrix["capabilities"].append({
+                "key": capability, "status": None, "maturity": {"implemented": 2},
+            })
+            project = REBIND.project_terrain_production_gap
+        else:
+            raise AssertionError(capability)
         write(matrix_path, matrix)
         path, data = REBIND.project_official_protocol_assignments(candidate.parent)
         (candidate.parent / path).write_bytes(data)
-        path, data = REBIND.project_wps_production_gap(candidate.parent)
-    else:
-        raise AssertionError(capability)
+        path, data = project(candidate.parent)
     (candidate.parent / path).write_bytes(data)
     return path
 
@@ -519,6 +526,7 @@ def stage_reviewed_unassigned_gap(candidate, capability):
 @pytest.mark.parametrize("capability, lane", [
     ("analytics.h3", "protocol-harness-gap-analytics-h3"),
     ("serve.wps", "protocol-harness-gap-serve-wps"),
+    ("serve.terrain-quantized-mesh", "protocol-harness-gap-serve-terrain-quantized-mesh"),
 ])
 def test_explicit_unproduced_gap_is_accounted_and_not_harness_credit(candidate, capability, lane):
     stage_reviewed_unassigned_gap(candidate, capability)
@@ -530,6 +538,7 @@ def test_explicit_unproduced_gap_is_accounted_and_not_harness_credit(candidate, 
     assert len(gaps) == 1
     assert gaps[0]["operation"] == f"UNASSIGNED PROTOCOL HARNESS CONTRACT:{capability}"
     assert gaps[0]["canonical_client"] == "UNASSIGNED PROTOCOL HARNESS"
+    assert gaps[0]["required_tier"] == "nightly"
     assert not any(
         row["client_lane"] == "server-protocol-harness" and row["capability_key"] == capability
         for row in catalog["requirements"]
