@@ -1,6 +1,6 @@
 {
   "schema": "honua.protocol-certification-production/v1",
-  "revision": "2026-10-13.1+h3-http-gap-v1+wps-http-gap-v1",
+  "revision": "2026-10-13.1+h3-http-gap-v1+wps-http-gap-v1+quantized-mesh-gap-v1",
   "tracking_issues": [
     "https://github.com/honua-io/honua-release/issues/386",
     "https://github.com/honua-io/honua-release/issues/360"
@@ -285,6 +285,14 @@
       "owner": "honua-io/honua-release",
       "issue": "https://github.com/honua-io/honua-release/issues/360",
       "missing_producer": "The selected historical source lacks a WPS HTTP assignment for candidate-bound production. https://github.com/honua-io/honua-server/issues/6036 supplies the maintained GetCapabilities, DescribeProcess, Execute, GetStatus and GetResult assignments; https://github.com/honua-io/honua-server/issues/6043 supplies source CITE normalization. Neither is execution against this candidate image. Normal source convergence and actual candidate receipts remain required. This disposition covers existing public WPS HTTP scope only; it grants no producer credit or new algorithm scope."
+    },
+    {
+      "client_lanes": [
+        "protocol-harness-gap-serve-terrain-quantized-mesh"
+      ],
+      "owner": "honua-io/honua-release",
+      "issue": "https://github.com/honua-io/honua-release/issues/1586",
+      "missing_producer": "The selected source lacks a Quantized-Mesh Terrain protocol harness assignment. https://github.com/honua-io/honua-server/issues/9730 tracks the Cesium client walk. The required receipt must identify the selected candidate."
     }
   ]
 }

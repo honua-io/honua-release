@@ -57,6 +57,7 @@
     "serve.ogc-api-records",
     "serve.ogc-api-tiles",
     "serve.stac",
+    "serve.terrain-quantized-mesh",
     "serve.vector-tiles",
     "serve.wcs",
     "serve.wfs",
