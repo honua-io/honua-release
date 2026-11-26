@@ -161,6 +161,18 @@ def test_a_failing_receipt_does_not_satisfy_the_contract():
     assert not promise._common_receipt_valid(document, contract_row())
 
 
+def test_redacted_credential_path_refusals_match_audit_trail():
+    walked = [{
+        'method': 'POST',
+        'route': '/api/v1/console/share/embed/{token}/redeem',
+        'path': '/api/v1/console/share/embed/agent-safety-gate/redeem',
+        'status': 403,
+        'verdict': 'refused',
+    }]
+    audited = {('POST', '/api/v1/console/share/embed/[REDACTED]/redeem')}
+    assert walk.refusals_unaudited(walked, audited) == []
+
+
 def test_audit_entries_read_every_page_and_tolerate_plain_details():
     pages = iter([{'items': [{'actorAgent': 'me', 'details': '{"method":"POST"}', 'resourceId': '/a?x=1'},
                              {'actorAgent': 'other', 'details': '{}', 'resourceId': '/b'}], 'nextCursor': 'c 1'},

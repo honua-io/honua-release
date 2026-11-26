@@ -23,6 +23,9 @@
     "admin.cache.invalidate": {
       "scope": "all"
     },
+    "admin.exports.create": {
+      "source": "{\"kind\":\"layer\",\"serviceId\":\"${serviceId}\",\"layerId\":${serviceLayerIndex}}"
+    },
     "admin.import.upload": {
       "file": "bmFtZSx4LHkKYSwxLDIK",
       "TableName": "agent_safety_probe_upload",
@@ -89,6 +92,9 @@
     },
     "studio.draft.preview-plan": {
       "payload": "{\"draftId\":\"${uuid}\"}"
+    },
+    "studio.draft.restore-revision": {
+      "payload": "{\"draftId\":\"${uuid}\",\"command\":{\"targetGeneration\":1,\"expectedGeneration\":2}}"
     },
     "studio.draft.save-version": {
       "payload": "{\"draftId\":\"${uuid}\",\"expectedGeneration\":1}"
@@ -305,6 +311,14 @@
       },
       "body": {}
     },
+    "PUT /api/v1/admin/metadata/layers/{storageLayerId}/discovery": {
+      "path": {
+        "storageLayerId": "${storageLayerId}"
+      },
+      "body": {
+        "etag": "agent-safety-probe"
+      }
+    },
     "PUT /api/v1/admin/metadata/layers/{storageLayerId}/display": {
       "path": {
         "storageLayerId": "${storageLayerId}"
@@ -347,6 +361,12 @@
       },
       "body": {}
     },
+    "PUT /api/v1/admin/metadata/schemas": {
+      "body": {
+        "etag": "agent-safety-probe",
+        "schemas": []
+      }
+    },
     "PUT /api/v1/admin/oauth-scopes": {
       "body": {
         "scope": "agent-safety-probe",
@@ -376,6 +396,11 @@
       },
       "body": {
         "isPublic": true
+      }
+    },
+    "PUT /api/v1/admin/services/{serviceName}/discovery": {
+      "body": {
+        "etag": "agent-safety-probe"
       }
     },
     "PUT /api/v1/admin/services/{serviceName}/protocols": {
