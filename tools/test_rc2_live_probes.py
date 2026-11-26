@@ -14,6 +14,7 @@ import urllib.parse
 import pytest
 import yaml
 
+import rc2_live_nginx as nginx_env
 import rc2_live_probes_common as common
 import rc2_live_proxy_probe as proxy_probe
 import rc2_live_tenant_probe as tenant_probe
@@ -58,7 +59,7 @@ def test_verify_candidate_image_accepts_valid_index_and_native_aot_labels(monkey
         "honua.runtime.compilation": "native-aot",
     }
 
-    def fake_docker(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    def fake_docker(args: list[str]) -> subprocess.CompletedProcess[str]:
         if args[:3] == ["buildx", "imagetools", "inspect"]:
             return _proc(json.dumps(index_doc))
         return _proc(json.dumps(labels))
@@ -84,7 +85,7 @@ def test_verify_candidate_image_rejects_mismatched_sha_non_aot_or_unlisted_diges
         ]
     }
 
-    def fake_docker(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    def fake_docker(args: list[str]) -> subprocess.CompletedProcess[str]:
         if args[:3] == ["buildx", "imagetools", "inspect"]:
             return _proc(json.dumps(index_doc))
         return _proc(json.dumps(labels))
@@ -321,7 +322,7 @@ def test_mock_http_flows_cover_upgrade_proxy_and_tenant_probes():
         assert upgrade_probe.add_post_upgrade_feature(server.base_url, "upgrade_probe", 1) is True
         assert upgrade_probe.query_feature_count(server.base_url, "upgrade_probe", 1) == 6
 
-        proxy = proxy_probe.ProxyEndpoint(server.base_url, ssl.create_default_context(), "mock-nginx")
+        proxy = nginx_env.ProxyEndpoint(server.base_url, ssl.create_default_context(), "mock-nginx")
         pub = common.PublishedLayer("c1", "proxy_probe", 1, "probe_sites")
         fwd, nxt, _ = proxy_probe._check_forwarded_proto_and_next(proxy, 1)
         caps_ok, caps_detail = proxy_probe._check_wms_capabilities_https(proxy, "proxy_probe")

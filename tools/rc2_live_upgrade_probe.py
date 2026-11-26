@@ -10,6 +10,7 @@ import re
 import time
 import urllib.parse
 
+import rc2_live_docker as docker_env
 import rc2_live_probes_common as common
 import rc2_rigor as rigor
 
@@ -30,7 +31,6 @@ class UpgradeProbeConfig:
     prior_rc_digest: str
     out_path: Path
     boot_timeout: float = common.DEFAULT_BOOT_TIMEOUT_SECONDS
-    verify_index: bool = True
 
 
 @dataclass(frozen=True)
@@ -104,13 +104,13 @@ def _validate_prior_digest(config: UpgradeProbeConfig) -> str:
 
 
 def _run_prior_phase(
-    stack: common.DockerStack, prior_image: str, timeout: float
+    stack: docker_env.DockerStack, prior_image: str, timeout: float
 ) -> tuple[common.PublishedLayer, int]:
-    common.start_honua_container(common.HonuaLaunchSpec(stack, prior_image))
+    docker_env.start_honua_container(docker_env.HonuaLaunchSpec(stack, prior_image))
     common.wait_http_status(f"{stack.base_url}/healthz/ready", common.HTTP_OK, timeout)
-    common.seed_probe_table(stack.pg_container)
-    published = common.publish_postgis_layer(
-        common.PublishSpec(stack.base_url, stack.pg_container, SERVICE_NAME, editable=True)
+    docker_env.seed_probe_table(stack.pg_container)
+    published = docker_env.publish_postgis_layer(
+        docker_env.PublishSpec(stack.base_url, stack.pg_container, SERVICE_NAME, editable=True)
     )
     pre_count = query_feature_count(stack.base_url, published.service_name, published.layer_id)
     common.run_docker(["rm", "-f", stack.app_container])
@@ -118,7 +118,7 @@ def _run_prior_phase(
 
 
 def _verify_degraded_startup(
-    stack: common.DockerStack, candidate_image: str, timeout: float
+    stack: docker_env.DockerStack, candidate_image: str, timeout: float
 ) -> tuple[bool, bool]:
     common.run_docker(["stop", stack.pg_container])
     degraded_env = (
@@ -129,22 +129,24 @@ def _verify_degraded_startup(
         "Database__StartupResilience__RetryMaxDelay=00:00:03",
         "Database__MigrationSafety__ContractApplyPolicy=Auto",
     )
-    common.start_honua_container(common.HonuaLaunchSpec(stack, candidate_image, degraded_env))
+    docker_env.start_honua_container(
+        docker_env.HonuaLaunchSpec(stack, candidate_image, degraded_env)
+    )
     common.wait_http_status(f"{stack.base_url}/healthz/live", common.HTTP_OK, timeout)
     time.sleep(DEGRADED_CHECK_WAIT_SECONDS)
-    survived = common.container_is_running(stack.app_container)
+    survived = docker_env.container_is_running(stack.app_container)
     ready_reply = common.http_request(common.HttpSpec("GET", f"{stack.base_url}/healthz/ready"))
     initial_not_ready = ready_reply.status != common.HTTP_OK and ready_reply.status != 0
     return survived, initial_not_ready
 
 
 def _recover_and_verify_upgrade(
-    stack: common.DockerStack, published: common.PublishedLayer, timeout: float
+    stack: docker_env.DockerStack, published: common.PublishedLayer, timeout: float
 ) -> tuple[int, int, bool, int]:
     common.run_docker(["start", stack.pg_container])
-    common.wait_postgis(stack.pg_container, timeout)
+    docker_env.wait_postgis(stack.pg_container, timeout)
     ready_status = common.wait_http_status(f"{stack.base_url}/healthz/ready", common.HTTP_OK, timeout)
-    logs = common.read_container_logs(stack.app_container)
+    logs = docker_env.read_container_logs(stack.app_container)
     lock_failures = count_lock_failures(logs)
     editable = add_post_upgrade_feature(stack.base_url, published.service_name, published.layer_id)
     post_count = query_feature_count(stack.base_url, published.service_name, published.layer_id)
@@ -170,9 +172,9 @@ def build_upgrade_proof(
 
 def run_upgrade_probe(config: UpgradeProbeConfig) -> dict[str, object]:
     """Execute the live prior-RC -> candidate PostGIS upgrade and degraded startup probe."""
-    candidate_image = common.verify_candidate_image(config.candidate, config.verify_index)
+    candidate_image = common.verify_candidate_image(config.candidate)
     prior_image = _validate_prior_digest(config)
-    stack = common.create_network_and_postgis(
+    stack = docker_env.create_network_and_postgis(
         "rc2-upgrade", config.candidate.postgis_image, config.boot_timeout
     )
     try:
@@ -184,7 +186,7 @@ def run_upgrade_probe(config: UpgradeProbeConfig) -> dict[str, object]:
             stack, published, config.boot_timeout
         )
     finally:
-        common.cleanup_stack(stack)
+        docker_env.cleanup_stack(stack)
     obs = UpgradeObservation(
         prior_rc_digest=config.prior_rc_digest,
         pre_count=pre_count,

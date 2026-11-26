@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import urllib.parse
 
+import rc2_live_docker as docker_env
 import rc2_live_probes_common as common
 
 ROW_ID = "tenant-isolation-parity"
@@ -47,7 +48,6 @@ class TenantProbeConfig:
     candidate: common.CandidateSpec
     out_path: Path
     boot_timeout: float = common.DEFAULT_BOOT_TIMEOUT_SECONDS
-    verify_index: bool = True
 
 
 @dataclass(frozen=True)
@@ -79,18 +79,10 @@ def _bearer(token: str) -> dict[str, str]:
 
 def _mint_probe_tokens() -> TenantTokens:
     return TenantTokens(
-        platform_admin=common.mint_hs256_jwt(
-            {"sub": "platform-admin", "role": ["admin", "platform_admin"]}
-        ),
-        tenant_a_admin=common.mint_hs256_jwt(
-            {"sub": "tenant-a-admin", "role": "admin", "tid": "tenant-a", "scope": "honua.mcp.full"}
-        ),
-        tenant_b_admin=common.mint_hs256_jwt(
-            {"sub": "tenant-b-admin", "role": "admin", "tid": "tenant-b", "scope": "honua.mcp.full"}
-        ),
-        masked_reader=common.mint_hs256_jwt(
-            {"sub": "masked-reader", "role": "masked_reader", "tid": "tenant-a"}
-        ),
+        platform_admin=common.mint_hs256_jwt({"sub": "platform-admin", "role": ["admin", "platform_admin"]}),
+        tenant_a_admin=common.mint_hs256_jwt({"sub": "tenant-a-admin", "role": "admin", "tid": "tenant-a", "scope": "honua.mcp.full"}),
+        tenant_b_admin=common.mint_hs256_jwt({"sub": "tenant-b-admin", "role": "admin", "tid": "tenant-b", "scope": "honua.mcp.full"}),
+        masked_reader=common.mint_hs256_jwt({"sub": "masked-reader", "role": "masked_reader", "tid": "tenant-a"}),
     )
 
 
@@ -137,9 +129,7 @@ def _extract_draft_id(created: object) -> str | None:
     if isinstance(draft_id, str) and draft_id:
         return draft_id
     nested = data.get("draft")
-    if isinstance(nested, dict) and isinstance(nested.get("draftId"), str):
-        return nested["draftId"]
-    return None
+    return nested["draftId"] if isinstance(nested, dict) and isinstance(nested.get("draftId"), str) else None
 
 
 def _create_tenant_a_draft(
@@ -151,25 +141,16 @@ def _create_tenant_a_draft(
             "family": "map",
             "schemaVersion": "1.0",
             "format": "honua_map.v1",
-            "body": {
-                "title": "Tenant A Confidential Map",
-                "service": published.service_name,
-                "layerId": published.layer_id,
-            },
+            "body": {"title": "Tenant A Map", "service": published.service_name, "layerId": published.layer_id},
         },
     }
     headers = {**_bearer(tokens.tenant_a_admin), "Content-Type": "application/json"}
-    create_reply, created = common.json_request(
-        common.HttpSpec(
-            "POST", f"{base_url}/api/v1/studio/package-drafts",
-            headers, json.dumps(draft_payload).encode(),
-        )
+    reply, created = common.json_request(
+        common.HttpSpec("POST", f"{base_url}/api/v1/studio/package-drafts", headers, json.dumps(draft_payload).encode())
     )
     draft_id = _extract_draft_id(created)
-    if create_reply.status not in (common.HTTP_OK, common.HTTP_CREATED) or not draft_id:
-        raise RuntimeError(
-            f"tenant-a draft creation failed: HTTP {create_reply.status} {create_reply.body[:300]!r}"
-        )
+    if reply.status not in (common.HTTP_OK, common.HTTP_CREATED) or not draft_id:
+        raise RuntimeError(f"tenant-a draft creation failed: HTTP {reply.status} {reply.body[:300]!r}")
     return draft_id
 
 
@@ -178,10 +159,10 @@ def _probe_studio_tenant_isolation(
 ) -> int:
     draft_id = _create_tenant_a_draft(base_url, tokens, published)
     leaks = 0
-    own_reply = common.http_request(
+    own = common.http_request(
         common.HttpSpec("GET", f"{base_url}/api/v1/studio/package-drafts/{draft_id}", _bearer(tokens.tenant_a_admin))
     )
-    if own_reply.status != common.HTTP_OK:
+    if own.status != common.HTTP_OK:
         leaks += 1
     cross_get = common.http_request(
         common.HttpSpec("GET", f"{base_url}/api/v1/studio/package-drafts/{draft_id}", _bearer(tokens.tenant_b_admin))
@@ -212,23 +193,11 @@ def _create_field_mask_policy(base_url: str, platform_token: str) -> None:
         raise RuntimeError(f"create field-mask policy failed: HTTP {reply.status} {reply.body[:300]!r}")
 
 
-def _response_hides_secret(reply: common.HttpReply, has_records: bool) -> bool:
-    if reply.status != common.HTTP_OK or not has_records:
+def _records_hide_secret(reply: common.HttpReply, parsed: object, records_key: str) -> bool:
+    if reply.status != common.HTTP_OK or not isinstance(parsed, dict) or not parsed.get(records_key):
         return False
     text = reply.body.decode("utf-8", errors="replace").lower()
     return SECRET_FIELD not in text and SECRET_SENTINEL not in text
-
-
-def _discover_stac_collection(base_url: str, headers: dict[str, str]) -> str | None:
-    reply, parsed = common.json_request(common.HttpSpec("GET", f"{base_url}/stac/collections", headers))
-    if reply.status != common.HTTP_OK or not isinstance(parsed, dict):
-        return None
-    collections = parsed.get("collections")
-    if isinstance(collections, list) and collections:
-        first = collections[0]
-        if isinstance(first, dict) and isinstance(first.get("id"), str):
-            return first["id"]
-    return None
 
 
 def _geoservices_hides_secret(reply: common.HttpReply, parsed: object) -> bool:
@@ -247,6 +216,17 @@ def _geoservices_hides_secret(reply: common.HttpReply, parsed: object) -> bool:
     )
 
 
+def _discover_stac_collection(base_url: str, headers: dict[str, str]) -> str | None:
+    reply, parsed = common.json_request(common.HttpSpec("GET", f"{base_url}/stac/collections", headers))
+    if reply.status != common.HTTP_OK or not isinstance(parsed, dict):
+        return None
+    collections = parsed.get("collections")
+    if isinstance(collections, list) and collections:
+        first = collections[0]
+        return first["id"] if isinstance(first, dict) and isinstance(first.get("id"), str) else None
+    return None
+
+
 def _check_stac_and_analytics(
     base_url: str, published: common.PublishedLayer, headers: dict[str, str]
 ) -> list[str]:
@@ -256,7 +236,7 @@ def _check_stac_and_analytics(
         stac_r, stac = common.json_request(
             common.HttpSpec("GET", f"{base_url}/stac/collections/{urllib.parse.quote(stac_col)}/items", headers)
         )
-        if _response_hides_secret(stac_r, isinstance(stac, dict) and bool(stac.get("features"))):
+        if _records_hide_secret(stac_r, stac, "features"):
             blocked.append("stac")
     cluster_body = json.dumps({
         "algorithm": "dbscan", "eps": 50000, "minPoints": 1,
@@ -266,7 +246,7 @@ def _check_stac_and_analytics(
     sa_r, sa = common.json_request(
         common.HttpSpec("POST", sa_url, {**headers, "Content-Type": "application/json"}, cluster_body)
     )
-    if _response_hides_secret(sa_r, isinstance(sa, dict) and bool(sa.get("features"))):
+    if _records_hide_secret(sa_r, sa, "features"):
         blocked.append("spatial-analytics")
     return blocked
 
@@ -275,32 +255,22 @@ def _probe_hidden_field_protocols(
     base_url: str, published: common.PublishedLayer, tokens: TenantTokens
 ) -> list[str]:
     svc, lid = published.service_name, published.layer_id
-    unmasked_headers = {**_bearer(tokens.platform_admin), "X-Honua-Tenant": "tenant-a"}
+    unmasked_url = f"{base_url}/rest/services/{svc}/FeatureServer/{lid}/query?where=1=1&outFields=*&f=json"
     unmasked_r = common.http_request(
-        common.HttpSpec(
-            "GET",
-            f"{base_url}/rest/services/{svc}/FeatureServer/{lid}/query?where=1=1&outFields=*&f=json",
-            unmasked_headers,
-        )
+        common.HttpSpec("GET", unmasked_url, {**_bearer(tokens.platform_admin), "X-Honua-Tenant": "tenant-a"})
     )
     if SECRET_SENTINEL not in unmasked_r.body.decode("utf-8", errors="replace"):
         raise RuntimeError("unmasked admin query did not return seeded secret_note baseline")
     headers = _bearer(tokens.masked_reader)
     blocked: list[str] = []
-    geo_r, geo = common.json_request(
-        common.HttpSpec("GET", f"{base_url}/rest/services/{svc}/FeatureServer/{lid}/query?where=1=1&outFields=*&f=json", headers)
-    )
+    geo_r, geo = common.json_request(common.HttpSpec("GET", unmasked_url, headers))
     if _geoservices_hides_secret(geo_r, geo):
         blocked.append("geoservices")
-    ogc_r, ogc = common.json_request(
-        common.HttpSpec("GET", f"{base_url}/ogc/features/collections/{lid}/items", headers)
-    )
-    if _response_hides_secret(ogc_r, isinstance(ogc, dict) and bool(ogc.get("features"))):
+    ogc_r, ogc = common.json_request(common.HttpSpec("GET", f"{base_url}/ogc/features/collections/{lid}/items", headers))
+    if _records_hide_secret(ogc_r, ogc, "features"):
         blocked.append("ogc")
-    odata_r, odata = common.json_request(
-        common.HttpSpec("GET", f"{base_url}/odata/Features({lid})", headers)
-    )
-    if _response_hides_secret(odata_r, isinstance(odata, dict) and bool(odata.get("value"))):
+    odata_r, odata = common.json_request(common.HttpSpec("GET", f"{base_url}/odata/Features({lid})", headers))
+    if _records_hide_secret(odata_r, odata, "value"):
         blocked.append("odata")
     blocked.extend(_check_stac_and_analytics(base_url, published, headers))
     return sorted(blocked)
@@ -323,23 +293,18 @@ def build_tenant_proof(
 
 
 def _run_multi_tenant_phase(
-    stack: common.DockerStack, candidate_image: str, timeout: float
+    stack: docker_env.DockerStack, candidate_image: str, timeout: float
 ) -> tuple[bool, int, int, list[str], list[str]]:
-    mt_env = (
-        "MultiTenancy__Enabled=true",
-        "Licensing__Mode=Disabled",
-        *common.oidc_env_vars(),
-    )
-    common.start_honua_container(common.HonuaLaunchSpec(stack, candidate_image, mt_env))
+    mt_env = ("MultiTenancy__Enabled=true", "Licensing__Mode=Disabled", *common.oidc_env_vars())
+    docker_env.start_honua_container(docker_env.HonuaLaunchSpec(stack, candidate_image, mt_env))
     common.wait_http_status(f"{stack.base_url}/healthz/ready", common.HTTP_OK, timeout)
     tokens = _mint_probe_tokens()
     platform_ok, allowed_host, routes = _probe_host_admin_routes(stack.base_url, tokens)
-    common.seed_probe_table(stack.pg_container)
+    docker_env.seed_probe_table(stack.pg_container)
     publish_headers = {**_bearer(tokens.platform_admin), "X-Honua-Tenant": "tenant-a"}
-    published = common.publish_postgis_layer(
-        common.PublishSpec(
-            stack.base_url, stack.pg_container, SERVICE_NAME,
-            editable=False, auth_headers=publish_headers,
+    published = docker_env.publish_postgis_layer(
+        docker_env.PublishSpec(
+            stack.base_url, stack.pg_container, SERVICE_NAME, editable=False, auth_headers=publish_headers
         )
     )
     leaks = _probe_studio_tenant_isolation(stack.base_url, tokens, published)
@@ -350,13 +315,13 @@ def _run_multi_tenant_phase(
 
 def run_tenant_probe(config: TenantProbeConfig) -> dict[str, object]:
     """Execute live single-tenant Console parity and multi-tenant isolation probes."""
-    candidate_image = common.verify_candidate_image(config.candidate, config.verify_index)
-    stack = common.create_network_and_postgis(
+    candidate_image = common.verify_candidate_image(config.candidate)
+    stack = docker_env.create_network_and_postgis(
         "rc2-tenant", config.candidate.postgis_image, config.boot_timeout
     )
     try:
-        common.start_honua_container(
-            common.HonuaLaunchSpec(stack, candidate_image, ("MultiTenancy__Enabled=false",))
+        docker_env.start_honua_container(
+            docker_env.HonuaLaunchSpec(stack, candidate_image, ("MultiTenancy__Enabled=false",))
         )
         common.wait_http_status(f"{stack.base_url}/healthz/ready", common.HTTP_OK, config.boot_timeout)
         st_zero_403, st_passed = _probe_single_tenant_parity(stack.base_url)
@@ -365,7 +330,7 @@ def run_tenant_probe(config: TenantProbeConfig) -> dict[str, object]:
             stack, candidate_image, config.boot_timeout
         )
     finally:
-        common.cleanup_stack(stack)
+        docker_env.cleanup_stack(stack)
     obs = TenantObservation(
         single_tenant_zero_403=st_zero_403,
         single_tenant_workflows_passed=st_passed,
