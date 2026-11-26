@@ -42,10 +42,10 @@
     "packageKeyPrefix": "sdkreg-interop-map-",
     "routePrefix": "/sdkreg-interop-map-",
     "visibility": "public",
-    "envelope": {"family": "map", "schemaVersion": "1.0", "format": "honua_map_package.v1"},
+    "envelope": {"family": "map", "schemaVersion": "1.0", "format": "honua_map.v1"},
     "body": {
-      "mapPackageId": "sdkreg-interop-map",
-      "format": "honua_map_package.v1",
+      "mapId": "sdkreg-interop-map",
+      "format": "honua_map.v1",
       "sourceBindings": [{"sourceId": "sites", "protocol": "ogc_features", "locator": {"collectionId": "{sitesCollectionId}"}}],
       "initialView": {"center": [-122.1, 37.85], "zoom": 8, "pitch": 0, "bearing": 0, "crs": "EPSG:4326"},
       "mapSpec": {

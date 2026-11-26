@@ -2925,7 +2925,7 @@ def test_stage8_without_a_passing_model_action_still_fails(monkeypatch, tmp_path
     assert "bounded limit" in receipt["notices"][-1]
 
 
-@pytest.mark.parametrize("cell, admitted", [("aws-serverless/redis-on", True), (GA_CELL, False)],
+@pytest.mark.parametrize("cell, admitted", [("local-docker", True), (GA_CELL, False)],
                          ids=["unruled-cell", "deterministic-not-admitted"])
 def test_non_single_tenant_cell_keeps_stage8_tenant_block_a_failure(monkeypatch, tmp_path, cell, admitted):
     builder, receipt, _ = _single_tenant_live_run(monkeypatch, tmp_path, cell=cell, admitted=admitted)

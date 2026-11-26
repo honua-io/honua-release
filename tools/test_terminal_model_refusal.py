@@ -37,6 +37,15 @@ def _builder(guidance="full"):
     return builder
 
 
+def _manifest_with_lambda_pin():
+    m = c.load_manifest(MANIFEST)
+    server = m["components"]["honua-server"]
+    server.setdefault("awsLambdaImage", "ghcr.io/honua-io/honua-server:nightly-lambda-aot-synthetic-amd64")
+    server.setdefault("awsLambdaDigest", "sha256:" + "d" * 64)
+    server.setdefault("awsLambdaEcrDigest", "sha256:" + "e" * 64)
+    return m
+
+
 def _prerequisite(tmp_path, cell="aws-ecs/redis-off"):
     receipt = _green_deterministic_receipt()
     receipt["status"] = "blocked"
@@ -48,7 +57,7 @@ def _prerequisite(tmp_path, cell="aws-ecs/redis-off"):
         "missingDependency":"redis", "manifestCapability":"jobs.runner",
         "manifestReasonCode":"dependency-unavailable", "rulingStatus":"ruled", "tool":"honua_validate_plan"}
     if cell.startswith("aws-serverless"):
-        server = c.load_manifest(MANIFEST)["components"]["honua-server"]
+        server = _manifest_with_lambda_pin()["components"]["honua-server"]
         receipt["server"]["image"] = f"{server['awsLambdaImage']}@{server['awsLambdaDigest']}"
     path = tmp_path / "receipt.json"
     path.write_text(json.dumps(receipt))
@@ -56,7 +65,7 @@ def _prerequisite(tmp_path, cell="aws-ecs/redis-off"):
 
 
 def validate(path, root, cell="aws-ecs/redis-off", **kw):
-    return c.validate_deterministic_receipt(path, manifest=c.load_manifest(MANIFEST), journey=c.load_journey(JOURNEY),
+    return c.validate_deterministic_receipt(path, manifest=_manifest_with_lambda_pin(), journey=c.load_journey(JOURNEY),
                                           repo_root=root, cell=cell, prerequisite_profile=r.PROFILE, **kw)
 
 
@@ -66,7 +75,7 @@ def test_explicit_bounded_prerequisite_retains_raw_blocked_status_without_green_
     proof = validate(path,tmp_path,cell)
     assert (proof["prerequisiteProfile"], proof["sourceStatus"]) == (r.PROFILE,"blocked")
     with pytest.raises(c.CanaryError,match="not green"):
-        c.validate_deterministic_receipt(path, manifest=c.load_manifest(MANIFEST),journey=c.load_journey(JOURNEY),
+        c.validate_deterministic_receipt(path, manifest=_manifest_with_lambda_pin(),journey=c.load_journey(JOURNEY),
                                         repo_root=tmp_path,cell=cell)
 
 
@@ -97,7 +106,7 @@ def test_bounded_prerequisite_negative_controls(tmp_path,mutation):
 @pytest.mark.parametrize("cell", sorted(r.CELLS))
 def test_cell_specific_lambda_and_ecs_image_pins_are_not_interchangeable(tmp_path,cell):
     path,x = _prerequisite(tmp_path,cell)
-    server=c.load_manifest(MANIFEST)["components"]["honua-server"]
+    server=_manifest_with_lambda_pin()["components"]["honua-server"]
     other=("image","digest") if cell.startswith("aws-serverless") else ("awsLambdaImage","awsLambdaDigest")
     x["server"]["image"]=f"{server[other[0]]}@{server[other[1]]}"
     path.write_text(json.dumps(x))

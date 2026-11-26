@@ -23,6 +23,13 @@ run = endpoint.runner()
 def inputs():
     path = run.ROOT / "platform-manifest.yaml"
     manifest, matrix = run.load_inputs(path, run.DEFAULT_MATRIX)
+    server = manifest["components"]["honua-server"]
+    # When ECS-only pins omit Preview Lambda under lambda-preview-out-of-lock-2026-10-27,
+    # keep synthetic Lambda pins in-memory so the Lambda-isolation unit controls still exercise.
+    if not server.get("awsLambdaImage"):
+        server["awsLambdaImage"] = "ghcr.io/honua-io/honua-server:nightly-lambda-aot-unit-amd64"
+        server["awsLambdaDigest"] = "sha256:" + "a" * 64
+        server["awsLambdaEcrDigest"] = "pending-ecr-mirror"
     binding = {"endpoint": "https://candidate.example", "cell": "aws-ecs/redis-on", "runId": "123", "runAttempt": "1",
         "candidateDigest": hashlib.sha256(path.read_bytes()).hexdigest(),
         "server": {"sourceSha": manifest["components"]["honua-server"]["sha"], "image": run.server_image_ref(manifest)},

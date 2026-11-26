@@ -30,7 +30,9 @@ def manifest():
     # receipt contract is exercised on a concrete synthetic mirror digest, never a guessed one.
     loaded = live_manifest()
     server = loaded["components"]["honua-server"]
-    if server.get("awsLambdaEcrDigest") == PENDING_ECR_MIRROR:
+    server.setdefault("awsLambdaImage", "ghcr.io/honua-io/honua-server:nightly-lambda-aot-synthetic-amd64")
+    server.setdefault("awsLambdaDigest", "sha256:" + "d" * 64)
+    if not server.get("awsLambdaEcrDigest") or server.get("awsLambdaEcrDigest") == PENDING_ECR_MIRROR:
         server["awsLambdaEcrDigest"] = "sha256:" + "e" * 64
     return loaded
 

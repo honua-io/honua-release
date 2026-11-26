@@ -281,7 +281,7 @@ async function runTiles(state) {
   });
   const encode = (tile) => ({ bytes: Buffer.from(tile.bytes ?? new Uint8Array()).toString("base64"), contentType: tile.contentType });
   await step(state, scenario, "vector-tile", async () => encode(await fetchTile(area.painted)));
-  await step(state, scenario, "raster-tile", async () => encode(await fetchTile(area.painted, { extraParams: { f: "png" } })));
+  await step(state, scenario, "raster-tile", async () => encode(await fetchTile(area.painted, { accept: "image/png", extraParams: { f: "png" } })));
   await step(state, scenario, "empty-tile", async () => {
     const tile = await fetchTile(area.empty);
     return { empty: tile.empty === true, size: tile.bytes?.length ?? 0 };

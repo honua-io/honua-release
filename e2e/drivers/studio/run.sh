@@ -112,10 +112,11 @@ lane_name() { if [ "$1" = true ]; then echo operator-gated; else echo direct-exe
 # password reaches only that child's environment.
 HUMAN_APPROVAL="$HERE/../../harness/lib/human_approval.py"
 HUMAN_REFUSAL="Human approval requires a live interactive browser session and a valid review capability"
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$E2E_API_KEY}"
 human_approve() { # proposal -> echoes the helper's typed JSON result
   local cafile=()
   [ -n "${E2E_TLS_DIR:-}" ] && cafile=(--cafile "$E2E_TLS_DIR/tls.crt")
-  HONUA_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$E2E_API_KEY}" \
+  HONUA_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD}" \
     python3 "$HUMAN_APPROVAL" --base "${E2E_HTTPS_BASE:-}" --proposal "$1" "${cafile[@]}" || true
 }
 
@@ -150,6 +151,15 @@ gate_set() { # key json-value
 studio_step() {
   local path="$1" body="$2" label="$3" expect_gate="$4"
   api_post "$path" "$body"
+  if [ "$HTTP_CODE" = "403" ] && [[ "$HTTP_BODY" == *"bootstrap admin credential cannot file a proposal"* ]]; then
+    api_post "/api/v1/admin/api-keys" '{"name":"e2e-studio-author","permissions":["*"]}'
+    local minted
+    minted="$(jget '.data.key // .data.apiKey // ""')"
+    if [ "$HTTP_CODE" = "201" ] && [ -n "$minted" ] && [ "$minted" != "null" ]; then
+      E2E_API_KEY="$minted"
+      api_post "$path" "$body"
+    fi
+  fi
 
   if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
     if [ "$expect_gate" = true ]; then
@@ -250,7 +260,7 @@ map_body() { # package-key
   jq -c --arg l "$LAYER" --arg k "$1" '
     .execution.mapBody
     | walk(if type == "string" then gsub("\\{layerId\\}"; $l) else . end)
-    | .mapPackageId = $k' "$MAP_FIXTURE" 2>/dev/null || true
+    | .format = "honua_map.v1" | .mapId = $k | del(.mapPackageId)' "$MAP_FIXTURE" 2>/dev/null || true
 }
 
 # publish_required FAMILY -> 0 when this seam requires the family to still reach publish-request.

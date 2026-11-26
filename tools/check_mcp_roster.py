@@ -135,6 +135,17 @@ def _expected_durable(full_catalog: dict) -> list:
     return _names(durable, 'expected fullCatalog.requiresDurableControlPlane.tools')
 
 
+def _expected_experimental_omitted(full_catalog: dict) -> list:
+    # Optional tools present in the server's experimental/test-mode roster (e.g. Capabilities:Experimental
+    # gated scene tools) that are intentionally absent from default non-experimental runtime catalogs.
+    omitted = full_catalog.get('experimentalOmitted')
+    if omitted is None:
+        return []
+    if isinstance(omitted, dict):
+        omitted = omitted.get('tools')
+    return _names(omitted, 'expected fullCatalog.experimentalOmitted.tools')
+
+
 def check(expected: dict, roster: dict, *, topology: str = 'redis-on', server_sha: str = '') -> dict:
     """Pure comparison. Returns the summary dict; `status` is pass or fail."""
     if topology not in TOPOLOGIES:
@@ -165,6 +176,7 @@ def check(expected: dict, roster: dict, *, topology: str = 'redis-on', server_sh
         expected_full = _names(full_catalog.get('tools'), 'expected fullCatalog.tools')
         expected_default = _names(default_view.get('tools'), 'expected defaultView.tools')
         expected_durable = _expected_durable(full_catalog)
+        expected_omitted = _expected_experimental_omitted(full_catalog)
         stage_names = []
         for stage in default_view.get('stages') or []:
             stage_names += _names(stage.get('tools'), f"expected defaultView stage {stage.get('id')}")
@@ -174,8 +186,12 @@ def check(expected: dict, roster: dict, *, topology: str = 'redis-on', server_sh
         return summary
 
     canonical = set(static) | set(projected)
-    summary['missing'] = sorted(canonical - set(expected_full))
-    summary['extra'] = sorted(set(expected_full) - canonical)
+    overlap = sorted(set(expected_full) & set(expected_omitted))
+    if overlap:
+        reasons.append('experimentalOmitted tool(s) also listed in fullCatalog.tools: ' + ', '.join(overlap))
+    accounted = set(expected_full) | set(expected_omitted)
+    summary['missing'] = sorted(canonical - accounted)
+    summary['extra'] = sorted(accounted - canonical)
     if summary['missing']:
         reasons.append(f"{len(summary['missing'])} roster tool(s) missing from fullCatalog.tools: "
                        + ', '.join(summary['missing']))
