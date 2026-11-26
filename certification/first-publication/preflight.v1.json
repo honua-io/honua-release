@@ -9,6 +9,14 @@
       "publication": "QGIS plugin honua_gis_assistant"
     },
     {
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.4.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.4.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.4.0': 200}; the platform manifest pins @honua/sdk-js 0.5.1. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "channels": [
+        "npm:create-honua-app"
+      ],
+      "kind": "blocked-on-republish",
+      "publication": "npm create-honua-app@0.2.6 template pins"
+    },
+    {
       "boundary": "Anonymous GHCR token for repository:honua-io/charts/honua:pull was denied, so oci://ghcr.io/honua-io/charts/honua has no public tag list. honua-helm .github/workflows/release.yml refuses appVersion 0.0.0 and requires a published ghcr.io/honua-io/honua-server:v<semver>-aot image before it will push a chart. This repo does not invent that server SemVer or an appVersion.",
       "channels": [
         "helm:oci://ghcr.io/honua-io/charts/honua"
@@ -79,45 +87,45 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "mcp-server-0.6.1.tgz",
-          "registry_integrity": "sha512-ENxw1Tn5puQPq9zzTQY1Rt/OJqz912JmSp/QTlBEmZcnUkzQOCT4YWDmcKCSce3CGQrSJ4+b2dRoQU2KLmjhiw==",
-          "sha256": "b19daacef80968cf6cc0227d6967b7773f42cafe33a3e68b4fac349c66d3e162",
-          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.1.tgz"
+          "filename": "mcp-server-0.6.2.tgz",
+          "registry_integrity": "sha512-8sgMLQekZZa2Qi+WNZu04nFGgtoXABVWEZHOUzYnd1IRj4ZBxUPHkHQklWt225JMZrz7SRW8X8zfn7rgZ0XOTA==",
+          "sha256": "54335885e8fcab212a34403407c819007b066f48b3c2785979d4aa07b1a5a530",
+          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.2.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/mcp-server",
-      "publication": "npm @honua/mcp-server@0.6.1",
-      "source_sha": "684d95242d1c915e8cb804b76638eaf8f2c77aaf",
+      "publication": "npm @honua/mcp-server@0.6.2",
+      "source_sha": "b195086e6aabee9d048cdc7d324b82a51e7c79c3",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fmcp-server/0.6.1",
-        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.1.tgz"
+        "https://registry.npmjs.org/@honua%2Fmcp-server/0.6.2",
+        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.2.tgz"
       ],
-      "version": "0.6.1"
+      "version": "0.6.2"
     },
     {
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "sdk-js-0.4.0.tgz",
-          "registry_integrity": "sha512-+TEAO1LJvLB92LqGsDruOG4glLBJVWzhsdvhqAjlKf6t8nFpNpehGBG5ufYRR8WBNg1Zp6m//37YHaQj8Z+fxA==",
-          "sha256": "1f3ce29bf037500b2223f4c302d30991336ebbf845f9c9c2615668642b19130b",
-          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.4.0.tgz"
+          "filename": "sdk-js-0.5.1.tgz",
+          "registry_integrity": "sha512-nBsIeDTnWYWkSEL3WkQfZ+4pUgWBJd1OawkmRElgx6DhsxVw8WCXCa3b+CCkJFg6GwGweM3fe1La7sN5q5SuDA==",
+          "sha256": "6ba4d862d6b2b5708126095bdd0c490c1a8ff73e16102db5ea8f96978dc1bde5",
+          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.5.1.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/sdk-js",
-      "publication": "npm @honua/sdk-js@0.4.0",
-      "source_sha": "9d078e17abf7c90cecd000df6fcda4f3d5d9548f",
+      "publication": "npm @honua/sdk-js@0.5.1",
+      "source_sha": "76842917bbd5bee3860ac3f6d355d44ac0a82c21",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fsdk-js/0.4.0",
-        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.4.0.tgz"
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.5.1",
+        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.5.1.tgz"
       ],
-      "version": "0.4.0"
+      "version": "0.5.1"
     },
     {
-      "disposition": "published",
+      "disposition": "blocked-on-republish",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
@@ -129,7 +137,7 @@
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
-      "manifest_sdk_pin": "0.4.0",
+      "manifest_sdk_pin": "0.5.1",
       "maplibre_pins": [
         "6.4.1"
       ],
@@ -983,6 +991,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-26T14:58:39Z",
+  "observed_at": "2026-11-26T18:20:30Z",
   "schema": "honua.first-publication-preflight/v1"
 }
