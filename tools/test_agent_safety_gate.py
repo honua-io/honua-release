@@ -169,8 +169,9 @@ def test_redacted_credential_path_refusals_match_audit_trail():
         'status': 403,
         'verdict': 'refused',
     }]
-    audited = {('POST', '/api/v1/console/share/embed/[REDACTED]/redeem')}
+    audited = {('POST', '/api/v1/console/share/embed/{token}/redeem')}
     assert walk.refusals_unaudited(walked, audited) == []
+    assert walk.refusals_unaudited(walked, set()) == ['POST /api/v1/console/share/embed/{token}/redeem']
 
 
 def test_audit_entries_read_every_page_and_tolerate_plain_details():
