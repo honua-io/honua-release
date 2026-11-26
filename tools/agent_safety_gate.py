@@ -28,6 +28,7 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import subprocess
 import urllib.error
@@ -203,10 +204,22 @@ def audit_entries(admin: Client, actor: str, limit: int = 200) -> set[tuple[str,
     raise GateUnavailable('the audit trail did not end within the page limit')
 
 
+CREDENTIAL_PATH_RE = re.compile(
+    r'((?:/api/v[0-9]+(?:\.[0-9]+)?/console/share/(?:link|embed)|/wps/conformance/results)/)[^/?#\s]+',
+    re.IGNORECASE,
+)
+
+
+def redacted_audit_path(path: str) -> str:
+    """Mirror Honua.Core CredentialPathRedaction so audited bearer-token refusals match."""
+    return CREDENTIAL_PATH_RE.sub(r'\1[REDACTED]', path)
+
+
 def refusals_unaudited(routes: list[dict], audited: set) -> list[str]:
     return [f"{r['method']} {r['route']}" for r in routes
             if r['status'] == FORBIDDEN and r['verdict'] in ('refused', 'own-rule')
-            and (r['method'], r['path']) not in audited]
+            and (r['method'], r['path']) not in audited
+            and (r['method'], redacted_audit_path(r['path'])) not in audited]
 
 
 def world_values(admin: Client, seed: dict) -> dict:
