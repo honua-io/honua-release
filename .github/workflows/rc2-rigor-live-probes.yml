@@ -1,0 +1,213 @@
+name: rc2-rigor-live-probes
+run-name: RC2 rigor live probes (${{ inputs.only }}) ${{ inputs.server_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_sha:
+        description: Full 40-hex honua-server candidate SHA being verified
+        required: true
+        type: string
+      server_digest:
+        description: Multi-arch GHCR Native AOT image index digest (sha256:...)
+        required: true
+        type: string
+      amd64_digest:
+        description: linux/amd64 Native AOT image digest (sha256:...)
+        required: true
+        type: string
+      platform_lock_digest:
+        description: Qualification platform_lock_digest from honua-release (sha256:...)
+        required: true
+        type: string
+      prior_rc_image_digest:
+        description: Prior RC honua-server GHCR image digest for in-place PostGIS upgrade (sha256:...)
+        required: false
+        default: 'sha256:1eb5a482778bc8aeb349f4a32732580534e3b5b0067bbcc0060e9159bf07ed6b'
+        type: string
+      postgis_image:
+        description: Digest-pinned multi-arch PostGIS image for live probes
+        required: false
+        default: 'imresamu/postgis:17-3.5@sha256:35fe7dceda62bfe7d2965b0ba78d915ff9f901b5e0466d633ecc58421b5b5210'
+        type: string
+      only:
+        description: Subset of live RC2 rigor probes to execute
+        required: false
+        type: choice
+        options:
+          - all
+          - upgrade
+          - proxy
+          - tenant
+        default: all
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: rc2-rigor-live-probes-${{ github.ref }}-${{ inputs.server_sha }}-${{ inputs.only }}
+  cancel-in-progress: false
+
+jobs:
+  postgis-upgrade-recovery:
+    name: PostGIS upgrade and degraded startup recovery
+    if: >-
+      github.repository == 'honua-io/honua-release'
+      && github.ref == 'refs/heads/trunk'
+      && (inputs.only == 'all' || inputs.only == 'upgrade')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run live PostGIS upgrade and degraded startup probe
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          AMD64_DIGEST: ${{ inputs.amd64_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          PRIOR_RC_DIGEST: ${{ inputs.prior_rc_image_digest }}
+          POSTGIS_IMAGE: ${{ inputs.postgis_image }}
+        run: |
+          set -euo pipefail
+          docker pull "ghcr.io/honua-io/honua-server@${PRIOR_RC_DIGEST}"
+          docker pull "ghcr.io/honua-io/honua-server@${AMD64_DIGEST}"
+          docker pull "$POSTGIS_IMAGE"
+          PYTHONPATH=tools python3 tools/rc2_live_upgrade_probe.py \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --amd64-digest "$AMD64_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --prior-rc-image-digest "$PRIOR_RC_DIGEST" \
+            --postgis-image "$POSTGIS_IMAGE" \
+            --out proofs/postgis-upgrade-recovery-proof.json
+          python3 tools/rc2_rigor.py --row postgis-upgrade-recovery \
+            --proof-root proofs \
+            --proof postgis-upgrade-recovery-proof.json \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --out receipts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rc2-postgis-upgrade-recovery-proof
+          path: proofs/postgis-upgrade-recovery-proof.json
+          if-no-files-found: error
+
+  gis-clients-proxy:
+    name: GIS clients and HTTPS reverse-proxy parity
+    if: >-
+      github.repository == 'honua-io/honua-release'
+      && github.ref == 'refs/heads/trunk'
+      && (inputs.only == 'all' || inputs.only == 'proxy')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run live GIS clients and nginx HTTPS proxy probe
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          AMD64_DIGEST: ${{ inputs.amd64_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          POSTGIS_IMAGE: ${{ inputs.postgis_image }}
+          NGINX_IMAGE: 'nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10'
+        run: |
+          set -euo pipefail
+          docker pull "ghcr.io/honua-io/honua-server@${AMD64_DIGEST}"
+          docker pull "$POSTGIS_IMAGE"
+          docker pull "$NGINX_IMAGE"
+          PYTHONPATH=tools python3 tools/rc2_live_proxy_probe.py \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --amd64-digest "$AMD64_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --postgis-image "$POSTGIS_IMAGE" \
+            --nginx-image "$NGINX_IMAGE" \
+            --out proofs/gis-clients-proxy-proof.json
+          python3 tools/rc2_rigor.py --row gis-clients-proxy \
+            --proof-root proofs \
+            --proof gis-clients-proxy-proof.json \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --out receipts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rc2-gis-clients-proxy-proof
+          path: proofs/gis-clients-proxy-proof.json
+          if-no-files-found: error
+
+  tenant-isolation-parity:
+    name: Single-tenant Console parity and multi-tenant isolation
+    if: >-
+      github.repository == 'honua-io/honua-release'
+      && github.ref == 'refs/heads/trunk'
+      && (inputs.only == 'all' || inputs.only == 'tenant')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Log in to GHCR
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run live tenant isolation and field-mask probe
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          AMD64_DIGEST: ${{ inputs.amd64_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          POSTGIS_IMAGE: ${{ inputs.postgis_image }}
+        run: |
+          set -euo pipefail
+          docker pull "ghcr.io/honua-io/honua-server@${AMD64_DIGEST}"
+          docker pull "$POSTGIS_IMAGE"
+          PYTHONPATH=tools python3 tools/rc2_live_tenant_probe.py \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --amd64-digest "$AMD64_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --postgis-image "$POSTGIS_IMAGE" \
+            --out proofs/tenant-isolation-parity-proof.json
+          python3 tools/rc2_rigor.py --row tenant-isolation-parity \
+            --proof-root proofs \
+            --proof tenant-isolation-parity-proof.json \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --out receipts
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rc2-tenant-isolation-parity-proof
+          path: proofs/tenant-isolation-parity-proof.json
+          if-no-files-found: error
