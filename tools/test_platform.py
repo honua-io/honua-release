@@ -653,6 +653,9 @@ def test_structure_rejects_lambda_architecture_other_than_x86_64():
 def test_structure_rejects_non_digest_non_sentinel_ecr_digest(value):
     manifest, matrix = _real_files()
     manifest = copy.deepcopy(manifest)
+    manifest["components"]["honua-server"].setdefault(
+        "awsLambdaImage", "ghcr.io/honua-io/honua-server:nightly-lambda-aot-synthetic-amd64")
+    manifest["components"]["honua-server"].setdefault("awsLambdaDigest", "sha256:" + "d" * 64)
     manifest["components"]["honua-server"]["awsLambdaEcrDigest"] = value
     f = vp.validate(manifest, matrix, None)
     assert not f.ok and any("awsLambdaEcrDigest" in e for e in f.errors)

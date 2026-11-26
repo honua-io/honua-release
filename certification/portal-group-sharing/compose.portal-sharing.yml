@@ -14,6 +14,8 @@ x-portal-sharing-env: &portal-sharing-env
   Oidc__TokenValidation__SymmetricSigningKey: "${PORTAL_SHARING_SIGNING_KEY:?produce.py mints a per-run signing key}"
   Authentication__PortalToken__RequireHttps: "false"
   Authentication__PortalCredentialVerifier__UseOidc: "true"
+  MultiTenancy__Enabled: "true"
+  MultiTenancy__DefaultTenantId: "default"
 
 services:
   db:

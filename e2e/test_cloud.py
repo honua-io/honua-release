@@ -3598,11 +3598,11 @@ def test_durable_control_plane_roster_is_the_41_redis_gated_admin_tools():
     # rc.2 candidate 532565bc: 161 tools and 41 durable-control-plane names, read from the server's
     # generated MCP roster at the pin (+import preview/formats/limits, layer display/spatial, connection
     # layers and table validation, and the folder tools).
-    assert len(_FULL_ROSTER) == 161 and len(set(_FULL_ROSTER)) == 161
-    assert len(_DURABLE_ONLY) == 41 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
+    assert len(_FULL_ROSTER) == 168 and len(set(_FULL_ROSTER)) == 168
+    assert len(_DURABLE_ONLY) == 43 and set(_DURABLE_ONLY) <= set(_FULL_ROSTER)
     assert all(n.startswith(("honua_admin_layer_", "honua_admin_services_", "honua_admin_connections_",
                              "honua_admin_connection_tables_", "honua_admin_connection_layers_",
-                             "honua_admin_import_")) or n in _FOLDER_TOOLS for n in _DURABLE_ONLY)
+                             "honua_admin_import_", "honua_admin_metadata_")) or n in _FOLDER_TOOLS for n in _DURABLE_ONLY)
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["criticalTools"])
     assert not set(_DURABLE_ONLY) & set(_EXPECTED_TOOLS["defaultView"]["tools"])
 
@@ -3752,14 +3752,14 @@ def test_s2_unauthenticated_client_served_the_default_tools_fails():
 
 def test_s2_redis_off_120_catalog_passes_with_topology_recorded():
     catalog = [n for n in _FULL_ROSTER if n not in _DURABLE_ONLY]
-    assert len(catalog) == 120
+    assert len(catalog) == 125
     for signal in ("jobs.runner", "operations.proposals", "admin-proposals"):
         row = _s2(catalog, "redis-off", "off", signal)
         assert row["status"] == "pass", (signal, row["why"])
         topo = row["evidence"]["topology"]
         assert topo["topology"] == "redis-off" and topo["declared"] == "off" and topo["mismatch"] is None
         assert topo["reasonCode"] and topo["signal"].startswith(("manifest:", "admin-proposals:"))
-        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 41}
+        assert topo["durableControlPlaneTools"] == {"state": "absent", "count": 43}
         assert "redis-off" in row["why"]
 
 
@@ -3802,7 +3802,7 @@ def _studio_handler(topology, signal, draft_reply, environment="Production", pub
                  "supportedOperations": ["publish-request.create"] if f != "analysis" else [],
                  "publishSupported": f != "analysis", "limitations": []}
                 for f, fmt in (("query", "studio_query_package.v1"), ("analysis", "studio_analysis_package.v1"),
-                               ("map", "honua_map_package.v1"))]
+                               ("map", "honua_map.v1"))]
 
     def handle(method, path, body, authed):
         common = _common_routes(method, path, topology, signal, environment)
@@ -3857,8 +3857,8 @@ def test_s3_studio_redis_off_passes_on_the_typed_409_for_query_analysis_and_map(
     drafts = [body for path, body in posts if path == "/api/v1/studio/package-drafts"]
     assert [d["envelope"]["family"] for d in drafts] == ["query", "analysis", "map"] and len(posts) == 3
     map_body = drafts[2]["envelope"]["body"]
-    assert drafts[2]["envelope"]["format"] == "honua_map_package.v1" == map_body["format"]
-    assert map_body["mapPackageId"] == drafts[2]["packageKey"]
+    assert drafts[2]["envelope"]["format"] == "honua_map.v1" == map_body["format"]
+    assert map_body["mapId"] == drafts[2]["packageKey"]
     assert "{layerId}" not in json.dumps(map_body)
 
 

@@ -660,6 +660,8 @@ class CloudCellBindingTests(unittest.TestCase):
             # The read-back contract below is proven on a concrete mirror digest.
             self.pinned = copy.deepcopy(self.pinned)
             self.server = self.pinned["components"]["honua-server"]
+            self.server.setdefault("awsLambdaImage", "ghcr.io/honua-io/honua-server:nightly-lambda-aot-synthetic-amd64")
+            self.server.setdefault("awsLambdaDigest", "sha256:" + "d" * 64)
             self.server["awsLambdaEcrDigest"] = "sha256:" + "e" * 64
         lambda_image = self.cj.candidate_image("aws-serverless/redis-on", self.pinned)
         self.assertEqual(lambda_image, self.server["awsLambdaImage"] + "@" + self.server["awsLambdaDigest"])

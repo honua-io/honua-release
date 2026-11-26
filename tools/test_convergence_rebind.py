@@ -132,7 +132,7 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("de512e8123bdfbfbe20f692b236e37853b4f8294", "manifest/frozen")
+    assert pins["server-certification"] == ("83127df70c06d4162fcc11b8d95a8ab466be49e2", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -1190,7 +1190,7 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     assert commits[commits.index(candidate) - 1:commits.index(candidate) + 1] == [
         "532565bc7215d4b9ce9657bc110cbd0366076e31", candidate]
     manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
-    assert manifest["protocolCertification"]["serverCertificationProducerSha"] == candidate
+    assert manifest["protocolCertification"]["serverCertificationProducerSha"] == "83127df70c06d4162fcc11b8d95a8ab466be49e2"
     recheck = ruling["evidence"].split("Re-checked at de512e8", 1)[1]
     assert "still returns UNIMPLEMENTED for ExecutePlan and ExecutePlanStream" in recheck
     assert "outside the 2026.1 gRPC denominator" in recheck

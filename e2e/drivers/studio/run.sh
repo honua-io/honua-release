@@ -260,7 +260,7 @@ map_body() { # package-key
   jq -c --arg l "$LAYER" --arg k "$1" '
     .execution.mapBody
     | walk(if type == "string" then gsub("\\{layerId\\}"; $l) else . end)
-    | .mapId = $k | del(.mapPackageId)' "$MAP_FIXTURE" 2>/dev/null || true
+    | .format = "honua_map.v1" | .mapId = $k | del(.mapPackageId)' "$MAP_FIXTURE" 2>/dev/null || true
 }
 
 # publish_required FAMILY -> 0 when this seam requires the family to still reach publish-request.
