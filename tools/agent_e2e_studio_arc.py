@@ -164,7 +164,10 @@ def ui_provenance(records, session_rows, customer, handle_lookup):
     saved = [(a, d, n) for t, a, d, n in actions if t == 'studio_ui_save'
              and d.get('itemId') == version.get('itemId') and d.get('versionId') == version.get('versionId')
              and d.get('sourceDraftId') == version.get('sourceDraftId')
-             and a.get('path') == '/api/studio/v1/studio/package-drafts/' + str(version.get('sourceDraftId')) + '/content-versions']
+             and a.get('path') in (
+                 '/api/studio/v1/studio/package-drafts/' + str(version.get('sourceDraftId')) + '/content-versions',
+                 '/api/v1/studio/package-drafts/' + str(version.get('sourceDraftId')) + '/content-versions',
+             )]
     if len(created) != 1 or len(saved) != 1 or _instant(created[0][0]['startedAt']) > _instant(saved[0][0]['startedAt']):
         raise ValueError('saved version lacks matching browser create and save')
     if not (any(n < created[0][2] for n in ui_interactions) and

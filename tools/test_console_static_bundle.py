@@ -194,23 +194,159 @@ def test_the_console_publisher_is_the_static_bundle_workflow():
     assert static_bundle.publisher_workflow(console(), REPOSITORY) == 'static-bundle.yml'
 
 
-def test_a_studio_case_runs_the_reviewed_console_image_when_the_manifest_names_a_bundle(tmp_path, monkeypatch):
+def _valid_static_bundle_zip(extra_files=None, *, index_html=None):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as archive:
+        archive.writestr('index.html', index_html or '<!doctype html><base href="/console/"><title>Console</title>')
+        archive.writestr('config.json', '{"apiBaseUrl":"/","v4Enabled":true}')
+        archive.writestr('_framework/blazor.webassembly.js', 'export const boot = true;')
+        archive.writestr('_studio/app.mjs', 'export const studio = 1;')
+        for name, content in (extra_files or {}).items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
+def test_a_studio_case_serves_the_bound_static_bundle_instead_of_the_frozen_image(tmp_path, monkeypatch):
     from types import SimpleNamespace
     import agent_browser_studio as studio
     from agent_e2e_local_runner import LocalRuntime
-    pin = {'image': 'ghcr.io/honua-io/honua-console@sha256:' + 'b' * 64, 'sourceRevision': 'c' * 40}
-    (tmp_path / 'pin.json').write_text(json.dumps(pin))
-    monkeypatch.setattr(studio, 'CONSOLE_PIN_PATH', tmp_path / 'pin.json')
-    bound = console(sha=BUNDLED, artifactSha256=INNER_SHA)
+    bundle_zip = _valid_static_bundle_zip()
+    bundle_sha = 'sha256:' + hashlib.sha256(bundle_zip).hexdigest()
+    bound = console(sha=BUNDLED, artifactSourceRevision=BUNDLED, artifactSha256=bundle_sha,
+                    artifactVersion='0.0.0-trunk.' + BUNDLED[:12])
     (tmp_path / 'platform-manifest.yaml').write_text(json.dumps({'components': {'honua-console': bound}}))
-    monkeypatch.setattr(studio, 'CaseConsole', lambda _stack, actual, **_kwargs:
-                        SimpleNamespace(url='http://127.0.0.1:1234', image=actual))
-    stack = SimpleNamespace(extra={}, compose_project='g41')
+    monkeypatch.setattr(studio, 'CaseConsole', lambda *_a, **_kw: (_ for _ in ()).throw(AssertionError('image used')))
+    stack = SimpleNamespace(base_url='http://127.0.0.1:18080', admin_key='controller-admin-secret',
+                            extra={}, compose_project='g41')
     custody = {}
-    runtime = SimpleNamespace(root=tmp_path, _console_identities={'g41': {'edgeSecret': 'x', 'userId': 'user'}},
-                              attest=lambda _stack, name, value, _steps: custody.update({name: value}))
-    assert LocalRuntime.start_console(runtime, stack) == 'http://127.0.0.1:1234'
-    assert stack.extra['_caseConsole'].image == pin['image']
-    # The evidence shows the case did not exercise the bundle the lock binds.
-    assert custody == {'studioConsoleImage': pin, 'studioConsoleBoundBundle': {
-        'artifactSha256': INNER_SHA, 'sourceRevision': BUNDLED, 'exercised': False}}
+    runtime = SimpleNamespace(
+        root=tmp_path,
+        _console_identities={'g41': {'edgeSecret': 's' * 32, 'userId': 'user'}},
+        load_console_bundle=lambda comp: bundle_zip,
+        attest=lambda _stack, name, value, _steps: custody.update({name: value}),
+    )
+    url = LocalRuntime.start_console(runtime, stack)
+    try:
+        assert url.startswith('http://127.0.0.1:')
+        assert isinstance(stack.extra['_caseConsole'], studio.CaseConsoleBundle)
+        assert 'studioConsoleImage' not in custody
+        assert custody == {'studioConsoleBoundBundle': {
+            'artifactSha256': bundle_sha, 'sourceRevision': BUNDLED,
+            'artifactVersion': '0.0.0-trunk.' + BUNDLED[:12], 'exercised': True}}
+    finally:
+        stack.extra['_caseConsole'].close()
+
+
+def test_case_console_bundle_serves_static_spa_and_proxies_api_without_admin_key(tmp_path):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+    import urllib.error
+    import urllib.request
+    from types import SimpleNamespace
+    from agent_console_bundle_edge import CaseConsoleBundle
+
+    seen = []
+
+    class Backend(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            length = int(self.headers.get('Content-Length') or 0)
+            body = self.rfile.read(length)
+            seen.append({'path': self.path, 'headers': {k.lower(): v for k, v in self.headers.items()}, 'body': body})
+            payload = json.dumps({'ok': True}).encode()
+            self.send_response(201)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    backend = ThreadingHTTPServer(('127.0.0.1', 0), Backend)
+    thread = threading.Thread(target=backend.serve_forever, daemon=True)
+    thread.start()
+    bundle_zip = _valid_static_bundle_zip()
+    bundle_sha = 'sha256:' + hashlib.sha256(bundle_zip).hexdigest()
+    edge_secret = 'e' * 40
+    stack = SimpleNamespace(base_url=f'http://127.0.0.1:{backend.server_address[1]}', admin_key='never-forward-me')
+    edge = CaseConsoleBundle(stack, bundle_zip, artifact_sha256=bundle_sha, source_revision=BUNDLED,
+                             artifact_version='0.0.0-trunk.' + BUNDLED[:12], edge_secret=edge_secret)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    temp_dir = edge._temp_dir
+    try:
+        with opener.open(edge.url + '/console/studio', timeout=5) as resp:
+            assert resp.status == 200
+            assert b'<base href="/console/">' in resp.read()
+        with opener.open(edge.url + '/console/_studio/app.mjs', timeout=5) as resp:
+            assert resp.status == 200
+            assert resp.headers.get_content_type() == 'text/javascript'
+            assert resp.read() == b'export const studio = 1;'
+        with opener.open(edge.url + '/console/config.json', timeout=5) as resp:
+            cfg = json.loads(resp.read())
+            assert cfg['apiBaseUrl'] == '/' and cfg['v4Enabled'] is True
+        with opener.open(edge.url + '/version.json', timeout=5) as resp:
+            ver = json.loads(resp.read())
+            assert ver['artifactSha256'] == bundle_sha and ver['mode'] == 'static-bundle'
+        with pytest.raises(urllib.error.HTTPError) as missing:
+            opener.open(edge.url + '/console/missing.js', timeout=5)
+        assert missing.value.code == 404
+        req = urllib.request.Request(
+            edge.url + '/api/v1/studio/package-drafts',
+            data=b'{"packageKey":"map-1"}',
+            headers={'Content-Type': 'application/json', 'X-Honua-Edge-Auth': edge_secret,
+                     'X-Forwarded-User': 'alice', 'X-Forwarded-Access-Token': 'customer-jwt-token',
+                     'X-API-Key': 'should-be-stripped'},
+            method='POST',
+        )
+        with opener.open(req, timeout=5) as resp:
+            assert resp.status == 201 and json.loads(resp.read()) == {'ok': True}
+        assert len(seen) == 1
+        assert seen[0]['path'] == '/api/v1/studio/package-drafts'
+        assert seen[0]['headers'].get('authorization') == 'Bearer customer-jwt-token'
+        assert 'x-honua-edge-auth' not in seen[0]['headers']
+        assert 'x-forwarded-access-token' not in seen[0]['headers']
+        assert 'x-api-key' not in seen[0]['headers']
+    finally:
+        edge.close()
+        backend.shutdown()
+        backend.server_close()
+        thread.join(timeout=5)
+    assert not temp_dir.exists()
+
+
+def test_case_console_bundle_fails_closed_on_tampered_or_unsafe_bundles(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from agent_console_bundle_edge import CaseConsoleBundle
+    from agent_e2e_local_runner import load_bound_console_bundle
+
+    good = _valid_static_bundle_zip()
+    good_sha = 'sha256:' + hashlib.sha256(good).hexdigest()
+    stack = SimpleNamespace(base_url='http://127.0.0.1:18080')
+
+    with pytest.raises(ValueError, match='differs from bound'):
+        CaseConsoleBundle(stack, good, artifact_sha256='sha256:' + '0' * 64, source_revision=BUNDLED)
+
+    with pytest.raises(ValueError, match='loopback'):
+        CaseConsoleBundle(SimpleNamespace(base_url='https://example.com'), good,
+                          artifact_sha256=good_sha, source_revision=BUNDLED)
+
+    bad_base = _valid_static_bundle_zip(index_html='<!doctype html><base href="/">')
+    with pytest.raises(ValueError, match='base href'):
+        CaseConsoleBundle(stack, bad_base, artifact_sha256='sha256:' + hashlib.sha256(bad_base).hexdigest(),
+                          source_revision=BUNDLED)
+
+    traversal = _valid_static_bundle_zip(extra_files={'../escape.txt': 'nope'})
+    with pytest.raises(ValueError, match='unsafe static bundle path'):
+        CaseConsoleBundle(stack, traversal, artifact_sha256='sha256:' + hashlib.sha256(traversal).hexdigest(),
+                          source_revision=BUNDLED)
+
+    local_zip = tmp_path / 'console.zip'
+    local_zip.write_bytes(good)
+    monkeypatch.setenv('HONUA_CONSOLE_BUNDLE_PATH', str(local_zip))
+    bound = console(sha=BUNDLED, artifactSourceRevision=BUNDLED, artifactSha256=good_sha)
+    assert load_bound_console_bundle(bound) == good
+    with pytest.raises(ValueError, match='differs from manifest'):
+        load_bound_console_bundle({**bound, 'artifactSha256': 'sha256:' + '0' * 64})
+    monkeypatch.delenv('HONUA_CONSOLE_BUNDLE_PATH')
+    github = BundleGitHub(payload=artifact_zip(BUNDLED, inner=good))
+    assert load_bound_console_bundle(bound, github=github) == good

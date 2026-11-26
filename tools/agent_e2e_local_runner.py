@@ -1406,10 +1406,50 @@ def _load_optional_sessions():
         importlib.import_module(name)
 
 
+def bound_bundle_custody(component, *, exercised):
+    """The static bundle the release binds, recorded with whether the case exercised it."""
+    fact = {'artifactSha256': component.get('artifactSha256'), 'sourceRevision': component.get('sha'),
+            'exercised': bool(exercised)}
+    if component.get('artifactVersion'):
+        fact['artifactVersion'] = component['artifactVersion']
+    return fact
+
+
 def unexercised_bundle(component):
     """The static bundle the release binds, recorded beside the frozen image the case ran instead."""
-    return {'artifactSha256': component.get('artifactSha256'), 'sourceRevision': component.get('sha'),
-            'exercised': False}
+    return bound_bundle_custody(component, exercised=False)
+
+
+def load_bound_console_bundle(component, *, github=None):
+    """Fetch and hash-verify the static Console bundle bytes the manifest binds."""
+    import static_bundle
+    name = static_bundle.artifact_name(component)
+    expected = component.get('artifactSha256')
+    revision = component.get('artifactSourceRevision') or component.get('sha')
+    repo_url = str(component.get('repository') or '')
+    match = re.fullmatch(r'https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?', repo_url)
+    if not name or not match or not isinstance(expected, str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', expected):
+        raise ValueError('release manifest honua-console static bundle metadata is incomplete')
+    if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('release manifest honua-console static bundle source revision is invalid')
+    override_path = os.environ.get('HONUA_CONSOLE_BUNDLE_PATH', '').strip()
+    if override_path:
+        raw = Path(override_path).read_bytes()
+    else:
+        if github is None:
+            from resolve_trunk_candidate import GitHub
+            github = GitHub()
+        artifact = {
+            'kind': static_bundle.KIND,
+            'coordinate': static_bundle.coordinate(match.group(1), name),
+            'sourceRevision': revision,
+            'sha256': expected,
+        }
+        raw = static_bundle.published_bytes(artifact, github)
+    actual = 'sha256:' + hashlib.sha256(raw).hexdigest()
+    if actual != expected:
+        raise ValueError(f'bound Console static bundle digest {actual} differs from manifest {expected}')
+    return raw
 
 
 class LocalRuntime:
@@ -1786,30 +1826,46 @@ class LocalRuntime:
         stack.extra['consoleUserId'] = canonical_user
 
     def start_console(self, stack):
-        """Start the case's pinned Console on its remote Compose network."""
+        """Start the case's bound Console (static bundle edge when bound, or legacy pinned image)."""
         if '_caseConsole' in stack.extra:
             return stack.extra['_caseConsole'].url
         import yaml
-        from agent_browser_studio import CaseConsole, studio_console_image
+        import static_bundle
+        from agent_browser_studio import CaseConsole, CaseConsoleBundle, studio_console_image
         manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
         component = manifest['components']['honua-console']
-        pin = studio_console_image()
-        # A static-bundle Console has no image in the manifest; the case runs the reviewed image alone.
-        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0] if component.get('image') else None
-        if repository and (repository + '@' + component['digest'] != pin['image']
-                           or component.get('sha') != pin['sourceRevision']):
-            raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
             raise ValueError('case has no minted Console customer identity')
-        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
-        try:
-            self.attest(stack, 'studioConsoleImage', pin, [])
-            if not repository:
-                self.attest(stack, 'studioConsoleBoundBundle', unexercised_bundle(component), [])
-        except Exception:
-            console.close()
-            raise
+        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0] if component.get('image') else None
+        if not repository and static_bundle.artifact_name(component):
+            loader = getattr(self, 'load_console_bundle', load_bound_console_bundle)
+            bundle_bytes = loader(component)
+            console = CaseConsoleBundle(
+                stack, bundle_bytes,
+                artifact_sha256=component['artifactSha256'],
+                source_revision=component['sha'],
+                artifact_version=component.get('artifactVersion'),
+                edge_secret=identity['edgeSecret'],
+            )
+            try:
+                self.attest(stack, 'studioConsoleBoundBundle', bound_bundle_custody(component, exercised=True), [])
+            except Exception:
+                console.close()
+                raise
+        else:
+            pin = studio_console_image()
+            if repository and (repository + '@' + component['digest'] != pin['image']
+                               or component.get('sha') != pin['sourceRevision']):
+                raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
+            console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
+            try:
+                self.attest(stack, 'studioConsoleImage', pin, [])
+                if not repository:
+                    self.attest(stack, 'studioConsoleBoundBundle', unexercised_bundle(component), [])
+            except Exception:
+                console.close()
+                raise
         stack.extra['_caseConsole'] = console
         stack.extra['consoleUrl'] = console.url
         stack.extra['validatedConsoleCustomer'] = identity['userId']
