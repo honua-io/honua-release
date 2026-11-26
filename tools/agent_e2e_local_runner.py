@@ -1408,8 +1408,8 @@ def _load_optional_sessions():
 
 def unexercised_bundle(component):
     """The static bundle the release binds, recorded beside the frozen image the case ran instead."""
-    return {'artifactSha256': component.get('artifactSha256'), 'sourceRevision': component.get('sha'),
-            'exercised': False}
+    from agent_console_bundle_edge import unexercised_bundle_custody
+    return unexercised_bundle_custody(component)
 
 
 class LocalRuntime:
@@ -1786,26 +1786,32 @@ class LocalRuntime:
         stack.extra['consoleUserId'] = canonical_user
 
     def start_console(self, stack):
-        """Start the case's pinned Console on its remote Compose network."""
+        """Start the case's bound Console (static bundle edge when bound, or legacy pinned image)."""
         if '_caseConsole' in stack.extra:
             return stack.extra['_caseConsole'].url
         import yaml
+        import static_bundle
         from agent_browser_studio import CaseConsole, studio_console_image
+        from agent_console_bundle_edge import exercised_bundle_custody, start_bound_console
         manifest = yaml.safe_load((self.root / 'platform-manifest.yaml').read_text(encoding='utf-8'))
         component = manifest['components']['honua-console']
-        pin = studio_console_image()
-        # A static-bundle Console has no image in the manifest; the case runs the reviewed image alone.
-        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0] if component.get('image') else None
-        if repository and (repository + '@' + component['digest'] != pin['image']
-                           or component.get('sha') != pin['sourceRevision']):
-            raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
         identity = self._console_identities.get(stack.compose_project)
         if identity is None:
             raise ValueError('case has no minted Console customer identity')
-        console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
+        repository = component['image'].split('@', 1)[0].rsplit(':', 1)[0] if component.get('image') else None
+        if not repository and static_bundle.artifact_name(component):
+            console = start_bound_console(stack, component, identity, loader=getattr(self, 'load_console_bundle', None))
+            custody = ('studioConsoleBoundBundle', exercised_bundle_custody(component))
+        else:
+            pin = studio_console_image()
+            if repository and (repository + '@' + component['digest'] != pin['image']
+                               or component.get('sha') != pin['sourceRevision']):
+                raise ValueError('release manifest Console pin differs from the reviewed Studio case image')
+            console = CaseConsole(stack, pin['image'], edge_secret=identity['edgeSecret'])
+            custody = ('studioConsoleImage', pin)
         try:
-            self.attest(stack, 'studioConsoleImage', pin, [])
-            if not repository:
+            self.attest(stack, custody[0], custody[1], [])
+            if not repository and custody[0] == 'studioConsoleImage':
                 self.attest(stack, 'studioConsoleBoundBundle', unexercised_bundle(component), [])
         except Exception:
             console.close()

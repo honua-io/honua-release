@@ -27,6 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
+from agent_console_bundle_edge import CaseConsoleBundle
 from agent_e2e_local_recorder import ProjectionError
 from agent_e2e_local_projections import publication_audit_prefix, publication_handle_identity
 
@@ -293,7 +294,10 @@ class OriginLock:
 
 # The only frame paths kept verbatim in refusal evidence: Studio's own pages. Any other path, and any host that is
 # not a loopback literal, is page-controlled text (history.replaceState, a crafted URL) and is kept only as a digest.
-EVIDENCE_PATHS = frozenset({'', '/', '/studio', '/_studio/maputnik/index.html'})
+EVIDENCE_PATHS = frozenset({
+    '', '/', '/studio', '/_studio/maputnik/index.html',
+    '/console', '/console/', '/console/studio', '/console/_studio/maputnik/index.html',
+})
 EVIDENCE_HOSTS = frozenset({'127.0.0.1', 'localhost', '::1'})
 EVIDENCE_ABOUT = frozenset({'about:blank', 'about:srcdoc'})
 
@@ -597,8 +601,8 @@ class PlaywrightPage:
             # Capture native Studio lifecycle traffic independently of model claims.
             # This route is reached only by the origin-locked signed-in browser.
             path = urlsplit(url).path
-            lifecycle = (path == '/api/studio/v1/studio/package-drafts' or
-                         re.fullmatch(r'/api/studio/v1/studio/package-drafts/[A-Za-z0-9-]+/content-versions', path))
+            lifecycle = (path in ('/api/studio/v1/studio/package-drafts', '/api/v1/studio/package-drafts') or
+                         re.fullmatch(r'/api/(?:studio/)?v1/studio/package-drafts/[A-Za-z0-9-]+/content-versions', path))
             if lifecycle and getattr(self, '_refusal_log', None) is not None and route.request.method == 'POST':
                 from datetime import datetime, timezone
                 tool = 'studio_ui_create' if path.endswith('/package-drafts') else 'studio_ui_save'
