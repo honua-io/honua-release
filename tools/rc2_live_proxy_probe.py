@@ -2,8 +2,8 @@
 """Live Docker probe for RC2 GIS clients and HTTPS reverse-proxy behavior."""
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
+import gzip
 import json
 from pathlib import Path
 import tempfile
@@ -149,6 +149,40 @@ def _check_geoservices_error_envelope(proxy: nginx_env.ProxyEndpoint) -> bool:
     )
 
 
+def _extract_tilejson_layer_id(reply: common.HttpReply, parsed: object) -> str | None:
+    if reply.status != common.HTTP_OK or not isinstance(parsed, dict):
+        return None
+    if not isinstance(parsed.get("tilejson"), str) or not parsed["tilejson"].strip():
+        return None
+    tiles = parsed.get("tiles")
+    if not isinstance(tiles, list) or not tiles:
+        return None
+    if not all(isinstance(url, str) and url.startswith("https://") for url in tiles):
+        return None
+    layers = parsed.get("vector_layers")
+    if not isinstance(layers, list) or not layers or not isinstance(layers[0], dict):
+        return None
+    layer_id = layers[0].get("id")
+    return layer_id if isinstance(layer_id, str) and layer_id.strip() else None
+
+
+def _is_valid_mvt_payload(reply: common.HttpReply, layer_id: str | None) -> bool:
+    if reply.status != common.HTTP_OK or not layer_id or not reply.body:
+        return False
+    ctype = reply.headers.get("content-type", "").lower()
+    if "mapbox-vector-tile" not in ctype and "protobuf" not in ctype:
+        return False
+    try:
+        raw = gzip.decompress(reply.body) if reply.body.startswith(b"\x1f\x8b") else reply.body
+    except OSError:
+        return False
+    return (
+        raw.startswith(b"\x1a")
+        and layer_id.encode("utf-8") in raw
+        and b"Honolulu Harbor" in raw
+    )
+
+
 def _probe_gis_clients(
     proxy: nginx_env.ProxyEndpoint, published: common.PublishedLayer, wms_detail: str
 ) -> dict[str, dict[str, str]]:
@@ -167,11 +201,8 @@ def _probe_gis_clients(
     )
     ogc_r, ogc_body = nginx_env.proxy_json(proxy, f"/ogc/features/collections/{lid}/items")
     qgis_ok = ogc_r.status == common.HTTP_OK and isinstance(ogc_body, dict) and bool(ogc_body.get("features"))
-    maplibre_ok = (
-        tilejson_r.status == common.HTTP_OK
-        and isinstance(tilejson, dict)
-        and mvt.status in (common.HTTP_OK, 204)
-    )
+    tile_layer_id = _extract_tilejson_layer_id(tilejson_r, tilejson)
+    maplibre_ok = _is_valid_mvt_payload(mvt, tile_layer_id)
     cesium_ok = cesium_r.status == common.HTTP_OK and _is_valid_png(cesium_r.body)
     geo_ok = (
         fs_json_r.status == common.HTTP_OK
@@ -182,7 +213,7 @@ def _probe_gis_clients(
     )
     return {
         "qgis": {"status": "PASS" if qgis_ok else "FAIL", "evidence": f"ogc={ogc_r.status},{wms_detail}"},
-        "maplibre": {"status": "PASS" if maplibre_ok else "FAIL", "evidence": f"tilejson={tilejson_r.status},mvt={mvt.status}"},
+        "maplibre": {"status": "PASS" if maplibre_ok else "FAIL", "evidence": f"tilejson={tilejson_r.status}(layer={tile_layer_id}),mvt={mvt.status}({len(mvt.body)}B)"},
         "cesium": {"status": "PASS" if cesium_ok else "FAIL", "evidence": f"ogc-maps={cesium_r.status}({len(cesium_r.body)}B)"},
         "geoservices": {"status": "PASS" if geo_ok else "FAIL", "evidence": f"json={fs_json_r.status},pbf={fs_pbf_r.status}({len(fs_pbf_r.body)}B)"},
     }
@@ -305,21 +336,12 @@ def run_proxy_probe(config: ProxyProbeConfig) -> dict[str, object]:
 
 
 def _parse_args(argv: list[str] | None = None) -> ProxyProbeConfig:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server-sha", required=True)
-    parser.add_argument("--server-digest", required=True)
-    parser.add_argument("--amd64-digest", required=True)
-    parser.add_argument("--lock-digest", required=True)
-    parser.add_argument("--postgis-image", default=common.DEFAULT_POSTGIS_IMAGE)
+    parser = common.build_candidate_parser(__doc__ or "")
     parser.add_argument("--nginx-image", default=common.DEFAULT_NGINX_IMAGE)
-    parser.add_argument("--boot-timeout", type=float, default=common.DEFAULT_BOOT_TIMEOUT_SECONDS)
-    parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    candidate = common.CandidateSpec(
-        args.server_sha, args.server_digest, args.amd64_digest,
-        args.lock_digest, args.postgis_image,
+    return ProxyProbeConfig(
+        common.candidate_from_args(args), args.out, args.nginx_image, args.boot_timeout
     )
-    return ProxyProbeConfig(candidate, args.out, args.nginx_image, args.boot_timeout)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -2,7 +2,6 @@
 """Live Docker probe for RC2 single-tenant Console parity and multi-tenant isolation."""
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -158,20 +157,24 @@ def _probe_studio_tenant_isolation(
     base_url: str, tokens: TenantTokens, published: common.PublishedLayer
 ) -> int:
     draft_id = _create_tenant_a_draft(base_url, tokens, published)
-    leaks = 0
     own = common.http_request(
         common.HttpSpec("GET", f"{base_url}/api/v1/studio/package-drafts/{draft_id}", _bearer(tokens.tenant_a_admin))
     )
     if own.status != common.HTTP_OK:
-        leaks += 1
+        raise RuntimeError(f"tenant-a own draft GET failed: HTTP {own.status}")
     cross_get = common.http_request(
         common.HttpSpec("GET", f"{base_url}/api/v1/studio/package-drafts/{draft_id}", _bearer(tokens.tenant_b_admin))
     )
-    if cross_get.status == common.HTTP_OK:
-        leaks += 1
-    cross_list = common.http_request(
+    if cross_get.status not in (common.HTTP_OK, common.HTTP_FORBIDDEN, 404):
+        raise RuntimeError(f"inconclusive cross-tenant draft GET: HTTP {cross_get.status} {cross_get.error}")
+    cross_list, parsed_list = common.json_request(
         common.HttpSpec("GET", f"{base_url}/api/v1/studio/package-drafts", _bearer(tokens.tenant_b_admin))
     )
+    if cross_list.status != common.HTTP_OK or not isinstance(parsed_list, (dict, list)):
+        raise RuntimeError(
+            f"inconclusive cross-tenant draft LIST: HTTP {cross_list.status} {cross_list.error}"
+        )
+    leaks = 1 if cross_get.status == common.HTTP_OK else 0
     if draft_id in cross_list.body.decode("utf-8", errors="replace"):
         leaks += 1
     return leaks
@@ -346,20 +349,9 @@ def run_tenant_probe(config: TenantProbeConfig) -> dict[str, object]:
 
 
 def _parse_args(argv: list[str] | None = None) -> TenantProbeConfig:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server-sha", required=True)
-    parser.add_argument("--server-digest", required=True)
-    parser.add_argument("--amd64-digest", required=True)
-    parser.add_argument("--lock-digest", required=True)
-    parser.add_argument("--postgis-image", default=common.DEFAULT_POSTGIS_IMAGE)
-    parser.add_argument("--boot-timeout", type=float, default=common.DEFAULT_BOOT_TIMEOUT_SECONDS)
-    parser.add_argument("--out", type=Path, required=True)
+    parser = common.build_candidate_parser(__doc__ or "")
     args = parser.parse_args(argv)
-    candidate = common.CandidateSpec(
-        args.server_sha, args.server_digest, args.amd64_digest,
-        args.lock_digest, args.postgis_image,
-    )
-    return TenantProbeConfig(candidate, args.out, args.boot_timeout)
+    return TenantProbeConfig(common.candidate_from_args(args), args.out, args.boot_timeout)
 
 
 def main(argv: list[str] | None = None) -> int:

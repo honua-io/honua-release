@@ -2,7 +2,6 @@
 """Live Docker probe for RC2 PostGIS in-place upgrade and degraded startup recovery."""
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -203,21 +202,12 @@ def run_upgrade_probe(config: UpgradeProbeConfig) -> dict[str, object]:
 
 
 def _parse_args(argv: list[str] | None = None) -> UpgradeProbeConfig:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server-sha", required=True)
-    parser.add_argument("--server-digest", required=True)
-    parser.add_argument("--amd64-digest", required=True)
-    parser.add_argument("--lock-digest", required=True)
+    parser = common.build_candidate_parser(__doc__ or "")
     parser.add_argument("--prior-rc-image-digest", required=True)
-    parser.add_argument("--postgis-image", default=common.DEFAULT_POSTGIS_IMAGE)
-    parser.add_argument("--boot-timeout", type=float, default=common.DEFAULT_BOOT_TIMEOUT_SECONDS)
-    parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    candidate = common.CandidateSpec(
-        args.server_sha, args.server_digest, args.amd64_digest,
-        args.lock_digest, args.postgis_image,
+    return UpgradeProbeConfig(
+        common.candidate_from_args(args), args.prior_rc_image_digest, args.out, args.boot_timeout
     )
-    return UpgradeProbeConfig(candidate, args.prior_rc_image_digest, args.out, args.boot_timeout)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -220,6 +220,26 @@ def _mock_admin_or_studio_get(path: str, headers: dict[str, str]) -> tuple[int, 
     )
 
 
+STATIC_MOCK_GET_ROUTES: dict[str, tuple[int, bytes, str]] = {
+    "/ogc/features": (200, json.dumps({"links": [{"rel": "self", "href": "https://proxy.honua.test/ogc/features"}]}).encode(), "application/json"),
+    "/ogc/maps/collections/1/map": (200, VALID_PNG, "image/png"),
+    "/tiles/1/tile.json": (
+        200,
+        json.dumps({
+            "tilejson": "3.0.0",
+            "tiles": ["https://proxy.honua.test/tiles/1/{z}/{x}/{y}.mvt"],
+            "vector_layers": [{"id": "layer"}],
+        }).encode(),
+        "application/json",
+    ),
+    "/tiles/1/0/0/0.mvt": (200, b"\x1a\x18\n\x05layerHonolulu Harbor", "application/vnd.mapbox-vector-tile"),
+    "/rest/services/nonexistent_rc2/FeatureServer/0/query": (200, b'{"error":{"code":404,"message":"Service not found"}}', "application/json"),
+    "/odata/Features(1)": (200, json.dumps({"value": [{"ObjectId": 1, "name": "Honolulu"}]}).encode(), "application/json"),
+    "/stac/collections": (200, json.dumps({"collections": [{"id": "1"}]}).encode(), "application/json"),
+    "/stac/collections/1/items": (200, json.dumps({"features": [{"id": "1", "properties": {"name": "Honolulu"}}]}).encode(), "application/json"),
+}
+
+
 def _route_mock_get(
     state: _MockState, raw_path: str, headers: dict[str, str]
 ) -> tuple[int, bytes, str]:
@@ -243,17 +263,7 @@ def _route_mock_get(
         return _mock_featureserver_response(state, qs, headers)
     if path.startswith(("/api/v1/admin/", "/api/v1/console/", "/api/v1/studio/")):
         return _mock_admin_or_studio_get(path, headers)
-    static_routes: dict[str, tuple[int, bytes, str]] = {
-        "/ogc/features": (200, json.dumps({"links": [{"rel": "self", "href": "https://proxy.honua.test/ogc/features"}]}).encode(), "application/json"),
-        "/ogc/maps/collections/1/map": (200, VALID_PNG, "image/png"),
-        "/tiles/1/tile.json": (200, b'{"tilejson":"3.0.0"}', "application/json"),
-        "/tiles/1/0/0/0.mvt": (200, b"\x1a\x02ok", "application/vnd.mapbox-vector-tile"),
-        "/rest/services/nonexistent_rc2/FeatureServer/0/query": (200, b'{"error":{"code":404,"message":"Service not found"}}', "application/json"),
-        "/odata/Features(1)": (200, json.dumps({"value": [{"ObjectId": 1, "name": "Honolulu"}]}).encode(), "application/json"),
-        "/stac/collections": (200, json.dumps({"collections": [{"id": "1"}]}).encode(), "application/json"),
-        "/stac/collections/1/items": (200, json.dumps({"features": [{"id": "1", "properties": {"name": "Honolulu"}}]}).encode(), "application/json"),
-    }
-    return static_routes.get(path, (404, b'{"detail":"not found"}', "application/json"))
+    return STATIC_MOCK_GET_ROUTES.get(path, (404, b'{"detail":"not found"}', "application/json"))
 
 
 def _route_mock_post(state: _MockState, path: str) -> tuple[int, bytes, str]:
@@ -346,6 +356,28 @@ def test_mock_http_flows_cover_upgrade_proxy_and_tenant_probes():
         assert tenant_probe._probe_studio_tenant_isolation(server.base_url, tokens, pub) == 0
         blocked = tenant_probe._probe_hidden_field_protocols(server.base_url, pub, tokens)
         assert set(blocked) == rigor.REQUIRED_HIDDEN_PROTOCOLS
+
+
+def test_maplibre_validator_rejects_empty_tilejson_and_non_mvt_payloads():
+    empty_tj = common.HttpReply(200, {"content-type": "application/json"}, b"{}")
+    assert proxy_probe._extract_tilejson_layer_id(empty_tj, {}) is None
+    bad_mvt = common.HttpReply(200, {"content-type": "application/vnd.mapbox-vector-tile"}, b"not a vector tile")
+    empty_204 = common.HttpReply(204, {"content-type": "application/vnd.mapbox-vector-tile"}, b"")
+    assert proxy_probe._is_valid_mvt_payload(bad_mvt, "layer") is False
+    assert proxy_probe._is_valid_mvt_payload(empty_204, "layer") is False
+
+
+def test_tenant_isolation_fails_closed_on_inconclusive_500_or_transport_error(monkeypatch):
+    tokens = tenant_probe.TenantTokens("p", "a", "b", "m")
+    pub = common.PublishedLayer("c1", "mask_probe", 1, "probe_sites")
+    monkeypatch.setattr(tenant_probe, "_create_tenant_a_draft", lambda *_: DRAFT_ID)
+    replies = iter([
+        common.HttpReply(200, {}, b"{}"),
+        common.HttpReply(500, {}, b'{"detail":"db down"}'),
+    ])
+    monkeypatch.setattr(common, "http_request", lambda _spec: next(replies))
+    with pytest.raises(RuntimeError, match="inconclusive cross-tenant draft GET"):
+        tenant_probe._probe_studio_tenant_isolation("http://127.0.0.1:1", tokens, pub)
 
 
 def test_live_probes_workflow_contract_matches_gate_artifacts():

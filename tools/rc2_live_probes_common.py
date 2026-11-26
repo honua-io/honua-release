@@ -2,6 +2,7 @@
 """Shared candidate verification, HTTP, JWT, and fail-closed proof helpers for RC2 probes."""
 from __future__ import annotations
 
+import argparse
 import base64
 from dataclasses import dataclass, field
 import datetime as dt
@@ -270,6 +271,30 @@ def build_identity_fields(spec: CandidateSpec, observed_at: str | None = None) -
         "platformLockDigest": spec.lock_digest,
         "observedAt": observed_at or utc_now_iso(),
     }
+
+
+def build_candidate_parser(description: str) -> argparse.ArgumentParser:
+    """Create an argument parser pre-populated with shared RC2 candidate flags."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--server-sha", required=True)
+    parser.add_argument("--server-digest", required=True)
+    parser.add_argument("--amd64-digest", required=True)
+    parser.add_argument("--lock-digest", required=True)
+    parser.add_argument("--postgis-image", default=DEFAULT_POSTGIS_IMAGE)
+    parser.add_argument("--boot-timeout", type=float, default=DEFAULT_BOOT_TIMEOUT_SECONDS)
+    parser.add_argument("--out", type=Path, required=True)
+    return parser
+
+
+def candidate_from_args(args: argparse.Namespace) -> CandidateSpec:
+    """Build a CandidateSpec from parsed shared RC2 candidate CLI arguments."""
+    return CandidateSpec(
+        args.server_sha,
+        args.server_digest,
+        args.amd64_digest,
+        args.lock_digest,
+        args.postgis_image,
+    )
 
 
 def validate_and_write_proof(target: ProofTarget, proof: dict[str, object]) -> dict[str, object]:
