@@ -927,9 +927,10 @@ def _source_test_host_problems(cell: dict[str, Any], identity: dict[str, Any],
     return problems
 
 
-def _cell_candidate_problems(cell: dict[str, Any], identity: dict[str, Any],
-                             requirement: dict[str, Any], candidate: dict[str, str]) -> list[str]:
+def _cell_candidate_problems(cell: dict[str, Any], requirement: dict[str, Any],
+                             candidate: dict[str, str]) -> list[str]:
     """Verify candidate identity (source-test-host vs image) and governed test_ids on a cell."""
+    identity = cell["evidence_receipt"]["identity"]
     if cell.get("deployment_target") == "source-test-host":
         problems = _source_test_host_problems(cell, identity, candidate)
     elif cell.get("source_sha") != candidate["source_sha"] or cell.get("image_digest") != candidate["image_digest"]:
@@ -1037,7 +1038,7 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"{label}: {result} carries no producer run identity")
             continue
         requirement = requirement_by_identity.get(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY), {})
-        problems.extend(f"{label}: {p}" for p in _cell_candidate_problems(cell, identity, requirement, candidate))
+        problems.extend(f"{label}: {p}" for p in _cell_candidate_problems(cell, requirement, candidate))
         if cell.get("client_lane") == "sdk-python-certification":
             wheel = requirement.get("client_package")
             if (not _valid_python_wheel(wheel, requirement.get("client_version"))

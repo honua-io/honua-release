@@ -40,78 +40,59 @@ def _terrain_requirement(assignment: dict, sha: str) -> dict:
     }
 
 
-def _terrain_receipt(req: dict, execution: dict, recorded: dict, harness_run: dict) -> dict:
+def _terrain_payload_b64(req: dict, execution: dict) -> str:
     payload = {
         "contract_revision": req["contract_revision"],
         "execution": execution,
         "test_outcomes": {tid: "pass" for tid in req["test_ids"]},
     }
-    payload_b64 = base64.b64encode(
+    return base64.b64encode(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).decode("ascii")
+
+
+def _terrain_receipt(req: dict, execution: dict, recorded: dict) -> dict:
     sha = recorded["candidate"]["server_sha"]
+    harness_run = next(r for r in recorded["runs"] if r["producer"] == LANE)
+    identity = {
+        "capability_key": req["capability_key"], "surface": req["surface"], "operation": req["operation"],
+        "canonical_client": CLIENT, "client_version": req["client_version"],
+        "deployment_target": "source-test-host", "source_sha": sha, "producer_source_sha": sha,
+        "image_digest": None, "fixture_revision": req["fixture_revision"],
+        "contract_revision": req["contract_revision"], "auth_policy_revision": req["auth_policy_revision"],
+        "started_at": "2026-10-03T11:48:12Z", "completed_at": "2026-10-03T11:51:12Z",
+        "maturity": "supported", "required_tier": "nightly",
+        "requirements_revision": recorded["catalog"]["revision"],
+        "candidate_cut_at": recorded["candidate"]["cut_at"], "test_ids": list(req["test_ids"]),
+        "producer_run": {
+            "repository": harness_run["repository"], "workflow": harness_run["workflow"],
+            "run_id": harness_run["run_id"], "run_attempt": harness_run["run_attempt"],
+            "dispatch_id": recorded["dispatch_id"],
+        },
+    }
     return {
         "schema": "honua.certification-evidence-receipt/v2",
-        "identity": {
-            "capability_key": req["capability_key"],
-            "surface": req["surface"],
-            "operation": req["operation"],
-            "canonical_client": CLIENT,
-            "client_version": req["client_version"],
-            "deployment_target": "source-test-host",
-            "source_sha": sha,
-            "producer_source_sha": sha,
-            "image_digest": None,
-            "fixture_revision": req["fixture_revision"],
-            "contract_revision": req["contract_revision"],
-            "auth_policy_revision": req["auth_policy_revision"],
-            "started_at": "2026-10-03T11:48:12Z",
-            "completed_at": "2026-10-03T11:51:12Z",
-            "maturity": "supported",
-            "required_tier": "nightly",
-            "requirements_revision": recorded["catalog"]["revision"],
-            "candidate_cut_at": recorded["candidate"]["cut_at"],
-            "test_ids": list(req["test_ids"]),
-            "producer_run": {
-                "repository": harness_run["repository"],
-                "workflow": harness_run["workflow"],
-                "run_id": harness_run["run_id"],
-                "run_attempt": harness_run["run_attempt"],
-                "dispatch_id": recorded["dispatch_id"],
-            },
-        },
+        "identity": identity,
         "result": "pass",
         "facets": {facet: "pass" for facet in req["scenario_facets"]},
-        "payload_base64": payload_b64,
+        "payload_base64": _terrain_payload_b64(req, execution),
     }
 
 
-def _terrain_cell(req: dict, recorded: dict, harness_run: dict) -> dict:
+def _terrain_cell(req: dict, recorded: dict) -> dict:
     sha = recorded["candidate"]["server_sha"]
     execution = {
-        "client_id": CLIENT,
-        "runner_lane": LANE,
-        "protocol_version": PROTOCOL_VERSION,
-        "protocol_profile": "source-test-host-http-adapter",
-        "performed_by": CLIENT,
-        "request_url": None,
-        "exercised_capabilities": list(req["scenario_facets"]),
+        "client_id": CLIENT, "runner_lane": LANE, "protocol_version": PROTOCOL_VERSION,
+        "protocol_profile": "source-test-host-http-adapter", "performed_by": CLIENT,
+        "request_url": None, "exercised_capabilities": list(req["scenario_facets"]),
     }
-    receipt = _terrain_receipt(req, execution, recorded, harness_run)
     cell = {
-        **req,
-        **execution,
-        "result": "pass",
-        "skip_reason": None,
-        "source_sha": sha,
-        "producer_source_sha": sha,
-        "image_digest": None,
-        "evidence_uri": "",
-        "evidence_digest": "",
-        "evidence_receipt": receipt,
+        **req, **execution,
+        "result": "pass", "skip_reason": None, "source_sha": sha, "producer_source_sha": sha,
+        "image_digest": None, "evidence_uri": "", "evidence_digest": "",
+        "evidence_receipt": _terrain_receipt(req, execution, recorded),
         "facet_results": {facet: {"result": "pass", "evidence_digest": ""} for facet in req["scenario_facets"]},
-        "started_at": "2026-10-03T11:48:12Z",
-        "completed_at": "2026-10-03T11:51:12Z",
+        "started_at": "2026-10-03T11:48:12Z", "completed_at": "2026-10-03T11:51:12Z",
         "budget_observations": None,
     }
     return base.rehash(cell)
@@ -134,7 +115,7 @@ def terrain_source_host_night() -> dict:
     for assignment in fixture_doc["assignments"]:
         req = _terrain_requirement(assignment, sha)
         recorded["catalog"]["requirements"].append(req)
-        recorded["ledger"]["cells"].append(_terrain_cell(req, recorded, harness_run))
+        recorded["ledger"]["cells"].append(_terrain_cell(req, recorded))
     return recorded
 
 
