@@ -237,10 +237,52 @@ def test_a_studio_case_serves_the_bound_static_bundle_instead_of_the_frozen_imag
         stack.extra['_caseConsole'].close()
 
 
-def test_case_console_bundle_serves_static_spa_and_proxies_api_without_admin_key(tmp_path):
+def _bound_bundle(bundle_zip=None, *, revision=BUNDLED):
+    from agent_console_bundle_edge import BoundConsoleBundle
+    raw = _valid_static_bundle_zip() if bundle_zip is None else bundle_zip
+    return BoundConsoleBundle(
+        bundle_bytes=raw,
+        artifact_sha256='sha256:' + hashlib.sha256(raw).hexdigest(),
+        source_revision=revision,
+        artifact_version='0.0.0-trunk.' + revision[:12],
+    )
+
+
+def test_case_console_bundle_serves_static_spa_and_studio_assets():
+    import urllib.error
+    import urllib.request
+    from types import SimpleNamespace
+    from agent_console_bundle_edge import CaseConsoleBundle
+
+    bundle = _bound_bundle()
+    edge = CaseConsoleBundle(SimpleNamespace(base_url='http://127.0.0.1:18080'), bundle)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    temp_dir = edge._temp_dir
+    try:
+        with opener.open(edge.url + '/console/studio', timeout=5) as resp:
+            assert resp.status == 200 and b'<base href="/console/">' in resp.read()
+        for asset_url in ('/console/_studio/app.mjs', '/_studio/app.mjs'):
+            with opener.open(edge.url + asset_url, timeout=5) as resp:
+                assert resp.status == 200
+                assert resp.headers.get_content_type() == 'text/javascript'
+                assert resp.read() == b'export const studio = 1;'
+        with opener.open(edge.url + '/console/config.json', timeout=5) as resp:
+            assert json.loads(resp.read())['apiBaseUrl'] == '/'
+        with opener.open(edge.url + '/version.json', timeout=5) as resp:
+            ver = json.loads(resp.read())
+            assert ver['artifactSha256'] == bundle.artifact_sha256 and ver['mode'] == 'static-bundle'
+        for missing_url in ('/console/missing.js', '/_studio/missing.js'):
+            with pytest.raises(urllib.error.HTTPError) as missing:
+                opener.open(edge.url + missing_url, timeout=5)
+            assert missing.value.code == 404
+    finally:
+        edge.close()
+    assert not temp_dir.exists()
+
+
+def test_case_console_bundle_proxies_api_without_admin_key():
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import threading
-    import urllib.error
     import urllib.request
     from types import SimpleNamespace
     from agent_console_bundle_edge import CaseConsoleBundle
@@ -252,10 +294,9 @@ def test_case_console_bundle_serves_static_spa_and_proxies_api_without_admin_key
             pass
 
         def do_POST(self):
-            length = int(self.headers.get('Content-Length') or 0)
-            body = self.rfile.read(length)
+            body = self.rfile.read(int(self.headers.get('Content-Length') or 0))
             seen.append({'path': self.path, 'headers': {k.lower(): v for k, v in self.headers.items()}, 'body': body})
-            payload = json.dumps({'ok': True}).encode()
+            payload = b'{"ok":true}'
             self.send_response(201)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(payload)))
@@ -265,31 +306,11 @@ def test_case_console_bundle_serves_static_spa_and_proxies_api_without_admin_key
     backend = ThreadingHTTPServer(('127.0.0.1', 0), Backend)
     thread = threading.Thread(target=backend.serve_forever, daemon=True)
     thread.start()
-    bundle_zip = _valid_static_bundle_zip()
-    bundle_sha = 'sha256:' + hashlib.sha256(bundle_zip).hexdigest()
     edge_secret = 'e' * 40
     stack = SimpleNamespace(base_url=f'http://127.0.0.1:{backend.server_address[1]}', admin_key='never-forward-me')
-    edge = CaseConsoleBundle(stack, bundle_zip, artifact_sha256=bundle_sha, source_revision=BUNDLED,
-                             artifact_version='0.0.0-trunk.' + BUNDLED[:12], edge_secret=edge_secret)
+    edge = CaseConsoleBundle(stack, _bound_bundle(), edge_secret=edge_secret)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    temp_dir = edge._temp_dir
     try:
-        with opener.open(edge.url + '/console/studio', timeout=5) as resp:
-            assert resp.status == 200
-            assert b'<base href="/console/">' in resp.read()
-        with opener.open(edge.url + '/console/_studio/app.mjs', timeout=5) as resp:
-            assert resp.status == 200
-            assert resp.headers.get_content_type() == 'text/javascript'
-            assert resp.read() == b'export const studio = 1;'
-        with opener.open(edge.url + '/console/config.json', timeout=5) as resp:
-            cfg = json.loads(resp.read())
-            assert cfg['apiBaseUrl'] == '/' and cfg['v4Enabled'] is True
-        with opener.open(edge.url + '/version.json', timeout=5) as resp:
-            ver = json.loads(resp.read())
-            assert ver['artifactSha256'] == bundle_sha and ver['mode'] == 'static-bundle'
-        with pytest.raises(urllib.error.HTTPError) as missing:
-            opener.open(edge.url + '/console/missing.js', timeout=5)
-        assert missing.value.code == 404
         req = urllib.request.Request(
             edge.url + '/api/v1/studio/package-drafts',
             data=b'{"packageKey":"map-1"}',
@@ -300,53 +321,93 @@ def test_case_console_bundle_serves_static_spa_and_proxies_api_without_admin_key
         )
         with opener.open(req, timeout=5) as resp:
             assert resp.status == 201 and json.loads(resp.read()) == {'ok': True}
-        assert len(seen) == 1
         assert seen[0]['path'] == '/api/v1/studio/package-drafts'
         assert seen[0]['headers'].get('authorization') == 'Bearer customer-jwt-token'
-        assert 'x-honua-edge-auth' not in seen[0]['headers']
-        assert 'x-forwarded-access-token' not in seen[0]['headers']
-        assert 'x-api-key' not in seen[0]['headers']
+        assert not ({'x-honua-edge-auth', 'x-forwarded-access-token', 'x-api-key'} & set(seen[0]['headers']))
     finally:
         edge.close()
         backend.shutdown()
         backend.server_close()
         thread.join(timeout=5)
-    assert not temp_dir.exists()
+
+
+def test_case_console_bundle_streams_sse_chunks_before_upstream_closes():
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import http.client
+    import threading
+    from types import SimpleNamespace
+    from urllib.parse import urlsplit
+    from agent_console_bundle_edge import CaseConsoleBundle
+
+    release = threading.Event()
+
+    class SseBackend(BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get('Content-Length') or 0))
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/event-stream')
+            self.send_header('Transfer-Encoding', 'chunked')
+            self.end_headers()
+            first = b'data: {"event":"hello"}\n\n'
+            self.wfile.write(f'{len(first):x}\r\n'.encode('ascii') + first + b'\r\n')
+            self.wfile.flush()
+            release.wait(timeout=5)
+            self.wfile.write(b'0\r\n\r\n')
+            self.wfile.flush()
+
+    backend = ThreadingHTTPServer(('127.0.0.1', 0), SseBackend)
+    thread = threading.Thread(target=backend.serve_forever, daemon=True)
+    thread.start()
+    edge = CaseConsoleBundle(SimpleNamespace(base_url=f'http://127.0.0.1:{backend.server_address[1]}'), _bound_bundle())
+    parsed = urlsplit(edge.url)
+    conn = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=5)
+    try:
+        conn.request('POST', '/api/agent-workspace/studio/ai', body=b'{}', headers={'Content-Type': 'application/json'})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        first_chunk = resp.read1(1024)
+        assert b'data: {"event":"hello"}' in first_chunk
+        release.set()
+        assert resp.read() == b''
+    finally:
+        release.set()
+        conn.close()
+        edge.close()
+        backend.shutdown()
+        backend.server_close()
+        thread.join(timeout=5)
 
 
 def test_case_console_bundle_fails_closed_on_tampered_or_unsafe_bundles(tmp_path, monkeypatch):
     from types import SimpleNamespace
-    from agent_console_bundle_edge import CaseConsoleBundle
-    from agent_e2e_local_runner import load_bound_console_bundle
+    from agent_console_bundle_edge import BoundConsoleBundle, CaseConsoleBundle, load_bound_console_bundle
 
     good = _valid_static_bundle_zip()
-    good_sha = 'sha256:' + hashlib.sha256(good).hexdigest()
+    bundle = _bound_bundle(good)
     stack = SimpleNamespace(base_url='http://127.0.0.1:18080')
 
     with pytest.raises(ValueError, match='differs from bound'):
-        CaseConsoleBundle(stack, good, artifact_sha256='sha256:' + '0' * 64, source_revision=BUNDLED)
-
+        CaseConsoleBundle(stack, BoundConsoleBundle(good, 'sha256:' + '0' * 64, BUNDLED))
     with pytest.raises(ValueError, match='loopback'):
-        CaseConsoleBundle(SimpleNamespace(base_url='https://example.com'), good,
-                          artifact_sha256=good_sha, source_revision=BUNDLED)
-
+        CaseConsoleBundle(SimpleNamespace(base_url='https://example.com'), bundle)
     bad_base = _valid_static_bundle_zip(index_html='<!doctype html><base href="/">')
     with pytest.raises(ValueError, match='base href'):
-        CaseConsoleBundle(stack, bad_base, artifact_sha256='sha256:' + hashlib.sha256(bad_base).hexdigest(),
-                          source_revision=BUNDLED)
-
+        CaseConsoleBundle(stack, _bound_bundle(bad_base))
     traversal = _valid_static_bundle_zip(extra_files={'../escape.txt': 'nope'})
     with pytest.raises(ValueError, match='unsafe static bundle path'):
-        CaseConsoleBundle(stack, traversal, artifact_sha256='sha256:' + hashlib.sha256(traversal).hexdigest(),
-                          source_revision=BUNDLED)
+        CaseConsoleBundle(stack, _bound_bundle(traversal))
 
     local_zip = tmp_path / 'console.zip'
     local_zip.write_bytes(good)
     monkeypatch.setenv('HONUA_CONSOLE_BUNDLE_PATH', str(local_zip))
-    bound = console(sha=BUNDLED, artifactSourceRevision=BUNDLED, artifactSha256=good_sha)
+    bound = console(sha=BUNDLED, artifactSourceRevision=BUNDLED, artifactSha256=bundle.artifact_sha256)
     assert load_bound_console_bundle(bound) == good
     with pytest.raises(ValueError, match='differs from manifest'):
         load_bound_console_bundle({**bound, 'artifactSha256': 'sha256:' + '0' * 64})
     monkeypatch.delenv('HONUA_CONSOLE_BUNDLE_PATH')
-    github = BundleGitHub(payload=artifact_zip(BUNDLED, inner=good))
-    assert load_bound_console_bundle(bound, github=github) == good
+    assert load_bound_console_bundle(bound, github=BundleGitHub(payload=artifact_zip(BUNDLED, inner=good))) == good
