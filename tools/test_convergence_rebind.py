@@ -1165,6 +1165,16 @@ def test_grpc_ruling_is_rechecked_at_the_2026_11_25_nightly_candidate():
     assert all(rpc in ruling["evidence"].split("Re-checked at 704e2f4a", 1)[1] for rpc in added)
 
 
+def test_grpc_ruling_is_rechecked_at_the_2026_11_26_rc2_candidate():
+    candidate = "83127df70c06d4162fcc11b8d95a8ab466be49e2"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1] == "704e2f4aec530674ff52833b9fedfecda565152f"
+    recheck = ruling["evidence"].split("Re-checked at 83127df7", 1)[1]
+    assert "byte-identical to 704e2f4a" in recheck and "dc94f23fb9" in recheck
+
+
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     """The 2026-11-20 rc.2 re-pin moves the server to de512e8. Its gRPC surface hash differs from
     532565b's (one HTTP attachment-download route mapped beside FeatureService, and FeatureService
