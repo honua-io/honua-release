@@ -354,10 +354,10 @@ def drop_unproduced_lane(candidate, lane):
     write(path, policy)
 
 
-def add_reviewed_wps_contract(candidate):
+def add_reviewed_protocol_contract(candidate, fixture_name):
     """Extracted source inputs, not a conformance receipt or a support promotion."""
-    fixture = read(ROOT / "tools/fixtures/wps-contract-input.json")
-    drop_matrix_capability(candidate, "serve.wps")
+    fixture = read(ROOT / "tools/fixtures" / fixture_name)
+    drop_matrix_capability(candidate, fixture["capability"]["key"])
     matrix_path = candidate / "sources/server/capability-matrix.v1.json"
     matrix = read(matrix_path)
     matrix["capabilities"].append(fixture["capability"])
@@ -370,7 +370,7 @@ def add_reviewed_wps_contract(candidate):
 
 
 def test_wps_operations_admit_without_inventing_cite_production(candidate):
-    add_reviewed_wps_contract(candidate)
+    add_reviewed_protocol_contract(candidate, "wps-contract-input.json")
     generate(candidate)
     result = validate(candidate)
     assert result.returncode == 0, result.stderr
@@ -408,7 +408,7 @@ def test_wps_operations_admit_without_inventing_cite_production(candidate):
 
 @pytest.mark.parametrize("mutation, count", [("missing", 0), ("duplicate", 2)])
 def test_wps_cite_disposition_must_be_exactly_once(candidate, mutation, count):
-    add_reviewed_wps_contract(candidate)
+    add_reviewed_protocol_contract(candidate, "wps-contract-input.json")
     path = candidate / "sources/protocol-certification-production.v1.json"
     policy = read(path)
     if mutation == "missing":
@@ -493,23 +493,8 @@ def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutatio
     assert path.read_bytes() == original
 
 
-def add_reviewed_terrain_contract(candidate):
-    """Extracted source inputs, not a conformance receipt or a support promotion."""
-    fixture = read(ROOT / "tools/fixtures/terrain-contract-input.json")
-    drop_matrix_capability(candidate, "serve.terrain-quantized-mesh")
-    matrix_path = candidate / "sources/server/capability-matrix.v1.json"
-    matrix = read(matrix_path)
-    matrix["capabilities"].append(fixture["capability"])
-    write(matrix_path, matrix)
-    harness = read(candidate / HARNESS)
-    harness["assignments"].extend(fixture["assignments"])
-    write(candidate / HARNESS, harness)
-    path, data = REBIND.project_official_protocol_assignments(candidate.parent)
-    (candidate.parent / path).write_bytes(data)
-
-
 def test_terrain_operations_admit_without_inventing_cesium_production(candidate):
-    add_reviewed_terrain_contract(candidate)
+    add_reviewed_protocol_contract(candidate, "terrain-contract-input.json")
     production_path = candidate / "sources/protocol-certification-production.v1.json"
     original_production = production_path.read_bytes()
     path, data = REBIND.project_terrain_production_gap(candidate.parent)
