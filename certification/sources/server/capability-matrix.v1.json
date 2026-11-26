@@ -18,7 +18,7 @@
     "tests/baselines/client-compat/"
   ],
   "evidenceFreshness": {
-    "anchor": "2026-11-16T16:59:08.963573Z",
+    "anchor": "2026-11-25T18:06:46.547678Z",
     "maxAgeDays": 14,
     "basis": "Newest run_date across the committed client-compat envelopes; deterministic by design so the drift gate stays byte-stable (see #2897)."
   },
@@ -29,11 +29,11 @@
       "category": "ControlPlane",
       "edition": "Community",
       "status": null,
-      "entryCount": 433,
-      "provingTestCount": 1979,
+      "entryCount": 440,
+      "provingTestCount": 2112,
       "maturity": {
-        "implemented": 430,
-        "experimental": 3
+        "implemented": 438,
+        "experimental": 2
       },
       "noSurface": null,
       "cite": [],
@@ -59,7 +59,7 @@
       "edition": "Enterprise",
       "status": "internal",
       "entryCount": 7,
-      "provingTestCount": 13,
+      "provingTestCount": 14,
       "maturity": {
         "internal": 7
       },
@@ -121,7 +121,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 11,
+      "provingTestCount": 20,
       "maturity": {
         "implemented": 2
       },
@@ -139,7 +139,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 4,
-      "provingTestCount": 178,
+      "provingTestCount": 186,
       "maturity": {
         "implemented": 4
       },
@@ -157,7 +157,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 19,
+      "provingTestCount": 21,
       "maturity": {
         "implemented": 1
       },
@@ -175,7 +175,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 4,
-      "provingTestCount": 20,
+      "provingTestCount": 24,
       "maturity": {
         "implemented": 4
       },
@@ -277,7 +277,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 11,
+      "provingTestCount": 13,
       "maturity": {
         "implemented": 1
       },
@@ -295,7 +295,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 16,
+      "provingTestCount": 17,
       "maturity": {
         "implemented": 1
       },
@@ -331,7 +331,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 10,
+      "provingTestCount": 11,
       "maturity": {
         "implemented": 1
       },
@@ -349,7 +349,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 4,
-      "provingTestCount": 35,
+      "provingTestCount": 38,
       "maturity": {
         "implemented": 4
       },
@@ -367,7 +367,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 7,
+      "provingTestCount": 8,
       "maturity": {
         "implemented": 1
       },
@@ -385,7 +385,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 6,
+      "provingTestCount": 8,
       "maturity": {
         "implemented": 2
       },
@@ -403,7 +403,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 5,
+      "provingTestCount": 6,
       "maturity": {
         "implemented": 1
       },
@@ -421,7 +421,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 11,
+      "provingTestCount": 12,
       "maturity": {
         "implemented": 1
       },
@@ -439,7 +439,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 5,
+      "provingTestCount": 6,
       "maturity": {
         "implemented": 1
       },
@@ -457,7 +457,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 6,
+      "provingTestCount": 7,
       "maturity": {
         "implemented": 1
       },
@@ -689,7 +689,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 60,
+      "provingTestCount": 63,
       "maturity": {
         "implemented": 2
       },
@@ -793,9 +793,9 @@
       "displayName": "Branch Versioning",
       "category": "Editing",
       "edition": "Pro",
-      "status": null,
+      "status": "experimental",
       "entryCount": 20,
-      "provingTestCount": 96,
+      "provingTestCount": 97,
       "maturity": {
         "experimental": 20
       },
@@ -819,7 +819,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 6,
-      "provingTestCount": 181,
+      "provingTestCount": 190,
       "maturity": {
         "implemented": 6
       },
@@ -839,7 +839,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 7,
-      "provingTestCount": 29,
+      "provingTestCount": 37,
       "maturity": {
         "implemented": 7
       },
@@ -856,10 +856,10 @@
       "category": "FieldOps",
       "edition": "Community",
       "status": null,
-      "entryCount": 21,
-      "provingTestCount": 37,
+      "entryCount": 33,
+      "provingTestCount": 109,
       "maturity": {
-        "implemented": 21
+        "implemented": 33
       },
       "noSurface": null,
       "cite": [],
@@ -877,7 +877,7 @@
       "edition": "Pro",
       "status": "preview",
       "entryCount": 18,
-      "provingTestCount": 201,
+      "provingTestCount": 219,
       "maturity": {
         "preview": 18
       },
@@ -911,15 +911,37 @@
       "geobench": []
     },
     {
+      "key": "format.geoparquet",
+      "displayName": "GeoParquet Format",
+      "category": "Format",
+      "edition": "Community",
+      "status": "live",
+      "entryCount": 0,
+      "provingTestCount": 0,
+      "maturity": {},
+      "noSurface": {
+        "capability": "format.geoparquet",
+        "reasonCode": "content-negotiation",
+        "reason": "GeoParquet is selected with f=parquet on FeatureServer, $format=parquet on OData, format=geoparquet on bulk export, and file upload import; it has no separate route.",
+        "category": "Format",
+        "edition": "Community"
+      },
+      "cite": [],
+      "parity": [],
+      "geoservicesAssess": [],
+      "interop": [],
+      "geobench": []
+    },
+    {
       "key": "geocoding.batch",
       "displayName": "Batch Geocoding",
       "category": "Geocoding",
       "edition": "Enterprise",
       "status": null,
-      "entryCount": 3,
-      "provingTestCount": 21,
+      "entryCount": 4,
+      "provingTestCount": 26,
       "maturity": {
-        "implemented": 3
+        "implemented": 4
       },
       "noSurface": null,
       "cite": [],
@@ -956,10 +978,10 @@
       "category": "Geocoding",
       "edition": "Community",
       "status": null,
-      "entryCount": 11,
-      "provingTestCount": 64,
+      "entryCount": 12,
+      "provingTestCount": 68,
       "maturity": {
-        "implemented": 11
+        "implemented": 12
       },
       "noSurface": null,
       "cite": [],
@@ -976,10 +998,10 @@
       "category": "Geocoding",
       "edition": "Community",
       "status": null,
-      "entryCount": 3,
-      "provingTestCount": 13,
+      "entryCount": 4,
+      "provingTestCount": 22,
       "maturity": {
-        "implemented": 3
+        "implemented": 4
       },
       "noSurface": null,
       "cite": [],
@@ -1015,9 +1037,9 @@
       "displayName": "mTLS Client-Certificate Authentication",
       "category": "Identity",
       "edition": "Enterprise",
-      "status": null,
+      "status": "experimental",
       "entryCount": 13,
-      "provingTestCount": 35,
+      "provingTestCount": 37,
       "maturity": {
         "experimental": 13
       },
@@ -1035,7 +1057,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 9,
-      "provingTestCount": 43,
+      "provingTestCount": 50,
       "maturity": {
         "implemented": 9
       },
@@ -1075,7 +1097,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 25,
-      "provingTestCount": 121,
+      "provingTestCount": 132,
       "maturity": {
         "implemented": 25
       },
@@ -1119,7 +1141,7 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 4,
-      "provingTestCount": 30,
+      "provingTestCount": 40,
       "maturity": {
         "implemented": 4
       },
@@ -1137,7 +1159,7 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 17,
-      "provingTestCount": 36,
+      "provingTestCount": 40,
       "maturity": {
         "implemented": 17
       },
@@ -1155,7 +1177,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 79,
-      "provingTestCount": 293,
+      "provingTestCount": 294,
       "maturity": {
         "implemented": 79
       },
@@ -1175,7 +1197,7 @@
       "entryCount": 5,
       "provingTestCount": 18,
       "maturity": {
-        "implemented": 5
+        "preview": 5
       },
       "noSurface": null,
       "cite": [],
@@ -1191,7 +1213,7 @@
       "edition": "Enterprise",
       "status": null,
       "entryCount": 10,
-      "provingTestCount": 53,
+      "provingTestCount": 58,
       "maturity": {
         "implemented": 10
       },
@@ -1253,7 +1275,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 21,
-      "provingTestCount": 91,
+      "provingTestCount": 95,
       "maturity": {
         "implemented": 21
       },
@@ -1271,7 +1293,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 16,
-      "provingTestCount": 44,
+      "provingTestCount": 45,
       "maturity": {
         "implemented": 16
       },
@@ -1333,7 +1355,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 13,
-      "provingTestCount": 29,
+      "provingTestCount": 30,
       "maturity": {
         "implemented": 13
       },
@@ -1350,10 +1372,10 @@
       "category": "Process",
       "edition": "Community",
       "status": "preview",
-      "entryCount": 19,
-      "provingTestCount": 260,
+      "entryCount": 20,
+      "provingTestCount": 261,
       "maturity": {
-        "preview": 19
+        "preview": 20
       },
       "noSurface": null,
       "cite": [],
@@ -1377,7 +1399,7 @@
       "edition": "Community",
       "status": "preview",
       "entryCount": 10,
-      "provingTestCount": 199,
+      "provingTestCount": 207,
       "maturity": {
         "preview": 10
       },
@@ -1461,7 +1483,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 8,
-      "provingTestCount": 35,
+      "provingTestCount": 37,
       "maturity": {
         "implemented": 8
       },
@@ -1501,7 +1523,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 12,
-      "provingTestCount": 27,
+      "provingTestCount": 30,
       "maturity": {
         "implemented": 12
       },
@@ -1541,7 +1563,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 16,
+      "provingTestCount": 21,
       "maturity": {
         "implemented": 2
       },
@@ -1559,7 +1581,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 32,
-      "provingTestCount": 122,
+      "provingTestCount": 125,
       "maturity": {
         "implemented": 32
       },
@@ -1581,7 +1603,7 @@
       "displayName": "CityGML/BIM Scene Ingest",
       "category": "Scene",
       "edition": "Enterprise",
-      "status": null,
+      "status": "experimental",
       "entryCount": 1,
       "provingTestCount": 7,
       "maturity": {
@@ -1599,11 +1621,11 @@
       "displayName": "Scene Catalog",
       "category": "Scene",
       "edition": "Community",
-      "status": null,
-      "entryCount": 3,
-      "provingTestCount": 15,
+      "status": "experimental",
+      "entryCount": 9,
+      "provingTestCount": 41,
       "maturity": {
-        "deferred": 3
+        "deferred": 9
       },
       "noSurface": null,
       "cite": [],
@@ -1617,9 +1639,9 @@
       "displayName": "Point Cloud Scene Ingest",
       "category": "Scene",
       "edition": "Enterprise",
-      "status": null,
+      "status": "experimental",
       "entryCount": 1,
-      "provingTestCount": 11,
+      "provingTestCount": 12,
       "maturity": {
         "experimental": 1
       },
@@ -1635,11 +1657,11 @@
       "displayName": "3D Tiles Scene Serving",
       "category": "Serve",
       "edition": "Community",
-      "status": null,
-      "entryCount": 6,
-      "provingTestCount": 78,
+      "status": "experimental",
+      "entryCount": 15,
+      "provingTestCount": 107,
       "maturity": {
-        "experimental": 6
+        "experimental": 15
       },
       "noSurface": null,
       "cite": [],
@@ -1655,7 +1677,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 29,
+      "provingTestCount": 34,
       "maturity": {
         "implemented": 2
       },
@@ -1663,7 +1685,17 @@
       "cite": [],
       "parity": [],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "js-cesium",
+          "protocol": "elevation",
+          "freshness": {
+            "state": "fresh",
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:43.161000Z"
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1673,7 +1705,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 49,
-      "provingTestCount": 617,
+      "provingTestCount": 648,
       "maturity": {
         "implemented": 49
       },
@@ -1713,17 +1745,17 @@
           "protocol": "featureserver",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:19.209522Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:02:26.323094Z"
           }
         },
         {
           "clientLane": "cli",
           "protocol": "featureserver",
           "freshness": {
-            "state": "unknown",
-            "ageDays": null,
-            "runDate": null
+            "state": "fresh",
+            "ageDays": 1,
+            "runDate": "2026-11-23T20:16:07.831211Z"
           }
         },
         {
@@ -1762,7 +1794,17 @@
         }
       ],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "geoservices-rest-stub",
+          "protocol": "geocode-server",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1772,7 +1814,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 48,
-      "provingTestCount": 164,
+      "provingTestCount": 174,
       "maturity": {
         "implemented": 48
       },
@@ -1786,7 +1828,17 @@
         }
       ],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "geoservices-rest-stub",
+          "protocol": "geometry-service",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1796,7 +1848,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 143,
-      "provingTestCount": 491,
+      "provingTestCount": 499,
       "maturity": {
         "implemented": 139,
         "preview": 4
@@ -1813,7 +1865,17 @@
       "geoservicesAssess": [
         "image-service"
       ],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "geoservices-rest-stub",
+          "protocol": "image-server",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1823,7 +1885,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 47,
-      "provingTestCount": 462,
+      "provingTestCount": 500,
       "maturity": {
         "implemented": 45,
         "preview": 2
@@ -1864,8 +1926,17 @@
           "protocol": "mapserver",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:19.321037Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:02:26.420475Z"
+          }
+        },
+        {
+          "clientLane": "cli",
+          "protocol": "mapserver",
+          "freshness": {
+            "state": "fresh",
+            "ageDays": 2,
+            "runDate": "2026-11-23T11:04:36.127067Z"
           }
         },
         {
@@ -1890,7 +1961,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 21,
-      "provingTestCount": 135,
+      "provingTestCount": 142,
       "maturity": {
         "implemented": 21
       },
@@ -1904,7 +1975,17 @@
         }
       ],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "geoservices-rest-stub",
+          "protocol": "geoservices-root",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1914,7 +1995,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 9,
-      "provingTestCount": 46,
+      "provingTestCount": 58,
       "maturity": {
         "implemented": 9
       },
@@ -1930,7 +2011,17 @@
       "geoservicesAssess": [
         "vector-tiles"
       ],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "geoservices-rest-stub",
+          "protocol": "vector-tile-server",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1961,10 +2052,10 @@
       "category": "Serve",
       "edition": "Enterprise",
       "status": "experimental",
-      "entryCount": 14,
-      "provingTestCount": 65,
+      "entryCount": 16,
+      "provingTestCount": 68,
       "maturity": {
-        "implemented": 14
+        "implemented": 16
       },
       "noSurface": null,
       "cite": [],
@@ -1972,7 +2063,17 @@
       "geoservicesAssess": [
         "scene-service"
       ],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "geoservices-rest-stub",
+          "protocol": "i3s",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -1982,7 +2083,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 30,
-      "provingTestCount": 256,
+      "provingTestCount": 261,
       "maturity": {
         "implemented": 30
       },
@@ -2037,7 +2138,7 @@
       "edition": "Community",
       "status": "preview",
       "entryCount": 8,
-      "provingTestCount": 53,
+      "provingTestCount": 57,
       "maturity": {
         "preview": 8
       },
@@ -2073,7 +2174,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 19,
-      "provingTestCount": 373,
+      "provingTestCount": 389,
       "maturity": {
         "implemented": 19
       },
@@ -2095,8 +2196,8 @@
           "protocol": "ogc-features",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:39.990000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:40.289000Z"
           }
         },
         {
@@ -2104,7 +2205,7 @@
           "protocol": "ogc-features",
           "freshness": {
             "state": "stale",
-            "ageDays": 86,
+            "ageDays": 95,
             "runDate": "2026-08-22T02:57:06.792964Z"
           }
         },
@@ -2112,9 +2213,9 @@
           "clientLane": "cli",
           "protocol": "ogc-features",
           "freshness": {
-            "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:27.279118Z"
+            "state": "fresh",
+            "ageDays": 2,
+            "runDate": "2026-11-23T11:04:36.127067Z"
           }
         },
         {
@@ -2140,7 +2241,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 12,
-      "provingTestCount": 152,
+      "provingTestCount": 158,
       "maturity": {
         "implemented": 12
       },
@@ -2154,8 +2255,8 @@
           "protocol": "ogc-maps",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:39.755000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:39.979000Z"
           }
         },
         {
@@ -2163,8 +2264,8 @@
           "protocol": "ogc-maps",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:53.364000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:43.161000Z"
           }
         }
       ],
@@ -2177,7 +2278,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 7,
-      "provingTestCount": 60,
+      "provingTestCount": 76,
       "maturity": {
         "implemented": 7
       },
@@ -2185,7 +2286,17 @@
       "cite": [],
       "parity": [],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "py-owslib",
+          "protocol": "ogc-api-records",
+          "freshness": {
+            "state": "fresh",
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:06:46.546858Z"
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -2195,7 +2306,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 13,
-      "provingTestCount": 79,
+      "provingTestCount": 82,
       "maturity": {
         "implemented": 13
       },
@@ -2217,8 +2328,8 @@
           "protocol": "ogc-tiles",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:53.364000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:43.161000Z"
           }
         }
       ],
@@ -2229,9 +2340,9 @@
       "displayName": "OGC SensorThings API",
       "category": "Serve",
       "edition": "Community",
-      "status": null,
+      "status": "preview",
       "entryCount": 64,
-      "provingTestCount": 250,
+      "provingTestCount": 251,
       "maturity": {
         "preview": 64
       },
@@ -2249,7 +2360,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 11,
-      "provingTestCount": 151,
+      "provingTestCount": 173,
       "maturity": {
         "implemented": 11
       },
@@ -2257,7 +2368,45 @@
       "cite": [],
       "parity": [],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "py-pystac",
+          "protocol": "stac",
+          "freshness": {
+            "state": "fresh",
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:01:29.235505Z"
+          }
+        }
+      ],
+      "geobench": []
+    },
+    {
+      "key": "serve.terrain-quantized-mesh",
+      "displayName": "Quantized-Mesh Terrain",
+      "category": "Serve",
+      "edition": "Community",
+      "status": null,
+      "entryCount": 2,
+      "provingTestCount": 26,
+      "maturity": {
+        "implemented": 2
+      },
+      "noSurface": null,
+      "cite": [],
+      "parity": [],
+      "geoservicesAssess": [],
+      "interop": [
+        {
+          "clientLane": "js-cesium",
+          "protocol": "quantized-mesh",
+          "freshness": {
+            "state": "fresh",
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:43.161000Z"
+          }
+        }
+      ],
       "geobench": []
     },
     {
@@ -2267,7 +2416,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 11,
-      "provingTestCount": 112,
+      "provingTestCount": 117,
       "maturity": {
         "implemented": 11
       },
@@ -2281,7 +2430,7 @@
           "protocol": "mvt",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
+            "ageDays": 202,
             "runDate": "2026-05-07T14:05:52.394000Z"
           }
         }
@@ -2295,7 +2444,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 33,
+      "provingTestCount": 34,
       "maturity": {
         "implemented": 2
       },
@@ -2311,7 +2460,17 @@
       ],
       "parity": [],
       "geoservicesAssess": [],
-      "interop": [],
+      "interop": [
+        {
+          "clientLane": "cli",
+          "protocol": "wcs",
+          "freshness": {
+            "state": "unknown",
+            "ageDays": null,
+            "runDate": null
+          }
+        }
+      ],
       "geobench": [
         "wcs"
       ]
@@ -2323,7 +2482,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 165,
+      "provingTestCount": 194,
       "maturity": {
         "implemented": 2
       },
@@ -2359,8 +2518,8 @@
           "protocol": "wfs",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:40.991000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:41.191000Z"
           }
         },
         {
@@ -2368,7 +2527,7 @@
           "protocol": "wfs",
           "freshness": {
             "state": "stale",
-            "ageDays": 86,
+            "ageDays": 95,
             "runDate": "2026-08-22T02:57:06.793352Z"
           }
         },
@@ -2376,9 +2535,9 @@
           "clientLane": "cli",
           "protocol": "wfs",
           "freshness": {
-            "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:27.279118Z"
+            "state": "fresh",
+            "ageDays": 2,
+            "runDate": "2026-11-23T11:04:36.127067Z"
           }
         }
       ],
@@ -2394,7 +2553,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 30,
+      "provingTestCount": 34,
       "maturity": {
         "implemented": 1
       },
@@ -2416,8 +2575,8 @@
           "protocol": "wms",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:39.001000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:39.181000Z"
           }
         },
         {
@@ -2425,8 +2584,8 @@
           "protocol": "wms",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:53.364000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:43.161000Z"
           }
         },
         {
@@ -2453,7 +2612,7 @@
       "edition": "Community",
       "status": "preview",
       "entryCount": 1,
-      "provingTestCount": 16,
+      "provingTestCount": 18,
       "maturity": {
         "preview": 1
       },
@@ -2475,8 +2634,8 @@
           "protocol": "wmts",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:37.557000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:37.501000Z"
           }
         },
         {
@@ -2484,8 +2643,8 @@
           "protocol": "wmts",
           "freshness": {
             "state": "stale",
-            "ageDays": 193,
-            "runDate": "2026-05-07T14:05:53.364000Z"
+            "ageDays": 0,
+            "runDate": "2026-11-25T18:00:43.161000Z"
           }
         },
         {
@@ -2601,7 +2760,7 @@
       "edition": "Pro",
       "status": "experimental",
       "entryCount": 7,
-      "provingTestCount": 150,
+      "provingTestCount": 156,
       "maturity": {
         "experimental": 7
       },
@@ -2619,7 +2778,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 9,
+      "provingTestCount": 25,
       "maturity": {
         "implemented": 2
       },
@@ -2658,10 +2817,10 @@
       "category": "Styling",
       "edition": "Community",
       "status": null,
-      "entryCount": 8,
-      "provingTestCount": 73,
+      "entryCount": 9,
+      "provingTestCount": 90,
       "maturity": {
-        "implemented": 8
+        "implemented": 9
       },
       "noSurface": null,
       "cite": [],
@@ -2699,7 +2858,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 1,
-      "provingTestCount": 7,
+      "provingTestCount": 20,
       "maturity": {
         "implemented": 1
       },
@@ -2717,7 +2876,7 @@
       "edition": "Community",
       "status": null,
       "entryCount": 6,
-      "provingTestCount": 24,
+      "provingTestCount": 25,
       "maturity": {
         "implemented": 6
       },
@@ -2735,7 +2894,7 @@
       "edition": "Pro",
       "status": null,
       "entryCount": 2,
-      "provingTestCount": 9,
+      "provingTestCount": 22,
       "maturity": {
         "implemented": 2
       },
