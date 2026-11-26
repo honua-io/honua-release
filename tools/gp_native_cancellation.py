@@ -33,7 +33,7 @@ HEX = re.compile(r"[a-f0-9]{64}\Z")
 # Neither operator configuration nor an observer-selected arbitrary path may
 # redefine the executable that satisfies the gdal.ogr2ogr qualification cell.
 NATIVE_OGR_EXECUTABLES = frozenset(("/usr/bin/ogr2ogr", "/usr/local/bin/ogr2ogr"))
-CLIENT_LOCK = "3c49b180464ac1aef5981791f61a21667a53f797978227696602d372732fa8b3"
+CLIENT_LOCK = "17aacd7ff2404498c059663418fbf43ddee0fa4946a73ac4af0f9b3a8c0240a9"
 
 
 def sha(raw):

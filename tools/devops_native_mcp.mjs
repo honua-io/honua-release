@@ -8,7 +8,7 @@ import { dirname, resolve, join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const LOCK = '3c49b180464ac1aef5981791f61a21667a53f797978227696602d372732fa8b3';
+const LOCK = '17aacd7ff2404498c059663418fbf43ddee0fa4946a73ac4af0f9b3a8c0240a9';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 async function fileHash(path) { const result = createHash('sha256'); for await (const bytes of createReadStream(path)) result.update(bytes); return result.digest('hex'); }
 const fail = category => { throw Error(category); };
