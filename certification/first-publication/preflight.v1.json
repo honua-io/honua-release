@@ -802,77 +802,53 @@
       ]
     },
     {
-      "digest": "sha256:1eb5a482778bc8aeb349f4a32732580534e3b5b0067bbcc0060e9159bf07ed6b",
+      "digest": "sha256:a084fefa14fd38884c1b12510498d6844f7555f9f29370e037db295a07959613",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-server:nightly-aot-de512e8",
-      "image": "ghcr.io/honua-io/honua-server:nightly-aot-de512e8",
+      "id": "oci:ghcr.io/honua-io/honua-server:nightly-aot-83127df",
+      "image": "ghcr.io/honua-io/honua-server:nightly-aot-83127df",
       "manifest_fields": [
         "components.honua-server.image"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "index_digest": "sha256:1eb5a482778bc8aeb349f4a32732580534e3b5b0067bbcc0060e9159bf07ed6b",
-        "linux_amd64_digest": "sha256:b9b75f591402c60ee5aaf89e390fed803052dc79474492bb2ea6fde4b82a992b"
+        "index_digest": "sha256:a084fefa14fd38884c1b12510498d6844f7555f9f29370e037db295a07959613",
+        "linux_amd64_digest": "sha256:5139c6fe397450c56c15ab87d97f69162f507e2aa9cf75be55d3dc2b7649d33a"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:b9b75f591402c60ee5aaf89e390fed803052dc79474492bb2ea6fde4b82a992b"
+        "linux/amd64": "sha256:5139c6fe397450c56c15ab87d97f69162f507e2aa9cf75be55d3dc2b7649d33a"
       },
-      "publication": "ghcr.io/honua-io/honua-server:nightly-aot-de512e8",
+      "publication": "ghcr.io/honua-io/honua-server:nightly-aot-83127df",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-server:pull",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-aot-de512e8",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:b9b75f591402c60ee5aaf89e390fed803052dc79474492bb2ea6fde4b82a992b"
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-aot-83127df",
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:5139c6fe397450c56c15ab87d97f69162f507e2aa9cf75be55d3dc2b7649d33a"
       ]
     },
     {
-      "digest": "sha256:f2f867b5b0309b37fa388abdc94358c53749b2dbb782999fc1942d3b60ff6d58",
+      "digest": "sha256:5eeb9a5af4453182307fa6325ed773b3f058e8d7169d425fc8f665f829eb54fd",
       "disposition": "published",
       "evidence_class": "anonymous-oci-manifest",
       "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-server:nightly-compose-executor-de512e8",
-      "image": "ghcr.io/honua-io/honua-server:nightly-compose-executor-de512e8",
+      "id": "oci:ghcr.io/honua-io/honua-server:nightly-compose-executor-83127df",
+      "image": "ghcr.io/honua-io/honua-server:nightly-compose-executor-83127df",
       "manifest_fields": [
         "components.honua-server.composeExecutor.image"
       ],
       "media_type": "application/vnd.oci.image.index.v1+json",
       "pins": {
-        "index_digest": "sha256:f2f867b5b0309b37fa388abdc94358c53749b2dbb782999fc1942d3b60ff6d58",
-        "linux_amd64_digest": "sha256:83b8ad99e1f0d72f2c699ebbfbe8ef36f891055ce40c307b175a692ce1badaed"
+        "index_digest": "sha256:5eeb9a5af4453182307fa6325ed773b3f058e8d7169d425fc8f665f829eb54fd",
+        "linux_amd64_digest": "sha256:63cbb3902f54e7326c5c05a01a0a21c3fa9e6a0f48af4d990bf946be4969294c"
       },
       "platform_digests": {
-        "linux/amd64": "sha256:83b8ad99e1f0d72f2c699ebbfbe8ef36f891055ce40c307b175a692ce1badaed"
+        "linux/amd64": "sha256:63cbb3902f54e7326c5c05a01a0a21c3fa9e6a0f48af4d990bf946be4969294c"
       },
-      "publication": "ghcr.io/honua-io/honua-server:nightly-compose-executor-de512e8",
+      "publication": "ghcr.io/honua-io/honua-server:nightly-compose-executor-83127df",
       "urls": [
         "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-server:pull",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-compose-executor-de512e8",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:83b8ad99e1f0d72f2c699ebbfbe8ef36f891055ce40c307b175a692ce1badaed"
-      ]
-    },
-    {
-      "digest": "sha256:e122cc54828bf15306241a0ecebd061b52bbd6fcf0b5e4fad6f3b41c9a421862",
-      "disposition": "published",
-      "evidence_class": "anonymous-oci-manifest",
-      "http_status": 200,
-      "id": "oci:ghcr.io/honua-io/honua-server:nightly-lambda-aot-de512e8-amd64",
-      "image": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-de512e8-amd64",
-      "manifest_fields": [
-        "components.honua-server.awsLambdaImage"
-      ],
-      "media_type": "application/vnd.oci.image.index.v1+json",
-      "pins": {
-        "linux_amd64_digest": "sha256:b695707fae19e98b7c985514c7b37a7f508b07c0c6c4ae82c7ddb1b35fbbc8dc"
-      },
-      "platform_digests": {
-        "linux/amd64": "sha256:b695707fae19e98b7c985514c7b37a7f508b07c0c6c4ae82c7ddb1b35fbbc8dc"
-      },
-      "publication": "ghcr.io/honua-io/honua-server:nightly-lambda-aot-de512e8-amd64",
-      "urls": [
-        "https://ghcr.io/token?service=ghcr.io&scope=repository:honua-io/honua-server:pull",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-lambda-aot-de512e8-amd64",
-        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:b695707fae19e98b7c985514c7b37a7f508b07c0c6c4ae82c7ddb1b35fbbc8dc"
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/nightly-compose-executor-83127df",
+        "https://ghcr.io/v2/honua-io/honua-server/manifests/sha256:63cbb3902f54e7326c5c05a01a0a21c3fa9e6a0f48af4d990bf946be4969294c"
       ]
     },
     {
@@ -1007,6 +983,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-24T20:58:17Z",
+  "observed_at": "2026-11-26T14:58:39Z",
   "schema": "honua.first-publication-preflight/v1"
 }

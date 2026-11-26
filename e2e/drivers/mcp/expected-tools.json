@@ -270,7 +270,15 @@
         "honua_update_folder"
       ]
     },
-    "toolCount": 168
+    "toolCount": 168,
+    "experimentalOmitted": {
+      "_comment": "Scene MCP tools are gated on Capabilities:Experimental scene.* flags (FeatureRegistrationExtensions.cs) and absent from default non-experimental runtime catalogs.",
+      "tools": [
+        "honua_scene_get",
+        "honua_scene_list",
+        "honua_scene_resolve"
+      ]
+    }
   },
   "criticalTools": [
     "honua_validate_package",

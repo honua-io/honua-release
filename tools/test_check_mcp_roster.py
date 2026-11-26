@@ -37,7 +37,8 @@ def reconciled_expected(r: dict | None = None) -> dict:
     """The committed expected-tools.json brought into line with the roster fixture (#490 durable shape)."""
     r = r or roster()
     expected = json.loads(EXPECTED.read_text(encoding='utf-8'))
-    expected['fullCatalog']['tools'] = sorted(set(r['static']) | set(r['projectedAdmin']))
+    omitted = set((expected['fullCatalog'].get('experimentalOmitted') or {}).get('tools') or [])
+    expected['fullCatalog']['tools'] = sorted((set(r['static']) | set(r['projectedAdmin'])) - omitted)
     expected['fullCatalog']['requiresDurableControlPlane'] = {
         '_comment': 'durable-control-plane subset (honua-release#490 shape)',
         'tools': sorted(set(r['requiresDurableControlPlane']) - CONNECT_IMPORT),
@@ -84,9 +85,9 @@ def test_fixture_is_the_s4_roster_shape():
     # Re-copied verbatim at the rc.2 candidate 532565bc (roster body last changed at a4ffb51f): static
     # gained folder/studio/op-stage tools, projectedAdmin and requiresDurableControlPlane gained the
     # import-preview, layer display/spatial and folder tools, and a `folders` view was added.
-    assert len(r['static']) == 66 and len(r['projectedAdmin']) == 95
-    assert len(r['requiresDurableControlPlane']) == 41
-    assert set(r['views']) == {'analyze', 'configure', 'default', 'folders', 'operate', 'review', 'setup'}
+    assert len(r['static']) == 69 and len(r['projectedAdmin']) == 102
+    assert len(r['requiresDurableControlPlane']) == 43
+    assert set(r['views']) == {'access', 'analyze', 'configure', 'default', 'exports', 'folders', 'metadata', 'operate', 'review', 'setup'}
     assert r['retired'] == ['honua_propose_operation']
 
 
@@ -108,7 +109,7 @@ def test_committed_expected_tools_matches_the_roster_in_both_topologies():
     # 26 since the rc.2 final candidate 86286687 added honua_admin_connections_list and
     # honua_admin_connection_tables_list; 41 since the rc.2 candidate 532565bc
     # added the import-preview, layer display/spatial and folder tools.
-    assert CONNECT_IMPORT <= set(durable) and len(durable) == 41
+    assert CONNECT_IMPORT <= set(durable) and len(durable) == 43
 
 
 def test_missing_tool_fails():

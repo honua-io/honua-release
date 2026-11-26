@@ -10,6 +10,10 @@ import validate_platform as vp
 def candidate():
     manifest = vp._load_yaml(vp.MANIFEST_PATH)
     matrix = vp._load_yaml(vp.MATRIX_PATH)
+    server = manifest["components"]["honua-server"]
+    server.setdefault("awsLambdaImage", "ghcr.io/honua-io/honua-server:nightly-lambda-aot-synthetic-amd64")
+    server.setdefault("awsLambdaDigest", "sha256:" + "d" * 64)
+    server.setdefault("awsLambdaEcrDigest", vp.PENDING_ECR_MIRROR)
     row = matrix["deploy"]["honua-server"]["awsLambda"]["architectures"]["x86_64"]
     # Founder decision 2026-10-25 makes Lambda Preview. These policy tests re-scope it to GA, which
     # must restore the complete GA bill exactly as it applied before the decision.
