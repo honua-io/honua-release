@@ -44,7 +44,7 @@
     },
     "geospatial-mcp": {
       "repository": "honua-io/geospatial-mcp",
-      "commit": "1f657ccda04cc344701c92283d4a078bbcc5b9a4"
+      "commit": "122b75f2ff811557d04851039f8612af463414b6"
     }
   },
   "desktop_driver_summary": {

@@ -900,8 +900,8 @@ components:
   honua-sdk-js:
     repository: https://github.com/honua-io/honua-sdk-js
     lifecycleStatus: GA
-    version: 0.4.0
-    sha: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+    version: 0.5.1
+    sha: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
     artifact: npm:@honua/sdk-js
     contractVersions:
       connect-parity: '1.0'
@@ -916,7 +916,7 @@ components:
       manifests:
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+          revision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -952,7 +952,7 @@ components:
         - serve.ogc-api-features
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: 44e1330604d2b6ef9f4dc41151891e8b4537f169
+          revision: 8896c267378bb35af9e313a2150311cff4b2b8d8
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -988,7 +988,7 @@ components:
         - serve.ogc-api-features
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
+          revision: b195086e6aabee9d048cdc7d324b82a51e7c79c3
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -1023,22 +1023,22 @@ components:
         - serve.geoservices-featureserver
         - serve.ogc-api-features
       declarations:
-      - revision: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+      - revision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
-      - revision: 44e1330604d2b6ef9f4dc41151891e8b4537f169
+      - revision: 8896c267378bb35af9e313a2150311cff4b2b8d8
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
-      - revision: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
+      - revision: b195086e6aabee9d048cdc7d324b82a51e7c79c3
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
 
-    artifactVersion: 0.4.0
-    artifactSourceRevision: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
-    artifactSha256: sha256:1f3ce29bf037500b2223f4c302d30991336ebbf845f9c9c2615668642b19130b
+    artifactVersion: 0.5.1
+    artifactSourceRevision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
+    artifactSha256: sha256:6ba4d862d6b2b5708126095bdd0c490c1a8ff73e16102db5ea8f96978dc1bde5
 
   honua-sdk-python:
     repository: https://github.com/honua-io/honua-sdk-python
@@ -1134,28 +1134,22 @@ components:
     repository: "https://github.com/honua-io/geospatial-mcp"
     lifecycleStatus: Experimental
     version: "pre-release"             # draft spec; artifact identity uses SPEC_VERSION plus commit
-    artifactVersion: "1.0.0+1f657ccd" # SPEC_VERSION 1.0 normalized to SemVer plus pinned commit
-    artifact: "spec:https://github.com/honua-io/geospatial-mcp/blob/1f657ccda04cc344701c92283d4a078bbcc5b9a4/spec/schemas/index.json"
-    artifactSourceRevision: "1f657ccda04cc344701c92283d4a078bbcc5b9a4"
-    artifactSha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
-    # SLSA provenance and CycloneDX SBOM attestations bind the unchanged spec bytes to this revision.
-    sha: "1f657ccda04cc344701c92283d4a078bbcc5b9a4"
-    # Version maps: release/component-versions.json at the pinned 1f657ccd.
+    artifactVersion: "1.0.0+122b75f2" # SPEC_VERSION 1.0 normalized to SemVer plus pinned commit
+    artifact: "spec:https://github.com/honua-io/geospatial-mcp/blob/122b75f2ff811557d04851039f8612af463414b6/spec/schemas/index.json"
+    artifactSourceRevision: "122b75f2ff811557d04851039f8612af463414b6"
+    artifactSha256: "sha256:d38f55874c2a51c115dd3bd0a0873f32f13cd8b134157c166df5e7b958ce2895"
+    sha: "122b75f2ff811557d04851039f8612af463414b6"
+    # Version maps: release/component-versions.json at the pinned 122b75f2.
     contractVersions:
       geospatial-mcp: "1.0"
     schemaVersions:
       geospatial-mcp-schemas: "1.0"
-    # serverCompatibility: read with tools/resolve_trunk_candidate.py sdk_capability_baseline() from
-    # release/sdk-capability-baseline.json at every published source revision (1f657ccd).
-    # Content and byte digests are SDK-owned and independent of the server candidate; the
-    # required capabilities were checked against honua-server capability-keys.v1.json at f880a4b4.
-    # The cut re-checks them at the candidate (CUT-PLAN step L2).
     serverCompatibility:
       minimumServerVersion: first-release
       manifests:
       - source:
           repository: https://github.com/honua-io/geospatial-mcp
-          revision: 1f657ccda04cc344701c92283d4a078bbcc5b9a4
+          revision: 122b75f2ff811557d04851039f8612af463414b6
           path: release/sdk-capability-baseline.json
         sha256: sha256:6b28e7e6997f8eb69ec1e4e2f0e5c874697a0ea7ba9ea2ef3c29f5bb2888c825
         content:
@@ -1182,7 +1176,7 @@ components:
         - ai.mcp-discovery
         - discovery.capability-manifest
       declarations:
-      - revision: 1f657ccda04cc344701c92283d4a078bbcc5b9a4
+      - revision: 122b75f2ff811557d04851039f8612af463414b6
         path: release/sdk-capability-baseline.json
         sha256: sha256:bd286450cb67d429eaf122eaf81aef5b5f015207bebeb4666194b5112b0311b9
         minimumServerVersion: first-release
@@ -1502,94 +1496,94 @@ clientArtifacts:
   honua-sdk-js:
     ecosystem: npm
     package: '@honua/sdk-js'
-    version: 0.4.0
-    integrity: sha512-+TEAO1LJvLB92LqGsDruOG4glLBJVWzhsdvhqAjlKf6t8nFpNpehGBG5ufYRR8WBNg1Zp6m//37YHaQj8Z+fxA==
+    version: 0.5.1
+    integrity: sha512-nBsIeDTnWYWkSEL3WkQfZ+4pUgWBJd1OawkmRElgx6DhsxVw8WCXCa3b+CCkJFg6GwGweM3fe1La7sN5q5SuDA==
     repository: honua-io/honua-sdk-js
-    sourceSha: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+    sourceSha: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
     publicationState: published
     targets:
     - node
     - browser
     - honua-cli
     - honua-admin
-    filename: sdk-js-0.4.0.tgz
+    filename: sdk-js-0.5.1.tgz
 
   honua-mcp-server:
     ecosystem: npm
     package: '@honua/mcp-server'
-    version: 0.6.1
-    integrity: sha512-ENxw1Tn5puQPq9zzTQY1Rt/OJqz912JmSp/QTlBEmZcnUkzQOCT4YWDmcKCSce3CGQrSJ4+b2dRoQU2KLmjhiw==
+    version: 0.6.2
+    integrity: sha512-8sgMLQekZZa2Qi+WNZu04nFGgtoXABVWEZHOUzYnd1IRj4ZBxUPHkHQklWt225JMZrz7SRW8X8zfn7rgZ0XOTA==
     repository: honua-io/honua-sdk-js
-    sourceSha: 684d95242d1c915e8cb804b76638eaf8f2c77aaf
+    sourceSha: b195086e6aabee9d048cdc7d324b82a51e7c79c3
     publicationState: published
     targets:
     - node
     - honua-mcp-proxy
-    filename: mcp-server-0.6.1.tgz
+    filename: mcp-server-0.6.2.tgz
 
   honua-sdk:
     ecosystem: npm
     package: '@honua/sdk'
-    version: 0.4.0
-    integrity: sha512-lA23HccW08t1j4c9NXioqTWfmxXBHTUAMtsQi1Kxf3+3LIaLVKtjB9tN3fRz/sxJIeod4HaYnKYukaG4jSvbSA==
+    version: 0.5.1
+    integrity: sha512-I3/4oas2i43gXf+A9ZsdaP2mTiWQBZmy6NNg9M6w5jMVtuiHQqjFIFWsHQNpN8zEvYZZba5nkDincreqw/M+hA==
     repository: honua-io/honua-sdk-js
-    sourceSha: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+    sourceSha: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
     publicationState: published
     targets:
     - node
     - browser
-    filename: sdk-0.4.0.tgz
+    filename: sdk-0.5.1.tgz
 
   honua-react:
     ecosystem: npm
     package: '@honua/react'
-    version: 0.4.0
-    integrity: sha512-6qV9sg4kaaMgh4V1Gb0/XgYxksSYgVS371ZWvC6accEAc1x9KPMAp2eHnbOOcLfHzsLhLjK6NhZy6fXytLU7Qg==
+    version: 0.5.1
+    integrity: sha512-cPCU0ovDGTQhrSaZBpT1+8Nw/eSR7rLwTMXb0ldbw7sjxc6EAcD9+1DAIgT6Os8Qe8HfyObLzcpL3QVCJKf7XA==
     repository: honua-io/honua-sdk-js
-    sourceSha: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+    sourceSha: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
     publicationState: published
     targets:
     - node
     - browser
-    filename: react-0.4.0.tgz
+    filename: react-0.5.1.tgz
 
   honua-geometry:
     ecosystem: npm
     package: '@honua/geometry'
-    version: 0.4.0
-    integrity: sha512-c6MOTdt+4/UHNANOehEm5Kt+Pe7LTPFS1UI/F64mj6XAXChXlpHG4lp1S4ntU2NaTultPihW9IC9J9g6GhwOlw==
+    version: 0.5.1
+    integrity: sha512-Q0m8s7o6H46s/upJiDnLUXQhm0PpZlGcSGKTFxgiBMlqazkTPxQNb8bffJIqsUGsON+CpjYdrrGFyxV6b3NmLQ==
     repository: honua-io/honua-sdk-js
-    sourceSha: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+    sourceSha: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
     publicationState: published
     targets:
     - node
     - browser
-    filename: geometry-0.4.0.tgz
+    filename: geometry-0.5.1.tgz
 
   honua-app-platform:
     ecosystem: npm
     package: '@honua/app-platform'
-    version: 0.4.0
-    integrity: sha512-I3xgpXyq5BvHbEyMf8QN7oMllOWFDbuFAKro//Xq/QxoD2jICeEPLN5aqBRAXN8OYb6mCBI+NEDvG4A0zIwCqg==
+    version: 0.5.1
+    integrity: sha512-FSgDBLPhZGbCvnJ0WgFt5pFhLht7q3Srew9BTgg4ZHCwtu10drPf9gTfpsXryPYVD9MfWsvvXOhHqPAfAdcOLg==
     repository: honua-io/honua-sdk-js
-    sourceSha: 9d078e17abf7c90cecd000df6fcda4f3d5d9548f
+    sourceSha: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
     publicationState: published
     targets:
     - node
     - browser
-    filename: app-platform-0.4.0.tgz
+    filename: app-platform-0.5.1.tgz
 
   create-honua-app:
     ecosystem: npm
     package: create-honua-app
-    version: 0.2.5
-    integrity: sha512-3igoA6k52Vk4UEOL3akk21OY+oRbK5vcfMj1faTIIWIgBXii+2PepXOTITLkAIwAA+QsifTIHxnl5iQ47swISQ==
+    version: 0.2.6
+    integrity: sha512-pRrRQQ73410XSHUXexh+cTo6tNkvWtKl00s/mPVVzPvrwHgXzdkKJK1uGTg91/gtpOrdyIm0Cqnra7fmG9UpCw==
     repository: honua-io/honua-sdk-js
-    sourceSha: 44e1330604d2b6ef9f4dc41151891e8b4537f169
+    sourceSha: 8896c267378bb35af9e313a2150311cff4b2b8d8
     publicationState: published
     targets:
     - node
-    filename: create-honua-app-0.2.5.tgz
+    filename: create-honua-app-0.2.6.tgz
 
   honua-sdk-python-wheel:
     ecosystem: pypi
@@ -1816,9 +1810,9 @@ platformLockEvidence:
     # bytes back `components.geospatial-mcp.artifactSha256`.
     geospatialMcp:
       repository: "https://github.com/honua-io/geospatial-mcp"
-      revision: "1f657ccda04cc344701c92283d4a078bbcc5b9a4"
+      revision: "122b75f2ff811557d04851039f8612af463414b6"
       path: "spec/schemas/index.json"
-      sha256: "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
+      sha256: "sha256:d38f55874c2a51c115dd3bd0a0873f32f13cd8b134157c166df5e7b958ce2895"
     # Pre-cut (until 2026-11-02):
     # catalog: AT-CUT. The runtime capability/operation catalog digest is produced by the exact
     #   candidate server image; no pre-cut file carries it.

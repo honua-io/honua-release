@@ -310,7 +310,7 @@ def test_generator_reports_all_current_unresolved_release_work():
     # de512e8 the catalog digest moves again and OKF is unchanged.
     assert "contentDigests" not in joined
     assert draft.lock["contentDigests"] == {
-        "geospatialMcp": "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c",
+        "geospatialMcp": "sha256:d38f55874c2a51c115dd3bd0a0873f32f13cd8b134157c166df5e7b958ce2895",
         "catalog": "sha256:1546aad52247d223ab16090eef0ad59459e93bb2281c4f23745e63ddacc88488",
         "okf": "sha256:d23aab64bb5ae88274c85bd87f2a8a535761fcff804e8dae0c4c9d154b04ca26",
     }
@@ -329,7 +329,7 @@ def test_generator_reports_all_current_unresolved_release_work():
     assert "sourceRevision" not in joined
     assert "TBD" not in str(draft.lock)
     assert draft.lock["components"]["geospatial-mcp"]["artifacts"][0]["sha256"] == (
-        "sha256:42faf8816a41322333f7080ea16ee330b2f26d93c2d24644842486690fcec73c"
+        "sha256:d38f55874c2a51c115dd3bd0a0873f32f13cd8b134157c166df5e7b958ce2895"
     )
     assert draft.lock["components"]["honua-iac"]["artifacts"][0]["sha256"] == (
         "sha256:888fadf53618e234bb512bfbade5213b33337bd5a249d54c793b2b437cd97a75"
