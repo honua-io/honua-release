@@ -42,6 +42,7 @@ services:
       HONUA_ADMIN_PASSWORD: "${E2E_API_KEY:-honua-console-dev-key}"
       Security__ConnectionEncryption__MasterKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       Licensing__Mode: "Disabled"     # 2026.1 supported deployment mode
+      RateLimiting__Enabled: "false"
       WorkflowGeneration__Enabled: "true"
       WorkflowGeneration__DefaultProvider: "deterministic"   # fixture-replay LLM â€” no API key, no flake
       NlQuery__Enabled: "true"
