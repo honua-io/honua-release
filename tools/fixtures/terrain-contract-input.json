@@ -1,0 +1,63 @@
+{
+  "description": "Static adapter contract inputs for Quantized-Mesh Terrain harness-convergence tests; not execution or qualification evidence.",
+  "capability": {
+    "key": "serve.terrain-quantized-mesh",
+    "displayName": "Quantized-Mesh Terrain",
+    "category": "Serve",
+    "edition": "Community",
+    "status": null,
+    "entryCount": 2,
+    "provingTestCount": 26,
+    "maturity": {
+      "implemented": 2
+    },
+    "noSurface": null,
+    "cite": [],
+    "parity": [],
+    "interop": [
+      {
+        "clientLane": "js-cesium",
+        "protocol": "quantized-mesh",
+        "freshness": {
+          "state": "fresh",
+          "ageDays": 0,
+          "runDate": "2026-11-25T18:00:43.161000Z"
+        }
+      }
+    ],
+    "geobench": []
+  },
+  "assignments": [
+    {
+      "capability_key": "serve.terrain-quantized-mesh",
+      "surface": "terrain-rgb-tiles",
+      "operation": "GET /terrain/{datasetId}/layer.json",
+      "test_ids": [
+        "TerrainEndpointTests.GetTerrainLayerJson_WithRasterFixture_ReturnsQuantizedMeshMetadataAndCrossLinks",
+        "TerrainEndpointTests.GetTerrainLayerJson_WithUnknownDataset_ReturnsNotFound"
+      ],
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "media-schema"
+      ]
+    },
+    {
+      "capability_key": "serve.terrain-quantized-mesh",
+      "surface": "terrain-rgb-tiles",
+      "operation": "GET /terrain/{datasetId}/{z}/{x}/{y}.terrain",
+      "test_ids": [
+        "TerrainEndpointTests.GetTerrainQuantizedMeshTile_WithRegisteredDem_ReturnsDecodableGzippedMesh",
+        "TerrainEndpointTests.GetTerrainQuantizedMeshTile_WithOctVertexNormalsAcceptHeader_ReturnsNormalsExtension",
+        "TerrainEndpointTests.GetTerrainQuantizedMeshTile_WithInvalidTmsCoordinates_ReturnsBadRequest",
+        "TerrainAuthorizationTests.GetTerrainQuantizedMeshTile_AnonymousDataset_WithoutCredentials_IsServed"
+      ],
+      "scenario_facets": [
+        "positive",
+        "negative",
+        "auth",
+        "media-schema"
+      ]
+    }
+  ]
+}

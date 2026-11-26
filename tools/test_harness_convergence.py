@@ -493,6 +493,67 @@ def test_h3_projection_refuses_conflicting_existing_decisions(candidate, mutatio
     assert path.read_bytes() == original
 
 
+def add_reviewed_terrain_contract(candidate):
+    """Extracted source inputs, not a conformance receipt or a support promotion."""
+    fixture = read(ROOT / "tools/fixtures/terrain-contract-input.json")
+    drop_matrix_capability(candidate, "serve.terrain-quantized-mesh")
+    matrix_path = candidate / "sources/server/capability-matrix.v1.json"
+    matrix = read(matrix_path)
+    matrix["capabilities"].append(fixture["capability"])
+    write(matrix_path, matrix)
+    harness = read(candidate / HARNESS)
+    harness["assignments"].extend(fixture["assignments"])
+    write(candidate / HARNESS, harness)
+    path, data = REBIND.project_official_protocol_assignments(candidate.parent)
+    (candidate.parent / path).write_bytes(data)
+
+
+def test_terrain_operations_admit_without_inventing_cesium_production(candidate):
+    add_reviewed_terrain_contract(candidate)
+    production_path = candidate / "sources/protocol-certification-production.v1.json"
+    original_production = production_path.read_bytes()
+    path, data = REBIND.project_terrain_production_gap(candidate.parent)
+    assert candidate.parent / path == production_path
+    assert data == original_production
+    generate(candidate)
+    result = validate(candidate)
+    assert result.returncode == 0, result.stderr
+    catalog = read(candidate / CATALOG)
+    assignments = read(candidate / HARNESS)["assignments"]
+    assert len(assignments) == 44
+    implemented = implemented_keys(candidate)
+    governed = [assignment for assignment in assignments if assignment["capability_key"] in implemented]
+    harness = [r for r in catalog["requirements"] if r["client_lane"] == "server-protocol-harness"]
+    assert len(harness) == len(governed)
+    terrain = [r for r in harness if r["capability_key"] == "serve.terrain-quantized-mesh"]
+    assert len(terrain) == 2
+    assert sum(len(r["test_ids"]) for r in terrain) == 6
+    assert not any(r["client_lane"] == "protocol-harness-gap-serve-terrain-quantized-mesh" for r in catalog["requirements"])
+    cesium = [
+        r for r in catalog["requirements"]
+        if r["capability_key"] == "serve.terrain-quantized-mesh" and r["client_lane"] == "js-cesium"
+    ]
+    assert len(cesium) == 1
+    assert cesium[0]["surface"] == "quantized-mesh"
+    assert cesium[0]["addressable_by_client"] is True
+    assert cesium[0]["required_tier"] == "nightly"
+    assert not any("js-cesium" in p["client_lanes"] for p in catalog["production"]["producers"])
+    owner = next(p for p in catalog["production"]["unproduced"] if "js-cesium" in p["client_lanes"])
+    assert owner["cells"] >= 1
+    # A claimed produced row cannot be substituted into the generated catalog.
+    owner["client_lanes"] = [lane for lane in owner["client_lanes"] if lane != "js-cesium"]
+    owner["cells"] -= 1
+    producer = next(p for p in catalog["production"]["producers"] if p["producer"] == "server-protocol-harness")
+    producer["client_lanes"].append("js-cesium")
+    producer["cells"] += 1
+    catalog["production"]["cells"]["produced"] += 1
+    catalog["production"]["cells"]["unproduced"] -= 1
+    write(candidate / CATALOG, catalog)
+    rejected = validate(candidate)
+    assert rejected.returncode != 0
+    assert "production dispositions differ" in rejected.stderr
+
+
 def stage_reviewed_unassigned_gap(candidate, capability):
     """Implemented source surface, no harness assignment, one reviewed unproduced owner."""
     if capability == "analytics.h3":
@@ -509,9 +570,8 @@ def stage_reviewed_unassigned_gap(candidate, capability):
             matrix["capabilities"].append(fixture["capability"])
             project = REBIND.project_wps_production_gap
         elif capability == "serve.terrain-quantized-mesh":
-            matrix["capabilities"].append({
-                "key": capability, "status": None, "maturity": {"implemented": 2},
-            })
+            fixture = read(ROOT / "tools/fixtures/terrain-contract-input.json")
+            matrix["capabilities"].append(fixture["capability"])
             project = REBIND.project_terrain_production_gap
         else:
             raise AssertionError(capability)
@@ -558,11 +618,15 @@ def test_explicit_unproduced_gap_is_accounted_and_not_harness_credit(candidate, 
     assert capability in refused.stderr
 
 
-def test_producer_cannot_claim_an_unassigned_harness_gap(candidate):
-    stage_reviewed_unassigned_gap(candidate, "analytics.h3")
+@pytest.mark.parametrize("capability, lane", [
+    ("analytics.h3", "protocol-harness-gap-analytics-h3"),
+    ("serve.wps", "protocol-harness-gap-serve-wps"),
+    ("serve.terrain-quantized-mesh", "protocol-harness-gap-serve-terrain-quantized-mesh"),
+])
+def test_producer_cannot_claim_an_unassigned_harness_gap(candidate, capability, lane):
+    stage_reviewed_unassigned_gap(candidate, capability)
     generate(candidate)
     catalog = read(candidate / CATALOG)
-    lane = "protocol-harness-gap-analytics-h3"
     owner = next(entry for entry in catalog["production"]["unproduced"] if entry["client_lanes"] == [lane])
     catalog["production"]["unproduced"].remove(owner)
     producer = next(entry for entry in catalog["production"]["producers"] if entry["producer"] == "server-protocol-harness")
@@ -573,7 +637,7 @@ def test_producer_cannot_claim_an_unassigned_harness_gap(candidate):
     write(candidate / CATALOG, catalog)
     refused = validate(candidate)
     assert refused.returncode != 0
-    assert "analytics.h3 is not an owned unproduced gap" in refused.stderr
+    assert f"{capability} is not an owned unproduced gap" in refused.stderr
     assert "not a passing harness receipt" in refused.stderr
 
 
