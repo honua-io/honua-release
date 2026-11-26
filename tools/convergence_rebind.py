@@ -906,25 +906,40 @@ def harness_receipt_problems(entry: dict[str, Any], identity: dict[str, Any], ce
     return problems
 
 
-def _source_test_host_problems(label: str, cell: dict[str, Any], identity: dict[str, Any] | None,
+def _source_test_host_problems(label: str, cell: dict[str, Any], identity: dict[str, Any],
                                candidate: dict[str, str]) -> list[str]:
-    """Bind in-memory source-test-host receipts to the candidate source/cut without claiming an image."""
+    """Bind in-memory source-test-host receipts to candidate source/cut without claiming an image."""
     problems: list[str] = []
     if cell.get("client_lane") != "server-protocol-harness":
         problems.append(f"{label}: source-test-host is only permitted for server-protocol-harness")
     if cell.get("source_sha") != candidate["source_sha"]:
         problems.append(f"{label}: not about candidate {candidate['source_sha']}")
-    if isinstance(identity, dict):
-        if identity.get("source_sha") != candidate["source_sha"] or identity.get("image_digest") is not None:
-            problems.append(
-                f"{label}: source-test-host receipt identity is not bound to candidate "
-                f"{candidate['source_sha']} with null image_digest"
-            )
-        if identity.get("candidate_cut_at") != candidate["cut_at"]:
-            problems.append(
-                f"{label}: source-test-host receipt candidate_cut_at "
-                f"{identity.get('candidate_cut_at')!r} is not {candidate['cut_at']!r}"
-            )
+    if identity.get("source_sha") != candidate["source_sha"] or identity.get("image_digest") is not None:
+        problems.append(
+            f"{label}: source-test-host receipt identity is not bound to candidate "
+            f"{candidate['source_sha']} with null image_digest"
+        )
+    if identity.get("candidate_cut_at") != candidate["cut_at"]:
+        problems.append(
+            f"{label}: source-test-host receipt candidate_cut_at "
+            f"{identity.get('candidate_cut_at')!r} is not {candidate['cut_at']!r}"
+        )
+    return problems
+
+
+def _cell_candidate_problems(label: str, cell: dict[str, Any], identity: dict[str, Any],
+                             requirement: dict[str, Any], candidate: dict[str, str]) -> list[str]:
+    """Verify candidate identity (source-test-host vs image) and governed test_ids on a cell."""
+    if cell.get("deployment_target") == "source-test-host":
+        problems = _source_test_host_problems(label, cell, identity, candidate)
+    elif cell.get("source_sha") != candidate["source_sha"] or cell.get("image_digest") != candidate["image_digest"]:
+        problems = [f"{label}: not about candidate {candidate['source_sha']} {candidate['image_digest']}"]
+    else:
+        problems = []
+    if isinstance(requirement.get("test_ids"), list) and (
+        cell.get("test_ids") != requirement["test_ids"] or identity.get("test_ids") != requirement["test_ids"]
+    ):
+        problems.append(f"{label}: test_ids do not match the governed requirement")
     return problems
 
 
@@ -996,10 +1011,9 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
         if preview_owner(cell, preview):
             counts["declared-preview"] = counts.get("declared-preview", 0) + 1
         label = f"{cell.get('client_lane')} {cell.get('operation')}"
-        source_test_host = cell.get("deployment_target") == "source-test-host"
         if cell.get("source_sha") not in (None, candidate["source_sha"]):
             problems.append(f"{label}: source_sha {cell.get('source_sha')} is not the candidate")
-        if source_test_host and cell.get("image_digest") is not None:
+        if cell.get("deployment_target") == "source-test-host" and cell.get("image_digest") is not None:
             problems.append(f"{label}: source-test-host evidence must not claim candidate image execution")
         if result not in ("pass", "fail"):
             continue
@@ -1009,10 +1023,6 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"{label}: {result} from no producer dispatched tonight")
             continue
         observed.add(run["producer"])
-        if not source_test_host and (
-            cell.get("source_sha") != candidate["source_sha"] or cell.get("image_digest") != candidate["image_digest"]
-        ):
-            problems.append(f"{label}: not about candidate {candidate['source_sha']} {candidate['image_digest']}")
         # A harness producer certifies the published package's source; its run is the trunk harness.
         source_pin = (catalog["source_revisions"][entry["source_revision_key"]]["commit"]
                       if entry.get("harness_revision_key") else run["head_sha"])
@@ -1027,11 +1037,7 @@ def verify_nightly_ledger(ledger: dict[str, Any], catalog: dict[str, Any], manif
             problems.append(f"{label}: {result} carries no producer run identity")
             continue
         requirement = requirement_by_identity.get(tuple(str(cell.get(key)) for key in LEDGER_IDENTITY), {})
-        if source_test_host:
-            problems.extend(_source_test_host_problems(label, cell, identity, candidate))
-        if isinstance(requirement.get("test_ids"), list):
-            if cell.get("test_ids") != requirement["test_ids"] or identity.get("test_ids") != requirement["test_ids"]:
-                problems.append(f"{label}: test_ids do not match the governed requirement")
+        problems.extend(_cell_candidate_problems(label, cell, identity, requirement, candidate))
         if cell.get("client_lane") == "sdk-python-certification":
             wheel = requirement.get("client_package")
             if (not _valid_python_wheel(wheel, requirement.get("client_version"))
