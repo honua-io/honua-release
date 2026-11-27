@@ -2,10 +2,10 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:85c75b9b34f4a05bb914a5d2ac04df7385fe8d97871c22f4d625234c28221702",
+  "requirements_digest": "sha256:c1359f47eb107427083f0cdd4047f89883dbf65d3c61d43629a182ec1b208a57",
   "production_digest": "sha256:8eb8b6de76f4c70a3cbb467871ea55ec1ccc05690fbeca12b6b663d07286d412",
   "audit_digest": "sha256:324ea9f8b8d6f9609ea97f49a49300bb1c12dcac458b46e3c8047e51c733f8e6",
-  "rows_digest": "sha256:3ebd6592ff42fcb23561a084d29f5b6d22705017fad7b0984808cf58554842e2",
+  "rows_digest": "sha256:87cf3664281c55d87f3bae39f650122f11a474fb91d5cf8c097a74eb313f8511",
   "rows": 2010,
   "non_licensed_rows": 2010,
   "external_licensed_rows": 0,
@@ -69,7 +69,7 @@
       },
       "governed": {
         "repository": "honua-io/geospatial-mcp",
-        "commit": "1f657ccda04cc344701c92283d4a078bbcc5b9a4"
+        "commit": "122b75f2ff811557d04851039f8612af463414b6"
       },
       "same_revision": false
     },
