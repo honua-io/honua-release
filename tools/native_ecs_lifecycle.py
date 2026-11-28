@@ -21,6 +21,9 @@ def cleanup_stack(aws, owned, stack):
         already_deleting=deleting,
     )
     if not deleting:
+        prepare = getattr(aws, 'prepare_delete', None)
+        if prepare is not None:
+            prepare(stack_id)
         aws('cloudformation', 'delete-stack', *stack_arg)
     if status != 'DELETE_COMPLETE':
         aws('cloudformation', 'wait', 'stack-delete-complete', *stack_arg)
