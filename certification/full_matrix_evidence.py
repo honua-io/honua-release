@@ -88,19 +88,24 @@ def _is_orphaned_queued_job(job: dict) -> bool:
             and job.get('completed_at') is None and job.get('runner_id') is None)
 
 
-def _merge_attempt_job(previous: dict | None, job: dict, *, in_expected: bool) -> dict | None:
-    """Return the winning job for a name, or None when two real jobs collide in one attempt."""
+def _merge_expected_attempt_job(previous: dict | None, job: dict) -> dict | None:
+    """Return the winning expected job for a name, or None when two real jobs collide in one attempt."""
     if previous is None or previous['run_attempt'] < job['run_attempt']:
         return job
     if previous['run_attempt'] > job['run_attempt']:
-        return previous
-    if not in_expected:
         return previous
     if _is_orphaned_queued_job(previous) and not _is_orphaned_queued_job(job):
         return job
     if _is_orphaned_queued_job(job):
         return previous
     return None
+
+
+def _merge_extra_attempt_job(previous: dict | None, job: dict) -> dict:
+    """Return the latest attempt record for a non-required Actions job name."""
+    if previous is None or previous['run_attempt'] < job['run_attempt']:
+        return job
+    return previous
 
 
 def verify(payload, run, policy, sha):
@@ -131,7 +136,8 @@ def verify(payload, run, policy, sha):
             return ['actual Actions jobs have duplicate or wrong source/run/attempt identity']
         identities.add(job['id'])
         key = job['name']
-        merged = _merge_attempt_job(latest.get(key), job, in_expected=key in expected)
+        merger = _merge_expected_attempt_job if key in expected else _merge_extra_attempt_job
+        merged = merger(latest.get(key), job)
         if merged is None:
             return ['actual Actions jobs have duplicate names in one attempt']
         latest[key] = merged

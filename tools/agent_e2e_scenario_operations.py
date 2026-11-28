@@ -165,13 +165,16 @@ def publication_request(*, connection, schema, table, service, geometry_type, sr
         'geometryType': geometry_type, 'srid': str(srid)}, 'fields': [], 'dryRun': False}
 
 
+MAX_INT32_LAYER_ID = 2_147_483_647
+
+
 def _publication_layer_id(ids):
     has_storage = 'storageLayerId' in ids
     has_legacy = 'layerId' in ids
     if has_storage and has_legacy:
         require(ids['storageLayerId'] == ids['layerId'], 'completed publication has conflicting layer bindings')
     raw = ids['storageLayerId'] if has_storage else ids.get('layerId')
-    require(isinstance(raw, str) and re.fullmatch(r'0|[1-9][0-9]*', raw) and int(raw) <= 2147483647,
+    require(isinstance(raw, str) and re.fullmatch(r'0|[1-9][0-9]*', raw) and int(raw) <= MAX_INT32_LAYER_ID,
             'completed publication lacks actual service/layer binding')
     return int(raw)
 

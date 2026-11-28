@@ -367,7 +367,8 @@ def test_local_docker_reopen_and_features_scope_author_tenant(human_approver):
         {"type": "FeatureCollection", "features": LOCAL_TARGET["execution"]["features"]}]
     engine.execute(6, {"kind": "tool_call", "tool": "honua_studio_reopen_version",
                        "arguments": {"itemId": "item-1", "versionId": "version-1"}})
-    assert human_approver.call_args.kwargs == {"tenant": "public"}
+    assert human_approver.call_args.args[3] == gated_approval.human_approval.ApprovalOptions(
+        cafile="/run/tls.crt", tenant="public")
     row = engine.check_features()
     assert row.status == "pass"
     assert transport.get_json.call_args.kwargs == {

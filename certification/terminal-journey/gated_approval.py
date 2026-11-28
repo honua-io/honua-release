@@ -189,10 +189,9 @@ class GatedApprovals:
         channel = local_fixture.human_approval_channel(self.target, self.transport.workdir)
         if channel is None:
             raise ExecutionError(command, "target exposes no HTTPS human approval channel", blocked=True)
-        kwargs = {"tenant": tenant} if tenant else {}
+        options = human_approval.ApprovalOptions(cafile=channel["cafile"], tenant=tenant) if tenant else channel["cafile"]
         try:
-            outcome = human_approval.approve_in_child(channel["baseUrl"], proposal_id, channel["password"],
-                                                      channel["cafile"], **kwargs)
+            outcome = human_approval.approve_in_child(channel["baseUrl"], proposal_id, channel["password"], options)
         except subprocess.TimeoutExpired as exc:
             raise ExecutionError(command, "human approval session did not finish within its budget") from exc
         record_human_session_calls(proposal_id, outcome)
