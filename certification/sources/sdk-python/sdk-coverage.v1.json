@@ -7,7 +7,7 @@
     {
       "key": "admin.control-plane",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_admin.AsyncHonuaAdminClient",
         "honua_admin.HonuaAdminClient"
@@ -16,7 +16,7 @@
     {
       "key": "discovery.capability-manifest",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.AsyncHonuaClient.capabilities",
         "honua_admin.AsyncHonuaAdminClient.get_capabilities",
@@ -27,7 +27,7 @@
     {
       "key": "editing.featureserver-edits",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesFeatureServerClient.apply_edits",
         "honua_sdk.AsyncHonuaClient.apply_edits",
@@ -37,7 +37,7 @@
     {
       "key": "geocoding.forward",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.geocoding.HonuaGeocodingClient.forward_geocode",
         "honua_sdk.async_geocoding.AsyncHonuaGeocodingClient.forward_geocode"
@@ -46,7 +46,7 @@
     {
       "key": "geocoding.reverse",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.geocoding.HonuaGeocodingClient.reverse_geocode",
         "honua_sdk.async_geocoding.AsyncHonuaGeocodingClient.reverse_geocode"
@@ -55,7 +55,7 @@
     {
       "key": "ops.health",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.AsyncHonuaClient.readiness"
       ]
@@ -63,7 +63,7 @@
     {
       "key": "process.ogc-api-processes",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.geoprocessing.HonuaGeoprocessing",
         "honua_sdk.geoprocessing.AsyncHonuaGeoprocessing"
@@ -72,7 +72,7 @@
     {
       "key": "raster.multidim-coverage",
       "status": "partial",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesImageServerClient.multidimensional_info"
       ],
@@ -81,7 +81,7 @@
     {
       "key": "raster.temporal-mosaic",
       "status": "partial",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesImageServerClient.compute_histograms",
         "honua_sdk.protocols.GeoServicesImageServerClient.compute_statistics_histograms",
@@ -92,7 +92,7 @@
     {
       "key": "scene.catalog",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.SceneClient.list_scenes",
         "honua_sdk.protocols.SceneClient.get_scene"
@@ -101,7 +101,7 @@
     {
       "key": "serve.3d-tiles-scene",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.SceneClient",
         "honua_sdk.protocols.AsyncSceneClient",
@@ -112,7 +112,7 @@
     {
       "key": "serve.elevation",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.ElevationClient",
         "honua_sdk.protocols.AsyncElevationClient"
@@ -121,7 +121,7 @@
     {
       "key": "serve.geoservices-featureserver",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesFeatureServerClient",
         "honua_sdk.protocols.AsyncGeoServicesFeatureServerClient",
@@ -131,7 +131,7 @@
     {
       "key": "serve.geoservices-geometry-service",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesGeometryServerClient",
         "honua_sdk.protocols.AsyncGeoServicesGeometryServerClient",
@@ -141,7 +141,7 @@
     {
       "key": "serve.geoservices-imageserver",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesImageServerClient",
         "honua_sdk.protocols.AsyncGeoServicesImageServerClient",
@@ -151,7 +151,7 @@
     {
       "key": "serve.geoservices-mapserver",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.GeoServicesMapServerClient",
         "honua_sdk.protocols.AsyncGeoServicesMapServerClient",
@@ -162,7 +162,7 @@
     {
       "key": "serve.geoservices-root",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.AsyncHonuaClient.list_services",
         "honua_sdk.AsyncHonuaClient.list_service_summaries"
@@ -171,7 +171,7 @@
     {
       "key": "serve.i3s-scene",
       "status": "partial",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.SceneClient.resolve_scene",
         "honua_sdk.protocols.SceneClient.fetch_tile"
@@ -181,7 +181,7 @@
     {
       "key": "serve.odata",
       "status": "partial",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.ODataClient",
         "honua_sdk.protocols.AsyncODataClient"
@@ -191,7 +191,7 @@
     {
       "key": "serve.ogc-api-coverages",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.OgcCoveragesClient",
         "honua_sdk.protocols.AsyncOgcCoveragesClient"
@@ -200,7 +200,7 @@
     {
       "key": "serve.ogc-api-features",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.ogc.HonuaOgcFeatures",
         "honua_sdk.ogc.HonuaOgcFeatureCollection",
@@ -211,7 +211,7 @@
     {
       "key": "serve.ogc-api-maps",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.OgcMapsClient",
         "honua_sdk.protocols.AsyncOgcMapsClient"
@@ -220,7 +220,7 @@
     {
       "key": "serve.ogc-api-records",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.OgcRecordsClient",
         "honua_sdk.protocols.OgcRecordsCollectionClient",
@@ -231,7 +231,7 @@
     {
       "key": "serve.ogc-api-tiles",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.OgcTilesClient.tile",
         "honua_sdk.protocols.AsyncOgcTilesClient.tile"
@@ -240,7 +240,7 @@
     {
       "key": "serve.stac",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.StacClient",
         "honua_sdk.protocols.AsyncStacClient"
@@ -249,7 +249,7 @@
     {
       "key": "serve.wfs",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.WfsClient",
         "honua_sdk.protocols.AsyncWfsClient"
@@ -258,7 +258,7 @@
     {
       "key": "serve.wms",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.WmsClient",
         "honua_sdk.protocols.AsyncWmsClient"
@@ -267,7 +267,7 @@
     {
       "key": "serve.wmts",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_sdk.protocols.WmtsClient",
         "honua_sdk.protocols.AsyncWmtsClient"
@@ -276,7 +276,7 @@
     {
       "key": "styling.ogc-api-styles",
       "status": "covered",
-      "sinceVersion": "unreleased (source preview; not yet published to PyPI)",
+      "sinceVersion": "unreleased (per-capability first release unverified)",
       "entrypoints": [
         "honua_admin.AsyncHonuaAdminClient.list_styles",
         "honua_admin.AsyncHonuaAdminClient.get_stylesheet",

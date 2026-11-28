@@ -2,10 +2,10 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:c1359f47eb107427083f0cdd4047f89883dbf65d3c61d43629a182ec1b208a57",
+  "requirements_digest": "sha256:cd8fffd773843fc50924858b7ebe0818ae0a964a161c4dffdba3b30cd9ae6bf6",
   "production_digest": "sha256:8eb8b6de76f4c70a3cbb467871ea55ec1ccc05690fbeca12b6b663d07286d412",
   "audit_digest": "sha256:324ea9f8b8d6f9609ea97f49a49300bb1c12dcac458b46e3c8047e51c733f8e6",
-  "rows_digest": "sha256:87cf3664281c55d87f3bae39f650122f11a474fb91d5cf8c097a74eb313f8511",
+  "rows_digest": "sha256:c3fc30da2f2af41b88db821591601944e9c4941a290b800a7a1987b9b8f9f98f",
   "rows": 2010,
   "non_licensed_rows": 2010,
   "external_licensed_rows": 0,
@@ -132,7 +132,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-python",
-        "commit": "5594bf0f43dbdd11a1a4792303699d1741592e1c"
+        "commit": "21a9ecb952e43ecc1450384e595259b1912f27b3"
       },
       "same_revision": false
     },

@@ -48,3 +48,29 @@ def test_github_cli_rejects_an_unverified_archive(tmp_path, monkeypatch, github_
     with pytest.raises(run.RunError, match="archive checksum mismatch"):
         run.prepare_github_cli(tmp_path)
     assert not (tmp_path / "gh").exists()
+
+
+def test_github_cli_forwards_gh_token_only_when_prerequisite_declared(tmp_path, monkeypatch):
+    calls: list[tuple[str, ...]] = []
+
+    def fake_docker(*args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(run, "docker", fake_docker)
+    session = run.Session(
+        "docs", tmp_path / "with-gh", {"python": "python:3.12"}, "http://guard", tmp_path,
+        False, "host", "test", "5.9.3", prerequisites={"gh"}, gh_token="test-token-value",
+    )
+    session.container("python")
+    run_cmd = next(c for c in calls if c and c[0] == "run")
+    assert "GH_TOKEN=test-token-value" in run_cmd
+
+    calls.clear()
+    plain = run.Session(
+        "docs", tmp_path / "no-gh", {"python": "python:3.12"}, "http://guard", tmp_path,
+        False, "host", "test", "5.9.3", prerequisites=set(), gh_token="test-token-value",
+    )
+    plain.container("python")
+    plain_cmd = next(c for c in calls if c and c[0] == "run")
+    assert not any("GH_TOKEN=" in arg for arg in plain_cmd)

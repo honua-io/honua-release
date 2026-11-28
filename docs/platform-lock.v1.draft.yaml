@@ -6,10 +6,10 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:695a4aa2512f1b151e49d19c8ad596308623dfed34a03ce4a38a5f5817ab7b53
+    sha256: sha256:3d08a9067c47ef5635c3da037f8c54278ddd0e6b42a5176114c7fea74263f699
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:7d167a628515f45a57c277636495200c147da02676c65ab0ccce7570e307ecc1
+    sha256: sha256:e574467eb9c73a448b7605b0d146f95dd293b19562881ff49b84b8c8e3bcbb3e
 components:
   honua-server:
     source:
@@ -329,7 +329,7 @@ components:
   honua-sdk-python:
     source:
       repository: https://github.com/honua-io/honua-sdk-python
-      revision: 5594bf0f43dbdd11a1a4792303699d1741592e1c
+      revision: 21a9ecb952e43ecc1450384e595259b1912f27b3
     contractVersions:
       protocol-factories: '1'
       grpc: v1
@@ -340,21 +340,21 @@ components:
     artifacts:
     - kind: wheel
       coordinate: honua-sdk
-      version: 0.3.2
-      sourceRevision: 5594bf0f43dbdd11a1a4792303699d1741592e1c
-      sha256: sha256:a8a65d7e188b7a778dbe93e30eb68efe9eed054c4b7097bbc1e113ae8fa2ec43
+      version: 0.3.3
+      sourceRevision: 21a9ecb952e43ecc1450384e595259b1912f27b3
+      sha256: sha256:81da261feb5dbb3de986fe233f31ef33953456c109542ef9e5df223ca30db441
     - kind: wheel
       coordinate: honua-admin
-      version: 0.3.2
-      sourceRevision: 5594bf0f43dbdd11a1a4792303699d1741592e1c
-      sha256: sha256:02e02aa3d9002180a293cabdf7ea772f1f90154ddd76e141ed9ff4809d238d5a
+      version: 0.3.3
+      sourceRevision: 21a9ecb952e43ecc1450384e595259b1912f27b3
+      sha256: sha256:c4babfe2b3ad76435f6bf1aa05411437f792e02cc3f191c01841d12c3d744a0d
     artifactIdentityModel: published
     serverCompatibility:
       minimumServerVersion: first-release
       manifests:
       - source:
           repository: https://github.com/honua-io/honua-sdk-python
-          revision: 5594bf0f43dbdd11a1a4792303699d1741592e1c
+          revision: 21a9ecb952e43ecc1450384e595259b1912f27b3
           path: release/sdk-capability-baseline.json
         sha256: sha256:8ab57cc64c1b4f71486e97c0a44b718d1dae84982414c09a944b4ac3bd02da38
         content:
@@ -389,7 +389,7 @@ components:
         - serve.geoservices-featureserver
         - serve.ogc-api-features
       declarations:
-      - revision: 5594bf0f43dbdd11a1a4792303699d1741592e1c
+      - revision: 21a9ecb952e43ecc1450384e595259b1912f27b3
         path: release/sdk-capability-baseline.json
         sha256: sha256:ae0711439652ac14c847e4ce6d80d692a0d7c92f0b4da6309e6e6032fe282252
         minimumServerVersion: first-release
