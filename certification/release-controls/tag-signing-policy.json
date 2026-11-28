@@ -17,6 +17,12 @@
       "format": "gitsign",
       "issuer": "https://token.actions.githubusercontent.com",
       "identity": "https://github.com/honua-io/honua-release/.github/workflows/promote.yml@refs/heads/trunk"
+    },
+    {
+      "id": "honua-mobile-dotnet",
+      "format": "gitsign",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "identity": "https://github.com/honua-io/honua-mobile/.github/workflows/sign-dotnet-mobile.yml@refs/heads/trunk"
     }
   ],
   "repositories": {
@@ -33,6 +39,15 @@
       ],
       "signers": [],
       "qualification": "native chart releases; signer not nominated"
+    },
+    "honua-mobile": {
+      "tag_refs": [
+        "refs/tags/mobile-dotnet-v*"
+      ],
+      "signers": [
+        "honua-mobile-dotnet"
+      ],
+      "qualification": "Experimental mobile NuGet publication tags; sign-dotnet-mobile.yml on trunk is the authorized producer."
     },
     "honua-release": {
       "tag_refs": [

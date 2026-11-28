@@ -107,10 +107,12 @@ def test_committed_policy_binds_publication_tags_to_the_promote_workflow_identit
     assert signers["honua-release-promote"] == {
         "id": "honua-release-promote", "format": "gitsign",
         "issuer": ISSUER, "identity": PROMOTE_IDENTITY}
-    # The keyless identity is honua-release's alone; the other native-tag repositories still
-    # nominate nobody and stay fail-closed.
+    # Each publication signer is repository-scoped. Repositories without a
+    # nominated signer stay fail-closed.
     for name, entry in committed["repositories"].items():
         if name != REPOSITORY:
+            assert "honua-release-promote" not in entry["signers"], name
+        if name not in {REPOSITORY, "honua-mobile"}:
             assert entry["signers"] == [], name
 
 

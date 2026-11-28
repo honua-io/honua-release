@@ -82,10 +82,13 @@ def head(repo: Path) -> str:
 
 
 
-def test_committed_policy_is_valid_and_nominates_only_the_keyless_promote_identity():
+def test_committed_policy_is_valid_and_nominates_keyless_workflows():
     """D11: honua-release is signed keyless by promote.yml; no key fingerprint is nominated."""
     committed = load_policy()
-    assert [(s["id"], s["format"]) for s in committed["signers"]] == [("honua-release-promote", "gitsign")]
+    assert {s["id"]: s["format"] for s in committed["signers"]} == {
+        "honua-release-promote": "gitsign",
+        "honua-mobile-dotnet": "gitsign",
+    }
     assert check_namespaces(committed) == []
 
 
@@ -119,6 +122,26 @@ def test_committed_policy_covers_exactly_the_protected_tag_namespaces():
     committed = load_policy()
     assert {name: sorted(row["tag_refs"]) for name, row in committed["repositories"].items()} == protected
     assert protected  # a policy covering nothing would pass vacuously
+
+
+def test_mobile_signer_is_limited_to_the_dotnet_tag_namespace():
+    committed = load_policy()
+    assert tag_signing.authorized_signers(committed, "honua-mobile") == [{
+        "id": "honua-mobile-dotnet",
+        "format": "gitsign",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "identity": (
+            "https://github.com/honua-io/honua-mobile/.github/workflows/"
+            "sign-dotnet-mobile.yml@refs/heads/trunk"
+        ),
+    }]
+    assert tag_signing.check_namespace(
+        committed, "honua-mobile", "mobile-dotnet-v1.0.0"
+    ) == "refs/tags/mobile-dotnet-v*"
+    with pytest.raises(SigningError, match="outside .* protected publication namespaces"):
+        tag_signing.check_namespace(committed, "honua-mobile", "mobile-embed-v1.0.0")
+    for repository in committed["repositories"].keys() - {"honua-mobile"}:
+        assert "honua-mobile-dotnet" not in committed["repositories"][repository]["signers"]
 
 
 def test_namespace_drift_from_the_control_policy_is_rejected(tmp_path):
@@ -259,14 +282,14 @@ def test_openpgp_status_parsing_reads_the_fingerprint_not_the_verdict_text():
 
 
 def test_cli_reports_the_blocked_trust_anchor(capsys, repo):
-    """Native-tag repositories other than honua-release still nominate no signer."""
+    """A native-tag repository without a nominated signer is blocked."""
     assert tag_signing.main(["verify", "honua-helm", "chart-v1.0.0", "--git-dir", str(repo)]) == 1
     assert "no publication signing key is nominated" in capsys.readouterr().out
 
 
 def test_cli_check_policy_passes_on_the_committed_policy(capsys):
     assert tag_signing.main(["check-policy"]) == 0
-    assert "1 signer(s) nominated" in capsys.readouterr().out
+    assert "2 signer(s) nominated" in capsys.readouterr().out
 
 
 # a receipt only qualifies against the policy that authorized the signer
