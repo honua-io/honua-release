@@ -235,6 +235,7 @@ class Session:
     python_audit_interpreters: dict[str, str] = field(default_factory=dict)
     python_invocations: dict[str, set[str]] = field(default_factory=dict)
     python_interpreter_paths: dict[str, list[str]] = field(default_factory=dict)
+    gh_token: str | None = None
 
     def __post_init__(self) -> None:
         self.state = self.workdir / ".docrun"
@@ -292,6 +293,8 @@ class Session:
         path = f"{self.home}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         mounts, prefix = self.prerequisite_runtimes(runtime)
         args += mounts
+        if "gh" in self.prerequisites and self.gh_token:
+            args += ["-e", f"GH_TOKEN={self.gh_token}"]
         path = prefix + path
         if runtime == "node":
             args += ["-v", f"{self.tools / 'compiler'}:/opt/honua-execdocs-compiler:ro",
@@ -1424,7 +1427,8 @@ def main() -> int:
                     sessions[key] = Session(key, work / key, sources["runtimes"], guards.base(network), tools,
                                             bool(document.get("docker")), network, run_id,
                                             sources.get("toolchain", {}).get("typescript", "5.9.3"),
-                                            prerequisites={p for d in members for p in d.get("prerequisites", {})})
+                                            prerequisites={p for d in members for p in d.get("prerequisites", {})},
+                                            gh_token=token)
                 session = sessions[key]
                 variables = load_vars(args.vars_dir, ident)
                 if grpc_tls.required(variables):
@@ -1447,6 +1451,8 @@ def main() -> int:
                     lambda path: resolver.read({**document, "path": path}, revision).encode())
                 document_context = dict(context)
                 document_secrets = [api_key]
+                if token:
+                    document_secrets.append(token)
                 if ident == publish_inputs.DOCUMENT:
                     fixture_context, fixture_observation = publish_inputs.publication_inputs(ROOT)
                     document_context.update(fixture_context)

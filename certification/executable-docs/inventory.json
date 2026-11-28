@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "90d054489b3f0a8328779c68dbbd9b33654ae45a",
+      "revision": "a459deced9dec4cafd2bdd103fee2756a5f63fd7",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/90d054489b3f0a8328779c68dbbd9b33654ae45a/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/a459deced9dec4cafd2bdd103fee2756a5f63fd7/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -1821,11 +1821,11 @@
       "id": "honua-server-docs-get-started-quickstart",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/quickstart.md",
-      "revision": "85d2dede80ee2be29e94fb677c288193323f7f85",
+      "revision": "88dd0670f663bdfbe100f4a876e9b715dc0b3fdc",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/85d2dede80ee2be29e94fb677c288193323f7f85/docs/get-started/quickstart.md",
+      "url": "https://github.com/honua-io/honua-server/blob/88dd0670f663bdfbe100f4a876e9b715dc0b3fdc/docs/get-started/quickstart.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -1913,7 +1913,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "357db8a061c3adeff5c00a8c0fcbf3fd88ed3b79de679087bc3f106ef09a4555"
+          "sha256": "b4fd44edaf7a1fe3a073174344803bcc1ecf0de81313efd1e594dcb96af319ad"
         },
         {
           "index": 9,
@@ -1968,11 +1968,11 @@
       "id": "honua-server-docs-get-started-first-dataset",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-dataset.md",
-      "revision": "103d79bded19aa584a388d9c0132ffaef77bc4a9",
+      "revision": "88dd0670f663bdfbe100f4a876e9b715dc0b3fdc",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/103d79bded19aa584a388d9c0132ffaef77bc4a9/docs/get-started/first-dataset.md",
+      "url": "https://github.com/honua-io/honua-server/blob/88dd0670f663bdfbe100f4a876e9b715dc0b3fdc/docs/get-started/first-dataset.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -2028,7 +2028,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "7cb03555e8316a0c98a87ee9662c8d5f9b984a5320ea5040dcb5fe6fa5369d6b"
+          "sha256": "76b547fc4be5162c7f9acbed3e4a7c1ea27407eda0230b236c5b7063cc423eb8"
         },
         {
           "index": 5,
@@ -2063,11 +2063,11 @@
       "id": "honua-server-docs-get-started-first-map",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/first-map.md",
-      "revision": "039aa109b1aef6a7e41ffdec679f61278e230950",
+      "revision": "88dd0670f663bdfbe100f4a876e9b715dc0b3fdc",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/039aa109b1aef6a7e41ffdec679f61278e230950/docs/get-started/first-map.md",
+      "url": "https://github.com/honua-io/honua-server/blob/88dd0670f663bdfbe100f4a876e9b715dc0b3fdc/docs/get-started/first-map.md",
       "runtime": "python",
       "docker": true,
       "session": "server-get-started",
@@ -2080,7 +2080,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "3a88f6f12715a7e9a22dc7a9fe1b913f8a67b95aa6974251d03e83682f5ad350"
+          "sha256": "304449fd9899fce9759dcf48b47bbc8647780609ca3427eaf31b115a1ae2b01f"
         },
         {
           "index": 1,
@@ -2139,11 +2139,11 @@
       "id": "honua-server-docs-get-started-with-ai",
       "repo": "honua-io/honua-server",
       "path": "docs/get-started/with-ai.md",
-      "revision": "430aa2034d4e5dc52def1856091b68af2f88df73",
+      "revision": "88dd0670f663bdfbe100f4a876e9b715dc0b3fdc",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-server/blob/430aa2034d4e5dc52def1856091b68af2f88df73/docs/get-started/with-ai.md",
+      "url": "https://github.com/honua-io/honua-server/blob/88dd0670f663bdfbe100f4a876e9b715dc0b3fdc/docs/get-started/with-ai.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -2156,7 +2156,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "12926032a54a3b5d7c406316851fbf871eaa9a0030c04207a782c5e89218fd2e"
+          "sha256": "841d5dcda6af9fb29aca7e7e0d2b9a230cda2b7a869347936c2d2f63f54196e9"
         },
         {
           "index": 1,
@@ -2502,11 +2502,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "765c0f820fc125058abe4ab40d1ebfded92af218",
+      "revision": "8193ab4008435f4a9aac569ce48e4f811ea912d9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/765c0f820fc125058abe4ab40d1ebfded92af218/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/8193ab4008435f4a9aac569ce48e4f811ea912d9/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2789,11 +2789,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "765c0f820fc125058abe4ab40d1ebfded92af218",
+      "revision": "8193ab4008435f4a9aac569ce48e4f811ea912d9",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/765c0f820fc125058abe4ab40d1ebfded92af218/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/8193ab4008435f4a9aac569ce48e4f811ea912d9/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,

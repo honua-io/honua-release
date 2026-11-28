@@ -10,7 +10,6 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_python_pins_retain_each_verified_published_source():
     manifest = yaml.safe_load((ROOT / 'platform-manifest.yaml').read_text())
     sdk = manifest['components']['honua-sdk-python']
-    # 2026-11-28 re-pin to the published 0.3.3 pair (python-sdk 21a9ecb9).
     assert sdk['version'] == '0.3.3'
     assert sdk['sha'] == '21a9ecb952e43ecc1450384e595259b1912f27b3'
     # The customer install profile stays on its preserved pre-cut rehearsal (owner decision 19)
