@@ -1,4 +1,4 @@
-"""Regression tests for live 786dc6e309 response shapes in P11/P12/P13/P15."""
+"""Regression tests for live server response shapes in P11, P12, P13, and P15."""
 from __future__ import annotations
 
 import copy

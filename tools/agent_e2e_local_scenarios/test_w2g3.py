@@ -315,9 +315,7 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
             ('maps-inventory','/api/v1/studio/content-items?family=map&limit=100',
              {'data':{'items':[{'itemId':'aaa-target'},{'itemId':'shared-item'}],'total':2,'nextCursor':None}}),
             ('services-inventory','/api/v1/admin/services/',
-             {'data':{'items':[{'serviceName':'geoprocessing'},
-                               *[{'serviceName':'p13-'+name} for name in ('parcels','flood_zones','shelters')]],
-                      'total':4}})):
+             {'data':{'items':[{'serviceName':s} for s in ('geoprocessing','p13-parcels','p13-flood_zones','p13-shelters')],'total':4}})):
             step='p13-'+label+'-'+suffix; raw=json.dumps(body).encode()
             records[step]=Record(step,phase,'http','controller','controller','GET',inventory_path,200,raw,
                                  'sha256:'+hashlib.sha256(raw).hexdigest())
@@ -339,8 +337,7 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
     assert score() == 'fail'
     records[step]=old
     step='p13-services-inventory-after'; old=records[step]; changed=old.json
-    changed['data']['items'].append({'serviceName':'unreviewed-extra'})
-    changed['data']['total']=len(changed['data']['items'])
+    changed['data']['items'].append({'serviceName':'unreviewed-extra'}); changed['data']['total']=len(changed['data']['items'])
     raw=json.dumps(changed).encode()
     records[step]=Record(step,'observe','http','controller','controller','GET',old.path,200,raw,
                          'sha256:'+hashlib.sha256(raw).hexdigest())
