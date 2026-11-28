@@ -778,10 +778,10 @@ components:
     # artifactVersion the version its receipt names. The rc.2 cut binds the release asset
     # honua-console-<version>.zip (CONSOLE-SPA-RC2.md).
     artifact: "actions-artifact:console-static-release"
-    sha: "f3515f5b18e60654c0d130c8464460ab48342648"
-    artifactSourceRevision: "f3515f5b18e60654c0d130c8464460ab48342648"
-    artifactSha256: "sha256:ef574d19b49d9163688b08a57c5e1e131ecf60b5fd0a02ef1bba0aa206861c7f"
-    artifactVersion: "0.0.0-trunk.f3515f5b18e6"
+    sha: "249860fe4aa944b67401fc5e4391d1d567adee64"
+    artifactSourceRevision: "249860fe4aa944b67401fc5e4391d1d567adee64"
+    artifactSha256: "sha256:d632862da9f0606253d34f1a1b4f7a4548ee2d60509f594e2b486bd4366f3493"
+    artifactVersion: "0.0.0-trunk.249860fe4aa9"
     # Image history (the component was a container until 9 Nov):
     # 2026-11-01 ADVANCE (final rc.2 pin): Console #494 (merge c63b37fd) with #521, #525, #526, #528, #532,
     # #534, #536, #537 and the Studio 90bb519 bundle.
@@ -1710,7 +1710,7 @@ evidenceSources:
     # literal checkout ref differs from producerSha (honua-release#1486).
     repository: honua-io/honua-console
     workflowPath: .github/workflows/console-live-journey.yml
-    producerSha: "8dee0227741fc69556ef1212fd5b4cd07eba096d"
+    producerSha: "249860fe4aa944b67401fc5e4391d1d567adee64"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: console-live-suite

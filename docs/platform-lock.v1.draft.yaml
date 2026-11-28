@@ -6,7 +6,7 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:95d6d0e49424371535802150e85ec028314b61d4ef5b7b08e33bb7d439f76550
+    sha256: sha256:695a4aa2512f1b151e49d19c8ad596308623dfed34a03ce4a38a5f5817ab7b53
   compatibilityMatrix:
     path: compatibility-matrix.yaml
     sha256: sha256:7d167a628515f45a57c277636495200c147da02676c65ab0ccce7570e307ecc1
@@ -68,7 +68,7 @@ components:
   honua-console:
     source:
       repository: https://github.com/honua-io/honua-console
-      revision: f3515f5b18e60654c0d130c8464460ab48342648
+      revision: 249860fe4aa944b67401fc5e4391d1d567adee64
     contractVersions:
       admin: v1
     schemaVersions:
@@ -76,9 +76,9 @@ components:
     artifacts:
     - kind: static-bundle
       coordinate: https://github.com/honua-io/honua-console/actions/artifacts/console-static-release
-      version: 0.0.0-trunk.f3515f5b18e6
-      sourceRevision: f3515f5b18e60654c0d130c8464460ab48342648
-      sha256: sha256:ef574d19b49d9163688b08a57c5e1e131ecf60b5fd0a02ef1bba0aa206861c7f
+      version: 0.0.0-trunk.249860fe4aa9
+      sourceRevision: 249860fe4aa944b67401fc5e4391d1d567adee64
+      sha256: sha256:d632862da9f0606253d34f1a1b4f7a4548ee2d60509f594e2b486bd4366f3493
     artifactIdentityModel: published
     lifecycleStatus: GA
     supportTier: ga
