@@ -1,0 +1,198 @@
+name: produce-runs-itself-proof
+run-name: Produce Runs-Itself proof ${{ inputs.server_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_sha:
+        description: Full 40-character lowercase hex commit SHA of the honua-server candidate
+        required: true
+        type: string
+      server_digest:
+        description: Immutable sha256 multi-arch index digest of the published AOT server image
+        required: true
+        type: string
+      platform_lock_digest:
+        description: Immutable sha256 digest of the candidate platform-lock.json bytes
+        required: true
+        type: string
+      stack_name:
+        description: Primary isolated honua-gate-N stack name (defaults to HONUA_GATE_RUNS_ITSELF_STACK)
+        required: false
+        type: string
+        default: ""
+      budget_stack_name:
+        description: Optional secondary honua-gate-N stack for row 3 budget isolation (defaults to HONUA_GATE_RUNS_ITSELF_BUDGET_STACK)
+        required: false
+        type: string
+        default: ""
+      marketplace_ref:
+        description: Git ref of honua-io/honua-marketplace providing aws/scripts/gate
+        required: false
+        type: string
+        default: "trunk"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: produce-runs-itself-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    environment: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Validate gate environment variables and dispatch inputs
+        id: preflight
+        env:
+          HONUA_GATE_RELEASE_ROLE_ARN: ${{ vars.HONUA_GATE_RELEASE_ROLE_ARN }}
+          HONUA_GATE_LANE_ROLE_ARN: ${{ vars.HONUA_GATE_LANE_ROLE_ARN }}
+          STACK_NAME: ${{ inputs.stack_name || vars.HONUA_GATE_RUNS_ITSELF_STACK }}
+          BUDGET_STACK_NAME: ${{ inputs.budget_stack_name || vars.HONUA_GATE_RUNS_ITSELF_BUDGET_STACK }}
+          MARKETPLACE_REF: ${{ inputs.marketplace_ref || 'trunk' }}
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in HONUA_GATE_RELEASE_ROLE_ARN HONUA_GATE_LANE_ROLE_ARN STACK_NAME; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required gate environment configuration: ${missing[*]}"
+            exit 1
+          fi
+          [[ "$SERVER_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::server_sha must be 40 lowercase hex characters"; exit 1; }
+          [[ "$SERVER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::server_digest must be a sha256 digest"; exit 1; }
+          [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::platform_lock_digest must be a sha256 digest"; exit 1; }
+          [[ "$STACK_NAME" =~ ^honua-gate-[1-9][0-9]*$ ]] || { echo "::error::stack_name must match ^honua-gate-[1-9][0-9]*$"; exit 1; }
+          if [[ -n "$BUDGET_STACK_NAME" ]]; then
+            [[ "$BUDGET_STACK_NAME" =~ ^honua-gate-[1-9][0-9]*$ ]] || { echo "::error::budget_stack_name must match ^honua-gate-[1-9][0-9]*$"; exit 1; }
+            if [[ "$BUDGET_STACK_NAME" == "$STACK_NAME" ]]; then
+              echo "::error::budget_stack_name must differ from stack_name"
+              exit 1
+            fi
+          fi
+          if [[ ! "$MARKETPLACE_REF" =~ ^[A-Za-z0-9._/-]{1,128}$ || "$MARKETPLACE_REF" == *".."* ]]; then
+            echo "::error::marketplace_ref must be a safe Git ref"
+            exit 1
+          fi
+          echo "stack_name=$STACK_NAME" >> "$GITHUB_OUTPUT"
+          echo "budget_stack_name=$BUDGET_STACK_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Launch Stack gate harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: honua-io/honua-marketplace
+          ref: ${{ inputs.marketplace_ref || 'trunk' }}
+          path: marketplace
+          token: ${{ secrets.HONUA_MARKETPLACE_READ_TOKEN || secrets.RELEASE_GH_TOKEN }}
+          persist-credentials: false
+
+      - name: Assume release gate OIDC role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_GATE_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+          role-session-name: honua-gate-release-${{ github.run_id }}
+
+      - name: Assume Runs-Itself qualification lane role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_GATE_LANE_ROLE_ARN }}
+          role-chaining: true
+          aws-region: us-east-1
+          mask-aws-account-id: true
+          role-session-name: honua-gate-runs-itself-${{ github.run_id }}
+
+      - name: Execute Runs-Itself rows 1-6 and 9-12 and verify notifications
+        id: qualify
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          STACK_NAME: ${{ steps.preflight.outputs.stack_name }}
+          BUDGET_STACK_NAME: ${{ steps.preflight.outputs.budget_stack_name }}
+        run: |
+          set -euo pipefail
+          umask 077
+          args=(
+            --server-sha "$SERVER_SHA"
+            --server-digest "$SERVER_DIGEST"
+            --platform-lock-digest "$LOCK_DIGEST"
+            --stack-name "$STACK_NAME"
+            --gate-script marketplace/aws/scripts/gate
+            --artifacts "$RUNNER_TEMP/gate-receipts"
+            --region us-east-1
+            --out proof
+          )
+          if [[ -n "$BUDGET_STACK_NAME" ]]; then
+            args+=(--budget-stack-name "$BUDGET_STACK_NAME")
+          fi
+          python3 tools/run_runs_itself_qualification.py "${args[@]}"
+
+      - name: Guarantee gate stack safety restoration
+        if: always() && steps.preflight.outcome == 'success'
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          STACK_NAME: ${{ steps.preflight.outputs.stack_name }}
+          BUDGET_STACK_NAME: ${{ steps.preflight.outputs.budget_stack_name }}
+        run: |
+          set -euo pipefail
+          umask 077
+          args=(
+            --cleanup-only
+            --server-sha "$SERVER_SHA"
+            --server-digest "$SERVER_DIGEST"
+            --platform-lock-digest "$LOCK_DIGEST"
+            --stack-name "$STACK_NAME"
+            --gate-script marketplace/aws/scripts/gate
+            --artifacts "$RUNNER_TEMP/gate-receipts"
+            --region us-east-1
+            --out proof
+          )
+          if [[ -n "$BUDGET_STACK_NAME" ]]; then
+            args+=(--budget-stack-name "$BUDGET_STACK_NAME")
+          fi
+          python3 tools/run_runs_itself_qualification.py "${args[@]}"
+
+      - name: Verify emitted Runs-Itself proof against receipt contract
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+        run: |
+          set -euo pipefail
+          python3 tools/emit_live_promise_receipts.py runs-itself \
+            --proof-dir proof \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --out "$RUNNER_TEMP/verified-receipts"
+
+      - name: Upload Runs-Itself qualification proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: runs-itself-proof
+          path: proof/runs-itself-proof.json
+          if-no-files-found: error
+          retention-days: 14
