@@ -120,6 +120,94 @@ def query_service_id(record, service):
     return str(service)
 
 
+def _fs_shape(kind, geometry, reference):
+    if kind == 'esriGeometryPoint':
+        _require(set(geometry) in ({'x', 'y'}, {'x', 'y', 'spatialReference'})
+                 and ('spatialReference' not in geometry or geometry['spatialReference'] == reference),
+                 'query point has missing or unsupported ordinates')
+        coords = [geometry['x'], geometry['y']]
+        _require(all(type(n) in (int, float) and math.isfinite(n) for n in coords), 'query point has invalid coordinates')
+        return {'type': 'Point', 'coordinates': coords}
+    if kind == 'esriGeometryPolyline':
+        paths = geometry['paths']
+        return {'type': 'LineString', 'coordinates': paths[0]} if len(paths) == 1 else {
+            'type': 'MultiLineString', 'coordinates': paths}
+    return {'type': 'Polygon', 'coordinates': geometry['rings']}
+
+
+def _validate_fs_envelope(value):
+    kind = value.get('geometryType')
+    _require(kind in ('esriGeometryPoint', 'esriGeometryPolyline', 'esriGeometryPolygon'), 'unsupported geometry type')
+    _require(value.get('exceededTransferLimit') is False and value.get('transform') is None
+             and value.get('hasZ', False) is False and value.get('hasM', False) is False,
+             'query is incomplete, quantized or not 2D')
+    reference = value.get('spatialReference')
+    _require(isinstance(reference, dict) and type(reference.get('wkid')) is int and reference['wkid'] > 0
+             and set(reference) <= {'wkid', 'latestWkid'}
+             and reference.get('latestWkid', reference['wkid']) == reference['wkid'],
+             'query lacks its coordinate system')
+    oid, fields = value.get('objectIdFieldName'), value.get('fields')
+    _require(isinstance(oid, str) and bool(oid.strip()) and oid != 'source_id' and isinstance(fields, list),
+             'invalid query fields')
+    oid_fields = [f for f in fields if isinstance(f, dict) and f.get('type') == 'esriFieldTypeOID']
+    if oid_fields:
+        _require(len(oid_fields) == 1 and oid_fields[0].get('name') == oid, 'query object-ID metadata differs')
+    names = [f.get('name') for f in fields if isinstance(f, dict)]
+    _require(all(isinstance(name, str) and name for name in names) and oid in names and 'source_id' in names
+             and len(set(names)) == len(names), 'invalid query field inventory')
+    return reference, oid, names
+
+
+def _normalize_fs_rows(value, oid, names):
+    kind, reference, out, seen, object_ids = value['geometryType'], value['spatialReference'], [], set(), set()
+    for row in value.get('features') or []:
+        _require(isinstance(row, dict) and set(row) == {'attributes', 'geometry'}, 'invalid query feature')
+        attributes, geometry = dict(row['attributes']), row['geometry']
+        _require(set(attributes) == set(names) and isinstance(geometry, dict), 'query attribute inventory differs')
+        source_id = attributes['source_id']
+        _require(isinstance(source_id, str) and source_id and source_id not in seen, 'missing or duplicate source id')
+        _require(type(attributes[oid]) is int and attributes[oid] not in object_ids,
+                 'missing or duplicate query object identity')
+        seen.add(source_id)
+        object_ids.add(attributes[oid])
+        del attributes[oid]
+        out.append({'type': 'Feature', 'id': source_id, 'properties': attributes,
+                    'geometry': _fs_shape(kind, geometry, reference)})
+    out.sort(key=lambda feature: feature['properties']['source_id'])
+    return out
+
+
+def normalize_feature_server_features(value):
+    """Normalize a complete 2D FeatureServer query, enforcing unique integer OIDs and valid CRS/coords."""
+    _require(isinstance(value, dict) and 'error' not in value, 'missing successful FeatureServer query')
+    reference, oid, names = _validate_fs_envelope(value)
+    return {'srid': reference['wkid'], 'features': _normalize_fs_rows(value, oid, names)}
+
+
+def restore_boolean_source(spec, ctx, named):
+    """Cross-check FeatureServer integer booleans against a same-resource controller GeoJSON read."""
+    from urllib.parse import urlsplit
+    from agent_e2e_local_projections import restore_feature_booleans
+    is_points = 'featureServerPoints' in spec
+    name = named(spec['featureServerPoints' if is_points else 'featureServerFeatures'])
+    record = ctx.record(name)
+    mapping = spec['booleanGeo']
+    _require(isinstance(mapping, dict) and name in mapping and isinstance(mapping[name], str),
+             'boolean GeoJSON read is missing')
+    geo = ctx.record(mapping[name])
+    _require(record.status == HTTP_OK and geo.status == HTTP_OK and record.phase == geo.phase
+             and record.method == geo.method == 'GET' and record.principal == geo.principal == 'controller'
+             and urlsplit(record.path).path == urlsplit(geo.path).path,
+             'boolean GeoJSON does not address the same source')
+    if is_points:
+        from agent_e2e_query_projection import feature_server_points
+        normalized = feature_server_points(record.json)
+        normalized['features'].sort(key=lambda feature: feature['properties']['source_id'])
+    else:
+        normalized = normalize_feature_server_features(record.json)
+    return restore_feature_booleans(normalized, geo.json, spec['booleanFields'])
+
+
 def source_oid_map(record, service, layer):
     """1-to-1 objectId -> source_id map from an observe-phase controller FeatureServer read on the same layer."""
     from agent_e2e_local_projections import address_value

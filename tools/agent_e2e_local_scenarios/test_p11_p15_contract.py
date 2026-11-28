@@ -321,6 +321,33 @@ def test_p12_boolean_geo_crosscheck_and_storage_layer_roles():
     records['p12-source-after-geo'] = _http_record(('p12-source-after-geo', 'observe'), geo_path, bad_geo)
     assert score_assertions(list(expected), obs, expected, records=records, roles=roles,
                             scenario_id='P12', frozen=frozen)[0]['status'] == 'fail'
+    records['p12-source-after-geo'] = _http_record(('p12-source-after-geo', 'observe'), geo_path, geo)
+    dup_oid = copy.deepcopy(fs_body)
+    for feature in dup_oid['features']:
+        feature['attributes']['objectid'] = 1
+    records['p12-source-after'] = _http_record(('p12-source-after', 'observe'), json_path, dup_oid)
+    res = score_assertions(list(expected), obs, expected, records=records, roles=roles,
+                           scenario_id='P12', frozen=frozen)[0]
+    assert res['status'] == 'fail' and 'object identity' in res['reason']
+
+
+def test_feature_server_features_rejects_duplicate_or_non_int_oids_on_polygons():
+    from agent_e2e_local_projections import feature_server_features
+    from agent_e2e_local_recorder import ProjectionError
+    base = {'geometryType': 'esriGeometryPolygon', 'exceededTransferLimit': False,
+            'spatialReference': {'wkid': 3857}, 'objectIdFieldName': 'objectid',
+            'fields': [{'name': 'objectid'}, {'name': 'source_id'}],
+            'features': [
+                {'attributes': {'objectid': 1, 'source_id': 'p1'},
+                 'geometry': {'rings': [[[0, 0], [1, 0], [1, 1], [0, 0]]]}},
+                {'attributes': {'objectid': 1, 'source_id': 'p2'},
+                 'geometry': {'rings': [[[2, 0], [3, 0], [3, 1], [2, 0]]]}}]}
+    with pytest.raises(ProjectionError, match='object identity'):
+        feature_server_features(base)
+    non_int = copy.deepcopy(base)
+    non_int['features'][1]['attributes']['objectid'] = '2'
+    with pytest.raises(ProjectionError, match='object identity'):
+        feature_server_features(non_int)
 
 
 def test_frozen_expectations_have_no_legacy_layer_id_args_or_pointers():

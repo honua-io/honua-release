@@ -445,7 +445,7 @@
               }
             ],
             "content": {
-              "featureServerFeatures": "$step",
+              "featureServerPoints": "$step",
               "booleanFields": [
                 "is_open"
               ],

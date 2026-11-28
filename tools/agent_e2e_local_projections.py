@@ -458,19 +458,10 @@ def evaluate(spec, ctx, *, item=None, step=None):
         record = ctx.record(named(spec['featureServerFeatures']))
         require(record.status == 200 and isinstance(record.json, dict), 'feature read failed')
         return feature_server_features(record.json)
-    if keys == {'featureServerFeatures', 'booleanGeo', 'booleanFields'}:
-        from urllib.parse import urlsplit
-        name = named(spec['featureServerFeatures'])
-        record = ctx.record(name)
-        mapping = spec['booleanGeo']
-        require(isinstance(mapping, dict) and name in mapping and isinstance(mapping[name], str),
-                'boolean GeoJSON read is missing')
-        geo = ctx.record(mapping[name])
-        require(record.status == 200 and geo.status == 200 and record.phase == geo.phase
-                and record.method == geo.method == 'GET' and record.principal == geo.principal == 'controller'
-                and urlsplit(record.path).path == urlsplit(geo.path).path,
-                'boolean GeoJSON does not address the same source')
-        return restore_feature_booleans(feature_server_features(record.json), geo.json, spec['booleanFields'])
+    if keys in ({'featureServerFeatures', 'booleanGeo', 'booleanFields'},
+                {'featureServerPoints', 'booleanGeo', 'booleanFields'}):
+        from agent_e2e_query_contract import restore_boolean_source
+        return restore_boolean_source(spec, ctx, named)
     if keys == {'customerFileColumn', 'rows', 'column', 'firstDataRow'}:
         import csv
         import io
@@ -737,40 +728,8 @@ def _scan_bodies(steps, ctx, named, strip_attachments=False):
 
 def feature_server_features(value):
     """Normalize a complete, unquantized 2D FeatureServer query of any geometry type to GeoJSON-like features."""
-    require(isinstance(value, dict) and 'error' not in value, 'missing successful FeatureServer query')
-    kind = value.get('geometryType')
-    require(kind in ('esriGeometryPoint', 'esriGeometryPolyline', 'esriGeometryPolygon'), 'unsupported geometry type')
-    require(value.get('exceededTransferLimit') is False and value.get('transform') is None
-            and value.get('hasZ', False) is False and value.get('hasM', False) is False,
-            'query is incomplete, quantized or not 2D')
-    reference = value.get('spatialReference')
-    require(isinstance(reference, dict) and type(reference.get('wkid')) is int, 'query lacks its coordinate system')
-    oid = value.get('objectIdFieldName')
-    fields = value.get('fields')
-    require(isinstance(oid, str) and oid != 'source_id' and isinstance(fields, list), 'invalid query fields')
-    names = [f.get('name') for f in fields if isinstance(f, dict)]
-    require(oid in names and 'source_id' in names and len(set(names)) == len(names), 'invalid query field inventory')
-    out, seen = [], set()
-    for row in value.get('features') or []:
-        require(isinstance(row, dict) and set(row) == {'attributes', 'geometry'}, 'invalid query feature')
-        attributes, geometry = dict(row['attributes']), row['geometry']
-        require(set(attributes) == set(names) and isinstance(geometry, dict), 'query attribute inventory differs')
-        source_id = attributes['source_id']
-        require(isinstance(source_id, str) and source_id and source_id not in seen, 'missing or duplicate source id')
-        seen.add(source_id)
-        del attributes[oid]
-        if kind == 'esriGeometryPoint':
-            shape = {'type': 'Point', 'coordinates': [geometry['x'], geometry['y']]}
-        elif kind == 'esriGeometryPolyline':
-            paths = geometry['paths']
-            shape = ({'type': 'LineString', 'coordinates': paths[0]} if len(paths) == 1
-                     else {'type': 'MultiLineString', 'coordinates': paths})
-        else:
-            rings = geometry['rings']
-            shape = {'type': 'Polygon', 'coordinates': rings}
-        out.append({'type': 'Feature', 'id': source_id, 'properties': attributes, 'geometry': shape})
-    out.sort(key=lambda f: f['properties']['source_id'])
-    return {'srid': reference['wkid'], 'features': out}
+    from agent_e2e_query_contract import normalize_feature_server_features
+    return normalize_feature_server_features(value)
 
 
 def restore_feature_booleans(normalized, geojson, fields):
