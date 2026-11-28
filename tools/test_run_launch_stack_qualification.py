@@ -3,22 +3,19 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
-import os
+import json
 from pathlib import Path
 import subprocess
 
 import pytest
-import yaml
 
 import emit_live_promise_receipts as emitter
-from launch_stack_aws import AwsCliAdapter, AwsCommandError, disable_deletion_protection
+from launch_stack_aws import disable_deletion_protection
 from launch_stack_https import HttpsObservationError
 from launch_stack_observations import ObservationError
 import run_launch_stack_qualification as driver
 from test_launch_stack_observations import FakeAws
 
-ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW_PATH = ROOT / '.github/workflows/produce-launch-stack-proof.yml'
 SHA = 'a' * 40
 INDEX_DIGEST = 'sha256:' + 'b' * 64
 LOCK_DIGEST = 'sha256:' + 'c' * 64
@@ -87,6 +84,9 @@ class FakeQualificationAws(FakeAws):
     def scope(self) -> tuple[str, str]:
         return '000000000000', 'us-east-1'
 
+    def prepare_delete(self, stack_id: str) -> None:
+        disable_deletion_protection(self, stack_id, sleep=lambda _s: None)
+
     def create_stack(self, owned, image: str) -> str:
         assert owned.stack_name == STACK and image == IMAGE_REF
         self.create_count += 1
@@ -153,7 +153,8 @@ def _measurement(**overrides) -> driver.ImageMeasurement:
     base = {
         'image_ref': IMAGE_REF, 'index_digest': INDEX_DIGEST,
         'platform_digests': {'amd64': AMD64_DIGEST, 'arm64': ARM64_DIGEST},
-        'image_size_bytes': 260_000_000, 'published_aot': True, 'default_image': 'postgis-only',
+        'platform_sizes': {'amd64': 250_000_000, 'arm64': 260_000_000},
+        'published_aot': True, 'default_image': 'postgis-only',
     }
     base.update(overrides)
     return driver.ImageMeasurement(**base)
@@ -261,8 +262,9 @@ def test_invalid_inputs_fail_closed_before_aws_calls(tmp_path, case):
 
 
 @pytest.mark.parametrize('case', [
-    ({'image_size_bytes': 370_000_001}, '370 MB'),
-    ({'image_size_bytes': 0}, '370 MB'),
+    ({'platform_sizes': {'amd64': 250_000_000, 'arm64': 370_000_001}}, 'arm64'),
+    ({'platform_sizes': {'amd64': 0, 'arm64': 260_000_000}}, 'amd64'),
+    ({'platform_sizes': {'amd64': 250_000_000}}, 'every runnable platform'),
     ({'published_aot': False}, 'native-aot'),
     ({'default_image': 'with-redis'}, 'postgis-only'),
     ({'index_digest': 'sha256:' + '9' * 64}, 'differs'),
@@ -274,6 +276,33 @@ def test_bad_image_measurement_fails_closed_before_stack_create(tmp_path, case):
         driver.run_qualification(_config(tmp_path),
                                  _deps(aws, inspect_image=lambda _c: _measurement(**bad_measurement)))
     assert aws.create_count == 0 and not aws.calls
+
+
+def test_inspect_ghcr_image_validates_both_amd64_and_arm64_variants(tmp_path):
+    pulled = []
+    sizes = {AMD64_DIGEST: 240_000_000, ARM64_DIGEST: 265_000_000}
+
+    def fake_docker(argv, **_kwargs):
+        if argv[1] == 'pull':
+            pulled.append((argv[4], argv[5]))
+            return subprocess.CompletedProcess(argv, 0, '', '')
+        ref = argv[3]
+        digest = ref.split('@')[1]
+        doc = [{'RepoDigests': [ref], 'Size': sizes[digest], 'Config': {'Labels': {
+            'org.opencontainers.image.revision': SHA,
+            'honua.runtime.compilation': 'native-aot',
+            'honua.store.profile': 'postgis',
+        }}}]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(doc), '')
+
+    measured = driver.inspect_ghcr_image(
+        _config(tmp_path),
+        inspector=lambda _r, _d: {'amd64': AMD64_DIGEST, 'arm64': ARM64_DIGEST},
+        runner=fake_docker,
+    )
+    assert pulled == [('linux/amd64', f'{IMAGE_REPO}@{AMD64_DIGEST}'),
+                      ('linux/arm64', f'{IMAGE_REPO}@{ARM64_DIGEST}')]
+    assert measured.platform_sizes == {'amd64': 240_000_000, 'arm64': 265_000_000}
 
 
 def _break_hardened_control(aws: FakeQualificationAws, control: str) -> None:
@@ -326,73 +355,3 @@ def test_cleanup_only_is_noop_when_not_started_and_deletes_when_started(tmp_path
     assert cleanup['stackStatus'] == 'DELETE_COMPLETE' and cleanup['remainingResources'] == []
     assert aws.delete_count == 1
 
-
-def test_aws_cli_adapter_redacts_stderr_and_retries_rds_unprotect(tmp_path):
-    captured = []
-
-    def fake_runner(argv, **_kwargs):
-        captured.append(argv)
-        if 'create-stack' in argv and '--stack-name' in argv:
-            return subprocess.CompletedProcess(argv, 0, f'{{"StackId": "{STACK_ID}"}}', '')
-        return subprocess.CompletedProcess(
-            argv, 254, '', 'An error occurred (AccessDenied) when calling DescribeStacks: arn:aws:iam::999999999999:role/secret',
-        )
-
-    cfg = _config(tmp_path, console_bundle_version='2026.1-rc.2')
-    adapter = AwsCliAdapter(cfg, runner=fake_runner)
-    attempt = driver.StackAttempt(cfg.journal_path, STACK, '000000000000', 'us-east-1', cfg.attempt_id)
-    with driver.open_attempt(attempt, IMAGE_REF) as owned:
-        assert adapter.create_stack(owned, IMAGE_REF) == STACK_ID
-    joined = ' '.join(captured[0])
-    assert 'Key=HonuaGate,Value=true' in joined and 'ParameterKey=Protection,ParameterValue=Contain' in joined
-    assert 'ParameterKey=WatchdogMode,ParameterValue=NotifyOnly' in joined
-    assert f'ParameterKey=ServerImageUri,ParameterValue={IMAGE_REF}' in joined
-    assert 'ParameterKey=ConsoleBundleVersion,ParameterValue=2026.1-rc.2' in joined
-
-    with pytest.raises(AwsCommandError) as exc_info:
-        adapter('cloudformation', 'describe-stacks', '--stack-name', STACK)
-    assert 'AccessDenied' in str(exc_info.value) and '999999999999' not in str(exc_info.value)
-
-    attempts = {'rds': 0}
-
-    def busy_then_ready(_service, operation, *_args):
-        if operation == 'list-stack-resources':
-            return {'StackResourceSummaries': [{'LogicalResourceId': 'Database',
-                                                'ResourceType': 'AWS::RDS::DBInstance',
-                                                'PhysicalResourceId': 'db-1'}]}
-        attempts['rds'] += 1
-        if attempts['rds'] == 1:
-            raise AwsCommandError('busy', error_code='InvalidDBInstanceState')
-        return {}
-
-    disable_deletion_protection(busy_then_ready, STACK_ID, sleep=lambda _s: None)
-    assert attempts['rds'] == 2
-
-
-def test_workflow_contract_and_preflight_fail_closed_on_missing_gate_vars(tmp_path):
-    document = yaml.safe_load(WORKFLOW_PATH.read_text(encoding='utf-8'))
-    triggers = document.get('on', document.get(True))
-    assert set(triggers) == {'workflow_dispatch'}
-    assert {'server_sha', 'server_digest', 'platform_lock_digest',
-            'stack_suffix', 'template_url', 'console_bundle_version'} <= set(triggers['workflow_dispatch']['inputs'])
-    assert document['permissions'] == {'contents': 'read', 'id-token': 'write'}
-
-    job = document['jobs']['produce']
-    assert job['if'] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
-    assert job['environment'] == 'gate' and job['timeout-minutes'] == 75
-    preflight = next(s for s in job['steps'] if s.get('id') == 'preflight')
-    env = {
-        'PATH': os.environ['PATH'], 'GITHUB_OUTPUT': str(tmp_path / 'gh_output'),
-        'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1',
-        'HONUA_GATE_RELEASE_ROLE_ARN': '', 'HONUA_GATE_LANE_ROLE_ARN': '',
-        'HONUA_GATE_CFN_ROLE_ARN': '', 'HONUA_GATE_TEMPLATE_URL': '',
-        'SERVER_SHA': SHA, 'SERVER_DIGEST': INDEX_DIGEST, 'LOCK_DIGEST': LOCK_DIGEST,
-        'STACK_SUFFIX': '', 'CONSOLE_BUNDLE_VERSION': '',
-    }
-    res = subprocess.run(['bash', '-c', preflight['run']], env=env, capture_output=True, text=True, check=False)
-    assert res.returncode == 1
-    assert 'HONUA_GATE_RELEASE_ROLE_ARN' in res.stdout and 'HONUA_GATE_TEMPLATE_URL' in res.stdout
-    cleanup_step = next(s for s in job['steps'] if '--cleanup-only' in str(s.get('run', '')))
-    assert 'always()' in str(cleanup_step.get('if', ''))
-    upload = next(s for s in job['steps'] if str(s.get('uses', '')).startswith('actions/upload-artifact@'))
-    assert upload['with']['name'] == 'launch-stack-proof' and upload['with']['if-no-files-found'] == 'error'

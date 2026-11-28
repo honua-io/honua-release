@@ -67,6 +67,9 @@ class AwsCliAdapter:
         self._runner = runner
         self._account: str | None = None
 
+    def prepare_delete(self, stack_id: str) -> None:
+        disable_deletion_protection(self, stack_id)
+
     def scope(self) -> tuple[str, str]:
         if self._account is None:
             identity = self('sts', 'get-caller-identity')

@@ -24,15 +24,13 @@ if str(TOOLS_DIR) not in sys.path:
 from emit_live_promise_receipts import DIGEST_RE, RC_IMAGE_SIZE_BUDGET, SHA_RE, STACK_RE
 from image_platforms import image_platform_digests, registry_image_platform_digests
 from launch_stack_aws import (
-    AwsCliAdapter, AwsCommandError, disable_deletion_protection,
-    extract_frontend_origin, verify_hardened_profile, verify_redis_off,
+    AwsCliAdapter, AwsCommandError, extract_frontend_origin,
+    verify_hardened_profile, verify_redis_off,
 )
 from launch_stack_https import HttpsObservationError, observe_https
-from launch_stack_observations import ObservationError, observe_stack, one, require, resource_summaries
-from native_ecs_attempt import (
-    AmbiguousStackCreate, OwnedAttempt, StackAttempt, describe_with_retry, open_attempt,
-)
-from native_ecs_lifecycle import cleanup_stack, verify_installation
+from launch_stack_observations import ObservationError, one, require, resource_summaries
+from native_ecs_attempt import OwnedAttempt, StackAttempt, describe_with_retry, open_attempt
+from native_ecs_lifecycle import cleanup_stack, qualify_installation
 
 DEFAULT_REGION = 'us-east-1'
 DEFAULT_SERVER_IMAGE_REPO = 'ghcr.io/honua-io/honua-server'
@@ -44,6 +42,7 @@ CONSOLE_READY_POLL_SECONDS = 15
 IMAGE_CMD_TIMEOUT_SECONDS = 180
 DEFAULT_IMAGE_PROFILE = 'postgis-only'
 HARDENED_PROFILE = 'Hardened'
+ECS_ARCH_TO_OCI = {'X86_64': 'amd64', 'ARM64': 'arm64'}
 
 ROLE_ARN_RE = re.compile(r'^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@/_-]+$')
 TEMPLATE_URL_RE = re.compile(r'^https://[^\s\x00-\x1f]+$')
@@ -74,7 +73,7 @@ class ImageMeasurement:
     image_ref: str
     index_digest: str
     platform_digests: dict[str, str]
-    image_size_bytes: int
+    platform_sizes: dict[str, int]
     published_aot: bool
     default_image: str
 
@@ -87,13 +86,6 @@ class QualificationDeps:
     clock: Callable[[], float]
     utc_now: Callable[[], dt.datetime]
     sleep: Callable[[float], None] = time.sleep
-
-
-@dataclass(frozen=True)
-class _LiveRunContext:
-    config: QualificationConfig
-    measurement: ImageMeasurement
-    deps: QualificationDeps
 
 
 def validate_config(config: QualificationConfig) -> str:
@@ -118,17 +110,21 @@ def verify_image_measurement(config: QualificationConfig, measurement: ImageMeas
     expected_ref = f'{config.image_repo}@{config.server_digest}'
     require(measurement.image_ref == expected_ref, 'Measured image reference differs from pinned candidate')
     require(measurement.index_digest == config.server_digest, 'Measured image digest differs from candidate')
-    image_platform_digests(measurement.platform_digests, index_digest=config.server_digest)
-    size = measurement.image_size_bytes
-    require(type(size) is int and 0 < size <= RC_IMAGE_SIZE_BUDGET,
-            'Published AOT image size is invalid or exceeds the 370 MB RC budget')
+    accepted = image_platform_digests(measurement.platform_digests, index_digest=config.server_digest)
+    sizes = measurement.platform_sizes
+    require(isinstance(sizes, dict) and set(sizes) == set(accepted),
+            'Published AOT image size must be measured for every runnable platform variant')
+    for arch in sorted(accepted):
+        size = sizes[arch]
+        require(type(size) is int and 0 < size <= RC_IMAGE_SIZE_BUDGET,
+                f'Published AOT {arch} image size is invalid or exceeds the 370 MB RC budget')
     require(measurement.published_aot is True, 'Candidate image does not declare native-aot compilation')
     require(measurement.default_image == DEFAULT_IMAGE_PROFILE,
             'Candidate image does not declare postgis-only default profile')
 
 
-def _run_docker_command(args: list[str]) -> str:
-    result = subprocess.run(
+def _run_docker_command(args: list[str], runner: Callable[..., Any] = subprocess.run) -> str:
+    result = runner(
         ['docker', *args], capture_output=True, text=True,
         timeout=IMAGE_CMD_TIMEOUT_SECONDS, check=False,
     )
@@ -136,27 +132,43 @@ def _run_docker_command(args: list[str]) -> str:
     return result.stdout
 
 
-def inspect_ghcr_image(config: QualificationConfig) -> ImageMeasurement:
-    image_ref = f'{config.image_repo}@{config.server_digest}'
-    platform_digests = registry_image_platform_digests(config.image_repo, config.server_digest)
-    _run_docker_command(['pull', '--quiet', '--platform', 'linux/amd64', image_ref])
-    raw = json.loads(_run_docker_command(['image', 'inspect', image_ref]))
-    image_doc = one(raw, 'Expected one inspected candidate image')
-    require(image_ref in (image_doc.get('RepoDigests') or []),
-            'Pulled image RepoDigests do not confirm immutable digest pin')
+def _inspect_platform_variant(
+    config: QualificationConfig, variant: tuple[str, str], runner: Callable[..., Any],
+) -> int:
+    arch, child_digest = variant
+    child_ref = f'{config.image_repo}@{child_digest}'
+    _run_docker_command(['pull', '--quiet', '--platform', f'linux/{arch}', child_ref], runner)
+    raw = json.loads(_run_docker_command(['image', 'inspect', child_ref], runner))
+    image_doc = one(raw, f'Expected one inspected candidate image for linux/{arch}')
+    require(child_ref in (image_doc.get('RepoDigests') or []),
+            f'Pulled linux/{arch} image RepoDigests do not confirm immutable child digest pin')
     labels = (image_doc.get('Config') or {}).get('Labels') or {}
     require(labels.get('org.opencontainers.image.revision') == config.server_sha,
-            'Pulled image source revision label does not match server_sha')
+            f'Pulled linux/{arch} image source revision label does not match server_sha')
     require(labels.get('honua.runtime.compilation') == 'native-aot',
-            'Pulled image is not compiled as native-aot')
+            f'Pulled linux/{arch} image is not compiled as native-aot')
     require(labels.get('honua.store.profile') == 'postgis',
-            'Pulled image store profile is not postgis')
+            f'Pulled linux/{arch} image store profile is not postgis')
     size = image_doc.get('Size')
     require(type(size) is int and 0 < size <= RC_IMAGE_SIZE_BUDGET,
-            'Pulled AOT image size exceeds RC budget or is invalid')
+            f'Pulled linux/{arch} AOT image size exceeds RC budget or is invalid')
+    return size
+
+
+def inspect_ghcr_image(
+    config: QualificationConfig,
+    inspector: Callable[[str, str], dict[str, str]] = registry_image_platform_digests,
+    runner: Callable[..., Any] = subprocess.run,
+) -> ImageMeasurement:
+    image_ref = f'{config.image_repo}@{config.server_digest}'
+    platform_digests = inspector(config.image_repo, config.server_digest)
+    platform_sizes = {
+        arch: _inspect_platform_variant(config, (arch, digest), runner)
+        for arch, digest in sorted(platform_digests.items())
+    }
     return ImageMeasurement(
         image_ref=image_ref, index_digest=config.server_digest,
-        platform_digests=platform_digests, image_size_bytes=size,
+        platform_digests=platform_digests, platform_sizes=platform_sizes,
         published_aot=True, default_image=DEFAULT_IMAGE_PROFILE,
     )
 
@@ -202,87 +214,51 @@ def _probe_console_ready(origin: str, deps: QualificationDeps) -> dict:
     raise ObservationError('Console and readiness HTTPS endpoints did not become ready with hardened HSTS')
 
 
-def teardown_owned_stack(owned: OwnedAttempt, stack_id: str | None, deps: QualificationDeps) -> dict:
-    stack = owned.observe(deps.aws, stack_id=stack_id)
-    observed_id = stack['StackId']
-    if stack.get('StackStatus') not in ('DELETE_IN_PROGRESS', 'DELETE_COMPLETE'):
-        disable_deletion_protection(deps.aws, observed_id, deps.sleep)
-    cleanup = cleanup_stack(deps.aws, owned, stack)
-    require(cleanup.get('stackStatus') == 'DELETE_COMPLETE' and cleanup.get('remainingResources') == [],
-            'Stack teardown did not confirm DELETE_COMPLETE with zero remaining resources')
-    return cleanup
-
-
-def _create_owned_stack(owned: OwnedAttempt, image_ref: str, aws: Any) -> str:
-    owned.begin_create()
-    try:
-        stack_id = aws.create_stack(owned, image_ref)
-    except (AmbiguousStackCreate, TimeoutError, ConnectionError):
-        return owned.observe(aws)['StackId']
-    owned.observe(aws, stack_id=stack_id)
-    return stack_id
-
-
-def _observe_live_stack(owned: OwnedAttempt, stack_id: str, context: _LiveRunContext) -> dict:
-    deps = context.deps
-    deps.aws('cloudformation', 'wait', 'stack-create-complete', '--stack-name', stack_id)
-    observation = observe_stack(
-        deps.aws, owned.stack_name, stack_id=stack_id,
-        describe=lambda identity: describe_with_retry(deps.aws, identity),
-    )
-    installation = verify_installation(observation, context.measurement.image_ref,
-                                       context.measurement.platform_digests)
-    stack = owned.observe(deps.aws, stack_id=stack_id)
+def _verify_launch_stack_journey(stack_id: str, started: float, deps: QualificationDeps) -> float:
+    response = describe_with_retry(deps.aws, stack_id)
+    stack = one(response.get('Stacks'), 'Missing or ambiguous qualified stack')
     summaries = resource_summaries(deps.aws, stack_id)
     verify_redis_off(deps.aws, summaries)
     verify_hardened_profile(deps.aws, stack, summaries)
     _probe_console_ready(extract_frontend_origin(stack), deps)
-    return installation
+    elapsed_seconds = deps.clock() - started
+    require(elapsed_seconds >= 0, 'Clock moved backwards during Launch Stack installation')
+    return round(elapsed_seconds / 60.0, 2)
 
 
-def _build_proof(config: QualificationConfig, measurement: ImageMeasurement, summary: dict) -> dict:
+def _deployed_variant_size(measurement: ImageMeasurement, cpu_architecture: str) -> int:
+    arch = ECS_ARCH_TO_OCI.get(cpu_architecture)
+    require(arch in measurement.platform_sizes, 'Deployed ECS architecture lacks measured image size')
+    return measurement.platform_sizes[arch]
+
+
+def _build_proof(
+    config: QualificationConfig, measurement: ImageMeasurement, outcome: dict,
+) -> dict:
+    installation = outcome['installation']
+    cleanup = outcome['cleanup']
+    require(cleanup.get('stackStatus') == 'DELETE_COMPLETE' and cleanup.get('remainingResources') == [],
+            'Stack teardown did not confirm DELETE_COMPLETE with zero remaining resources')
     return {
         'serverSha': config.server_sha,
         'imageDigest': config.server_digest,
         'platformLockDigest': config.platform_lock_digest,
-        'observedAt': summary['observedAt'],
+        'observedAt': outcome['observedAt'],
         'stackName': config.stack_name,
         'orchestrator': 'ecs',
         'redis': False,
         'defaultImage': measurement.default_image,
         'protectionProfile': HARDENED_PROFILE,
         'publishedAotImage': measurement.published_aot,
-        'imageSizeBytes': measurement.image_size_bytes,
-        'installConsoleMinutes': summary['installConsoleMinutes'],
-        'cpuArchitecture': summary['cpuArchitecture'],
-        'resolvedPlatformImageDigest': summary['resolvedPlatformImageDigest'],
-        'healthyTaskCount': summary['healthyTaskCount'],
-        'cleanup': {
-            'stackStatus': summary['cleanup']['stackStatus'],
-            'remainingResources': summary['cleanup']['remainingResources'],
-        },
-    }
-
-
-def _execute_attempt(owned: OwnedAttempt, context: _LiveRunContext) -> dict:
-    deps = context.deps
-    started = deps.clock()
-    stack_id = _create_owned_stack(owned, context.measurement.image_ref, deps.aws)
-    try:
-        installation = _observe_live_stack(owned, stack_id, context)
-        elapsed_seconds = deps.clock() - started
-        require(elapsed_seconds >= 0, 'Clock moved backwards during Launch Stack installation')
-        install_minutes = round(elapsed_seconds / 60.0, 2)
-    finally:
-        cleanup = teardown_owned_stack(owned, stack_id, deps)
-    observed_at = deps.utc_now().replace(microsecond=0).isoformat().replace('+00:00', 'Z')
-    return {
-        'observedAt': observed_at,
-        'installConsoleMinutes': install_minutes,
+        'imageSizeBytes': _deployed_variant_size(measurement, installation['cpuArchitecture']),
+        'installConsoleMinutes': outcome['installConsoleMinutes'],
         'cpuArchitecture': installation['cpuArchitecture'],
         'resolvedPlatformImageDigest': installation['resolvedPlatformImageDigest'],
         'healthyTaskCount': installation['healthyTaskCount'],
-        'cleanup': cleanup,
+        'cleanup': {
+            'stackStatus': cleanup['stackStatus'],
+            'remainingResources': cleanup['remainingResources'],
+        },
     }
 
 
@@ -293,12 +269,22 @@ def run_qualification(config: QualificationConfig, deps: QualificationDeps) -> d
     account, region = deps.aws.scope()
     require(region == config.region, 'AWS adapter region differs from configured qualification region')
     attempt = StackAttempt(config.journal_path, config.stack_name, account, region, config.attempt_id)
-    with open_attempt(attempt, image_ref) as owned:
-        if owned.replay:
-            teardown_owned_stack(owned, owned.retained_arn(), deps)
-            raise ObservationError('Recovered interrupted attempt and verified cleanup')
-        summary = _execute_attempt(owned, _LiveRunContext(config, measurement, deps))
-    proof = _build_proof(config, measurement, summary)
+    candidate = {
+        'serverImage': image_ref,
+        'imageDigest': config.server_digest,
+        'platformDigests': measurement.platform_digests,
+    }
+    started = deps.clock()
+    timings: list[float] = []
+    result = qualify_installation(
+        deps.aws, candidate, attempt=attempt,
+        run_journey=lambda stack_id: timings.append(_verify_launch_stack_journey(stack_id, started, deps)),
+    )
+    require(len(timings) == 1, 'Launch Stack readiness journey did not complete')
+    observed_at = deps.utc_now().replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+    proof = _build_proof(config, measurement, {
+        **result, 'observedAt': observed_at, 'installConsoleMinutes': timings[0],
+    })
     config.output_dir.mkdir(parents=True, exist_ok=True)
     (config.output_dir / 'launch-stack-proof.json').write_text(
         json.dumps(proof, indent=2) + '\n', encoding='utf-8',
@@ -309,7 +295,11 @@ def run_qualification(config: QualificationConfig, deps: QualificationDeps) -> d
 def _teardown_or_not_created(owned: OwnedAttempt, deps: QualificationDeps) -> dict:
     retained = owned.retained_arn()
     try:
-        return teardown_owned_stack(owned, retained, deps)
+        stack = owned.observe(deps.aws, stack_id=retained)
+        cleanup = cleanup_stack(deps.aws, owned, stack)
+        require(cleanup.get('stackStatus') == 'DELETE_COMPLETE' and cleanup.get('remainingResources') == [],
+                'Stack teardown did not confirm DELETE_COMPLETE with zero remaining resources')
+        return cleanup
     except AwsCommandError as error:
         if retained is None and error.error_code == 'ValidationError':
             return {'stackStatus': 'NOT_CREATED', 'remainingResources': []}
