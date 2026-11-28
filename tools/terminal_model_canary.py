@@ -38,7 +38,10 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from jsonschema import Draft202012Validator
 
-import no_redirect
+if __package__:
+    from . import no_redirect
+else:
+    import no_redirect
 
 ROOT = Path(__file__).resolve().parents[1]
 CANARY_DIR = ROOT / "certification" / "terminal-model-canary"
@@ -1518,8 +1521,8 @@ def driver_failure_diagnostic(response: Any) -> str:
     category = response.get("errorCategory")
     if not isinstance(category, str):
         category = error.split(":", 1)[0] if isinstance(error, str) else ""
-    if category in {"DriverError", "ExecutionError", "KeyError", "ValueError", "TypeError",
-                    "AttributeError", "OSError", "RuntimeError", "JSONDecodeError", "NameError"}:
+    if category in {"DriverError", "ExecutionError", "ImportError", "ModuleNotFoundError", "KeyError", "ValueError",
+                    "TypeError", "AttributeError", "OSError", "RuntimeError", "JSONDecodeError", "NameError"}:
         message = driver_error_message(error, category)
         return "; driverError=" + category + (": " + message if message else "")
     return "; structuredFailure=" + str(response.get("status") == "fail").lower()
@@ -1529,7 +1532,7 @@ DRIVER_ERROR_MESSAGE_LIMIT = 240
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]+")
 # Uncaught driver exceptions. ExecutionError is the driver's structured result, so it is absent.
 _DRIVER_CRASH_CATEGORIES = frozenset({
-    "DriverError", "OSError", "RuntimeError", "AttributeError", "NameError",
+    "DriverError", "ImportError", "ModuleNotFoundError", "OSError", "RuntimeError", "AttributeError", "NameError",
     "JSONDecodeError", "MemoryError", "SystemError", "RecursionError",
     "TypeError", "KeyError", "ValueError",
 })
@@ -1619,6 +1622,8 @@ def _stage_oracle_rejection(response: Any) -> bool:
 def _verify_oracle_failed(response: Any) -> bool:
     """Final verification named a non-passing result. Its status is the oracle."""
     if not isinstance(response, dict):
+        return False
+    if "error" in response or "errorCategory" in response:
         return False
     if response.get("status") in {"fail", "blocked"}:
         return True

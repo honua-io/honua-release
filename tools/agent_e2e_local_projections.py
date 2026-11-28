@@ -65,8 +65,128 @@ def require(condition, reason):
 
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
-             'featureServerPoints', 'featureQueryIds', 'target', 'featureServerFeatures', 'absent',
+             'featureServerPoints', 'featureQueryIds', 'oidSource', 'target', 'featureServerFeatures', 'absent',
              'fullPublished', 'sourceRows', 'finalQuery', 'settings', 'catalog')
+
+
+def _publication_resource_layer(ids):
+    """Published layer id in service.publish resourceIds (storageLayerId, or legacy layerId); fail on conflict."""
+    require(isinstance(ids, dict), 'publication handle lacks its resource ids')
+    has_storage, has_layer = 'storageLayerId' in ids, 'layerId' in ids
+    if has_storage and has_layer:
+        require(str(ids['storageLayerId']) == str(ids['layerId']), 'conflicting publication layer ids')
+    raw = ids['storageLayerId'] if has_storage else ids.get('layerId')
+    require(isinstance(raw, (str, int)) and not isinstance(raw, bool)
+            and re.fullmatch(r'0|[1-9][0-9]*', str(raw)) is not None, 'publication handle lacks its resource ids')
+    return raw
+
+
+def query_layer_id(mapping):
+    """Layer selector from honua_query_features arguments/structuredContent (serviceLayerIndex or legacy layerId)."""
+    if not isinstance(mapping, dict):
+        return None
+    has_index, has_layer = 'serviceLayerIndex' in mapping, 'layerId' in mapping
+    if not (has_index or has_layer):
+        return None
+    index_val = mapping.get('serviceLayerIndex') if has_index else None
+    layer_val = mapping.get('layerId') if has_layer else None
+    for present, candidate in ((has_index, index_val), (has_layer, layer_val)):
+        if present and (not isinstance(candidate, (int, str)) or isinstance(candidate, bool) or str(candidate) == ''):
+            return None
+    if has_index and has_layer and str(index_val) != str(layer_val):
+        return None
+    return index_val if has_index else layer_val
+
+
+def _query_features(value):
+    """Extract (features, attr_key) from honua_query_features structuredContent (flat features or legacy geojson)."""
+    require(isinstance(value, dict), 'feature query lacks features')
+    has_geo, has_flat = 'geojson' in value, 'features' in value
+    require(has_geo != has_flat, 'feature query lacks features')
+    if has_geo:
+        collection = value.get('geojson')
+        require(isinstance(collection, dict) and collection.get('type') == 'FeatureCollection'
+                and isinstance(collection.get('features'), list), 'feature query lacks features')
+        return collection['features'], 'properties'
+    features = value.get('features')
+    require(isinstance(features, list), 'feature query lacks features')
+    return features, 'attributes'
+
+
+def _source_oid_map(record, service, layer):
+    """1-to-1 objectId -> source_id map from an observe-phase controller FeatureServer read on the same layer."""
+    require(record.kind == 'http' and record.method == 'GET' and record.principal == 'controller'
+            and record.phase == 'observe' and record.status == 200 and isinstance(record.json, dict),
+            'oid source read failed')
+    require(address_value(record, {'pathSegment': 2}) == str(service)
+            and address_value(record, {'pathSegment': 4}) == str(layer),
+            'oid source addresses another service or layer')
+    body = record.json
+    oid_field, features = body.get('objectIdFieldName'), body.get('features')
+    require(body.get('exceededTransferLimit') is False and isinstance(oid_field, str) and oid_field
+            and isinstance(features, list), 'oid source is incomplete')
+    mapping, seen_ids = {}, set()
+    for feature in features:
+        attrs = feature.get('attributes') if isinstance(feature, dict) else None
+        oid = attrs.get(oid_field) if isinstance(attrs, dict) else None
+        source_id = attrs.get('source_id') if isinstance(attrs, dict) else None
+        require(type(oid) is int and oid not in mapping
+                and isinstance(source_id, str) and source_id and source_id not in seen_ids,
+                'oid source lacks unique objectId to source_id mapping')
+        mapping[oid] = source_id
+        seen_ids.add(source_id)
+    return oid_field, mapping
+
+
+def _feature_oid(feature, props, oid_field):
+    """Extract a consistent integer OID from a query feature's top-level id and/or attributes[oid_field]."""
+    top = feature.get('id') if isinstance(feature, dict) else None
+    attr = props.get(oid_field) if isinstance(props, dict) else None
+    if top is not None and attr is not None:
+        require(type(top) is int and type(attr) is int and top == attr, 'feature oid mismatch')
+        return top
+    oid = top if top is not None else attr
+    require(type(oid) is int, 'feature lacks integer oid')
+    return oid
+
+
+def _cross_check_oids(feature_ids, field, oid_source):
+    """When direct source_id and oid_source both exist, any present OID on a feature must match that source_id."""
+    oid_field, oid_map = oid_source
+    for feature, source_id in feature_ids:
+        props = feature.get(field) if isinstance(feature, dict) else None
+        top = feature.get('id') if isinstance(feature, dict) else None
+        if field == 'properties' and isinstance(top, str):
+            require(top == source_id, 'feature id disagrees with source_id')
+            top = None
+        attr = props.get(oid_field) if isinstance(props, dict) else None
+        if top is not None or attr is not None:
+            oid = _feature_oid({'id': top}, props, oid_field)
+            require(oid_map.get(oid) == source_id, 'feature query oid disagrees with source_id')
+
+
+def _extract_query_source_ids(features, field, oid_source=None):
+    """Return distinct source_id values directly from feature properties/attributes, or via controller oid_source."""
+    direct = [(f.get(field) or {}).get('source_id') if isinstance(f, dict) and isinstance(f.get(field), dict) else None
+              for f in features]
+    if any(i is not None for i in direct):
+        require(all(isinstance(i, str) and i for i in direct) and len(set(direct)) == len(direct),
+                'feature query lacks distinct source ids')
+        if oid_source is not None:
+            _cross_check_oids(zip(features, direct), field, oid_source)
+        return direct
+    if not features:
+        return []
+    require(oid_source is not None, 'feature query lacks distinct source ids')
+    oid_field, oid_map = oid_source
+    ids = []
+    for feature in features:
+        props = feature.get(field) if isinstance(feature, dict) else None
+        oid = _feature_oid(feature, props, oid_field)
+        require(oid in oid_map, 'feature query oid absent from source layer')
+        ids.append(oid_map[oid])
+    require(len(set(ids)) == len(ids), 'feature query lacks distinct source ids')
+    return ids
 
 
 def referenced_steps(spec, found=None):
@@ -205,7 +325,12 @@ def address_value(record, at):
         return request['table'] if where == 'table' else f"{request['schema']}.{request['table']}"
     if kind == 'argument':
         require(record.kind == 'mcp' and isinstance(record.request_arguments, dict), 'address argument needs an MCP call')
-        return pointer_get(record.request_arguments.get('arguments') or {}, where)
+        arguments = record.request_arguments.get('arguments') or {}
+        if where in ('/layerId', '/serviceLayerIndex'):
+            layer = query_layer_id(arguments)
+            require(layer is not None, 'pointer target absent: ' + where.lstrip('/'))
+            return layer
+        return pointer_get(arguments, where)
     raise ProjectionError('unknown address field kind: ' + str(kind))
 
 
@@ -502,6 +627,7 @@ def evaluate(spec, ctx, *, item=None, step=None):
         spec = {k: v for k, v in spec.items() if k != 'restricted'}
         keys = set(spec)
     if keys in ({'featureQueryIds', 'service', 'layer'},
+                {'featureQueryIds', 'service', 'layer', 'oidSource'},
                 {'featureQueryIds', 'service', 'layer', 'fullPublished', 'sourceRows'}):
         record = ctx.record(named(spec['featureQueryIds']))
         require(record.kind == 'mcp' and record.status == 200 and isinstance(record.json, dict),
@@ -528,40 +654,40 @@ def evaluate(spec, ctx, *, item=None, step=None):
         require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
         value = result.get('structuredContent')
         service, layer = sub(spec['service']), sub(spec['layer'])
+        out_layer = query_layer_id(value)
         require(isinstance(value, dict) and echoes_service(value.get('serviceId'), service)
-                and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
+                and out_layer is not None and str(out_layer) == str(layer)
+                and value.get('exceededTransferLimit') is False
                 and value.get('resultOffset') == 0, 'feature query is foreign or incomplete')
         arguments = (record.request_arguments or {}).get('arguments') or {}
         require(arguments.get('returnCountOnly', False) is False, 'feature query is count-only')
-        collection = value.get('geojson')
-        require(isinstance(collection, dict) and collection.get('type') == 'FeatureCollection'
-                and isinstance(collection.get('features'), list), 'feature query lacks features')
-        features = collection['features']
+        features, attr_key = _query_features(value)
         require(type(value.get('returnedCount')) is int and value['returnedCount'] == len(features),
                 'feature query count differs from returned features')
-        ids = [feature.get('properties', {}).get('source_id') if isinstance(feature, dict) else None
-               for feature in features]
-        require(all(isinstance(i, str) and i for i in ids) and len(set(ids)) == len(ids),
-                'feature query lacks distinct source ids')
+        oid_source = (_source_oid_map(ctx.record(named(spec['oidSource'])), service, layer)
+                      if 'oidSource' in spec else None)
+        ids = _extract_query_source_ids(features, attr_key, oid_source)
         if 'fullPublished' in spec:
             full, source = ctx.record(named(spec['fullPublished'])), ctx.record(named(spec['sourceRows']))
             request = (full.request_arguments or {}).get('arguments') or {}
+            base_req = {'serviceId': str(service), 'where': '1=1', 'outFields': list(FULL_READ_FIELDS),
+                        'limit': 1000, 'resultOffset': 0, 'returnGeometry': True,
+                        'outSrid': 3857, 'geometryPrecision': -1}
             require(full.kind == 'mcp' and full.status == 200 and full.principal == 'controller'
                     and (full.request_arguments or {}).get('tool') == 'honua_query_features'
-                    and request == {'serviceId': str(service), 'layerId': int(layer), 'where': '1=1',
-                        'outFields': list(FULL_READ_FIELDS), 'limit': 1000,
-                        'resultOffset': 0, 'returnGeometry': True,
-                        'outSrid': 3857, 'geometryPrecision': -1}, 'full published query request differs')
+                    and request in ({**base_req, 'layerId': int(layer)},
+                                    {**base_req, 'serviceLayerIndex': int(layer)}),
+                    'full published query request differs')
             result = (full.json or {}).get('result') or {}
             value = result.get('structuredContent') or {}
-            collection = value.get('geojson') or {}
-            published = collection.get('features')
+            published, pub_field = _query_features(value)
+            full_layer = query_layer_id(value)
             require(result.get('isError', False) is False and echoes_service(value.get('serviceId'), service)
-                    and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
+                    and full_layer is not None and str(full_layer) == str(layer)
+                    and value.get('exceededTransferLimit') is False
                     and value.get('resultOffset') == 0 and isinstance(published, list)
                     and type(value.get('returnedCount')) is int and value['returnedCount'] == len(published)
-                    and collection.get('type') == 'FeatureCollection' and source.kind == 'sql'
-                    and source.status == 200 and isinstance(source.json, list),
+                    and source.kind == 'sql' and source.status == 200 and isinstance(source.json, list),
                     'full published query or source rows are incomplete')
             # Compare what the full read asked for (its outFields, in EPSG:3857) on both sides. The server adds its
             # own objectid to published features; the importer stores the feature id as properties.id and the SQL
@@ -570,14 +696,15 @@ def evaluate(spec, ctx, *, item=None, step=None):
             fields = FULL_READ_FIELDS
 
             def projected(row, side):
-                require(isinstance(row, dict) and isinstance(row.get('properties'), dict)
+                prop_key = pub_field if side == 'published' else 'properties'
+                require(isinstance(row, dict) and isinstance(row.get(prop_key), dict)
                         and isinstance(row.get('geometry'), dict), 'invalid fixture or published row')
                 geometry = dict(row['geometry'])
                 if side == 'source' and 'crs' in geometry:
                     require(geometry.pop('crs') == EPSG_3857_CRS, 'source geometry is not in EPSG:3857')
                 require(set(geometry) == {'type', 'coordinates'}, 'unexpected geometry members')
-                require(all(k in row['properties'] for k in fields), 'a requested field is missing')
-                return {'geometry': geometry, 'properties': {k: row['properties'][k] for k in fields}}
+                require(all(k in row[prop_key] for k in fields), 'a requested field is missing')
+                return {'geometry': geometry, 'properties': {k: row[prop_key][k] for k in fields}}
             observed = [projected(f, 'published') for f in published]
             source_rows = [projected(r, 'source') for r in source.json]
             from decimal import Decimal
@@ -1226,9 +1353,9 @@ def publication_handle_identity(handle) -> dict:
     if handle['operationId'] == 'service.publish':
         ids = handle.get('resourceIds')
         require(isinstance(ids, dict) and isinstance(ids.get('serviceName'), str)
-                and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', ids['serviceName'])
-                and re.fullmatch(r'0|[1-9][0-9]*', str(ids.get('layerId'))), 'publication handle lacks its resource ids')
-        return {'operationId': 'service.publish', 'service': ids['serviceName'], 'layerId': int(ids['layerId']),
+                and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', ids['serviceName']), 'publication handle lacks its resource ids')
+        layer = _publication_resource_layer(ids)
+        return {'operationId': 'service.publish', 'service': ids['serviceName'], 'layerId': int(layer),
                 'schema': None, 'table': None}
     details = (handle.get('result') or {}).get('details') if isinstance(handle.get('result'), dict) else None
     raw = details.get('response') if isinstance(details, dict) else None
@@ -1260,8 +1387,8 @@ ARC_P10_LAYER_ALTERNATIVE = {'step': 'arc-p10-catalog-layers', 'settings': 'arc-
                              'tableRole': 'seeded:table:shelters'}
 ARC_P10_RESTRICTED = {'finalQuery': 'arc-p10-final-query', 'settings': 'arc-p10-service-settings',
                       'catalog': 'arc-p10-catalog-layers'}
-_QUERY_ARGUMENTS = {'serviceId', 'layerId', 'where', 'outFields', 'returnGeometry', 'outSrid', 'geometryPrecision',
-                    'limit', 'resultOffset', 'cursor', 'returnCountOnly'}
+_QUERY_ARGUMENTS = {'serviceId', 'layerId', 'serviceLayerIndex', 'where', 'outFields', 'returnGeometry', 'outSrid',
+                    'geometryPrecision', 'limit', 'resultOffset', 'cursor', 'returnCountOnly'}
 
 
 def _quote_segment(value):
@@ -1532,7 +1659,9 @@ def restricted_feature_query_ids(spec, ctx, sub):
             and record.request_arguments == {'tool': final.get('tool'), 'arguments': final.get('arguments')},
             "the restricted-service list is not one of the agent's own query responses")
     arguments = final.get('arguments') if isinstance(final.get('arguments'), dict) else {}
-    require(echoes_service(arguments.get('serviceId'), service) and str(arguments.get('layerId')) == str(layer),
+    arg_layer = query_layer_id(arguments)
+    require(echoes_service(arguments.get('serviceId'), service)
+            and arg_layer is not None and str(arg_layer) == str(layer),
             'the final agent query addresses another service or layer')
     require(arguments.get('returnCountOnly', False) is False, 'feature query is count-only')
     if set(arguments) - _QUERY_ARGUMENTS or arguments.get('resultOffset', 0) != 0 \
@@ -1542,18 +1671,14 @@ def restricted_feature_query_ids(spec, ctx, sub):
     result = record.json.get('result')
     require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
     value = result.get('structuredContent')
+    out_layer = query_layer_id(value)
     require(isinstance(value, dict) and echoes_service(value.get('serviceId'), service)
-            and str(value.get('layerId')) == str(layer) and value.get('exceededTransferLimit') is False
+            and out_layer is not None and str(out_layer) == str(layer) and value.get('exceededTransferLimit') is False
             and value.get('resultOffset') == 0, 'feature query is foreign or incomplete')
-    collection = value.get('geojson')
-    require(isinstance(collection, dict) and collection.get('type') == 'FeatureCollection'
-            and isinstance(collection.get('features'), list), 'feature query lacks features')
-    returned = [f.get('properties', {}).get('source_id') if isinstance(f, dict) else None
-                for f in collection['features']]
-    require(type(value.get('returnedCount')) is int and value['returnedCount'] == len(returned),
+    features, attr_key = _query_features(value)
+    require(type(value.get('returnedCount')) is int and value['returnedCount'] == len(features),
             'feature query count differs from returned features')
-    require(all(isinstance(i, str) and i for i in returned) and len(set(returned)) == len(returned),
-            'feature query lacks distinct source ids')
+    returned = _extract_query_source_ids(features, attr_key)
     # Content: the SQL snapshot of the table the catalog binds (the layer role resolved through it).
     source = ctx.record((spec['sourceRows']))
     require(source.kind == 'sql' and source.status == 200 and isinstance(source.json, list),
@@ -1607,15 +1732,22 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
             require(identity is not None
                     and record.path == '/api/v1/operations/handles/' + str(handle.get('operationInstanceId')),
                     'arc role lacks a completed controller publication handle')
-            field = 'serviceName' if parts[1] == 'service' else 'layerId'
-            require(binding.pointer == '/data/resourceIds/' + field, 'invalid arc role pointer')
-            if identity['operationId'] == 'service.publish':
-                require(ids.get(field) is not None, 'invalid arc role pointer')
-                roles[name] = ids[field]
+            if parts[1] == 'service':
+                require(binding.pointer == '/data/resourceIds/serviceName', 'invalid arc role pointer')
+                if identity['operationId'] == 'service.publish':
+                    require(ids.get('serviceName') is not None, 'invalid arc role pointer')
+                    roles[name] = ids['serviceName']
+                else:
+                    roles[name] = identity['service']
             else:
-                # admin.layer.publish (#6895): the same identity, read from the embedded admin response, in the
-                # resourceIds form (layerId as a string), and bound to the stage-three handoff by the caller.
-                roles[name] = identity['service'] if field == 'serviceName' else str(identity['layerId'])
+                require(binding.pointer in ('/data/resourceIds/layerId', '/data/resourceIds/storageLayerId'),
+                        'invalid arc role pointer')
+                if identity['operationId'] == 'service.publish':
+                    roles[name] = str(_publication_resource_layer(ids))
+                else:
+                    # admin.layer.publish (#6895): the same identity, read from the embedded admin response, in the
+                    # resourceIds form (layerId as a string), and bound to the stage-three handoff by the caller.
+                    roles[name] = str(identity['layerId'])
             continue
         if name.startswith('audited:'):
             parts = name.split(':')
@@ -1667,7 +1799,10 @@ def resolve_roles(bindings, records, *, agent_principal, action_results=(), cust
         if name.startswith('seeded:'):
             require(record.phase == 'seed' and binding.pointer is not None and binding.items is None,
                     'seeded role must point into a seed-phase response: ' + name)
-            value = pointer_get(record.json, binding.pointer)
+            if binding.pointer in ('/data/resourceIds/storageLayerId', '/data/resourceIds/layerId'):
+                value = _publication_resource_layer(pointer_get(record.json, '/data/resourceIds'))
+            else:
+                value = pointer_get(record.json, binding.pointer)
             require(isinstance(value, (str, int)) and not isinstance(value, bool) and str(value) != '',
                     'seeded role is not one scalar: ' + name)
             roles[name] = value

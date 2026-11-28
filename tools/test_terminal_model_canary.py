@@ -2317,6 +2317,84 @@ def test_nonpassing_final_verification_of_model_produced_state_is_a_model_failur
     assert any("final #123 verification did not pass" in notice for notice in receipt["notices"])
 
 
+def test_driver_verify_import_crash_attributes_to_infrastructure_not_model(monkeypatch, tmp_path):
+    crash_response = {"status": "fail", "operation": "verify",
+                      "error": "ModuleNotFoundError: No module named 'no_redirect'"}
+    assert canary.driver_failure_diagnostic(crash_response) == (
+        "; driverError=ModuleNotFoundError: No module named 'no_redirect'"
+    )
+    assert canary.driver_failure_diagnostic(
+        {"status": "fail", "error": "ImportError: cannot import name 'x'"}
+    ) == "; driverError=ImportError: cannot import name 'x'"
+    assert canary._driver_crashed(crash_response, 1)
+    assert canary._driver_crashed({"status": "fail", "error": "ImportError: x"}, 1)
+    assert not canary._verify_oracle_failed(crash_response)
+
+    builder = canary.build_receipt_builder(
+        manifest_path=MANIFEST, journey_path=JOURNEY, protocol_path=PROTOCOL,
+        endpoint=_endpoint(), driver_command=canary.DEFAULT_DRIVER, lock_digest=LOCK,
+    )
+    endpoint = _endpoint(key="test-key")
+    journey = canary.load_journey(JOURNEY)
+    stages = {stage["id"]: stage for stage in journey["stages"]}
+    attempts, approved, injected = {}, set(), set()
+
+    class Driver:
+        def __init__(self, *_):
+            pass
+
+        def invoke(self, operation, payload):
+            if operation == "setup":
+                return {"status": "ready", "workspaceId": "w", "toolView": {"tools": [{"name": "honua_read"}]},
+                        "credentialReferences": [{"envVar": "K"}]}
+            if operation == "inject_error":
+                injected.add(payload["errorId"])
+                return {"status": "armed"}
+            stage_id = payload.get("stageId")
+            if operation == "observe":
+                if stage_id == "bounded-gp" and attempts.get(stage_id, 0) < 2:
+                    return {"status": "ready", "stageStatus": "ready"}
+                if stage_id == "separate-principal-approval" and stage_id not in approved:
+                    return {"status": "ready", "stageStatus": "awaiting_approval", "proposalId": stage_id}
+                stage = stages[stage_id]
+                return {"status": "pass", "stageStatus": {
+                    "id": stage_id, "number": stage["number"], "command": stage["command"],
+                    "status": "pass", "blockedBy": [], "checks": [{"status": "pass"}]}}
+            if operation == "execute":
+                attempts[stage_id] = attempts.get(stage_id, 0) + 1
+                if stage_id == "bounded-gp" and attempts[stage_id] == 1:
+                    return {"status": "fail", "result": {"injectedError": {"id": next(iter(injected)), "recoverable": True}}}
+                if stage_id == "bounded-gp":
+                    return {"status": "pass", "result": {"recoveredError": {"id": next(iter(injected)), "recovered": True}}}
+                return {"status": "pass"}
+            if operation == "approve":
+                approved.add(stage_id)
+                return {"status": "approved", "proposalId": stage_id, "resolvedBy": "approver",
+                        "auditId": "audit", "proposerSelfApproval": "denied"}
+            if operation == "verify":
+                error = canary.CanaryError("#123 driver verify failed with exit code 1")
+                error.driver_response = crash_response
+                raise error
+            return {"status": "complete"}
+
+    class Model:
+        def __init__(self, *_):
+            pass
+
+        def ensure_admission(self):
+            return [{"operation": "admin.ai.admission.initialize", "status": "Completed"}]
+
+        def complete(self, *_):
+            return json.dumps({"kind": "tool_call", "tool": "honua_read", "arguments": {}}), {}, 0, {}
+
+    monkeypatch.setattr(canary, "DriverAdapter", Driver)
+    monkeypatch.setattr(canary, "CandidateProxyClient", Model)
+    receipt = canary.execute_live(builder, endpoint=endpoint, driver_command=canary.DEFAULT_DRIVER,
+                                  max_actions_per_stage=4)
+    assert receipt["status"] == "fail" and receipt["failureAttribution"] == "undetermined"
+    assert not any("final #123 verification did not pass" in notice for notice in receipt["notices"])
+
+
 def test_driver_on_another_endpoint_than_the_model_proxy_cannot_certify_the_cell(monkeypatch):
     # The cloud cell's proxy cannot be certified by a driver that composed a local stack.
     receipt = _attribution_run(monkeypatch, setup={

@@ -72,11 +72,18 @@ class Candidate:
 
     def feature_server(self, service=None):
         features = self.features_of(service)
+        int_bools = getattr(self, 'integer_booleans', False)
         fields = [{'name': 'objectid', 'type': 'esriFieldTypeOID'}] + [
-            {'name': name, 'type': 'esriFieldTypeString'} for name in ('capacity', 'is_open', 'name', 'source_id')]
+            {'name': name, 'type': 'esriFieldTypeSmallInteger' if (int_bools and name == 'is_open') else 'esriFieldTypeString'}
+            for name in ('capacity', 'is_open', 'name', 'source_id')]
+        def attrs(i, props):
+            row = {'objectid': i + 1, **props}
+            if int_bools and isinstance(row.get('is_open'), bool):
+                row['is_open'] = int(row['is_open'])
+            return row
         return {'geometryType': 'esriGeometryPoint', 'exceededTransferLimit': False,
                 'spatialReference': {'wkid': 3857}, 'objectIdFieldName': 'objectid', 'fields': fields,
-                'features': [{'attributes': {'objectid': i + 1, **f['properties']},
+                'features': [{'attributes': attrs(i, f['properties']),
                               'geometry': {'x': f['geometry']['coordinates'][0], 'y': f['geometry']['coordinates'][1]}}
                              for i, f in enumerate(features)]}
 
@@ -84,6 +91,19 @@ class Candidate:
         rows = self.features
         if arguments.get('where') == CORRECT_WHERE:
             rows = [f for f in rows if f['properties']['is_open'] and (f['properties']['capacity'] or 0) > 50]
+        if getattr(self, 'flat_query', False):
+            oid_by_source = {f['properties']['source_id']: i + 1 for i, f in enumerate(self.features)}
+            out_fields = arguments.get('outFields')
+            flat = [{'id': oid_by_source[f['properties']['source_id']],
+                     'attributes': {'objectid': oid_by_source[f['properties']['source_id']],
+                                    **{k: v for k, v in f['properties'].items()
+                                       if out_fields is None or k in out_fields}},
+                     'geometry': None} for f in rows]
+            return {'content': [{'type': 'text', 'text': f'{len(flat)} features'}], 'isError': False,
+                    'structuredContent': {'serviceId': arguments.get('serviceId'),
+                                          'serviceLayerIndex': arguments.get('serviceLayerIndex'),
+                                          'exceededTransferLimit': False, 'resultOffset': 0,
+                                          'returnedCount': len(flat), 'features': flat}}
         return {'content': [{'type': 'text', 'text': f'{len(rows)} features'}], 'isError': False,
                 'structuredContent': {'serviceId': arguments.get('serviceId'), 'layerId': arguments.get('layerId'),
                                       'exceededTransferLimit': False, 'resultOffset': 0, 'returnedCount': len(rows),
@@ -189,7 +209,10 @@ def serve(candidate):
                     return self.reply(200, {'data': {'status': 'active'}})
                 if '/FeatureServer/' in path and path.endswith('/query'):
                     service = path.split('/rest/services/', 1)[1].split('/', 1)[0]
-                    return self.reply(200, candidate.feature_server(service if service in candidate.by_service else None))
+                    target = service if service in candidate.by_service else None
+                    if dict(parse_qs(urlsplit(self.path).query)).get('f') == ['geojson']:
+                        return self.reply(200, {'type': 'FeatureCollection', 'features': candidate.features_of(target)})
+                    return self.reply(200, candidate.feature_server(target))
                 return self.reply(404, {'error': 'not found'})
 
         def do_DELETE(self):
@@ -234,8 +257,10 @@ def serve(candidate):
                     rows = [{'id': 'map-old', 'owner': 'key-2'}] if body.get('scope') == 'all' else []
                     return self.reply(200, {'items': rows, 'next': None})
                 if path == '/api/v1/operations/service.publish/submit':
+                    layer_key = 'storageLayerId' if getattr(candidate, 'storage_layer_id', False) else 'layerId'
                     return self.reply(200, {'data': {'operationId': 'service.publish', 'status': 'Completed',
-                                                     'resourceIds': {'serviceName': body['serviceName'], 'layerId': '0'}}})
+                                                     'resourceIds': {'serviceName': body['serviceName'],
+                                                                     layer_key: '0'}}})
                 return self.reply(404, {'error': 'not found'})
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -264,12 +289,13 @@ class FakeP10(P10):
     """P10 with the town upload replaced by one recorded publish handle (no import pipeline)."""
 
     def seed(self, stack, variant):
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_p10_observer import source_geojson_path, source_path
         recorder = stack.extra['recorder']
         recorder.json('publish-shelters-submit', 'POST', '/api/v1/operations/service.publish/submit',
                       {'serviceName': 'p10-shelters'})
         binding = {'service': 'p10-shelters', 'layerId': 0}
         recorder.json('p10-source-before', 'GET', source_path(binding))
+        recorder.json('p10-source-before-geo', 'GET', source_geojson_path(binding))
         return Seeded({'variant': variant, **binding})
 
 
@@ -1249,9 +1275,10 @@ class OwnQueryP10(FakeP10):
 
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_local_recorder import LoggedAction, action_bytes
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_p10_observer import source_geojson_path, source_path
         recorder = stack.extra['recorder']
         recorder.json('p10-source-after', 'GET', source_path({'service': 'p10-shelters', 'layerId': 0}))
+        recorder.json('p10-source-after-geo', 'GET', source_geojson_path({'service': 'p10-shelters', 'layerId': 0}))
         arguments = {'serviceId': 'p10-shelters', 'layerId': 0, 'where': CORRECT_WHERE}
         if self.how == 'own-query':
             recorder.mcp_call('p10-replay-query', 'honua_query_features', arguments)
@@ -1417,19 +1444,21 @@ class OtherResourceP10(FakeP10):
         self.both = both
 
     def seed(self, stack, variant):
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_p10_observer import source_geojson_path, source_path
         if not self.both:
             return super().seed(stack, variant)
         recorder = stack.extra['recorder']
         recorder.json('publish-shelters-submit', 'POST', '/api/v1/operations/service.publish/submit',
                       {'serviceName': 'p10-shelters'})
         recorder.json('p10-source-before', 'GET', source_path({'service': 'p10-lookalike', 'layerId': 0}))
+        recorder.json('p10-source-before-geo', 'GET', source_geojson_path({'service': 'p10-lookalike', 'layerId': 0}))
         return Seeded({'variant': variant, 'service': 'p10-shelters', 'layerId': 0})
 
     def observe(self, stack, seeded, variant, run=None):
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_p10_observer import source_geojson_path, source_path
         recorder = stack.extra['recorder']
         recorder.json('p10-source-after', 'GET', source_path({'service': 'p10-lookalike', 'layerId': 0}))
+        recorder.json('p10-source-after-geo', 'GET', source_geojson_path({'service': 'p10-lookalike', 'layerId': 0}))
         query = self.selected_query(recorder.actions(), seeded)
         if query is not None:
             recorder.replay('p10-replay-query', query)
@@ -2706,6 +2735,20 @@ def test_p10_query_spray_exceeds_frozen_budget(candidate, tmp_path):
     receipt, _, _ = run_case(candidate, tmp_path, [tool(CORRECT_WHERE)] * 6 + [FINAL])
     assert receipt['status'] == 'fail'
     assert receipt['queryBudget'] == {'count': 6, 'limit': 5}
+
+
+def test_p10_live_contract_storage_layer_id_service_layer_index_and_flat_oid_features(candidate, tmp_path):
+    candidate.storage_layer_id = True
+    candidate.flat_query = True
+    candidate.integer_booleans = True
+    modern_tool = json.dumps({'kind': 'tool_call', 'tool': 'honua_query_features', 'arguments': {
+        'serviceId': 'svc-publish-p10-shelters', 'serviceLayerIndex': 0, 'where': CORRECT_WHERE,
+        'outFields': ['name', 'capacity', 'is_open'], 'returnGeometry': False}})
+    receipt, _, _ = run_case(candidate, tmp_path, [modern_tool, FINAL])
+    assert receipt['status'] == 'pass', receipt
+    assert [a['status'] for a in receipt['assertions']] == ['pass', 'pass']
+    assert receipt['finalAnswerCheck']['status'] == 'pass'
+    assert receipt['roles']['seeded:layer:shelters'] == '0'
 
 
 def test_fixture_case_does_not_trust_scenario_expected(candidate, tmp_path):
