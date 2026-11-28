@@ -13,7 +13,9 @@ import pytest
 import yaml
 
 import emit_live_promise_receipts as emitter
+from launch_stack_aws import AwsCommandError
 from launch_stack_observations import ObservationError
+import run_launch_stack_qualification as ls_driver
 import run_runs_itself_qualification as driver
 import runs_itself_aws as ri_aws
 
@@ -22,8 +24,13 @@ WORKFLOW_PATH = ROOT / '.github/workflows/produce-runs-itself-proof.yml'
 SHA = 'a' * 40
 DIGEST = 'sha256:' + 'b' * 64
 LOCK = 'sha256:' + 'c' * 64
+AMD64_DIGEST = 'sha256:' + 'd' * 64
+ARM64_DIGEST = 'sha256:' + 'e' * 64
+IMAGE_REPO = 'ghcr.io/honua-io/honua-server'
+IMAGE_REF = f'{IMAGE_REPO}@{DIGEST}'
 STACK = 'honua-gate-1'
 BUDGET_STACK = 'honua-gate-2'
+TASK_DEF_ARN = 'arn:aws:ecs:us-east-1:000000000000:task-definition/server:3'
 
 
 def _receipt_for_row(row: int, recovery: float = 1.5, **overrides) -> dict:
@@ -42,76 +49,135 @@ def _receipt_for_row(row: int, recovery: float = 1.5, **overrides) -> dict:
             'renotify_sns_message_id': 'sns-2', 'renotify_sqs_message_id': 'sqs-2',
             'expiry_sns_message_id': 'sns-3', 'expiry_sqs_message_id': 'sqs-3',
         })
-    base = {
+    return {
         'row': row, 'executed': True,
         'result': 'OBSERVED_EMAIL_AND_INBOX_VERIFICATION_REQUIRED',
-        'recovery_minutes': recovery, 'observations': obs,
+        'recovery_minutes': recovery, 'observations': obs, **overrides,
+    }
+
+
+def _measurement(**overrides) -> ls_driver.ImageMeasurement:
+    base = {
+        'image_ref': IMAGE_REF, 'index_digest': DIGEST,
+        'platform_digests': {'amd64': AMD64_DIGEST, 'arm64': ARM64_DIGEST},
+        'platform_sizes': {'amd64': 250_000_000, 'arm64': 260_000_000},
+        'published_aot': True, 'default_image': 'postgis-only',
     }
     base.update(overrides)
-    return base
+    return ls_driver.ImageMeasurement(**base)
 
 
 class FakeRunsItselfAws:
-    """In-memory AWS control plane covering notification checks and stack safety restoration."""
+    """In-memory AWS control plane covering candidate binding, notifications, and cleanup."""
 
     def __init__(self) -> None:
-        self.confirmed = True
-        self.sns_published = 2.0
-        self.sns_failed = 0.0
-        self.sqs_sent = 2.0
-        self.dlq_count = 0
-        self.outbox: list[dict] = []
-        self.compressed_state = True
-        self.watchdog_mode = 'NotifyOnly'
-        self.fault = 'None'
-        self.db_status = 'available'
-        self.storage_alarm = 'OK'
+        self.confirmed, self.sns_published, self.sns_failed = True, 2.0, 0.0
+        self.sqs_sent, self.dlq_count, self.outbox = 2.0, 0, []
+        self.watchdog_mode = {STACK: 'NotifyOnly', BUDGET_STACK: 'NotifyOnly'}
+        self.fault = {STACK: 'None', BUDGET_STACK: 'None'}
+        self.db_status = {STACK: 'available', BUDGET_STACK: 'available'}
+        self.storage_alarm = {STACK: 'OK', BUDGET_STACK: 'OK'}
+        self.declared_image = {STACK: IMAGE_REF, BUDGET_STACK: IMAGE_REF}
+        self.running_digest = {STACK: ARM64_DIGEST, BUDGET_STACK: ARM64_DIGEST}
+        self.fail_describe_stack: str | None = None
         self.calls: list[tuple[str, str, tuple[str, ...]]] = []
 
     def _state_raw(self) -> str:
         doc = json.dumps({'version': 1, 'actions': [], 'outbox': self.outbox})
-        if self.compressed_state:
-            packed = base64.b64encode(zlib.compress(doc.encode())).decode()
-            return json.dumps({'zlib_v1': packed})
-        return doc
+        packed = base64.b64encode(zlib.compress(doc.encode())).decode()
+        return json.dumps({'zlib_v1': packed})
 
-    def _handle_metrics(self, args: tuple[str, ...]) -> dict:
-        metric = args[args.index('--metric-name') + 1]
-        values = {
-            'NumberOfMessagesPublished': self.sns_published,
-            'NumberOfNotificationsFailed': self.sns_failed,
-            'NumberOfMessagesSent': self.sqs_sent,
-        }
-        return {'Datapoints': [{'Sum': values[metric]}]}
+    def _stack_resources(self, stack_name: str) -> list[dict]:
+        return [
+            {'LogicalResourceId': 'Cluster', 'ResourceType': 'AWS::ECS::Cluster', 'PhysicalResourceId': f'cluster-{stack_name}'},
+            {'LogicalResourceId': 'Service', 'ResourceType': 'AWS::ECS::Service', 'PhysicalResourceId': f'service-{stack_name}'},
+            {'LogicalResourceId': 'ServerTask', 'ResourceType': 'AWS::ECS::TaskDefinition', 'PhysicalResourceId': f'{TASK_DEF_ARN}-{stack_name}'},
+            {'LogicalResourceId': 'Targets', 'ResourceType': 'AWS::ElasticLoadBalancingV2::TargetGroup', 'PhysicalResourceId': f'targets-{stack_name}'},
+            {'LogicalResourceId': 'OpsTopic', 'ResourceType': 'AWS::SNS::Topic', 'PhysicalResourceId': f'arn:aws:sns:us-east-1:000000000000:{stack_name}-operations'},
+            {'LogicalResourceId': 'OpsEvents', 'ResourceType': 'AWS::SQS::Queue', 'PhysicalResourceId': f'https://sqs.us-east-1.amazonaws.com/000000000000/{stack_name}-ops'},
+            {'LogicalResourceId': 'OpsDeadLetters', 'ResourceType': 'AWS::SQS::Queue', 'PhysicalResourceId': f'https://sqs.us-east-1.amazonaws.com/000000000000/{stack_name}-dlq'},
+            {'LogicalResourceId': 'WatchdogState', 'ResourceType': 'AWS::SSM::Parameter', 'PhysicalResourceId': f'/honua/{stack_name}/state'},
+            {'LogicalResourceId': 'Database', 'ResourceType': 'AWS::RDS::DBInstance', 'PhysicalResourceId': f'db-{stack_name}'},
+            {'LogicalResourceId': 'OpsAlarmDatabaseStorage', 'ResourceType': 'AWS::CloudWatch::Alarm', 'PhysicalResourceId': f'{stack_name}-ops-DatabaseStorage'},
+        ]
 
-    def _apply_change_set_params(self, raw_params: str) -> None:
-        updates = {
-            item['ParameterKey']: item['ParameterValue']
-            for item in json.loads(raw_params)
-            if 'ParameterValue' in item
-        }
+    def _apply_change_set_params(self, stack: str, raw_params: str) -> None:
+        updates = {item['ParameterKey']: item['ParameterValue']
+                   for item in json.loads(raw_params) if 'ParameterValue' in item}
         if 'WatchdogMode' in updates:
-            self.watchdog_mode = updates['WatchdogMode']
+            self.watchdog_mode[stack] = updates['WatchdogMode']
         if 'QualificationFault' in updates:
-            self.fault = updates['QualificationFault']
+            self.fault[stack] = updates['QualificationFault']
 
     def _handle_cloudformation(self, operation: str, args: tuple[str, ...]) -> dict:
+        stack = args[args.index('--stack-name') + 1]
         if operation == 'list-stack-resources':
-            return {'StackResourceSummaries': [
-                {'LogicalResourceId': 'OpsTopic', 'PhysicalResourceId': 'arn:aws:sns:us-east-1:000000000000:honua-gate-1-operations'},
-                {'LogicalResourceId': 'OpsEvents', 'PhysicalResourceId': 'https://sqs.us-east-1.amazonaws.com/000000000000/ops-events'},
-                {'LogicalResourceId': 'OpsDeadLetters', 'PhysicalResourceId': 'https://sqs.us-east-1.amazonaws.com/000000000000/ops-dlq'},
-                {'LogicalResourceId': 'WatchdogState', 'PhysicalResourceId': '/honua/state'},
-                {'LogicalResourceId': 'Database', 'PhysicalResourceId': 'db-gate-1'},
-                {'LogicalResourceId': 'OpsAlarmDatabaseStorage', 'PhysicalResourceId': 'honua-gate-1-ops-DatabaseStorage'},
-            ]}
+            return {'StackResourceSummaries': self._stack_resources(stack)}
         if operation == 'describe-stacks':
+            if stack == self.fail_describe_stack:
+                raise AwsCommandError('aws cloudformation describe-stacks failed (AccessDenied)', 'AccessDenied')
             return {'Stacks': [{'Parameters': [
-                {'ParameterKey': 'WatchdogMode', 'ParameterValue': self.watchdog_mode},
-                {'ParameterKey': 'QualificationFault', 'ParameterValue': self.fault},
+                {'ParameterKey': 'WatchdogMode', 'ParameterValue': self.watchdog_mode[stack]},
+                {'ParameterKey': 'QualificationFault', 'ParameterValue': self.fault[stack]},
             ]}]}
         if operation == 'create-change-set':
-            self._apply_change_set_params(args[args.index('--parameters') + 1])
+            self._apply_change_set_params(stack, args[args.index('--parameters') + 1])
+        return {}
+
+    def _handle_ecs(self, operation: str, args: tuple[str, ...]) -> dict:
+        if operation == 'describe-services':
+            stack = args[args.index('--cluster') + 1].removeprefix('cluster-')
+            td = f'{TASK_DEF_ARN}-{stack}'
+            return {'services': [{
+                'serviceName': f'service-{stack}', 'status': 'ACTIVE', 'launchType': 'FARGATE',
+                'desiredCount': 1, 'runningCount': 1, 'pendingCount': 0, 'taskDefinition': td,
+                'loadBalancers': [{'targetGroupArn': f'targets-{stack}', 'containerName': 'honua', 'containerPort': 8080}],
+                'deployments': [{'status': 'PRIMARY', 'rolloutState': 'COMPLETED', 'taskDefinition': td}],
+            }]}
+        if operation == 'describe-task-definition':
+            td = args[args.index('--task-definition') + 1]
+            stack = td.removeprefix(f'{TASK_DEF_ARN}-')
+            return {'taskDefinition': {
+                'taskDefinitionArn': td, 'status': 'ACTIVE', 'requiresCompatibilities': ['FARGATE'],
+                'networkMode': 'awsvpc',
+                'runtimePlatform': {'cpuArchitecture': 'ARM64', 'operatingSystemFamily': 'LINUX'},
+                'containerDefinitions': [{'name': 'honua', 'essential': True, 'image': self.declared_image[stack]}],
+            }}
+        if operation == 'list-tasks':
+            stack = args[args.index('--cluster') + 1].removeprefix('cluster-')
+            return {'taskArns': [f'task-{stack}-1']}
+        stack = args[args.index('--cluster') + 1].removeprefix('cluster-')
+        return {'tasks': [{
+            'taskArn': f'task-{stack}-1', 'taskDefinitionArn': f'{TASK_DEF_ARN}-{stack}',
+            'launchType': 'FARGATE', 'lastStatus': 'RUNNING', 'desiredStatus': 'RUNNING', 'healthStatus': 'HEALTHY',
+            'containers': [{'name': 'honua', 'lastStatus': 'RUNNING', 'healthStatus': 'HEALTHY',
+                            'imageDigest': self.running_digest[stack]}],
+        }]}
+
+    def _handle_ops(self, operation: str, args: tuple[str, ...]) -> dict:
+        if operation == 'list-subscriptions-by-topic':
+            return {'Subscriptions': [{'SubscriptionArn': 'sub-confirmed' if self.confirmed else 'PendingConfirmation'}]}
+        if operation == 'get-metric-statistics':
+            metric = args[args.index('--metric-name') + 1]
+            vals = {'NumberOfMessagesPublished': self.sns_published,
+                    'NumberOfNotificationsFailed': self.sns_failed, 'NumberOfMessagesSent': self.sqs_sent}
+            return {'Datapoints': [{'Sum': vals[metric]}]}
+        if operation == 'get-queue-attributes':
+            return {'Attributes': {'ApproximateNumberOfMessages': str(self.dlq_count)}}
+        if operation == 'get-parameter':
+            return {'Parameter': {'Value': self._state_raw()}}
+        if operation == 'describe-db-instances':
+            stack = args[args.index('--db-instance-identifier') + 1].removeprefix('db-')
+            return {'DBInstances': [{'DBInstanceStatus': self.db_status[stack]}]}
+        if operation == 'start-db-instance':
+            stack = args[args.index('--db-instance-identifier') + 1].removeprefix('db-')
+            self.db_status[stack] = 'available'
+        if operation == 'describe-alarms':
+            stack = args[args.index('--alarm-names') + 1].removesuffix('-ops-DatabaseStorage')
+            return {'MetricAlarms': [{'StateValue': self.storage_alarm[stack]}]}
+        if operation == 'set-alarm-state':
+            stack = args[args.index('--alarm-names' if '--alarm-names' in args else '--alarm-name') + 1].removesuffix('-ops-DatabaseStorage')
+            self.storage_alarm[stack] = 'OK'
         return {}
 
     def __call__(self, *command: str) -> dict:
@@ -119,26 +185,9 @@ class FakeRunsItselfAws:
         self.calls.append((service, operation, tuple(args)))
         if service == 'cloudformation':
             return self._handle_cloudformation(operation, tuple(args))
-        if operation == 'list-subscriptions-by-topic':
-            arn = 'sub-confirmed' if self.confirmed else 'PendingConfirmation'
-            return {'Subscriptions': [{'SubscriptionArn': arn}]}
-        if operation == 'get-metric-statistics':
-            return self._handle_metrics(tuple(args))
-        if operation == 'get-queue-attributes':
-            return {'Attributes': {'ApproximateNumberOfMessages': str(self.dlq_count)}}
-        if operation == 'get-parameter':
-            return {'Parameter': {'Value': self._state_raw()}}
-        if operation == 'describe-db-instances':
-            return {'DBInstances': [{'DBInstanceStatus': self.db_status}]}
-        if operation == 'start-db-instance':
-            self.db_status = 'available'
-            return {}
-        if operation == 'describe-alarms':
-            return {'MetricAlarms': [{'StateValue': self.storage_alarm}]}
-        if operation == 'set-alarm-state':
-            self.storage_alarm = 'OK'
-            return {}
-        return {}
+        if service == 'ecs':
+            return self._handle_ecs(operation, tuple(args))
+        return self._handle_ops(operation, tuple(args))
 
 
 def _config(tmp_path: Path, **overrides) -> driver.RunsItselfConfig:
@@ -158,38 +207,38 @@ def _fake_gate_runner(overrides: dict[int, dict] | None = None, fail_row: int | 
     invoked: list[tuple[int, str]] = []
 
     def runner(cmd: list[str]) -> subprocess.CompletedProcess:
-        row = int(cmd[cmd.index('run') + 1])
-        stack = cmd[cmd.index('--stack') + 1]
+        row, stack = int(cmd[cmd.index('run') + 1]), cmd[cmd.index('--stack') + 1]
         out_dir = Path(cmd[cmd.index('--artifacts') + 1])
         invoked.append((row, stack))
         if row == fail_row:
             return subprocess.CompletedProcess(cmd, 1, '', 'gate failure')
         payload = (overrides or {}).get(row, _receipt_for_row(row, recovery=round(1.0 + row * 0.25, 2)))
         if payload is not None:
-            (out_dir / f'row-{row}-{stack}-20261128T100000000000Z.json').write_text(
-                json.dumps(payload), encoding='utf-8',
-            )
+            (out_dir / f'row-{row}-{stack}-20261128T100000000000Z.json').write_text(json.dumps(payload), encoding='utf-8')
         return subprocess.CompletedProcess(cmd, 0, '', '')
 
     return runner, invoked
 
 
+def _deps(aws: FakeRunsItselfAws, runner, **overrides) -> driver.RunsItselfDeps:
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    base = {
+        'aws': aws, 'inspect_image': lambda _cfg: _measurement(), 'run_gate': runner,
+        'verify_notifications': ri_aws.verify_row_notifications, 'utc_now': lambda: now,
+    }
+    base.update(overrides)
+    return driver.RunsItselfDeps(**base)
+
+
 def test_round_trip_emits_proof_and_all_21_receipts_plus_release_notes(tmp_path, monkeypatch):
     aws = FakeRunsItselfAws()
     runner, invoked = _fake_gate_runner()
-    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
-    deps = driver.RunsItselfDeps(
-        aws=aws, run_gate=runner,
-        verify_notifications=ri_aws.verify_row_notifications,
-        utc_now=lambda: now,
-    )
     config = _config(tmp_path)
-    proof = driver.run_qualification(config, deps)
+    proof = driver.run_qualification(config, _deps(aws, runner))
 
     assert dict(invoked)[3] == BUDGET_STACK
     assert all(stack == STACK for row, stack in invoked if row != 3)
-    assert proof['unattendedPersonMinutes'] == 0
-    assert tuple(proof['rows'].keys()) == emitter.OPERATES_IDS
+    assert proof['unattendedPersonMinutes'] == 0 and tuple(proof['rows'].keys()) == emitter.OPERATES_IDS
     encoded = (config.output_dir / 'runs-itself-proof.json').read_text(encoding='utf-8')
     assert '000000000000' not in encoded and 'arn:aws:' not in encoded
 
@@ -199,18 +248,29 @@ def test_round_trip_emits_proof_and_all_21_receipts_plus_release_notes(tmp_path,
         '--server-digest', DIGEST, '--lock-digest', LOCK, '--out', 'emitted',
     ]) == 0
     emitted_dir = tmp_path / 'emitted'
-    receipt_files = sorted(p.name for p in emitted_dir.glob('*.json'))
-    assert len(receipt_files) == 21
+    assert len(list(emitted_dir.glob('*.json'))) == 21
     for row_id in emitter.OPERATES_IDS:
-        assert (emitted_dir / f'{row_id}.json').is_file()
-        assert (emitted_dir / f'recovery-{row_id}.json').is_file()
-    assert (emitted_dir / 'unattended-person.json').is_file()
+        assert (emitted_dir / f'{row_id}.json').is_file() and (emitted_dir / f'recovery-{row_id}.json').is_file()
     notes = (emitted_dir / 'release-notes.md').read_text(encoding='utf-8')
     assert '<!-- honua-outcome:unattended-person --> 0 minutes' in notes
     assert '<!-- honua-outcome:recovery-operates-12-notify --> 4.0 minutes' in notes
 
 
-@pytest.mark.parametrize('mutation,pattern', [
+@pytest.mark.parametrize('case', [
+    ('declared_image', STACK, f'{IMAGE_REPO}@sha256:' + '9' * 64, 'task definition image'),
+    ('running_digest', BUDGET_STACK, 'sha256:' + '8' * 64, 'running tasks do not match'),
+])
+def test_mismatched_deployed_candidate_fails_before_running_gate(tmp_path, case):
+    field, target_stack, bad_value, pattern = case
+    aws = FakeRunsItselfAws()
+    getattr(aws, field)[target_stack] = bad_value
+    runner, invoked = _fake_gate_runner()
+    with pytest.raises(ObservationError, match=pattern):
+        driver.run_qualification(_config(tmp_path), _deps(aws, runner))
+    assert not invoked
+
+
+@pytest.mark.parametrize('case', [
     ({'confirmed': False}, 'confirmed SNS subscription'),
     ({'sns_published': 0.0}, 'No SNS notification published'),
     ({'sns_failed': 1.0}, 'failed notification delivery'),
@@ -218,7 +278,8 @@ def test_round_trip_emits_proof_and_all_21_receipts_plus_release_notes(tmp_path,
     ({'dlq_count': 2}, 'OpsDeadLetters'),
     ({'outbox': [{'pending': True}]}, 'Watchdog outbox'),
 ])
-def test_notification_verification_fails_closed(mutation, pattern):
+def test_notification_verification_fails_closed(case):
+    mutation, pattern = case
     aws = FakeRunsItselfAws()
     for key, value in mutation.items():
         setattr(aws, key, value)
@@ -242,39 +303,24 @@ def test_bad_or_missing_row_receipt_fails_closed_without_proof(tmp_path, case):
     row, bad_receipt, pattern = case
     aws = FakeRunsItselfAws()
     runner, _ = _fake_gate_runner(overrides={row: bad_receipt})
-    now = dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc)
-    deps = driver.RunsItselfDeps(
-        aws=aws, run_gate=runner,
-        verify_notifications=ri_aws.verify_row_notifications,
-        utc_now=lambda: now,
-    )
     config = _config(tmp_path)
     with pytest.raises(ObservationError, match=pattern):
-        driver.run_qualification(config, deps)
+        driver.run_qualification(config, _deps(aws, runner))
     assert not (config.output_dir / 'runs-itself-proof.json').exists()
 
 
 def test_unconfirmed_notification_or_failed_gate_exit_refuses_pass(tmp_path):
     aws = FakeRunsItselfAws()
     runner, _ = _fake_gate_runner()
-    now = dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc)
-    deps = driver.RunsItselfDeps(
-        aws=aws, run_gate=runner,
-        verify_notifications=lambda *_a: {'notificationVerified': True, 'inboxVerified': False},
-        utc_now=lambda: now,
-    )
     config = _config(tmp_path)
     with pytest.raises(ObservationError, match='SNS/ops-inbox confirmation'):
-        driver.run_qualification(config, deps)
+        driver.run_qualification(
+            config, _deps(aws, runner, verify_notifications=lambda *_a: {'notificationVerified': True, 'inboxVerified': False}),
+        )
     assert not (config.output_dir / 'runs-itself-proof.json').exists()
-
     fail_runner, _ = _fake_gate_runner(fail_row=9)
-    fail_deps = driver.RunsItselfDeps(
-        aws=aws, run_gate=fail_runner,
-        verify_notifications=ri_aws.verify_row_notifications, utc_now=lambda: now,
-    )
     with pytest.raises(ObservationError, match='row 9'):
-        driver.run_qualification(config, fail_deps)
+        driver.run_qualification(config, _deps(aws, fail_runner))
 
 
 @pytest.mark.parametrize('case', [
@@ -292,30 +338,29 @@ def test_invalid_inputs_fail_closed_before_running_gate(tmp_path, case):
     field, value, pattern = case
     aws = FakeRunsItselfAws()
     runner, invoked = _fake_gate_runner()
-    deps = driver.RunsItselfDeps(
-        aws=aws, run_gate=runner,
-        verify_notifications=ri_aws.verify_row_notifications,
-        utc_now=lambda: dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc),
-    )
     with pytest.raises(ObservationError, match=pattern):
-        driver.run_qualification(_config(tmp_path, **{field: value}), deps)
+        driver.run_qualification(_config(tmp_path, **{field: value}), _deps(aws, runner))
     assert not invoked and not aws.calls
 
 
-def test_cleanup_restores_mode_fault_database_and_storage_alarm(tmp_path):
+def test_cleanup_restores_every_stack_independently(tmp_path):
     aws = FakeRunsItselfAws()
-    aws.watchdog_mode = 'Act'
-    aws.fault = 'WatchdogStopped'
-    aws.db_status = 'stopped'
-    aws.storage_alarm = 'ALARM'
+    for stack in (STACK, BUDGET_STACK):
+        aws.watchdog_mode[stack], aws.fault[stack] = 'Act', 'WatchdogStopped'
+        aws.db_status[stack], aws.storage_alarm[stack] = 'stopped', 'ALARM'
     results = driver.cleanup_stacks(_config(tmp_path), aws)
     assert [item['stackName'] for item in results] == [STACK, BUDGET_STACK]
-    assert 'WatchdogMode=NotifyOnly' in results[0]['restored']
-    assert 'QualificationFault=None' in results[0]['restored']
-    assert 'start-db-instance' in results[0]['restored']
-    assert 'reset-storage-alarm' in results[0]['restored']
-    assert aws.watchdog_mode == 'NotifyOnly' and aws.fault == 'None'
-    assert aws.db_status == 'available' and aws.storage_alarm == 'OK'
+    assert aws.watchdog_mode[STACK] == aws.watchdog_mode[BUDGET_STACK] == 'NotifyOnly'
+    assert aws.db_status[STACK] == aws.db_status[BUDGET_STACK] == 'available'
+
+    partial_aws = FakeRunsItselfAws()
+    partial_aws.fail_describe_stack = STACK
+    partial_aws.watchdog_mode[BUDGET_STACK] = 'Act'
+    partial_aws.db_status[BUDGET_STACK] = 'stopped'
+    with pytest.raises(ObservationError, match=STACK):
+        driver.cleanup_stacks(_config(tmp_path), partial_aws)
+    assert partial_aws.watchdog_mode[BUDGET_STACK] == 'NotifyOnly'
+    assert partial_aws.db_status[BUDGET_STACK] == 'available'
 
 
 def test_workflow_contract_and_preflight_fail_closed(tmp_path):
@@ -325,7 +370,6 @@ def test_workflow_contract_and_preflight_fail_closed(tmp_path):
     assert {'server_sha', 'server_digest', 'platform_lock_digest',
             'stack_name', 'budget_stack_name', 'marketplace_ref'} <= set(triggers['workflow_dispatch']['inputs'])
     assert document['permissions'] == {'contents': 'read', 'id-token': 'write'}
-
     job = document['jobs']['produce']
     assert job['if'] == "github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'"
     assert job['environment'] == 'gate'
@@ -337,12 +381,8 @@ def test_workflow_contract_and_preflight_fail_closed(tmp_path):
         'SERVER_SHA': SHA, 'SERVER_DIGEST': DIGEST, 'LOCK_DIGEST': LOCK,
     }
     res = subprocess.run(['bash', '-c', preflight['run']], env=base_env, capture_output=True, text=True, check=False)
-    assert res.returncode == 1
-    assert 'HONUA_GATE_RELEASE_ROLE_ARN' in res.stdout and 'STACK_NAME' in res.stdout
-
-    cleanup_step = next(s for s in job['steps'] if '--cleanup-only' in str(s.get('run', '')))
-    assert 'always()' in str(cleanup_step.get('if', ''))
-    verify_step = next(s for s in job['steps'] if 'emit_live_promise_receipts.py runs-itself' in str(s.get('run', '')))
-    assert verify_step is not None
+    assert res.returncode == 1 and 'HONUA_GATE_RELEASE_ROLE_ARN' in res.stdout and 'STACK_NAME' in res.stdout
+    assert 'always()' in str(next(s for s in job['steps'] if '--cleanup-only' in str(s.get('run', ''))).get('if', ''))
+    assert next(s for s in job['steps'] if 'emit_live_promise_receipts.py runs-itself' in str(s.get('run', '')))
     upload = next(s for s in job['steps'] if str(s.get('uses', '')).startswith('actions/upload-artifact@'))
     assert upload['with']['name'] == 'runs-itself-proof' and upload['with']['if-no-files-found'] == 'error'

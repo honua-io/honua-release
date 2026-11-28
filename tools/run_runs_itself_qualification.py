@@ -20,7 +20,10 @@ if str(TOOLS_DIR) not in sys.path:
 from emit_live_promise_receipts import DIGEST_RE, OPERATES_IDS, SHA_RE
 from launch_stack_aws import AwsCommandError
 from launch_stack_observations import ObservationError, require
-from runs_itself_aws import RunsItselfAwsClient, restore_stack_safety, verify_row_notifications
+from run_launch_stack_qualification import DEFAULT_SERVER_IMAGE_REPO, IMAGE_REPO_RE, inspect_ghcr_image, verify_image_measurement
+from runs_itself_aws import (
+    make_aws_client, restore_stack_safety, verify_row_notifications, verify_stack_candidate_binding,
+)
 
 DEFAULT_REGION = 'us-east-1'
 GATE_TIMEOUT_SECONDS = 5400
@@ -58,11 +61,13 @@ class RunsItselfConfig:
     output_dir: Path
     budget_stack_name: str = ''
     region: str = DEFAULT_REGION
+    image_repo: str = DEFAULT_SERVER_IMAGE_REPO
 
 
 @dataclass(frozen=True)
 class RunsItselfDeps:
     aws: Any
+    inspect_image: Callable[[RunsItselfConfig], Any]
     run_gate: Callable[[list[str]], subprocess.CompletedProcess]
     verify_notifications: Callable[[Any, str, tuple[dt.datetime, dt.datetime]], dict]
     utc_now: Callable[[], dt.datetime]
@@ -81,6 +86,14 @@ def validate_config(config: RunsItselfConfig) -> None:
         require(config.budget_stack_name != config.stack_name,
                 'budget_stack_name must differ from stack_name')
     require(config.region == DEFAULT_REGION, 'Runs-Itself qualification requires us-east-1')
+    require(IMAGE_REPO_RE.fullmatch(config.image_repo), 'image_repo must be a valid registry coordinate')
+
+
+def configured_stacks(config: RunsItselfConfig) -> list[str]:
+    stacks = [config.stack_name]
+    if config.budget_stack_name:
+        stacks.append(config.budget_stack_name)
+    return stacks
 
 
 def target_stack_for_row(config: RunsItselfConfig, row: int) -> str:
@@ -185,9 +198,21 @@ def compute_unattended_person_minutes(receipts: dict[int, dict]) -> int | float:
     return 0 if total == 0.0 else round(total, 2)
 
 
+def _verify_candidate_stacks(config: RunsItselfConfig, deps: RunsItselfDeps) -> None:
+    measurement = deps.inspect_image(config)
+    verify_image_measurement(config, measurement)
+    candidate = {
+        'server_digest': config.server_digest,
+        'platform_digests': measurement.platform_digests,
+    }
+    for stack_name in configured_stacks(config):
+        verify_stack_candidate_binding(deps.aws, stack_name, candidate)
+
+
 def run_qualification(config: RunsItselfConfig, deps: RunsItselfDeps) -> dict:
     validate_config(config)
     require(config.gate_script.is_file(), 'Gate harness script does not exist')
+    _verify_candidate_stacks(config, deps)
     receipts: dict[int, dict] = {}
     rows_payload: dict[str, dict] = {}
     for row in REQUIRED_ROWS:
@@ -215,10 +240,16 @@ def run_qualification(config: RunsItselfConfig, deps: RunsItselfDeps) -> dict:
 
 def cleanup_stacks(config: RunsItselfConfig, aws: Any) -> list[dict]:
     validate_config(config)
-    stacks = [config.stack_name]
-    if config.budget_stack_name:
-        stacks.append(config.budget_stack_name)
-    return [restore_stack_safety(aws, name) for name in stacks]
+    results: list[dict] = []
+    errors: list[str] = []
+    for name in configured_stacks(config):
+        try:
+            results.append(restore_stack_safety(aws, name))
+        except (ObservationError, AwsCommandError, ValueError, OSError, TimeoutError) as error:
+            errors.append(f'{name}: {error}')
+    if errors:
+        raise ObservationError('Safety restoration failed for one or more stacks: ' + '; '.join(errors))
+    return results
 
 
 def _default_run_gate(command: list[str]) -> subprocess.CompletedProcess:
@@ -236,6 +267,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--region', default=DEFAULT_REGION)
+    parser.add_argument('--image-repo', default=DEFAULT_SERVER_IMAGE_REPO)
     parser.add_argument('--cleanup-only', action='store_true')
     return parser.parse_args(argv)
 
@@ -247,14 +279,15 @@ def main(argv: list[str] | None = None) -> int:
         platform_lock_digest=args.platform_lock_digest, stack_name=args.stack_name,
         budget_stack_name=args.budget_stack_name, gate_script=args.gate_script,
         artifacts_dir=args.artifacts, output_dir=args.out, region=args.region,
+        image_repo=args.image_repo,
     )
     try:
-        aws = RunsItselfAwsClient(config.region)
+        aws = make_aws_client(config.region)
         if args.cleanup_only:
             cleanup_stacks(config, aws)
         else:
             deps = RunsItselfDeps(
-                aws=aws, run_gate=_default_run_gate,
+                aws=aws, inspect_image=inspect_ghcr_image, run_gate=_default_run_gate,
                 verify_notifications=verify_row_notifications,
                 utc_now=lambda: dt.datetime.now(dt.timezone.utc),
             )

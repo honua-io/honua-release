@@ -1,55 +1,57 @@
-"""AWS verification and safety-restoration helpers for Runs-Itself qualification."""
+"""AWS candidate binding, notification checks, and restoration for Runs-Itself qualification."""
 from __future__ import annotations
 
 import base64
 import datetime as dt
 import json
-import subprocess
 import time
-from typing import Any, Callable
+from typing import Any
 import zlib
 
-from launch_stack_aws import AwsCommandError, parse_aws_error_code
-from launch_stack_observations import ObservationError, require
+from launch_stack_aws import AwsJsonTransport
+from launch_stack_observations import (
+    require, resource_summaries, running_tasks, service_state,
+    stack_resources as ecs_stack_resources, task_definition, task_snapshot,
+)
 
 AWS_CMD_TIMEOUT_SECONDS = 300
 METRIC_PADDING_SECONDS = 60
 METRIC_PERIOD_SECONDS = 60
+ECS_ARCH_TO_OCI = {'X86_64': 'amd64', 'ARM64': 'arm64'}
 UNCONFIRMED_SUBSCRIPTION_STATES = frozenset({'', 'PendingConfirmation', 'Deleted'})
 
 
-class RunsItselfAwsClient:
-    """Region-bound AWS CLI JSON adapter that never exposes account IDs or ARNs."""
-
-    def __init__(self, region: str, runner: Callable[..., Any] = subprocess.run) -> None:
-        self._region = region
-        self._runner = runner
-
-    def __call__(self, *command: str) -> dict:
-        service, operation, *args = command
-        argv = ['aws', '--region', self._region, '--output', 'json', '--no-cli-pager',
-                service, operation, *args]
-        try:
-            result = self._runner(
-                argv, capture_output=True, text=True, timeout=AWS_CMD_TIMEOUT_SECONDS, check=False,
-            )
-        except subprocess.TimeoutExpired as error:
-            raise TimeoutError(f'aws {service} {operation} timed out') from error
-        if result.returncode != 0:
-            code = parse_aws_error_code(result.stderr)
-            detail = f' ({code})' if code else ''
-            raise AwsCommandError(f'aws {service} {operation} failed{detail}', error_code=code)
-        return json.loads(result.stdout) if result.stdout.strip() else {}
+def make_aws_client(region: str) -> AwsJsonTransport:
+    return AwsJsonTransport(region, timeout=AWS_CMD_TIMEOUT_SECONDS)
 
 
 def stack_resources(aws: Any, stack_name: str) -> dict[str, str]:
-    response = aws('cloudformation', 'list-stack-resources', '--stack-name', stack_name)
-    summaries = response.get('StackResourceSummaries', [])
+    summaries = resource_summaries(aws, stack_name)
     return {
         item['LogicalResourceId']: item['PhysicalResourceId']
         for item in summaries
         if item.get('LogicalResourceId') and item.get('PhysicalResourceId')
     }
+
+
+def verify_stack_candidate_binding(aws: Any, stack_name: str, candidate: dict) -> dict:
+    ecs_res = ecs_stack_resources(aws, stack_name)
+    service = service_state(aws, ecs_res)
+    definition = task_definition(aws, ecs_res)
+    expected_digest = candidate['server_digest']
+    require(definition['declaredImage'].endswith('@' + expected_digest),
+            f'Stack {stack_name} task definition image does not match candidate server_digest')
+    arch = ECS_ARCH_TO_OCI.get(definition['cpuArchitecture'])
+    expected_platform = candidate['platform_digests'].get(arch)
+    require(bool(expected_platform), f'Candidate lacks verified digest for stack {stack_name} architecture')
+    tasks = running_tasks(aws, ecs_res)
+    require(len(tasks) == service['desiredCount'],
+            f'Stack {stack_name} running task count differs from desired capacity')
+    digests = {item['digest'] for item in task_snapshot(tasks, ecs_res).values()}
+    require(digests == {expected_platform},
+            f'Stack {stack_name} running tasks do not match candidate platform digest')
+    return {'stackName': stack_name, 'cpuArchitecture': definition['cpuArchitecture'],
+            'resolvedPlatformImageDigest': expected_platform}
 
 
 def decode_watchdog_state(raw: str) -> dict:

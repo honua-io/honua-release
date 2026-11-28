@@ -59,12 +59,37 @@ def _raise_aws_error(service: str, operation: str, stderr: str) -> None:
     raise AwsCommandError(f'aws {service} {operation} failed{detail}', error_code=code)
 
 
+class AwsJsonTransport:
+    """Shared region-bound AWS CLI JSON transport that redacts stderr details."""
+
+    def __init__(
+        self, region: str, timeout: int = AWS_CMD_TIMEOUT_SECONDS, runner: Callable[..., Any] = subprocess.run,
+    ) -> None:
+        self._region = region
+        self._timeout = timeout
+        self._runner = runner
+
+    def __call__(self, *command: str) -> dict:
+        service, operation, *args = command
+        argv = ['aws', '--region', self._region, '--output', 'json', '--no-cli-pager',
+                service, operation, *args]
+        try:
+            result = self._runner(
+                argv, capture_output=True, text=True, timeout=self._timeout, check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise TimeoutError(f'aws {service} {operation} timed out') from error
+        if result.returncode != 0:
+            _raise_aws_error(service, operation, result.stderr)
+        return json.loads(result.stdout) if result.stdout.strip() else {}
+
+
 class AwsCliAdapter:
     """Region-bound AWS CLI JSON adapter that never exposes account IDs or ARNs."""
 
     def __init__(self, config: Any, runner: Callable[..., Any] = subprocess.run) -> None:
         self._config = config
-        self._runner = runner
+        self._transport = AwsJsonTransport(config.region, AWS_CMD_TIMEOUT_SECONDS, runner)
         self._account: str | None = None
 
     def prepare_delete(self, stack_id: str) -> None:
@@ -106,17 +131,7 @@ class AwsCliAdapter:
     def __call__(self, *command: str) -> dict:
         service, operation, *args = command
         extra = self._delete_role_args(service, operation, tuple(args))
-        argv = ['aws', '--region', self._config.region, '--output', 'json',
-                service, operation, *args, *extra]
-        try:
-            result = self._runner(
-                argv, capture_output=True, text=True, timeout=AWS_CMD_TIMEOUT_SECONDS, check=False,
-            )
-        except subprocess.TimeoutExpired as error:
-            raise TimeoutError(f'aws {service} {operation} timed out') from error
-        if result.returncode != 0:
-            _raise_aws_error(service, operation, result.stderr)
-        return json.loads(result.stdout) if result.stdout.strip() else {}
+        return self._transport(service, operation, *args, *extra)
 
 
 def verify_redis_off(aws: Any, summaries: list[dict]) -> None:
