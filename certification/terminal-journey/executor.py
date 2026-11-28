@@ -1098,7 +1098,7 @@ class JourneyExecutor(GatedApprovals):
         # authenticated candidate endpoint and require its actual 403 response.
         self.transport.http("POST", path + "/approve", principal="proposer", expected=(403,))
         post_reader = "operator" if keys.get("operator") else "approver"
-        final, resolution = self.resolve_by_human(proposal_id, before, post_reader, tenant=self._author_tenant())
+        final, resolution = self.resolve_by_human(before, post_reader, tenant=self._author_tenant())
         self.require_publication_intent(final)
         self.evidence["approvalResolution"] = {key: resolution[key] for key in ("proposalId", "requestedBy", "resolvedBy")}
         self._check(8, "separation", "human session separate-principal approval", lambda: self.evidence["approvalResolution"])

@@ -1708,7 +1708,6 @@ evidenceSources:
     # cannot follow, and the cut binds the Console at stage 1. Pinning the suite source here keeps it
     # immutable and review-visible: .github/workflows/e2e-local-docker.yml fails closed when its
     # literal checkout ref differs from producerSha (honua-release#1486).
-    # 2026-11-28: honua-console trunk 8dee0227 (#1205).
     repository: honua-io/honua-console
     workflowPath: .github/workflows/console-live-journey.yml
     producerSha: "8dee0227741fc69556ef1212fd5b4cd07eba096d"

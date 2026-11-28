@@ -116,7 +116,7 @@ class GatedApprovals:
         after = self.transport.get_json(path, principal=observer)
         if any(after.get(key) != pending.get(key) for key in PROPOSAL_STATE):
             raise ExecutionError("approve as operator", "operator self-approval was not refused without mutation")
-        _, resolution = self.resolve_by_human(gate.proposal_id, pending, observer, tenant=tenant)
+        _, resolution = self.resolve_by_human(pending, observer, tenant=tenant)
         handle = self.settled_handle(gate.instance_id, observer)
         if handle.get("proposalId") not in {None, gate.proposal_id}:
             raise ExecutionError("GET approved operation handle", "approved replay handle does not join the proposal")
@@ -168,8 +168,9 @@ class GatedApprovals:
         handle = self.transport.get_json("/api/v1/operations/handles/" + instance_id, principal=principal)
         return handle.get("data", handle)
 
-    def resolve_by_human(self, proposal_id, before, reader, *, tenant=None):
+    def resolve_by_human(self, before, reader, *, tenant=None):
         """Approve through the human session and require a resolver distinct from the proposer."""
+        proposal_id = identity(before.get("proposalId"), "GET approved proposal")
         path = "/api/v1/admin/proposals/" + proposal_id
         outcome = self.human_approve(proposal_id, tenant=tenant)
         final = self.poll("GET approved proposal", lambda: self.transport.get_json(path, principal=reader),
