@@ -19,7 +19,7 @@
     },
     "sdk-python": {
       "repository": "honua-io/honua-sdk-python",
-      "commit": "5594bf0f43dbdd11a1a4792303699d1741592e1c"
+      "commit": "21a9ecb952e43ecc1450384e595259b1912f27b3"
     },
     "sdk-python-harness": {
       "repository": "honua-io/honua-sdk-python",
