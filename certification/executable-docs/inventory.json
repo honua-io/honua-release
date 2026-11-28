@@ -6,11 +6,11 @@
       "id": "honua-sdk-js-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "README.md",
-      "revision": "9d26d85148a547d808f1e5ff10092da11b2a33ef",
+      "revision": "90d054489b3f0a8328779c68dbbd9b33654ae45a",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/9d26d85148a547d808f1e5ff10092da11b2a33ef/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/90d054489b3f0a8328779c68dbbd9b33654ae45a/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -558,11 +558,11 @@
       "id": "honua-sdk-python-readme",
       "repo": "honua-io/honua-sdk-python",
       "path": "README.md",
-      "revision": "5594bf0f43dbdd11a1a4792303699d1741592e1c",
+      "revision": "21a9ecb952e43ecc1450384e595259b1912f27b3",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/5594bf0f43dbdd11a1a4792303699d1741592e1c/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/21a9ecb952e43ecc1450384e595259b1912f27b3/README.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -673,11 +673,11 @@
       "id": "honua-sdk-python-install",
       "repo": "honua-io/honua-sdk-python",
       "path": "INSTALL.md",
-      "revision": "5594bf0f43dbdd11a1a4792303699d1741592e1c",
+      "revision": "21a9ecb952e43ecc1450384e595259b1912f27b3",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/5594bf0f43dbdd11a1a4792303699d1741592e1c/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/21a9ecb952e43ecc1450384e595259b1912f27b3/INSTALL.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -806,11 +806,11 @@
       "id": "honua-sdk-python-docs-quickstart",
       "repo": "honua-io/honua-sdk-python",
       "path": "docs/quickstart.md",
-      "revision": "5594bf0f43dbdd11a1a4792303699d1741592e1c",
+      "revision": "21a9ecb952e43ecc1450384e595259b1912f27b3",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/5594bf0f43dbdd11a1a4792303699d1741592e1c/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/21a9ecb952e43ecc1450384e595259b1912f27b3/docs/quickstart.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -949,7 +949,7 @@
         },
         {
           "index": 11,
-          "line": 347,
+          "line": 348,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -958,7 +958,7 @@
         },
         {
           "index": 12,
-          "line": 395,
+          "line": 396,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -967,7 +967,7 @@
         },
         {
           "index": 13,
-          "line": 440,
+          "line": 441,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -996,7 +996,7 @@
         },
         {
           "index": 14,
-          "line": 481,
+          "line": 482,
           "language": "python",
           "infoString": "python",
           "intent": "run",
@@ -1009,11 +1009,11 @@
       "id": "honua-sdk-python-packages-honua-sdk-readme",
       "repo": "honua-io/honua-sdk-python",
       "path": "packages/honua-sdk/README.md",
-      "revision": "5594bf0f43dbdd11a1a4792303699d1741592e1c",
+      "revision": "21a9ecb952e43ecc1450384e595259b1912f27b3",
       "revisionRule": {
         "clientArtifact": "honua-sdk-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/5594bf0f43dbdd11a1a4792303699d1741592e1c/packages/honua-sdk/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/21a9ecb952e43ecc1450384e595259b1912f27b3/packages/honua-sdk/README.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -1053,7 +1053,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "c85170aa0ee5ca7d380eafd4ff947bb842d22a72e93b19e098e462dfaed1e7a3"
+          "sha256": "4689d8c37640d615835789c129dd122b3ddffde4885cd17f6f65beaf34557bad"
         }
       ]
     },
@@ -1061,11 +1061,11 @@
       "id": "honua-sdk-python-packages-honua-admin-readme",
       "repo": "honua-io/honua-sdk-python",
       "path": "packages/honua-admin/README.md",
-      "revision": "5594bf0f43dbdd11a1a4792303699d1741592e1c",
+      "revision": "21a9ecb952e43ecc1450384e595259b1912f27b3",
       "revisionRule": {
         "clientArtifact": "honua-admin-python-wheel"
       },
-      "url": "https://github.com/honua-io/honua-sdk-python/blob/5594bf0f43dbdd11a1a4792303699d1741592e1c/packages/honua-admin/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-python/blob/21a9ecb952e43ecc1450384e595259b1912f27b3/packages/honua-admin/README.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -1101,7 +1101,7 @@
           "infoString": "python",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "622024045fb5a351ed41138300364c9b6e862543736d08f2b72998e134c474cc",
+          "sha256": "bd2a57b45bbdc6dcaeb82b1f120d3fe97b85284fe856aba67c26e6f2665c517a",
           "needs": {
             "placeholders": [
               "https://your-honua-server.com"
@@ -1110,12 +1110,12 @@
         },
         {
           "index": 3,
-          "line": 129,
+          "line": 136,
           "language": "shell",
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "c0e6186058ee58fce190c7d4f69455cfa7898222874c96c332c5972b2632bfd0"
+          "sha256": "e531bcd1b6c912ceaaafd0ff6c240011ba6275edcbc8c8aa1e9e3701045c2c9f"
         }
       ]
     },
@@ -2502,11 +2502,11 @@
       "id": "honua-samples-readme",
       "repo": "honua-io/honua-samples",
       "path": "README.md",
-      "revision": "b6e4f6caa7c4c1bd3357bc5585cba804bf8e5619",
+      "revision": "765c0f820fc125058abe4ab40d1ebfded92af218",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/b6e4f6caa7c4c1bd3357bc5585cba804bf8e5619/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/765c0f820fc125058abe4ab40d1ebfded92af218/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2789,11 +2789,11 @@
       "id": "honua-samples-samples-wms-getmap-check-readme",
       "repo": "honua-io/honua-samples",
       "path": "samples/wms-getmap-check/README.md",
-      "revision": "b6e4f6caa7c4c1bd3357bc5585cba804bf8e5619",
+      "revision": "765c0f820fc125058abe4ab40d1ebfded92af218",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-samples/blob/b6e4f6caa7c4c1bd3357bc5585cba804bf8e5619/samples/wms-getmap-check/README.md",
+      "url": "https://github.com/honua-io/honua-samples/blob/765c0f820fc125058abe4ab40d1ebfded92af218/samples/wms-getmap-check/README.md",
       "runtime": "node",
       "docker": true,
       "session": null,
@@ -2831,11 +2831,11 @@
       "id": "honua-site-docs",
       "repo": "honua-io/honua-site",
       "path": "docs.html",
-      "revision": "ec4f03fb9fbb2c9a3451d183a86425b1db6c5896",
+      "revision": "98a93793cb243bd87c67ca2e08c921a3399b6f1d",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/ec4f03fb9fbb2c9a3451d183a86425b1db6c5896/docs.html",
+      "url": "https://github.com/honua-io/honua-site/blob/98a93793cb243bd87c67ca2e08c921a3399b6f1d/docs.html",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2866,11 +2866,11 @@
       "id": "honua-site-docs-playbooks-install-with-docker-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/install-with-docker/index.md",
-      "revision": "ec4f03fb9fbb2c9a3451d183a86425b1db6c5896",
+      "revision": "98a93793cb243bd87c67ca2e08c921a3399b6f1d",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/ec4f03fb9fbb2c9a3451d183a86425b1db6c5896/docs/playbooks/install-with-docker/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/98a93793cb243bd87c67ca2e08c921a3399b6f1d/docs/playbooks/install-with-docker/index.md",
       "runtime": "python",
       "docker": true,
       "session": null,
@@ -2914,7 +2914,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "e82365ff5696eb34804b40314c0af457c198d10e42d16876fcb6c329ab3dfc93"
+          "sha256": "12642e5a796731e06a055f393fbe150166f42ddd5f741287c657aa115ddf44d5"
         },
         {
           "index": 4,
@@ -3007,11 +3007,11 @@
       "id": "honua-site-docs-playbooks-publish-a-service-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/publish-a-service/index.md",
-      "revision": "ec4f03fb9fbb2c9a3451d183a86425b1db6c5896",
+      "revision": "98a93793cb243bd87c67ca2e08c921a3399b6f1d",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/ec4f03fb9fbb2c9a3451d183a86425b1db6c5896/docs/playbooks/publish-a-service/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/98a93793cb243bd87c67ca2e08c921a3399b6f1d/docs/playbooks/publish-a-service/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -3038,7 +3038,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "c4021b418fe9569ec12b58d6a677fae354bb20a54d3c115d866775494055ce54",
+          "sha256": "7fd32089522ee6fbca2facfcf9a6c40d932823311eafb224944b7071e7e4b32c",
           "needs": {
             "placeholders": [
               "<CONNECTION_NAME>",
@@ -3111,11 +3111,11 @@
       "id": "honua-site-docs-playbooks-run-a-bounded-gp-job-index",
       "repo": "honua-io/honua-site",
       "path": "docs/playbooks/run-a-bounded-gp-job/index.md",
-      "revision": "ec4f03fb9fbb2c9a3451d183a86425b1db6c5896",
+      "revision": "98a93793cb243bd87c67ca2e08c921a3399b6f1d",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/ec4f03fb9fbb2c9a3451d183a86425b1db6c5896/docs/playbooks/run-a-bounded-gp-job/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/98a93793cb243bd87c67ca2e08c921a3399b6f1d/docs/playbooks/run-a-bounded-gp-job/index.md",
       "runtime": "python",
       "docker": false,
       "session": null,
@@ -3128,7 +3128,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "d146cb07c6a7393e09beace9ad66705c47659690c764236d4f5b84a6a2d97214",
+          "sha256": "17bd0f9e1b4b29ef86bdbff3f9f4f9594416fa0f93111bef85a8bc5b596be3d4",
           "needs": {
             "optionalEnv": [
               "HONUA_ADMIN_PASSWORD"
@@ -3187,11 +3187,11 @@
       "id": "honua-site-docs-geoprocessing-index",
       "repo": "honua-io/honua-site",
       "path": "docs/geoprocessing/index.md",
-      "revision": "ec4f03fb9fbb2c9a3451d183a86425b1db6c5896",
+      "revision": "98a93793cb243bd87c67ca2e08c921a3399b6f1d",
       "revisionRule": {
         "defaultBranch": true
       },
-      "url": "https://github.com/honua-io/honua-site/blob/ec4f03fb9fbb2c9a3451d183a86425b1db6c5896/docs/geoprocessing/index.md",
+      "url": "https://github.com/honua-io/honua-site/blob/98a93793cb243bd87c67ca2e08c921a3399b6f1d/docs/geoprocessing/index.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -3227,7 +3227,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "heuristic",
-          "sha256": "cb611bbdce7d9b583c8545c337e7172ef61117ff232d16d5494f6d8e38f94723"
+          "sha256": "9fce9c4d937476f402e6d6e3296e5023d56a027df8fcf8256d1153d3f24f1174"
         },
         {
           "index": 3,

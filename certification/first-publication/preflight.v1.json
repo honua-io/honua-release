@@ -880,25 +880,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_admin-0.3.2-py3-none-any.whl",
-          "registry_sha256": "02e02aa3d9002180a293cabdf7ea772f1f90154ddd76e141ed9ff4809d238d5a",
-          "sha256": "02e02aa3d9002180a293cabdf7ea772f1f90154ddd76e141ed9ff4809d238d5a",
-          "url": "https://files.pythonhosted.org/packages/1e/9e/9bf01fe4718813a4086240dddb4d50dbf3d01f37a422cff16b9c85707a23/honua_admin-0.3.2-py3-none-any.whl"
+          "filename": "honua_admin-0.3.3-py3-none-any.whl",
+          "registry_sha256": "c4babfe2b3ad76435f6bf1aa05411437f792e02cc3f191c01841d12c3d744a0d",
+          "sha256": "c4babfe2b3ad76435f6bf1aa05411437f792e02cc3f191c01841d12c3d744a0d",
+          "url": "https://files.pythonhosted.org/packages/16/d3/7e21520af0bd25b295fe499b207b931ee73c7eaef2f1919dd2dd55f1fe75/honua_admin-0.3.3-py3-none-any.whl"
         },
         {
-          "filename": "honua_admin-0.3.2.tar.gz",
-          "registry_sha256": "d66e23b89fb18db348cf4d3e379481524fc928be30f1022fa85bb1eadc84c817",
-          "sha256": "d66e23b89fb18db348cf4d3e379481524fc928be30f1022fa85bb1eadc84c817",
-          "url": "https://files.pythonhosted.org/packages/1e/d0/b65a0821741b665b144298432da3f97a98429a16b7b92b2496e61b8b87a5/honua_admin-0.3.2.tar.gz"
+          "filename": "honua_admin-0.3.3.tar.gz",
+          "registry_sha256": "071ebc66cbe31a5317de456c94fbbd4580de5afff0d1fac64a7764fa154475f8",
+          "sha256": "071ebc66cbe31a5317de456c94fbbd4580de5afff0d1fac64a7764fa154475f8",
+          "url": "https://files.pythonhosted.org/packages/ed/9c/dc9c78723de106fec1400ae556163d26334044d5fe7e4bbdf2934f9c3ea8/honua_admin-0.3.3.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-admin",
-      "publication": "PyPI honua-admin 0.3.2",
+      "publication": "PyPI honua-admin 0.3.3",
       "urls": [
         "https://pypi.org/pypi/honua-admin/json"
       ],
-      "version": "0.3.2"
+      "version": "0.3.3"
     },
     {
       "disposition": "absent-retired",
@@ -939,25 +939,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua_sdk-0.3.2-py3-none-any.whl",
-          "registry_sha256": "a8a65d7e188b7a778dbe93e30eb68efe9eed054c4b7097bbc1e113ae8fa2ec43",
-          "sha256": "a8a65d7e188b7a778dbe93e30eb68efe9eed054c4b7097bbc1e113ae8fa2ec43",
-          "url": "https://files.pythonhosted.org/packages/0e/b1/4103260b0c50bbeab4bd6d1b53f54547a2dd70e01f6ad2f62631308b3ee5/honua_sdk-0.3.2-py3-none-any.whl"
+          "filename": "honua_sdk-0.3.3-py3-none-any.whl",
+          "registry_sha256": "81da261feb5dbb3de986fe233f31ef33953456c109542ef9e5df223ca30db441",
+          "sha256": "81da261feb5dbb3de986fe233f31ef33953456c109542ef9e5df223ca30db441",
+          "url": "https://files.pythonhosted.org/packages/dd/a2/b4fb1ba5d846c6c5b1535ffb47714adddbf6a3b5b2f65c16692adf2faeea/honua_sdk-0.3.3-py3-none-any.whl"
         },
         {
-          "filename": "honua_sdk-0.3.2.tar.gz",
-          "registry_sha256": "516fd0587de00659a6e7fe4242f91c20d29a9a0d3ea81c6efed7b1049dcc6483",
-          "sha256": "516fd0587de00659a6e7fe4242f91c20d29a9a0d3ea81c6efed7b1049dcc6483",
-          "url": "https://files.pythonhosted.org/packages/b9/f5/495ffa53160709102943ff5b2ba562e9dd5282a8483faaa38ad3afd70363/honua_sdk-0.3.2.tar.gz"
+          "filename": "honua_sdk-0.3.3.tar.gz",
+          "registry_sha256": "71c6572b5a526190b8226f9de7fca02525906f0283adf33e3863984d88aa965f",
+          "sha256": "71c6572b5a526190b8226f9de7fca02525906f0283adf33e3863984d88aa965f",
+          "url": "https://files.pythonhosted.org/packages/af/6b/0d5ba8910188371f9d45cb124fb82eaad88410267da0e6828754fb74fa3f/honua_sdk-0.3.3.tar.gz"
         }
       ],
       "http_status": 200,
       "id": "pypi:honua-sdk",
-      "publication": "PyPI honua-sdk 0.3.2",
+      "publication": "PyPI honua-sdk 0.3.3",
       "urls": [
         "https://pypi.org/pypi/honua-sdk/json"
       ],
-      "version": "0.3.2"
+      "version": "0.3.3"
     },
     {
       "disposition": "blocked-on-operator",
@@ -1007,6 +1007,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-28T03:43:56Z",
+  "observed_at": "2026-11-28T08:41:25Z",
   "schema": "honua.first-publication-preflight/v1"
 }

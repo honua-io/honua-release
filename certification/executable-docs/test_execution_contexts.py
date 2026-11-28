@@ -62,9 +62,9 @@ def test_frozen_guide_binds_all_six_blocks_and_only_documented_key():
 
 GP_KEY = ("honua-io/honua-site", "docs/geoprocessing/index.md")
 # The page's three install blocks after honua-site moved them to the 2026.1 pins (@honua/sdk-js 0.5.1,
-# honua-sdk 0.3.2, Honua.Sdk 2.2.0); the three snippets are byte-identical to the frozen binding.
+# honua-sdk 0.3.3, Honua.Sdk 2.2.0); the three snippets are byte-identical to the frozen binding.
 GP_INSTALL_SHA256 = {0: "c125af079e0414d9a1f702bc134ba2b7c3dedbd2287f6257033f7da00ddaa748",
-                     2: "cb611bbdce7d9b583c8545c337e7172ef61117ff232d16d5494f6d8e38f94723",
+                     2: "9fce9c4d937476f402e6d6e3296e5023d56a027df8fcf8256d1153d3f24f1174",
                      4: "a9717a49bb3e23068e95cc97196afc96c809c3408801cb50afb10d6b8d7aea8a"}
 
 
