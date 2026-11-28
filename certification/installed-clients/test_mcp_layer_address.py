@@ -77,6 +77,57 @@ class PublicationTargetTests(unittest.TestCase):
             self.assertIn("address_for_service", text, relative)
             self.assertIn("query_arguments", text, relative)
             self.assertIn("render_layer", text, relative)
+            self.assertIn("rendered_image", text, relative)
+            self.assertNotIn('image.get("base64")', text, relative)
+
+
+class RenderedImageTests(unittest.TestCase):
+    def test_reads_png_from_mcp_image_content_block_regardless_of_position(self):
+        result = {
+            "isError": False,
+            "structuredContent": {
+                "format": "image/png",
+                "image": {"format": "image/png", "width": 256, "height": 256, "byteLength": 12, "inlined": True},
+            },
+            "content": [
+                {"type": "text", "text": "Untrusted data framing"},
+                {"type": "text", "text": "{}"},
+                {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
+            ],
+        }
+        self.assertEqual(address.rendered_image(result), {"png": "iVBORw0KGgo=", "mimeType": "image/png"})
+
+    def test_falls_back_to_structured_base64_when_no_image_block_is_present(self):
+        result = {
+            "structuredContent": {"image": {"format": "image/png", "base64": "iVBORw0KGgo="}},
+            "content": [{"type": "text", "text": "Rendered"}],
+        }
+        self.assertEqual(address.rendered_image(result), {"png": "iVBORw0KGgo=", "mimeType": "image/png"})
+
+    def test_refuses_conflicting_or_duplicate_image_representations(self):
+        conflicting_mime = {
+            "structuredContent": {"image": {"format": "image/png"}},
+            "content": [{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/jpeg"}],
+        }
+        self.assertEqual(address.rendered_image(conflicting_mime), {"png": None, "mimeType": None})
+
+        conflicting_data = {
+            "structuredContent": {"image": {"format": "image/png", "base64": "AAAA"}},
+            "content": [{"type": "image", "data": "BBBB", "mimeType": "image/png"}],
+        }
+        self.assertEqual(address.rendered_image(conflicting_data), {"png": None, "mimeType": "image/png"})
+
+        duplicate_blocks = {
+            "structuredContent": {"image": {"format": "image/png"}},
+            "content": [
+                {"type": "image", "data": "AAAA", "mimeType": "image/png"},
+                {"type": "image", "data": "BBBB", "mimeType": "image/png"},
+            ],
+        }
+        self.assertEqual(address.rendered_image(duplicate_blocks), {"png": None, "mimeType": "image/png"})
+
+        missing_image = {"structuredContent": {"image": {"format": "image/png"}}, "content": [{"type": "text", "text": "ok"}]}
+        self.assertEqual(address.rendered_image(missing_image), {"png": None, "mimeType": "image/png"})
 
 
 if __name__ == "__main__":
