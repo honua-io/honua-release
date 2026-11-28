@@ -119,7 +119,7 @@
             {
               "role": "child:layer:shelters",
               "at": {
-                "argument": "/layerId"
+                "argument": "/serviceLayerIndex"
               }
             }
           ]

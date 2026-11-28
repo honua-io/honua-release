@@ -57,7 +57,7 @@ class P11(Scenario):
                 *[RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
                             pointer=f'/data/resourceIds/{field}')
                 for layer in ('parcels', 'flood_zones', 'shelters')
-                for kind, field in (('service', 'serviceName'), ('layer', 'layerId'))]]
+                for kind, field in (('service', 'serviceName'), ('layer', 'storageLayerId'))]]
 
     def observe(self, stack, seeded, variant, run=None):
         from agent_e2e_local_scenarios.w2g3_common import read_town
@@ -115,7 +115,7 @@ class P11(Scenario):
                 from agent_e2e_p10_observer import source_path
                 recorder.json('p11-result-feature', 'GET', source_path({'service':service,'layerId':layer}))
                 recorder.mcp_call('p11-result-geojson', 'honua_query_features', {
-                    'serviceId':service,'layerId':layer,'where':'1=1','outFields':['*'],
+                    'serviceId':service,'serviceLayerIndex':layer,'where':'1=1','outFields':['*'],
                     'limit':1000,'resultOffset':0,'returnGeometry':True,'outSrid':3857,'geometryPrecision':-1})
         return [Observation('job.completed', None, {'projection': 'extract/v1'}),
                 Observation('buffer.metric', None, {'projection': 'extract/v1'}),

@@ -40,9 +40,14 @@ def feature_response(variant):
                 {'name': name, 'type': field_type} for name, field_type in
                 [('capacity', 'esriFieldTypeInteger'), ('is_open', 'esriFieldTypeSmallInteger'),
                  ('name', 'esriFieldTypeString'), ('source_id', 'esriFieldTypeString')]],
-            'features': [{'attributes': {'objectid': index + 1, **f['properties']},
+            'features': [{'attributes': {'objectid': index + 1, **f['properties'],
+                                         'is_open': int(f['properties']['is_open'])},
                           'geometry': {'x': f['geometry']['coordinates'][0], 'y': f['geometry']['coordinates'][1]}}
                          for index, f in enumerate(features)]}
+
+
+def geojson_response(variant):
+    return json.loads((ROOT / f'certification/agent-e2e/corpus/town-{variant}/shelters.3857.geojson').read_text())
 
 
 class RecordedCandidate:
@@ -98,9 +103,12 @@ class RecordedCandidate:
                             'packageKey': self.package, 'envelope': self.envelope}
             status, value = 201, {'data': self.version}
         elif '/FeatureServer/' in path:
-            value = feature_response(self.variant)
-            if self.wrong == 'source-change' and recorder.phase == 'observe':
-                value['features'][0]['attributes']['capacity'] = 999
+            if 'f=geojson' in path:
+                value = geojson_response(self.variant)
+            else:
+                value = feature_response(self.variant)
+                if self.wrong == 'source-change' and recorder.phase == 'observe':
+                    value['features'][0]['attributes']['capacity'] = 999
         elif path.startswith('/api/v1/studio/published/'):
             if not self.published:
                 status, value = 404, {'error': 'not found'}
