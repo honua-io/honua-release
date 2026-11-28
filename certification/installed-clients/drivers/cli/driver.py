@@ -375,11 +375,12 @@ def run_npm(cli: Cli, state: dict[str, Any]) -> None:
 
     def unpublish() -> dict[str, Any]:
         summary = cli.json(["admin", "publish", "setLayerEnabled", "--path", f"id={state['connection']}",
-                            "--path", f"layerId={state['layer']}", "--query", f"serviceName={life['service']}",
+                            "--path", f"storageLayerId={state['layer']}", "--query", f"serviceName={life['service']}",
                             "--body", json.dumps({"enabled": False}), "--yes", "--json"], admin)
         summary = summary.get("data", summary)
         state["unpublished"] = True
-        return {"layerId": summary.get("layerId"), "enabled": summary.get("enabled")}
+        return {"layerId": summary.get("layerId") if summary.get("layerId") is not None else summary.get("storageLayerId"),
+                "enabled": summary.get("enabled")}
     step("npm", "unpublish", unpublish, state, ("layer",))
 
     def refused() -> dict[str, Any]:
