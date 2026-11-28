@@ -1,0 +1,194 @@
+name: produce-launch-stack-proof
+run-name: Produce Launch Stack proof ${{ inputs.server_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_sha:
+        description: Full 40-character lowercase hex commit SHA of the honua-server candidate
+        required: true
+        type: string
+      server_digest:
+        description: Immutable sha256 multi-arch index digest of the published AOT server image
+        required: true
+        type: string
+      platform_lock_digest:
+        description: Immutable sha256 digest of the candidate platform-lock.json bytes
+        required: true
+        type: string
+      stack_suffix:
+        description: Optional disposable gate stack suffix or honua-gate-* name (defaults to run-id)
+        required: false
+        type: string
+        default: ""
+      template_url:
+        description: Optional HTTPS CloudFormation template URL override (defaults to HONUA_GATE_TEMPLATE_URL)
+        required: false
+        type: string
+        default: ""
+      console_bundle_version:
+        description: Optional Console bundle version override passed to the stack template
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: produce-launch-stack-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    if: github.repository == 'honua-io/honua-release' && github.ref == 'refs/heads/trunk'
+    environment: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Validate gate environment variables and dispatch inputs
+        id: preflight
+        env:
+          HONUA_GATE_RELEASE_ROLE_ARN: ${{ vars.HONUA_GATE_RELEASE_ROLE_ARN }}
+          HONUA_GATE_LANE_ROLE_ARN: ${{ vars.HONUA_GATE_LANE_ROLE_ARN }}
+          HONUA_GATE_CFN_ROLE_ARN: ${{ vars.HONUA_GATE_CFN_ROLE_ARN }}
+          HONUA_GATE_TEMPLATE_URL: ${{ inputs.template_url || vars.HONUA_GATE_TEMPLATE_URL }}
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          STACK_SUFFIX: ${{ inputs.stack_suffix }}
+          CONSOLE_BUNDLE_VERSION: ${{ inputs.console_bundle_version }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in HONUA_GATE_RELEASE_ROLE_ARN HONUA_GATE_LANE_ROLE_ARN HONUA_GATE_CFN_ROLE_ARN HONUA_GATE_TEMPLATE_URL; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required gate environment configuration: ${missing[*]}"
+            exit 1
+          fi
+          [[ "$SERVER_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::server_sha must be 40 lowercase hex characters"; exit 1; }
+          [[ "$SERVER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::server_digest must be a sha256 digest"; exit 1; }
+          [[ "$LOCK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::platform_lock_digest must be a sha256 digest"; exit 1; }
+          [[ "$HONUA_GATE_TEMPLATE_URL" =~ ^https:// ]] || { echo "::error::template_url must use https://"; exit 1; }
+          if [[ -z "$STACK_SUFFIX" ]]; then
+            stack_name="honua-gate-ls-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          elif [[ "$STACK_SUFFIX" == honua-gate-* ]]; then
+            stack_name="$STACK_SUFFIX"
+          else
+            stack_name="honua-gate-${STACK_SUFFIX}"
+          fi
+          if [[ ! "$stack_name" =~ ^honua-gate-[a-zA-Z0-9-]+$ || ${#stack_name} -gt 128 ]]; then
+            echo "::error::Derived stack name must match ^honua-gate-[a-zA-Z0-9-]+$ and fit within 128 characters"
+            exit 1
+          fi
+          if [[ -n "$CONSOLE_BUNDLE_VERSION" && "${CONSOLE_BUNDLE_VERSION,,}" == "off" ]]; then
+            echo "::error::Launch Stack qualification requires Console enabled (console_bundle_version cannot be off)"
+            exit 1
+          fi
+          echo "stack_name=$stack_name" >> "$GITHUB_OUTPUT"
+
+      - name: Assume release gate OIDC role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_GATE_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+          role-session-name: honua-gate-release-${{ github.run_id }}
+
+      - name: Assume Launch Stack qualification lane role
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.HONUA_GATE_LANE_ROLE_ARN }}
+          role-chaining: true
+          aws-region: us-east-1
+          mask-aws-account-id: true
+          role-session-name: honua-gate-launch-stack-${{ github.run_id }}
+
+      - name: Deploy, observe, and tear down disposable Launch Stack
+        id: qualify
+        env:
+          HONUA_GATE_TEMPLATE_URL: ${{ inputs.template_url || vars.HONUA_GATE_TEMPLATE_URL }}
+          HONUA_GATE_CFN_ROLE_ARN: ${{ vars.HONUA_GATE_CFN_ROLE_ARN }}
+          HONUA_GATE_ADMIN_EMAIL: ${{ vars.HONUA_GATE_ADMIN_EMAIL }}
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          STACK_NAME: ${{ steps.preflight.outputs.stack_name }}
+          CONSOLE_BUNDLE_VERSION: ${{ inputs.console_bundle_version }}
+        run: |
+          set -euo pipefail
+          umask 077
+          args=(
+            --server-sha "$SERVER_SHA"
+            --server-digest "$SERVER_DIGEST"
+            --platform-lock-digest "$LOCK_DIGEST"
+            --stack-name "$STACK_NAME"
+            --attempt-id "run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+            --journal "$RUNNER_TEMP/launch-stack-attempt.json"
+            --region us-east-1
+            --out proof
+          )
+          if [[ -n "$CONSOLE_BUNDLE_VERSION" ]]; then
+            args+=(--console-bundle-version "$CONSOLE_BUNDLE_VERSION")
+          fi
+          python3 tools/run_launch_stack_qualification.py "${args[@]}"
+
+      - name: Guarantee disposable stack teardown
+        if: always() && steps.preflight.outcome == 'success'
+        env:
+          HONUA_GATE_TEMPLATE_URL: ${{ inputs.template_url || vars.HONUA_GATE_TEMPLATE_URL }}
+          HONUA_GATE_CFN_ROLE_ARN: ${{ vars.HONUA_GATE_CFN_ROLE_ARN }}
+          HONUA_GATE_ADMIN_EMAIL: ${{ vars.HONUA_GATE_ADMIN_EMAIL }}
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+          STACK_NAME: ${{ steps.preflight.outputs.stack_name }}
+          CONSOLE_BUNDLE_VERSION: ${{ inputs.console_bundle_version }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 tools/run_launch_stack_qualification.py \
+            --cleanup-only \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --platform-lock-digest "$LOCK_DIGEST" \
+            --stack-name "$STACK_NAME" \
+            --attempt-id "run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}" \
+            --journal "$RUNNER_TEMP/launch-stack-attempt.json" \
+            --region us-east-1 \
+            --out proof
+
+      - name: Verify emitted Launch Stack proof against receipt contract
+        env:
+          SERVER_SHA: ${{ inputs.server_sha }}
+          SERVER_DIGEST: ${{ inputs.server_digest }}
+          LOCK_DIGEST: ${{ inputs.platform_lock_digest }}
+        run: |
+          set -euo pipefail
+          python3 tools/emit_live_promise_receipts.py launch-stack \
+            --proof-dir proof \
+            --server-sha "$SERVER_SHA" \
+            --server-digest "$SERVER_DIGEST" \
+            --lock-digest "$LOCK_DIGEST" \
+            --out "$RUNNER_TEMP/verified-receipts"
+
+      - name: Upload Launch Stack qualification proof
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: launch-stack-proof
+          path: proof/launch-stack-proof.json
+          if-no-files-found: error
+          retention-days: 14
