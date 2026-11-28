@@ -6,10 +6,10 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:5051591d189c50503ab28752cc200698959899b8e789d3cfdcb63848d1619c8d
+    sha256: sha256:078adfdbb0ec99cc2cce9578a69a3b921b3e9694ceb9105301c953ffdb4831fd
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:feca1bcd445067aa4676d65826dc0ea2da85a790a86b5cf69e2b8fb54ee03b4d
+    sha256: sha256:7d167a628515f45a57c277636495200c147da02676c65ab0ccce7570e307ecc1
 components:
   honua-server:
     source:

@@ -63,3 +63,27 @@ def query_arguments(target: dict[str, Any], *, where: str, limit: int) -> dict[s
 def render_layer(target: dict[str, Any]) -> dict[str, Any]:
     service_id, index = _require(target)
     return {"serviceId": service_id, "serviceLayerIndex": index}
+
+
+def rendered_image(result: dict[str, Any]) -> dict[str, Any]:
+    """Extract the inlined PNG payload and media type from an MCP honua_render_map result."""
+    structured = result.get("structuredContent") if isinstance(result, dict) else None
+    image = structured.get("image") if isinstance(structured, dict) else None
+    image = image if isinstance(image, dict) else {}
+    declared_format = image.get("format") if isinstance(image.get("format"), str) else None
+    structured_base64 = image.get("base64") if isinstance(image.get("base64"), str) else None
+    content = result.get("content") if isinstance(result, dict) else None
+    blocks = [item for item in (content if isinstance(content, list) else [])
+              if isinstance(item, dict) and item.get("type") == "image"]
+    if len(blocks) > 1:
+        return {"png": None, "mimeType": declared_format}
+    if len(blocks) == 1:
+        block = blocks[0]
+        block_mime = block.get("mimeType") if isinstance(block.get("mimeType"), str) else None
+        if block_mime and declared_format and block_mime != declared_format:
+            return {"png": None, "mimeType": None}
+        block_data = block.get("data") if isinstance(block.get("data"), str) else None
+        if structured_base64 is not None and structured_base64 != block_data:
+            return {"png": None, "mimeType": block_mime or declared_format}
+        return {"png": block_data, "mimeType": block_mime or declared_format}
+    return {"png": structured_base64, "mimeType": declared_format}

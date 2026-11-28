@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "certification" / "terminal-journey"))
 import probes  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "certification" / "installed-clients"))
-from mcp_layer_address import address_for_service, query_arguments, render_layer  # noqa: E402
+from mcp_layer_address import address_for_service, query_arguments, render_layer, rendered_image  # noqa: E402
 from mcp_plan_validation import buffer_plan  # noqa: E402
 
 PLAN = json.loads(open(os.environ["SDKREG_PLAN"], encoding="utf-8").read())
@@ -102,13 +102,17 @@ def result_of(response: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def tool(mcp: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def tool_call(mcp: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     result = result_of(mcp.request("tools/call", {"name": name, "arguments": arguments}))
     content = result.get("structuredContent")
     if result.get("isError") or not isinstance(content, dict):
         code = content.get("code") if isinstance(content, dict) else None
         raise RpcError(f"tool-error:{code or 'unstructured'}")
-    return content
+    return result
+
+
+def tool(mcp: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return tool_call(mcp, name, arguments)["structuredContent"]
 
 
 def resource(mcp: probes.McpProxySession, uri: str) -> dict[str, Any]:
@@ -217,12 +221,11 @@ def run(proxy: str) -> None:
         step("read", read, state)
 
         def render() -> dict[str, Any]:
-            content = tool(operator, "honua_render_map", {
+            result = tool_call(operator, "honua_render_map", {
                 "layers": [render_layer(listed(area["service"]))], "bbox": render_spec["bbox"],
                 "bboxSrid": 4326, "width": render_spec["width"], "height": render_spec["height"], "transparent": True,
                 "maxInlineBytes": 1024 * 1024})
-            image = content.get("image") or {}
-            return {"png": image.get("base64"), "mimeType": image.get("format")}
+            return rendered_image(result)
         step("render", render, state)
 
         run_gp(operator, processes)

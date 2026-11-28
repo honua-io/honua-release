@@ -343,7 +343,7 @@ def mcp_session(proxy: str, key: str) -> probes.McpProxySession:
     return probes.McpProxySession([proxy], f"{BASE}/mcp", env={"HONUA_API_KEY": key})
 
 
-def mcp_tool(session: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+def mcp_tool_call(session: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     response = session.request("tools/call", {"name": name, "arguments": arguments})
     if "error" in response:
         error = response["error"] if isinstance(response["error"], dict) else {}
@@ -354,7 +354,11 @@ def mcp_tool(session: probes.McpProxySession, name: str, arguments: dict[str, An
     if result.get("isError") or not isinstance(content, dict):
         code = content.get("code") if isinstance(content, dict) else None
         raise StepError({"type": f"tool-error:{code or 'unstructured'}", "status": None})
-    return content
+    return result
+
+
+def mcp_tool(session: probes.McpProxySession, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return mcp_tool_call(session, name, arguments)["structuredContent"]
 
 
 def imported_attributes(raw: Any) -> dict[str, Any] | None:
@@ -514,11 +518,10 @@ class Interop:
                 spec = area["render"]
                 target = mcp_layer_address.address_for_service(
                     lambda arguments: mcp_tool(session, "honua_list_layers", arguments), area["service"])
-                content = mcp_tool(session, "honua_render_map", {
+                result = mcp_tool_call(session, "honua_render_map", {
                     "layers": [mcp_layer_address.render_layer(target)], "bbox": spec["bbox"], "bboxSrid": 4326,
                     "width": spec["width"], "height": spec["height"], "transparent": True, "maxInlineBytes": 1024 * 1024})
-                image = content.get("image") or {}
-                return {"png": image.get("base64"), "mimeType": image.get("format")}
+                return mcp_layer_address.rendered_image(result)
             step(scenario, "render", render, state, ("layer",))
 
             def submit() -> dict[str, Any]:

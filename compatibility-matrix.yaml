@@ -119,7 +119,6 @@ deploy:
     # 2026-11-02 RC2 CUT: advanced with the rc.2 server pin (a4bde4b -> daf56db).
     # 2026-11-03 RC2 REDO: advanced with the rc.2 redo server pin (daf56db -> 8628668).
     # 2026-11-26 RC2 FINAL HARDENED CUT: advanced with the rc.2 server pin (de512e8 -> 83127df).
-    # 2026-11-28 RC2 FINAL HARDENED RE-PIN: advanced with the rc.2 server pin (83127df -> 786dc6e).
     deploysServerImage: "sha:786dc6e3094dab77dd2a8c98d297524e97bd3980"
   honua-helm:
     # Chart.yaml appVersion is "0.0.0" (placeholder); chart version is 0.4.0 (un-released).

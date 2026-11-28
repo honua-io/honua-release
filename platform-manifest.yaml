@@ -54,8 +54,7 @@ status: rc                             # draft | rc | released
 # Previous snapshotDate "2026-10-27": rc re-pin #4: honua-server 8cb074f -> a4bde4b (124 trunk commits; #6590, #6593, #6595, #6599, #6643, #6650, #6655, #6656, #6670, #6695, #6703, #6721, #6734)
 # Previous snapshotDate "2026-11-02": 2026-11-02 rc.2 cut: honua-server a4bde4b -> daf56db (87 trunk commits, #3213 and #6561-#6864; migrations 141-143)
 # Previous snapshotDate "2026-11-17": 2026-11-17 rc.2 re-pin: honua-server 8628668 -> 532565b (redesign stage-1 candidate, AOT index d56e8815)
-# Previous snapshotDate "2026-11-26": 2026-11-26 rc.2 re-pin: honua-server de512e8 -> 83127df (certified hardened trunk build, AOT index a084fefa; migrations 224-237)
-snapshotDate: "2026-11-28"             # 2026-11-28 rc.2 final hardened re-pin: honua-server 83127df -> 786dc6e (certified hardened trunk build, AOT index f3010ae6; dbSchema 237 unchanged)
+snapshotDate: "2026-11-28"
 snapshotKind: candidate-manifest-snapshot  # hand snapshot of trunk; replaced by train-generated manifest in Phase 2
 
 # Producer-recorded dispatch identity. Release intake accepts candidates dispatched only from
@@ -90,9 +89,6 @@ protocolCertification:
   # Container Build run 44702980769 (tag nightly-candidate-de512e8, finished 09:23:56Z).
   # 2026-11-26 RC2 RE-PIN to certified hardened trunk build 83127df: the AOT index was published by
   # Nightly Container Build run 45821428498 (ecs_only=true, full CI 45808430994 236/236, finished 13:49:07Z).
-  # 2026-11-28 RC2 FINAL HARDENED RE-PIN to certified hardened trunk build 786dc6e: the AOT index was
-  # published by Nightly Container Build run 46082350662 (15/15 green, full CI 46067848455 236/237 +
-  # 0 failed, finished 00:31:02Z).
   candidateCutAt: "2026-11-28T00:31:02Z"
   # The source-test-host harness must certify the exact frozen honua-server candidate.
   # validate_platform.check_structure enforces byte-equality with components.honua-server.sha, so this
@@ -484,8 +480,6 @@ components:
     # contractVersions below are CARRIED FORWARD and remain UNVERIFIED (release#282 item 4).
     sha: "786dc6e3094dab77dd2a8c98d297524e97bd3980"
     image: "ghcr.io/honua-io/honua-server:nightly-aot-786dc6e"   # immutable per-sha tag (NOT a floating tag)
-    # 2026-11-28 RC2 FINAL HARDENED CUT: full CI 46067848455 236 success / 1 skipped / 0 failed; AOT
-    # build 46082350662 15/15 green; index and children re-read from GHCR (docker buildx imagetools).
     digest: "sha256:f3010ae672447e74061b66c2a6bbec9478d22e57507f50790657056f62e087f2"
     # The image's source revision, from its child config labels and SLSA provenance; equals `sha`.
     artifactSourceRevision: "786dc6e3094dab77dd2a8c98d297524e97bd3980"
@@ -586,8 +580,8 @@ components:
     # Its attestation verifies (signer nightly-container-build.yml, source digest 86286687...).
     # 2026-11-17 RC2 RE-PIN: awsLambdaDigest is the single linux/amd64 child sha256:8f25cb6b... of the tag index
     # nightly-lambda-aot-532565b-amd64 (sha256:f9833d69...); its config labels revision=532565bc....
-    # 2026-11-28 RC2 FINAL HARDENED CUT: Preview Lambda pins remain omitted under
-    # founder ruling lambda-preview-out-of-lock-2026-10-27 (mint_nightly_lock.lambda_pins_exempt).
+    # Preview Lambda pins omitted under founder ruling lambda-preview-out-of-lock-2026-10-27
+    # (mint_nightly_lock.lambda_pins_exempt).
     awsLambdaArchitecture: "x86_64"
     # release#282 item 4: all contract versions remain UNVERIFIED until re-read from the booted candidate.
     contractVersions:
@@ -767,9 +761,6 @@ components:
     # RE-CHECKED AT 83127df7 (2026-11-26 RC2 FINAL HARDENED CUT): migrations 224..237 arrived after
     # de512e81; migration_floor is 237 (src/Honua.Server/Migrations/237_AdoptContentPublicationVocabulary.sql)
     # and the declared default-deployment journal has 236 scripts. component-versions.v1.json is unchanged.
-    # RE-CHECKED AT 786dc6e3 (2026-11-28 RC2 FINAL HARDENED RE-PIN): src/Honua.Server/Migrations/ and
-    # eng/release/component-versions.v1.json are byte-identical to 83127df7; migration_floor remains 237
-    # (236 scripts) and migrationJournalSha256 is unchanged.
     dbSchema: "237"
     # Digest of the exact declared migration set at `sha` (upgrade_lock_binding.journal_digest over
     # resolve_trunk_candidate.migration_journal). gate-upgrade and the platform lock bind this set;
@@ -787,8 +778,6 @@ components:
     # artifactVersion the version its receipt names. The rc.2 cut binds the release asset
     # honua-console-<version>.zip (CONSOLE-SPA-RC2.md).
     artifact: "actions-artifact:console-static-release"
-    # 2026-11-27 ADVANCE: static bundle of trunk f3515f5b (honua-console#1200 hardening):
-    # static-bundle.yml push run 45943694100, artifact 15174451964.
     sha: "f3515f5b18e60654c0d130c8464460ab48342648"
     artifactSourceRevision: "f3515f5b18e60654c0d130c8464460ab48342648"
     artifactSha256: "sha256:ef574d19b49d9163688b08a57c5e1e131ecf60b5fd0a02ef1bba0aa206861c7f"
