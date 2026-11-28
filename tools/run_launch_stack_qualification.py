@@ -88,22 +88,27 @@ class QualificationDeps:
     sleep: Callable[[float], None] = time.sleep
 
 
-def validate_config(config: QualificationConfig) -> str:
+def validate_candidate_identity(config: Any) -> str:
     require(SHA_RE.fullmatch(config.server_sha), 'server_sha must be 40 lowercase hex characters')
     require(DIGEST_RE.fullmatch(config.server_digest), 'server_digest must be a sha256 digest')
     require(DIGEST_RE.fullmatch(config.platform_lock_digest),
             'platform_lock_digest must be a sha256 digest')
+    require(IMAGE_REPO_RE.fullmatch(config.image_repo), 'image_repo must be a valid registry coordinate')
+    return f'{config.image_repo}@{config.server_digest}'
+
+
+def validate_config(config: QualificationConfig) -> str:
+    image_ref = validate_candidate_identity(config)
     require(STACK_RE.fullmatch(config.stack_name) and len(config.stack_name) <= MAX_STACK_NAME_LENGTH,
             'stack_name must match ^honua-gate-[a-zA-Z0-9-]+$ within 128 characters')
     require(TEMPLATE_URL_RE.fullmatch(config.template_url), 'template_url must be a valid https URL')
     require(ROLE_ARN_RE.fullmatch(config.cfn_role_arn), 'HONUA_GATE_CFN_ROLE_ARN must be an IAM role ARN')
-    require(IMAGE_REPO_RE.fullmatch(config.image_repo), 'image_repo must be a valid registry coordinate')
     require(ADMIN_EMAIL_RE.fullmatch(config.admin_email), 'admin_email must be a valid email address')
     if config.console_bundle_version:
         require(config.console_bundle_version.lower() != 'off'
                 and CONSOLE_VERSION_RE.fullmatch(config.console_bundle_version),
                 'console_bundle_version must be a non-off version token')
-    return f'{config.image_repo}@{config.server_digest}'
+    return image_ref
 
 
 def verify_image_measurement(config: QualificationConfig, measurement: ImageMeasurement) -> None:

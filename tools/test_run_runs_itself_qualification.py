@@ -88,18 +88,19 @@ class FakeRunsItselfAws:
         return json.dumps({'zlib_v1': packed})
 
     def _stack_resources(self, stack_name: str) -> list[dict]:
-        return [
-            {'LogicalResourceId': 'Cluster', 'ResourceType': 'AWS::ECS::Cluster', 'PhysicalResourceId': f'cluster-{stack_name}'},
-            {'LogicalResourceId': 'Service', 'ResourceType': 'AWS::ECS::Service', 'PhysicalResourceId': f'service-{stack_name}'},
-            {'LogicalResourceId': 'ServerTask', 'ResourceType': 'AWS::ECS::TaskDefinition', 'PhysicalResourceId': f'{TASK_DEF_ARN}-{stack_name}'},
-            {'LogicalResourceId': 'Targets', 'ResourceType': 'AWS::ElasticLoadBalancingV2::TargetGroup', 'PhysicalResourceId': f'targets-{stack_name}'},
-            {'LogicalResourceId': 'OpsTopic', 'ResourceType': 'AWS::SNS::Topic', 'PhysicalResourceId': f'arn:aws:sns:us-east-1:000000000000:{stack_name}-operations'},
-            {'LogicalResourceId': 'OpsEvents', 'ResourceType': 'AWS::SQS::Queue', 'PhysicalResourceId': f'https://sqs.us-east-1.amazonaws.com/000000000000/{stack_name}-ops'},
-            {'LogicalResourceId': 'OpsDeadLetters', 'ResourceType': 'AWS::SQS::Queue', 'PhysicalResourceId': f'https://sqs.us-east-1.amazonaws.com/000000000000/{stack_name}-dlq'},
-            {'LogicalResourceId': 'WatchdogState', 'ResourceType': 'AWS::SSM::Parameter', 'PhysicalResourceId': f'/honua/{stack_name}/state'},
-            {'LogicalResourceId': 'Database', 'ResourceType': 'AWS::RDS::DBInstance', 'PhysicalResourceId': f'db-{stack_name}'},
-            {'LogicalResourceId': 'OpsAlarmDatabaseStorage', 'ResourceType': 'AWS::CloudWatch::Alarm', 'PhysicalResourceId': f'{stack_name}-ops-DatabaseStorage'},
-        ]
+        rows = (
+            ('Cluster', 'AWS::ECS::Cluster', f'cluster-{stack_name}'),
+            ('Service', 'AWS::ECS::Service', f'service-{stack_name}'),
+            ('ServerTask', 'AWS::ECS::TaskDefinition', f'{TASK_DEF_ARN}-{stack_name}'),
+            ('Targets', 'AWS::ElasticLoadBalancingV2::TargetGroup', f'targets-{stack_name}'),
+            ('OpsTopic', 'AWS::SNS::Topic', f'arn:aws:sns:us-east-1:000000000000:{stack_name}-operations'),
+            ('OpsEvents', 'AWS::SQS::Queue', f'https://sqs.us-east-1.amazonaws.com/000000000000/{stack_name}-ops'),
+            ('OpsDeadLetters', 'AWS::SQS::Queue', f'https://sqs.us-east-1.amazonaws.com/000000000000/{stack_name}-dlq'),
+            ('WatchdogState', 'AWS::SSM::Parameter', f'/honua/{stack_name}/state'),
+            ('Database', 'AWS::RDS::DBInstance', f'db-{stack_name}'),
+            ('OpsAlarmDatabaseStorage', 'AWS::CloudWatch::Alarm', f'{stack_name}-ops-DatabaseStorage'),
+        )
+        return [{'LogicalResourceId': l, 'ResourceType': t, 'PhysicalResourceId': p} for l, t, p in rows]
 
     def _apply_change_set_params(self, stack: str, raw_params: str) -> None:
         updates = {item['ParameterKey']: item['ParameterValue']
@@ -193,13 +194,9 @@ class FakeRunsItselfAws:
 def _config(tmp_path: Path, **overrides) -> driver.RunsItselfConfig:
     gate_script = tmp_path / 'gate'
     gate_script.write_text('#!/usr/bin/env python3\n', encoding='utf-8')
-    base = {
-        'server_sha': SHA, 'server_digest': DIGEST, 'platform_lock_digest': LOCK,
-        'stack_name': STACK, 'budget_stack_name': BUDGET_STACK,
-        'gate_script': gate_script, 'artifacts_dir': tmp_path / 'receipts',
-        'output_dir': tmp_path / 'proof',
-    }
-    base.update(overrides)
+    base = {'server_sha': SHA, 'server_digest': DIGEST, 'platform_lock_digest': LOCK,
+            'stack_name': STACK, 'budget_stack_name': BUDGET_STACK, 'gate_script': gate_script,
+            'artifacts_dir': tmp_path / 'receipts', 'output_dir': tmp_path / 'proof', **overrides}
     return driver.RunsItselfConfig(**base)
 
 
@@ -225,6 +222,7 @@ def _deps(aws: FakeRunsItselfAws, runner, **overrides) -> driver.RunsItselfDeps:
     base = {
         'aws': aws, 'inspect_image': lambda _cfg: _measurement(), 'run_gate': runner,
         'verify_notifications': ri_aws.verify_row_notifications, 'utc_now': lambda: now,
+        'sleep': lambda _s: None,
     }
     base.update(overrides)
     return driver.RunsItselfDeps(**base)
@@ -286,6 +284,19 @@ def test_notification_verification_fails_closed(case):
     now = dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc)
     with pytest.raises(ObservationError, match=pattern):
         ri_aws.verify_row_notifications(aws, STACK, (now, now + dt.timedelta(minutes=2)))
+
+
+def test_notification_polling_retries_pending_metrics_until_ingested():
+    aws, sleeps = FakeRunsItselfAws(), []
+    aws.sns_published = 0.0
+    def delayed_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 2:
+            aws.sns_published = 1.0
+    runner, _ = _fake_gate_runner()
+    now = dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc)
+    evidence = driver._poll_row_notifications(STACK, (now, now + dt.timedelta(minutes=1)), _deps(aws, runner, sleep=delayed_sleep))
+    assert evidence['notificationVerified'] is True and len(sleeps) == 2
 
 
 @pytest.mark.parametrize('case', [

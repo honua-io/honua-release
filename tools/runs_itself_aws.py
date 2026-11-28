@@ -10,7 +10,7 @@ import zlib
 
 from launch_stack_aws import AwsJsonTransport
 from launch_stack_observations import (
-    require, resource_summaries, running_tasks, service_state,
+    ObservationError, require, resource_summaries, running_tasks, service_state,
     stack_resources as ecs_stack_resources, task_definition, task_snapshot,
 )
 
@@ -19,6 +19,10 @@ METRIC_PADDING_SECONDS = 60
 METRIC_PERIOD_SECONDS = 60
 ECS_ARCH_TO_OCI = {'X86_64': 'amd64', 'ARM64': 'arm64'}
 UNCONFIRMED_SUBSCRIPTION_STATES = frozenset({'', 'PendingConfirmation', 'Deleted'})
+
+
+class MetricPendingError(ObservationError):
+    """Transient CloudWatch notification metric lag eligible for bounded retry."""
 
 
 def make_aws_client(region: str) -> AwsJsonTransport:
@@ -101,18 +105,13 @@ def _verify_sns_channel(aws: Any, topic_arn: str, window: tuple[dt.datetime, dt.
         aws, {'namespace': 'AWS/SNS', 'metric': 'NumberOfNotificationsFailed',
               'dim_name': 'TopicName', 'dim_value': topic_name}, window,
     )
-    require(published >= 1.0, 'No SNS notification published to OpsTopic during fault window')
     require(failed == 0.0, 'SNS reported failed notification delivery during fault window')
+    if published < 1.0:
+        raise MetricPendingError('No SNS notification published to OpsTopic during fault window')
     return {'confirmedSubscriptions': len(confirmed), 'snsPublished': int(published)}
 
 
 def _verify_inbox_channel(aws: Any, resources: dict[str, str], window: tuple[dt.datetime, dt.datetime]) -> dict:
-    queue_name = resources['OpsEvents'].rstrip('/').rsplit('/', 1)[-1]
-    sent = _metric_sum(
-        aws, {'namespace': 'AWS/SQS', 'metric': 'NumberOfMessagesSent',
-              'dim_name': 'QueueName', 'dim_value': queue_name}, window,
-    )
-    require(sent >= 1.0, 'No ops-inbox event queued to OpsEvents during fault window')
     dlq_url = resources.get('OpsDeadLetters')
     if dlq_url:
         attrs = aws('sqs', 'get-queue-attributes', '--queue-url', dlq_url,
@@ -122,6 +121,13 @@ def _verify_inbox_channel(aws: Any, resources: dict[str, str], window: tuple[dt.
     param = aws('ssm', 'get-parameter', '--name', resources['WatchdogState']).get('Parameter', {})
     state = decode_watchdog_state(str(param.get('Value', '')))
     require(state.get('outbox') == [], 'Watchdog outbox still has undelivered notices')
+    queue_name = resources['OpsEvents'].rstrip('/').rsplit('/', 1)[-1]
+    sent = _metric_sum(
+        aws, {'namespace': 'AWS/SQS', 'metric': 'NumberOfMessagesSent',
+              'dim_name': 'QueueName', 'dim_value': queue_name}, window,
+    )
+    if sent < 1.0:
+        raise MetricPendingError('No ops-inbox event queued to OpsEvents during fault window')
     return {'sqsSent': int(sent)}
 
 

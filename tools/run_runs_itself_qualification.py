@@ -11,22 +11,28 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Any, Callable
 
 TOOLS_DIR = Path(__file__).resolve().parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from emit_live_promise_receipts import DIGEST_RE, OPERATES_IDS, SHA_RE
+from emit_live_promise_receipts import OPERATES_IDS
 from launch_stack_aws import AwsCommandError
 from launch_stack_observations import ObservationError, require
-from run_launch_stack_qualification import DEFAULT_SERVER_IMAGE_REPO, IMAGE_REPO_RE, inspect_ghcr_image, verify_image_measurement
+from run_launch_stack_qualification import (
+    DEFAULT_SERVER_IMAGE_REPO, inspect_ghcr_image, validate_candidate_identity, verify_image_measurement,
+)
 from runs_itself_aws import (
-    make_aws_client, restore_stack_safety, verify_row_notifications, verify_stack_candidate_binding,
+    MetricPendingError, make_aws_client, restore_stack_safety,
+    verify_row_notifications, verify_stack_candidate_binding,
 )
 
 DEFAULT_REGION = 'us-east-1'
 GATE_TIMEOUT_SECONDS = 5400
+NOTIFICATION_POLL_ATTEMPTS = 6
+NOTIFICATION_POLL_SECONDS = 30
 GATE_STACK_RE = re.compile(r'^honua-gate-[1-9][0-9]*$')
 REQUIRED_ROWS = (1, 2, 3, 4, 5, 6, 9, 10, 11, 12)
 ROW_TO_OPERATES_ID = {
@@ -71,13 +77,11 @@ class RunsItselfDeps:
     run_gate: Callable[[list[str]], subprocess.CompletedProcess]
     verify_notifications: Callable[[Any, str, tuple[dt.datetime, dt.datetime]], dict]
     utc_now: Callable[[], dt.datetime]
+    sleep: Callable[[float], None] = time.sleep
 
 
 def validate_config(config: RunsItselfConfig) -> None:
-    require(SHA_RE.fullmatch(config.server_sha), 'server_sha must be 40 lowercase hex characters')
-    require(DIGEST_RE.fullmatch(config.server_digest), 'server_digest must be a sha256 digest')
-    require(DIGEST_RE.fullmatch(config.platform_lock_digest),
-            'platform_lock_digest must be a sha256 digest')
+    validate_candidate_identity(config)
     require(GATE_STACK_RE.fullmatch(config.stack_name),
             'stack_name must match ^honua-gate-[1-9][0-9]*$')
     if config.budget_stack_name:
@@ -86,7 +90,6 @@ def validate_config(config: RunsItselfConfig) -> None:
         require(config.budget_stack_name != config.stack_name,
                 'budget_stack_name must differ from stack_name')
     require(config.region == DEFAULT_REGION, 'Runs-Itself qualification requires us-east-1')
-    require(IMAGE_REPO_RE.fullmatch(config.image_repo), 'image_repo must be a valid registry coordinate')
 
 
 def configured_stacks(config: RunsItselfConfig) -> list[str]:
@@ -158,6 +161,27 @@ def _load_single_receipt(row: int, stack_name: str, row_dir: Path) -> dict:
     return json.loads(matches[0].read_text(encoding='utf-8'))
 
 
+def _try_verify_notifications(
+    stack_name: str, window: tuple[dt.datetime, dt.datetime], deps: RunsItselfDeps,
+) -> dict | None:
+    try:
+        return deps.verify_notifications(deps.aws, stack_name, window)
+    except MetricPendingError:
+        return None
+
+
+def _poll_row_notifications(
+    stack_name: str, window: tuple[dt.datetime, dt.datetime], deps: RunsItselfDeps,
+) -> dict:
+    for attempt in range(1, NOTIFICATION_POLL_ATTEMPTS + 1):
+        evidence = _try_verify_notifications(stack_name, window, deps)
+        if evidence is not None:
+            return evidence
+        if attempt < NOTIFICATION_POLL_ATTEMPTS:
+            deps.sleep(NOTIFICATION_POLL_SECONDS)
+    return deps.verify_notifications(deps.aws, stack_name, window)
+
+
 def _execute_row(row: int, config: RunsItselfConfig, deps: RunsItselfDeps) -> tuple[dict, dict]:
     stack_name = target_stack_for_row(config, row)
     row_dir = config.artifacts_dir / f'row-{row}'
@@ -173,7 +197,7 @@ def _execute_row(row: int, config: RunsItselfConfig, deps: RunsItselfDeps) -> tu
     require(completed.returncode == 0, f'Gate harness failed on row {row} with exit code {completed.returncode}')
     receipt = _load_single_receipt(row, stack_name, row_dir)
     recovery_minutes = validate_row_receipt(row, receipt)
-    evidence = deps.verify_notifications(deps.aws, stack_name, (window_start, window_end))
+    evidence = _poll_row_notifications(stack_name, (window_start, window_end), deps)
     require(evidence.get('notificationVerified') is True and evidence.get('inboxVerified') is True,
             f'Row {row} failed programmatic SNS/ops-inbox confirmation')
     entry = {
