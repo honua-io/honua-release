@@ -39,7 +39,7 @@ class Recorder:
         return self.source
     def json(self, step, method, path):
         self.calls.append(('http', step, method, path))
-        body = {'data': [{'serviceName': 'agent-service'}]} if step.endswith('services-after') else {
+        body = {'data': {'items': [{'serviceName': 'agent-service'}], 'total': 1}} if step.endswith('services-after') else {
             'serviceName': 'agent-service', 'layers': [{'id': 2, 'name': 'shelters'}]}
         return {'observation': {'body': body}}
     def action_result(self, step, selected):
@@ -206,9 +206,9 @@ def test_frozen_raw_projection_requires_agent_created_service_and_fixture_rows(t
         'arc-p10-connection-create': record('arc-p10-connection-create', 'seed', 'http', 'POST',
                                              '/api/v1/admin/connections/', {'data': {'connectionId': 'conn'}}),
         'arc-p10-services-before': record('arc-p10-services-before', 'seed', 'http', 'GET',
-                                         '/api/v1/admin/services/', {'data': []}),
+                                         '/api/v1/admin/services/', {'data': {'items': [], 'total': 0}}),
         'arc-p10-services-after': record('arc-p10-services-after', 'observe', 'http', 'GET',
-                                        '/api/v1/admin/services/', {'data': [{'serviceName': 'agent-service'}]}),
+                                        '/api/v1/admin/services/', {'data': {'items': [{'serviceName': 'agent-service'}], 'total': 1}}),
         'arc-p10-service-meta': record('arc-p10-service-meta', 'observe', 'http', 'GET',
                                       '/rest/services/agent-service/FeatureServer?f=json',
                                       {'serviceName': 'agent-service', 'layers': [{'id': 2}]}),

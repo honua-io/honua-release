@@ -44,7 +44,7 @@ class P11(Scenario):
         return [RoleBinding('created:job:buffer', 'p11-jobs-after', items='/items', id='/jobId',
                             before='p11-jobs-before',
                             created_by={'tool':'honua_execute_plan', 'pointer':'/result/structuredContent/jobId'}),
-                RoleBinding('created:service:buffer', 'p11-services-after', items='/data', id='/serviceName',
+                RoleBinding('created:service:buffer', 'p11-services-after', items='/data/items', id='/serviceName',
                             before='p11-services-before',
                             created_by={'tool':'honua_publish_result', 'pointer':'/result/structuredContent/serviceId'}),
                 RoleBinding('child:layer:published', 'p11-service-meta', pointer='/layers/0/id',
@@ -68,7 +68,8 @@ class P11(Scenario):
         maps = recorder.json('p11-maps-after', 'GET', '/api/v1/studio/content-items?family=map&limit=200')
         map_rows = maps['observation']['body'].get('data', {}).get('items', [])
         services = recorder.json('p11-services-after', 'GET', '/api/v1/admin/services/')
-        service_rows = services['observation']['body'].get('data', [])
+        from agent_e2e_query_contract import service_list_items
+        service_rows = service_list_items(services['observation']['body'])
         publish_candidates = []
         map_candidates = []
         candidates = []

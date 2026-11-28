@@ -167,6 +167,16 @@ def pointer_get(value, pointer):
     return walk(value, parts)
 
 
+def nullable_field_get(value, pointer):
+    require(isinstance(pointer, str) and pointer.startswith('/'), 'invalid JSON pointer')
+    parts = [part.replace('~1', '/').replace('~0', '~') for part in pointer[1:].split('/')]
+    require(bool(parts) and parts[-1] != '*', 'nullable pointer must name one final property')
+    parent = value if len(parts) == 1 else pointer_get(value, '/' + '/'.join(
+        part.replace('~', '~0').replace('/', '~1') for part in parts[:-1]))
+    require(isinstance(parent, dict), 'nullable pointer parent is not an object')
+    return parent.get(parts[-1])
+
+
 def _scalars(value, sink):
     if isinstance(value, dict):
         for item in value.values():
@@ -283,6 +293,11 @@ def evaluate(spec, ctx, *, item=None, step=None):
         record = ctx.record(named(spec['body']))
         require(record.json is not None, 'recorded body is not JSON')
         return pointer_get(record.json, spec['pointer'])
+    if keys == {'body', 'pointer', 'nullable'}:
+        require(spec['nullable'] is True, 'nullable flag must be true')
+        record = ctx.record(named(spec['body']))
+        require(record.json is not None, 'recorded body is not JSON')
+        return nullable_field_get(record.json, spec['pointer'])
     if keys == {'item'}:
         require(item is not None, 'item pointer outside map')
         return pointer_get(item, spec['item'])
@@ -862,8 +877,10 @@ ENUMERATION_CONTRACTS = (
     {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/connections/?', 'items': '/data', 'paging': 'unpaged',
      'source': 'SecureConnectionEndpoints.cs:300-332, no paging or cap; PostgresSecureConnectionRegistry.cs:244 '
                'returns active connections only'},
-    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/services/?', 'items': '/data', 'paging': 'unpaged',
-     'source': 'ServiceSettingsEndpoints.cs:73-112, no paging or cap; one row per service name (:89)'},
+    {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/services/?', 'items': '/data/items',
+     'paging': {'total': '/data/total'},
+     'source': 'ServiceSettingsEndpoints.cs + ServiceCatalogPage.cs; paged {items, page, pageSize, total, '
+               'layerTotal}; total is the full matching service count'},
     {'kind': 'http', 'method': 'GET', 'path': r'/api/v1/admin/jobs/?', 'items': '/items',
      'paging': {'cursor': '/nextCursor', 'omittedWhenLast': True},
      'source': 'ConsoleJobEndpoints.cs:79-109; unwrapped {items, nextCursor} (ConsoleJobModels.cs:30-34) serialized '

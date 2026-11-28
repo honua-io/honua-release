@@ -327,15 +327,7 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
     monkeypatch.setattr(module, 'publication_request', lambda **kwargs: {})
     monkeypatch.setattr(module, 'submit_publication', lambda *args, **kwargs: {'status': 'completed', 'layerId': 0})
     recorder = Recorder()
-    original_json = recorder.json
-    def respond(step, method, path, body=None):
-        if step == 'p12-connection-create':
-            calls.append(step)
-            return {'observation': {'httpStatus': 201, 'body': {'data': {'connectionId': 'connection'}}}}
-        return original_json(step, method, path, body)
-    recorder.json = respond
-    stack.extra.update(recorder=recorder, databaseHandoff=lambda *args: {'host': 'db', 'port': 5432,
-                       'database': 'honua', 'username': 'reader', 'password': 'fixture-password'})
+    stack.extra.update(recorder=recorder, ensureConnection=lambda: 'connection')
     seeded = case.seed(stack, 'A')
     assert case.seed(stack, 'A') == seeded
     assert calls.count('p12-seed-draft') == 1
@@ -344,7 +336,7 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
     assert {row.assertion_id for row in observations} == {'state.saved', 'restart.observed', 'state.reopened', 'source-content.unchanged'}
     assert ('p12-save-action', 1) in calls and ('p12-reopen-read', 2) in calls
     recorder.alter = True
-    second = Stack('', '', None, 'fake2', '', '', '', {'recorder': recorder, 'databaseHandoff': stack.extra['databaseHandoff']})
+    second = Stack('', '', None, 'fake2', '', '', '', {'recorder': recorder, 'ensureConnection': stack.extra['ensureConnection']})
     with pytest.raises(ValueError, match='seed draft does not match'):
         case.seed(second, 'A')
 

@@ -75,10 +75,10 @@ def _case(*, restricted=True, where=GOOD_WHERE, agent_ids=('s3', 's4'), policy_r
         'arc-p10-connection-create': _http('arc-p10-connection-create', '/api/v1/admin/connections/',
                                            {'data': {'connectionId': CONN}}, phase='seed'),
         'arc-p10-services-before': _http('arc-p10-services-before', '/api/v1/admin/services/',
-                                         {'success': True, 'data': [{'serviceName': 'geoprocessing'}]}, phase='seed'),
+                                         {'success': True, 'data': {'items': [{'serviceName': 'geoprocessing'}], 'total': 1}}, phase='seed'),
         'arc-p10-services-after': _http('arc-p10-services-after', '/api/v1/admin/services/',
-                                        {'success': True, 'data': [{'serviceName': 'geoprocessing'},
-                                                                   {'serviceName': SVC}]}),
+                                        {'success': True, 'data': {'items': [{'serviceName': 'geoprocessing'},
+                                                                             {'serviceName': SVC}], 'total': 2}}),
         'arc-p10-service-meta': _http('arc-p10-service-meta', f'/rest/services/{SVC}/FeatureServer?f=json',
                                       {'error': {'code': 403, 'message': 'Forbidden'}} if restricted else
                                       {'serviceName': SVC, 'layers': [{'id': LAYER, 'name': 'Kestrel Shelters'}]}),

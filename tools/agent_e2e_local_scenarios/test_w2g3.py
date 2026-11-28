@@ -53,6 +53,8 @@ def test_p11_seed_idempotent_and_declares_recorded_source_projection(monkeypatch
         def __init__(self): self.calls = []
         def json(self, *args):
             self.calls.append(args)
+            if args and 'services' in args[0]:
+                return {'observation': {'body': {'data': {'items': [], 'total': 0}}}}
             return {'observation': {'body': {'items': [], 'nextCursor': None}}}
         def actions(self): return ()
         def mcp_call(self, *args): self.calls.append(args)
@@ -297,7 +299,7 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
     records={'p13-shared-before':record('p13-shared-before','seed','shared-v1'),
              'p13-shared-after':record('p13-shared-after','observe','shared-v1')}
     for name in ('parcels','flood_zones','shelters'):
-        service='case-'+name; roles['seeded:service:'+name]=service
+        service='p13-'+name; roles['seeded:service:'+name]=service
         service_body={'serviceName':service,'enabledProtocols':['FeatureServer'],
             'accessPolicy':{'allowAnonymous':False,'allowAnonymousWrite':False,'allowedRoles':[],'allowedWriteRoles':[]},
             'timeInfo':None,'mapServer':{'maxImageWidth':4096,'maxImageHeight':4096,'defaultImageWidth':400,
@@ -313,7 +315,9 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
             ('maps-inventory','/api/v1/studio/content-items?family=map&limit=100',
              {'data':{'items':[{'itemId':'aaa-target'},{'itemId':'shared-item'}],'total':2,'nextCursor':None}}),
             ('services-inventory','/api/v1/admin/services/',
-             {'data':[{'serviceName':'case-'+name} for name in ('parcels','flood_zones','shelters')]})):
+             {'data':{'items':[{'serviceName':'geoprocessing'},
+                               *[{'serviceName':'p13-'+name} for name in ('parcels','flood_zones','shelters')]],
+                      'total':4}})):
             step='p13-'+label+'-'+suffix; raw=json.dumps(body).encode()
             records[step]=Record(step,phase,'http','controller','controller','GET',inventory_path,200,raw,
                                  'sha256:'+hashlib.sha256(raw).hexdigest())
@@ -335,7 +339,8 @@ def test_frozen_shared_map_snapshot_rejects_changed_pointer(variant):
     assert score() == 'fail'
     records[step]=old
     step='p13-services-inventory-after'; old=records[step]; changed=old.json
-    changed['data'].append({'serviceName':'unreviewed-extra'})
+    changed['data']['items'].append({'serviceName':'unreviewed-extra'})
+    changed['data']['total']=len(changed['data']['items'])
     raw=json.dumps(changed).encode()
     records[step]=Record(step,'observe','http','controller','controller','GET',old.path,200,raw,
                          'sha256:'+hashlib.sha256(raw).hexdigest())
@@ -475,8 +480,8 @@ def test_p11_published_layer_role_requires_new_authored_service():
         return Record(step,phase,'http','controller','controller','GET',path,200,raw,
                       'sha256:'+hashlib.sha256(raw).hexdigest())
     path='/api/v1/admin/services/'
-    before=record('p11-services-before','seed',path,{'data':[{'serviceName':'old'}]})
-    after=record('p11-services-after','observe',path,{'data':[{'serviceName':'old'},{'serviceName':'buffer-service'}]})
+    before=record('p11-services-before','seed',path,{'data':{'items':[{'serviceName':'old'}],'total':1}})
+    after=record('p11-services-after','observe',path,{'data':{'items':[{'serviceName':'old'},{'serviceName':'buffer-service'}],'total':2}})
     meta=record('p11-service-meta','observe','/rest/services/buffer-service/FeatureServer?f=json',{'serviceName':'buffer-service','layers':[{'id':7}]})
     records={'p11-services-before':before,'p11-services-after':after,'p11-service-meta':meta}
     actions=[{'tool':'honua_publish_result','status':'pass','json':{'result':{'structuredContent':{'serviceId':'buffer-service'}}}}]

@@ -552,6 +552,7 @@
             "resourceId": "services-inventory",
             "content": {
               "names": [
+                "geoprocessing",
                 {
                   "$role": "seeded:service:flood_zones"
                 },
@@ -1116,6 +1117,7 @@
             "resourceId": "services-inventory",
             "content": {
               "names": [
+                "geoprocessing",
                 {
                   "$role": "seeded:service:flood_zones"
                 },
@@ -1564,7 +1566,8 @@
                 },
                 "publishedVersionId": {
                   "body": "$step",
-                  "pointer": "/data/items/0/publishedVersionId"
+                  "pointer": "/data/items/0/publishedVersionId",
+                  "nullable": true
                 },
                 "ownerId": {
                   "body": "$step",
@@ -1718,7 +1721,8 @@
                 },
                 "nextCursor": {
                   "body": "$step",
-                  "pointer": "/data/nextCursor"
+                  "pointer": "/data/nextCursor",
+                  "nullable": true
                 }
               }
             },
@@ -1735,7 +1739,7 @@
                   "sorted": {
                     "map": {
                       "body": "$step",
-                      "pointer": "/data"
+                      "pointer": "/data/items"
                     },
                     "to": {
                       "item": "/serviceName"
@@ -1744,7 +1748,7 @@
                 }
               }
             },
-            "items": "/data"
+            "items": "/data/items"
           }
         ]
       },

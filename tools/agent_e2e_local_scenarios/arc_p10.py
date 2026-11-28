@@ -113,9 +113,8 @@ class ArcP10(P10):
         source_props = [r['properties'] for r in (source if isinstance(source, list) else [])
                         if isinstance(r, dict) and isinstance(r.get('properties'), dict)]
         after = rec.json('arc-p10-services-after', 'GET', '/api/v1/admin/services/')
-        rows = after['observation']['body'].get('data')
-        if not isinstance(rows, list):
-            raise ValueError('service inventory has an invalid shape')
+        from agent_e2e_query_contract import service_list_items
+        rows = service_list_items(after['observation']['body'])
         publications = []
         for index, action in enumerate(rec.actions()):
             args = action.arguments if isinstance(action.arguments, dict) else {}

@@ -2045,7 +2045,8 @@ def test_core3_canary_scans_cover_final_answers_and_task_output():
 
 
 @pytest.mark.parametrize('path,complete,incomplete', [
-    ('/api/v1/admin/services', {'data': [{'serviceName': 's'}]}, None),
+    ('/api/v1/admin/services', {'data': {'items': [{'serviceName': 's'}], 'total': 1}},
+     {'data': {'items': [{'serviceName': 's'}], 'total': 2}}),
     ('/api/v1/admin/jobs?limit=200', {'items': [{'jobId': 'j'}], 'nextCursor': None},
      {'items': [{'jobId': 'j'}], 'nextCursor': 'c2'}),
     ('/api/v1/studio/content-items?limit=200', {'data': {'items': [{'id': 'i'}], 'total': 1, 'nextCursor': None}},
@@ -2054,7 +2055,7 @@ def test_core3_canary_scans_cover_final_answers_and_task_output():
 ])
 def test_core3_reviewed_enumeration_contracts(path, complete, incomplete):
     from agent_e2e_local_projections import proven_complete, pointer_get
-    items = '/data/items' if path.startswith('/api/v1/studio') else ('/data' if 'services' in path else '/items')
+    items = '/data/items' if (path.startswith('/api/v1/studio') or 'services' in path) else '/items'
     record = _record('l', body=complete, path=path)
     proven_complete(record, pointer_get(complete, items), 'l')
     if incomplete is not None:
@@ -2348,7 +2349,7 @@ def test_core3d_created_by_selects_among_same_tool_creations_by_argument():
                 'json': {'result': {'structuredContent': {'serviceName': 'svc-shelters'}}}}]
 
     def listing(step, phase, rows):
-        raw = json.dumps({'data': rows}).encode()
+        raw = json.dumps({'data': {'items': rows, 'total': len(rows)}}).encode()
         return Record(step, phase, 'http', 'controller', None, 'GET', '/api/v1/admin/services', 200, raw,
                       'sha256:' + hashlib.sha256(raw).hexdigest())
     records = {'seed-table': _record('seed-table', phase='seed', body={'table': 'survey_points'}, path='/x'),
@@ -2357,11 +2358,11 @@ def test_core3d_created_by_selects_among_same_tool_creations_by_argument():
     selector = {'tool': 'honua_publish_service', 'pointer': '/result/structuredContent/serviceName',
                 'where': {'argument': '/tableName', 'role': 'seeded:table:survey'}}
     bindings = [RoleBinding('seeded:table:survey', 'seed-table', pointer='/table'),
-                RoleBinding('created:service:survey', 'after', items='/data', id='/serviceName', before='before',
+                RoleBinding('created:service:survey', 'after', items='/data/items', id='/serviceName', before='before',
                             created_by=selector)]
     roles = resolve_roles(bindings, records, agent_principal='a', action_results=results)
     assert roles['created:service:survey'] == 'svc-survey'
-    unselected = [bindings[0], RoleBinding('created:service:survey', 'after', items='/data', id='/serviceName',
+    unselected = [bindings[0], RoleBinding('created:service:survey', 'after', items='/data/items', id='/serviceName',
                                            before='before', created_by={k: v for k, v in selector.items() if k != 'where'})]
     with pytest.raises(ValueError, match='matched 2'):   # without the selector both creations match
         resolve_roles(unselected, records, agent_principal='a', action_results=results)

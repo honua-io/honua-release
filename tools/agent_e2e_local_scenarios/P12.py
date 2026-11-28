@@ -42,12 +42,10 @@ class P12(Scenario):
         namespace = 'p12_' + stack.compose_project.replace('-', '')[-16:]
         town = TownSetup(rec, ROOT / 'certification/agent-e2e/corpus/manifest.v1.json').prepare(
             variant=variant, namespace=namespace, starting_state='imported-town')
-        credentials = stack.extra['databaseHandoff']('p12', 'honua_data')
-        connection = data(rec.json('p12-connection-create', 'POST', '/api/v1/admin/connections/', {
-            'name': 'p12-source-' + stack.compose_project[-12:], 'host': credentials['host'],
-            'port': credentials['port'], 'databaseName': credentials['database'],
-            'username': credentials['username'], 'password': credentials['password'],
-            'sslRequired': False, 'sslMode': 'Disable'}), (201,))['connectionId']
+        connection = stack.extra.get('connectionId')
+        if connection is None:
+            connection = stack.extra['ensureConnection']()
+            stack.extra['connectionId'] = connection
         binding = town['layers']['shelters']
         service = namespace + '-shelters'
         published = submit_publication(rec, publication_request(connection=connection,
