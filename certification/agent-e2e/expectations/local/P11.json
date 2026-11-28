@@ -447,7 +447,7 @@
         "featureArrayCount": 1,
         "queryError": false,
         "offset": 0,
-        "geojsonType": "FeatureCollection"
+        "featureGeometryType": "Polygon"
       }
     },
     "B": {
@@ -894,7 +894,7 @@
         "featureArrayCount": 1,
         "queryError": false,
         "offset": 0,
-        "geojsonType": "FeatureCollection"
+        "featureGeometryType": "Polygon"
       }
     }
   },
@@ -916,15 +916,17 @@
               {
                 "role": "seeded:layer:parcels",
                 "at": {
-                  "argument": "/layerId"
+                  "argument": "/serviceLayerIndex"
                 }
               }
             ],
             "content": {
               "object": {
                 "serviceId": {
-                  "body": "$step",
-                  "pointer": "/result/structuredContent/serviceId"
+                  "featureQueryServiceId": "$step",
+                  "service": {
+                    "role": "seeded:service:parcels"
+                  }
                 },
                 "count": {
                   "body": "$step",
@@ -941,8 +943,7 @@
                 "features": {
                   "sorted": {
                     "map": {
-                      "body": "$step",
-                      "pointer": "/result/structuredContent/geojson/features"
+                      "featureQueryFeatures": "$step"
                     },
                     "to": {
                       "object": {
@@ -989,15 +990,17 @@
               {
                 "role": "seeded:layer:flood_zones",
                 "at": {
-                  "argument": "/layerId"
+                  "argument": "/serviceLayerIndex"
                 }
               }
             ],
             "content": {
               "object": {
                 "serviceId": {
-                  "body": "$step",
-                  "pointer": "/result/structuredContent/serviceId"
+                  "featureQueryServiceId": "$step",
+                  "service": {
+                    "role": "seeded:service:flood_zones"
+                  }
                 },
                 "count": {
                   "body": "$step",
@@ -1014,8 +1017,7 @@
                 "features": {
                   "sorted": {
                     "map": {
-                      "body": "$step",
-                      "pointer": "/result/structuredContent/geojson/features"
+                      "featureQueryFeatures": "$step"
                     },
                     "to": {
                       "object": {
@@ -1056,15 +1058,17 @@
               {
                 "role": "seeded:layer:shelters",
                 "at": {
-                  "argument": "/layerId"
+                  "argument": "/serviceLayerIndex"
                 }
               }
             ],
             "content": {
               "object": {
                 "serviceId": {
-                  "body": "$step",
-                  "pointer": "/result/structuredContent/serviceId"
+                  "featureQueryServiceId": "$step",
+                  "service": {
+                    "role": "seeded:service:shelters"
+                  }
                 },
                 "count": {
                   "body": "$step",
@@ -1081,8 +1085,7 @@
                 "features": {
                   "sorted": {
                     "map": {
-                      "body": "$step",
-                      "pointer": "/result/structuredContent/geojson/features"
+                      "featureQueryFeatures": "$step"
                     },
                     "to": {
                       "object": {
@@ -1212,12 +1215,12 @@
             "pointer": "/spatialReference/wkid"
           },
           "sourceId": {
-            "body": "p11-result-geojson",
-            "pointer": "/result/structuredContent/geojson/features/0/properties/source_id"
+            "featureQueryFeatures": "p11-result-geojson",
+            "pointer": "/0/properties/source_id"
           },
           "geometry": {
-            "body": "p11-result-geojson",
-            "pointer": "/result/structuredContent/geojson/features/0/geometry"
+            "featureQueryFeatures": "p11-result-geojson",
+            "pointer": "/0/geometry"
           }
         }
       },
@@ -1259,7 +1262,7 @@
             {
               "role": "child:layer:published",
               "at": {
-                "argument": "/layerId"
+                "argument": "/serviceLayerIndex"
               }
             }
           ]
@@ -1355,8 +1358,7 @@
           },
           "featureArrayCount": {
             "count": {
-              "body": "p11-result-geojson",
-              "pointer": "/result/structuredContent/geojson/features"
+              "featureQueryFeatures": "p11-result-geojson"
             }
           },
           "queryError": {
@@ -1367,9 +1369,9 @@
             "body": "p11-result-geojson",
             "pointer": "/result/structuredContent/resultOffset"
           },
-          "geojsonType": {
-            "body": "p11-result-geojson",
-            "pointer": "/result/structuredContent/geojson/type"
+          "featureGeometryType": {
+            "featureQueryFeatures": "p11-result-geojson",
+            "pointer": "/0/geometry/type"
           }
         }
       },
@@ -1428,7 +1430,7 @@
             {
               "role": "child:layer:published",
               "at": {
-                "argument": "/layerId"
+                "argument": "/serviceLayerIndex"
               }
             }
           ]
@@ -1502,7 +1504,7 @@
     {
       "role": "seeded:layer:parcels",
       "step": "publish-parcels-submit",
-      "pointer": "/data/resourceIds/layerId"
+      "pointer": "/data/resourceIds/storageLayerId"
     },
     {
       "role": "seeded:service:flood_zones",
@@ -1512,7 +1514,7 @@
     {
       "role": "seeded:layer:flood_zones",
       "step": "publish-flood-zones-submit",
-      "pointer": "/data/resourceIds/layerId"
+      "pointer": "/data/resourceIds/storageLayerId"
     },
     {
       "role": "seeded:service:shelters",
@@ -1522,7 +1524,7 @@
     {
       "role": "seeded:layer:shelters",
       "step": "publish-shelters-submit",
-      "pointer": "/data/resourceIds/layerId"
+      "pointer": "/data/resourceIds/storageLayerId"
     }
   ],
   "customerFiles": {
@@ -1643,8 +1645,7 @@
             },
             "featureArrayCount": {
               "count": {
-                "body": "p11-result-geojson",
-                "pointer": "/result/structuredContent/geojson/features"
+                "featureQueryFeatures": "p11-result-geojson"
               }
             },
             "queryError": {
@@ -1655,9 +1656,9 @@
               "body": "p11-result-geojson",
               "pointer": "/result/structuredContent/resultOffset"
             },
-            "geojsonType": {
-              "body": "p11-result-geojson",
-              "pointer": "/result/structuredContent/geojson/type"
+            "featureGeometryType": {
+              "featureQueryFeatures": "p11-result-geojson",
+              "pointer": "/0/geometry/type"
             }
           }
         },
@@ -1716,7 +1717,7 @@
               {
                 "role": "child:layer:published",
                 "at": {
-                  "argument": "/layerId"
+                  "argument": "/serviceLayerIndex"
                 }
               }
             ]
@@ -1837,8 +1838,7 @@
             },
             "featureArrayCount": {
               "count": {
-                "body": "p11-result-geojson",
-                "pointer": "/result/structuredContent/geojson/features"
+                "featureQueryFeatures": "p11-result-geojson"
               }
             },
             "queryError": {
@@ -1849,9 +1849,9 @@
               "body": "p11-result-geojson",
               "pointer": "/result/structuredContent/resultOffset"
             },
-            "geojsonType": {
-              "body": "p11-result-geojson",
-              "pointer": "/result/structuredContent/geojson/type"
+            "featureGeometryType": {
+              "featureQueryFeatures": "p11-result-geojson",
+              "pointer": "/0/geometry/type"
             }
           }
         },
@@ -1910,7 +1910,7 @@
               {
                 "role": "child:layer:published",
                 "at": {
-                  "argument": "/layerId"
+                  "argument": "/serviceLayerIndex"
                 }
               }
             ]

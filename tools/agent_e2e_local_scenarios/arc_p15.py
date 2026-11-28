@@ -40,7 +40,8 @@ class ArcP15(P15):
         stack.extra['addPrincipal']('operator', ['read:*'])
         namespace = 'p15_' + stack.compose_project.replace('-', '')[-16:]
         body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']
-        body['mapPackageId'] = ('kestrel' if variant == 'A' else 'willow') + '-map'
+        body['mapId'] = ('kestrel' if variant == 'A' else 'willow') + '-map'
+        body['format'] = 'honua_map.v1'
         url = '/ogc/features/collections/' + str(binding['layerId']) + '/items'
         body['sourceBindings'] = [{'sourceId': 'shelters', 'protocol': 'ogc_features',
                                    'locator': {'collectionId': str(binding['layerId'])}}]
@@ -48,8 +49,8 @@ class ArcP15(P15):
         body['mapSpec']['layers'] = [{'id': 'shelters', 'source': 'shelters', 'type': 'circle',
                                      'paint': {'circle-color': '#ef2020'}}]
         draft = data(rec.json('p15-map-draft', 'POST', '/api/v1/studio/package-drafts', {
-            'packageKey': body['mapPackageId'], 'workspaceId': namespace, 'ownerId': rec.principals['agent'][1],
-            'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1', 'body': body}
+            'packageKey': body['mapId'], 'workspaceId': namespace, 'ownerId': rec.principals['agent'][1],
+            'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map.v1', 'body': body}
         }), (201,))
         saved = data(rec.json('p15-map-saved', 'POST', '/api/v1/studio/package-drafts/' + guid(draft['draftId']) +
                               '/content-versions', {}), (201,))
@@ -57,6 +58,7 @@ class ArcP15(P15):
                  'contentHash': saved['contentHash'], 'shelters': binding,
                  'priorCaseReceiptSha256': shared['caseReceiptSha256']}
         rec.json('p15-source-before', 'GET', self.source_path(binding))
+        rec.json('p15-source-before-geo', 'GET', self.source_geojson_path(binding))
         return Seeded(state)
 
 

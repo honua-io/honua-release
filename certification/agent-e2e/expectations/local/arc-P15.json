@@ -469,7 +469,17 @@
                   "pathSegment": 4
                 }
               }
-            ]
+            ],
+            "content": {
+              "featureServerFeatures": "$step",
+              "booleanFields": [
+                "is_open"
+              ],
+              "booleanGeo": {
+                "p15-source-before": "p15-source-before-geo",
+                "p15-source-after": "p15-source-after-geo"
+              }
+            }
           }
         ]
       },
@@ -481,12 +491,26 @@
           "phase": "seed",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=source_id%2Cname%2Ccapacity%2Cis_open&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         },
+        "p15-source-before-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=source_id%2Cname%2Ccapacity%2Cis_open&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
         "p15-source-after": {
           "kind": "http",
           "method": "GET",
           "principal": "controller",
           "phase": "observe",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=source_id%2Cname%2Ccapacity%2Cis_open&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p15-source-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=source_id%2Cname%2Ccapacity%2Cis_open&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         }
       }
     },

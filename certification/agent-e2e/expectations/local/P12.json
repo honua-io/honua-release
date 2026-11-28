@@ -443,7 +443,17 @@
                   "pathSegment": 4
                 }
               }
-            ]
+            ],
+            "content": {
+              "featureServerFeatures": "$step",
+              "booleanFields": [
+                "is_open"
+              ],
+              "booleanGeo": {
+                "p12-source-before": "p12-source-before-geo",
+                "p12-source-after": "p12-source-after-geo"
+              }
+            }
           }
         ]
       },
@@ -455,12 +465,26 @@
           "phase": "seed",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         },
+        "p12-source-before-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
         "p12-source-after": {
           "kind": "http",
           "method": "GET",
           "principal": "controller",
           "phase": "observe",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p12-source-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         }
       }
     }
@@ -501,7 +525,7 @@
     {
       "role": "seeded:layer:shelters",
       "step": "publish-shelters-submit",
-      "pointer": "/data/resourceIds/layerId"
+      "pointer": "/data/resourceIds/storageLayerId"
     }
   ],
   "customerFiles": {

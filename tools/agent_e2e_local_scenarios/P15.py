@@ -30,6 +30,9 @@ class P15(Scenario):
     def source_path(self, binding):
         return source_path(binding)
 
+    def source_geojson_path(self, binding):
+        return self.source_path(binding).replace('f=json', 'f=geojson').replace('outSR=3857', 'outSR=4326')
+
     def agent_permissions(self, variant):
         # Sharing is the task here; approval separation is evaluated by P14/P17.
         return ['admin:*']
@@ -54,7 +57,8 @@ class P15(Scenario):
             variant=variant, namespace=namespace, starting_state='published-town', connection_id=connection)
         stack.extra['addPrincipal']('operator', ['read:*'])
         body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']
-        body['mapPackageId'] = ('kestrel' if variant == 'A' else 'willow') + '-map'
+        body['mapId'] = ('kestrel' if variant == 'A' else 'willow') + '-map'
+        body['format'] = 'honua_map.v1'
         body['sourceBindings'] = []
         body['mapSpec']['sources'] = {}
         body['mapSpec']['layers'] = []
@@ -67,9 +71,9 @@ class P15(Scenario):
                 'type': 'circle' if name == 'shelters' else 'fill',
                 'paint': {'circle-color': '#ef2020'} if name == 'shelters' else {'fill-color': '#777777'}})
         draft = data(rec.json('p15-map-draft', 'POST', '/api/v1/studio/package-drafts', {
-            'packageKey': body['mapPackageId'], 'workspaceId': namespace,
+            'packageKey': body['mapId'], 'workspaceId': namespace,
             'ownerId': rec.principals['agent'][1],
-            'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1', 'body': body}
+            'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map.v1', 'body': body}
         }), (201,))
         draft_id = guid(draft['draftId'])
         saved = data(rec.json('p15-map-saved', 'POST',
@@ -77,6 +81,7 @@ class P15(Scenario):
         seed = {'variant': variant, 'itemId': guid(saved['itemId']), 'versionId': guid(saved['versionId']),
                 'contentHash': saved['contentHash'], 'shelters': town['layers']['shelters']}
         rec.json('p15-source-before', 'GET', self.source_path(seed['shelters']))
+        rec.json('p15-source-before-geo', 'GET', self.source_geojson_path(seed['shelters']))
         stack.extra['p15Seed'] = copy.deepcopy(seed)
         return Seeded(seed)
 
@@ -88,6 +93,7 @@ class P15(Scenario):
         if state['variant'] != variant:
             raise ValueError('variant differs from original seed')
         rec.json('p15-source-after', 'GET', self.source_path(state['shelters']))
+        rec.json('p15-source-after-geo', 'GET', self.source_geojson_path(state['shelters']))
         rec.json('p15-bootstrap-probe', 'GET', '/api/v1/admin/api-keys/', principal='bootstrap')
         operator_id = rec.principals['operator'][1]
         grants = data(rec.json('p15-operator-grants', 'GET',

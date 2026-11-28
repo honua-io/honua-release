@@ -307,7 +307,7 @@ def test_p12_seed_is_idempotent_and_observes_only_matching_session_actions(stack
             if step == 'p12-seed-draft':
                 self.envelope = copy.deepcopy(body['envelope'])
                 if self.alter:
-                    self.envelope['body']['mapPackageId'] = 'wrong'
+                    self.envelope['body']['mapId'] = 'wrong'
             result = {'draftId': draft, 'envelope': self.envelope} if step == 'p12-seed-draft' else {'itemId': item, 'versionId': first} if step == 'p12-seed-save' else {'itemId': item, 'versionId': first, 'envelope': self.envelope} if step == 'p12-seed-version' else {}
             if step == 'p12-items-between':
                 result = {'total': 1, 'items': [{'itemId': item, 'currentVersionId': saved}]}

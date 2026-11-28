@@ -1,6 +1,7 @@
 """Shared fail-closed parsers for publication layer ids and feature-query responses."""
 from __future__ import annotations
 
+import math
 import re
 
 from agent_e2e_local_recorder import ProjectionError
@@ -70,6 +71,53 @@ def query_features(value):
     features = value.get('features')
     _require(isinstance(features, list), 'feature query lacks features')
     return features, 'attributes'
+
+
+def _normalize_coord_node(node):
+    if isinstance(node, list):
+        return [_normalize_coord_node(item) for item in node]
+    if type(node) is float and math.isfinite(node) and node.is_integer():
+        return int(node)
+    return node
+
+
+def _normalize_geometry(geometry):
+    if 'coordinates' not in geometry:
+        return geometry
+    return {**geometry, 'coordinates': _normalize_coord_node(geometry['coordinates'])}
+
+
+def _normalize_query_feature(feature, attr_key):
+    _require(isinstance(feature, dict) and isinstance(feature.get(attr_key), dict)
+             and isinstance(feature.get('geometry'), dict), 'feature query item is malformed')
+    if attr_key == 'properties' and 'type' in feature:
+        _require(feature['type'] == 'Feature', 'feature query item has unexpected type')
+    return {'type': 'Feature', 'geometry': _normalize_geometry(feature['geometry']),
+            'properties': dict(feature[attr_key])}
+
+
+def _query_structured_content(record):
+    _require(record.kind == 'mcp' and record.status == HTTP_OK and isinstance(record.json, dict),
+             'feature query response missing or failed')
+    result = record.json.get('result')
+    _require(isinstance(result, dict) and result.get('isError', False) is False, 'feature query failed')
+    value = result.get('structuredContent')
+    _require(isinstance(value, dict), 'feature query lacks structuredContent')
+    return value
+
+
+def normalize_query_features(record):
+    """Extract normalized GeoJSON-style features from flat or legacy honua_query_features output."""
+    features, attr_key = query_features(_query_structured_content(record))
+    return [_normalize_query_feature(feature, attr_key) for feature in features]
+
+
+def query_service_id(record, service):
+    """Verify honua_query_features echoed the queried service (or svc-publish-<service>) and return service."""
+    from agent_e2e_local_projections import echoes_service
+    value = _query_structured_content(record)
+    _require(echoes_service(value.get('serviceId'), service), 'feature query echoed a foreign service')
+    return str(service)
 
 
 def source_oid_map(record, service, layer):

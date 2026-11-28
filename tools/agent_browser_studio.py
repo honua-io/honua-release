@@ -1184,7 +1184,7 @@ def map_spec(styled, *, filtered=False):
 
 
 def map_body(variant, extent, styled):
-    return {'mapPackageId': 'synthetic-town-' + variant.lower(), 'format': 'honua_map_package.v1',
+    return {'mapId': 'synthetic-town-' + variant.lower(), 'format': 'honua_map.v1',
             'layers': [{'id': name, 'visible': True} for name in LAYER_NAMES],
             'view': {'bbox': list(extent)}, 'mapSpec': map_spec(styled)}
 
@@ -1954,7 +1954,7 @@ def seed_unstyled_map(recorder, variant, layers, owner):
     starting = fixture_map_body(variant, layers, source_ids, styled=False)
     expected = fixture_map_body(variant, layers, source_ids, styled=True)
     recorder.store_derived('p09-expected-saved', {'body': expected})
-    envelope = {'family': 'map', 'schemaVersion': '1', 'format': 'honua_map_package.v1',
+    envelope = {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map.v1',
                 'body': starting}
     created = recorder.json('p09-seed-draft', 'POST', '/api/v1/studio/package-drafts', {
         'packageKey': 'synthetic-town-' + variant.lower(), 'ownerId': owner, 'envelope': envelope})

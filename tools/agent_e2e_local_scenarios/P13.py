@@ -25,9 +25,9 @@ class P13(Scenario):
         layers = [{'id': name, 'sourceId': str(town['layers'][name]['service']), 'visible': True}
                   for name in ('parcels', 'flood_zones', 'shelters')]
         layers[2]['style'] = {'type': 'circle', 'paint': {'circle-color': '#315a86'}}
-        envelope = {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1',
+        envelope = {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map.v1',
                     'bindings': [], 'dependencies': [], 'provenance': [],
-                    'body': {'title': 'Town map', 'layers': layers}}
+                    'body': {'mapId': namespace, 'format': 'honua_map.v1', 'title': 'Town map', 'layers': layers}}
         create = data(recorder.json(prefix + '-create', 'POST', '/api/v1/studio/package-drafts', {
             'itemId': item_id, 'packageKey': namespace, 'workspaceId': namespace,
             'ownerId': owner, 'envelope': envelope}), (201,))
@@ -111,7 +111,7 @@ class P13(Scenario):
                 *[RoleBinding(f'seeded:{kind}:{layer}', f'publish-{layer.replace("_", "-")}-submit',
                               pointer=f'/data/resourceIds/{field}')
                   for layer in ('parcels', 'flood_zones', 'shelters')
-                  for kind, field in (('service', 'serviceName'), ('layer', 'layerId'))]]
+                  for kind, field in (('service', 'serviceName'), ('layer', 'storageLayerId'))]]
 
     def observe(self, stack, seeded, variant, run=None):
         recorder = stack.extra['recorder']

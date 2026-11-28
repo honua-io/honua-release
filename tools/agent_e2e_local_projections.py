@@ -24,6 +24,10 @@ Spec operations (exactly one key per object unless noted):
   {"featureServerPoints": STEP}        FeatureServer query body -> {srid, features} by source_id
   {"featureQueryIds": STEP, "service": SPEC, "layer": SPEC}
                                        source_id set from an MCP honua_query_features result
+  {"featureQueryFeatures": STEP, "pointer": "/0/..."?}
+                                       normalized features (or pointer into them) from flat or legacy MCP query
+  {"featureQueryServiceId": STEP, "service": SPEC}
+                                       verified queried service id from an MCP honua_query_features result
   {"protectedContent": [{"label": NAME, "before": STEP, "after": STEP, "pointer": "/x"? | "content": SPEC?}]}
                                        honua.protected-content/v1 before/after snapshots; "before"
                                        must be a seed-phase read and "after" an observe-phase read;
@@ -59,9 +63,11 @@ import re
 from agent_e2e_local_recorder import ProjectionError, Unverifiable
 from agent_e2e_query_contract import (
     extract_query_source_ids as _extract_query_source_ids,
+    normalize_query_features as _normalize_query_features,
     publication_resource_layer as _publication_resource_layer,
     query_features as _query_features,
     query_layer_id,
+    query_service_id as _query_service_id,
     resolve_arc_publication_role as _resolve_arc_publication_role,
     source_oid_map as _source_oid_map,
 )
@@ -73,7 +79,8 @@ def require(condition, reason):
 
 
 _STEP_OPS = ('body', 'status', 'sha256', 'principal', 'method', 'replayOf', 'disclosed',
-             'featureServerPoints', 'featureQueryIds', 'oidSource', 'target', 'featureServerFeatures', 'absent',
+             'featureServerPoints', 'featureQueryIds', 'featureQueryFeatures', 'featureQueryServiceId',
+             'oidSource', 'target', 'featureServerFeatures', 'absent',
              'fullPublished', 'sourceRows', 'finalQuery', 'settings', 'catalog')
 
 
@@ -349,6 +356,12 @@ def evaluate(spec, ctx, *, item=None, step=None):
             value = feature_server_points(record.json)
             value['features'].sort(key=lambda feature: feature['properties']['source_id'])
             return value
+        if op == 'featureQueryFeatures':
+            return _normalize_query_features(ctx.record(named(arg)))
+    if keys == {'featureQueryFeatures', 'pointer'}:
+        return pointer_get(_normalize_query_features(ctx.record(named(spec['featureQueryFeatures']))), spec['pointer'])
+    if keys == {'featureQueryServiceId', 'service'}:
+        return _query_service_id(ctx.record(named(spec['featureQueryServiceId'])), sub(spec['service']))
     if keys == {'protectedContent'}:
         rows = spec['protectedContent']
         require(isinstance(rows, list) and rows, 'protectedContent needs resources')

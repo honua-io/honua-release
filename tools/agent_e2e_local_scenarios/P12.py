@@ -13,7 +13,7 @@ from pathlib import Path
 from agent_e2e_local_api import Observation, Scenario, Seeded
 from agent_e2e_scenario_backend import TownSetup
 from agent_e2e_scenario_operations import data, publication_request, submit_publication
-from agent_e2e_p10_observer import source_path
+from agent_e2e_p10_observer import source_geojson_path, source_path
 from agent_e2e_studio_observer import guid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -57,9 +57,11 @@ class P12(Scenario):
             raise RuntimeError('fixture publication was not completed')
         binding.update(service=service, layerId=published['layerId'])
         rec.json('p12-source-before', 'GET', source_path(binding))
+        rec.json('p12-source-before-geo', 'GET', source_geojson_path(binding))
         rec.json('p12-items-before', 'GET', ITEMS)
         map_body = json.loads((ROOT / 'certification/terminal-journey/targets/local-docker.json').read_text())['execution']['mapBody']
-        map_body['mapPackageId'] = ('kestrel' if variant == 'A' else 'willow') + '-map'
+        map_body['mapId'] = ('kestrel' if variant == 'A' else 'willow') + '-map'
+        map_body['format'] = 'honua_map.v1'
         map_body['sourceBindings'] = [{'sourceId': 'shelters', 'protocol': 'ogc_features',
                                        'locator': {'collectionId': str(binding['layerId'])}}]
         map_body['mapSpec']['sources'] = {'shelters': {'type': 'geojson',
@@ -67,9 +69,9 @@ class P12(Scenario):
         map_body['mapSpec']['layers'] = [{'id': 'shelters', 'source': 'shelters', 'type': 'circle',
                                          'paint': {'circle-color': '#ef2020'}}]
         draft = data(rec.json('p12-seed-draft', 'POST', '/api/v1/studio/package-drafts', {
-            'packageKey': map_body['mapPackageId'], 'workspaceId': namespace,
+            'packageKey': map_body['mapId'], 'workspaceId': namespace,
             'ownerId': rec.principals['agent'][1],
-            'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map_package.v1', 'body': map_body}
+            'envelope': {'family': 'map', 'schemaVersion': '1.0', 'format': 'honua_map.v1', 'body': map_body}
         }), (201,))
         if draft.get('envelope', {}).get('body') != map_body:
             raise ValueError('seed draft does not match the reviewed map fixture')
@@ -107,6 +109,7 @@ class P12(Scenario):
             raise ValueError('seed variant differs')
         rec, state = stack.extra['recorder'], seeded.state
         rec.json('p12-source-after', 'GET', source_path(state['shelters']))
+        rec.json('p12-source-after-geo', 'GET', source_geojson_path(state['shelters']))
         rec.json('p12-version-after', 'GET', '/api/v1/studio/content-items/' + state['itemId'] + '/versions/' + state['savedVersionId'])
         saves = [a for a in rec.actions() if a.session == 1 and a.status == 'pass' and a.kind == 'tool_call'
                  and a.tool == 'honua_studio_save_version' and isinstance(a.arguments, dict)
