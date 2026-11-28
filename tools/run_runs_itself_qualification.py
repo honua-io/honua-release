@@ -182,7 +182,21 @@ def _poll_row_notifications(
     return deps.verify_notifications(deps.aws, stack_name, window)
 
 
-def _execute_row(row: int, config: RunsItselfConfig, deps: RunsItselfDeps) -> tuple[dict, dict]:
+def _wait_fresh_metric_minute(stack_name: str, last_end: dict[str, dt.datetime], deps: RunsItselfDeps) -> dt.datetime:
+    now = deps.utc_now()
+    previous = last_end.get(stack_name)
+    if previous is None:
+        return now
+    next_minute = previous.replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
+    if now < next_minute:
+        deps.sleep((next_minute - now).total_seconds() + 1.0)
+        now = max(deps.utc_now(), next_minute)
+    return now
+
+
+def _execute_row(
+    row: int, config: RunsItselfConfig, deps: RunsItselfDeps,
+) -> tuple[dict, dict, tuple[str, dt.datetime]]:
     stack_name = target_stack_for_row(config, row)
     row_dir = config.artifacts_dir / f'row-{row}'
     row_dir.mkdir(parents=True, exist_ok=True)
@@ -207,7 +221,7 @@ def _execute_row(row: int, config: RunsItselfConfig, deps: RunsItselfDeps) -> tu
         'notificationVerified': True,
         'inboxVerified': True,
     }
-    return receipt, entry
+    return receipt, entry, (stack_name, window_end)
 
 
 def compute_unattended_person_minutes(receipts: dict[int, dict]) -> int | float:
@@ -215,7 +229,8 @@ def compute_unattended_person_minutes(receipts: dict[int, dict]) -> int | float:
     for row in sorted(UNATTENDED_ROWS):
         receipt = receipts.get(row)
         require(isinstance(receipt, dict), f'Missing unattended row {row} receipt')
-        minutes = receipt.get('person_minutes', 0)
+        require('person_minutes' in receipt, f'Missing recorded person_minutes on unattended row {row}')
+        minutes = receipt['person_minutes']
         require(type(minutes) in (int, float) and math.isfinite(minutes) and minutes >= 0,
                 f'Invalid person_minutes recorded on row {row}')
         total += float(minutes)
@@ -239,8 +254,11 @@ def run_qualification(config: RunsItselfConfig, deps: RunsItselfDeps) -> dict:
     _verify_candidate_stacks(config, deps)
     receipts: dict[int, dict] = {}
     rows_payload: dict[str, dict] = {}
+    last_stack_end: dict[str, dt.datetime] = {}
     for row in REQUIRED_ROWS:
-        receipt, entry = _execute_row(row, config, deps)
+        _wait_fresh_metric_minute(target_stack_for_row(config, row), last_stack_end, deps)
+        receipt, entry, (stack_name, ended_at) = _execute_row(row, config, deps)
+        last_stack_end[stack_name] = ended_at
         receipts[row] = receipt
         rows_payload[ROW_TO_OPERATES_ID[row]] = entry
     require(tuple(rows_payload.keys()) == OPERATES_IDS,

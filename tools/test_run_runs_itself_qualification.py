@@ -42,29 +42,25 @@ def _receipt_for_row(row: int, recovery: float = 1.5, **overrides) -> dict:
     if row == 11:
         obs.append({'notify_only_diagnosed': True, 'zero_mutations_observed': True})
     if row == 12:
-        obs.append({
-            'human_needed_notified': True, 'plain_language_guidance_verified': True,
-            'zero_mutations_observed': True, 'expired_safely': True,
-            'initial_sns_message_id': 'sns-1', 'initial_sqs_message_id': 'sqs-1',
-            'renotify_sns_message_id': 'sns-2', 'renotify_sqs_message_id': 'sqs-2',
-            'expiry_sns_message_id': 'sns-3', 'expiry_sqs_message_id': 'sqs-3',
-        })
-    return {
-        'row': row, 'executed': True,
-        'result': 'OBSERVED_EMAIL_AND_INBOX_VERIFICATION_REQUIRED',
-        'recovery_minutes': recovery, 'observations': obs, **overrides,
-    }
+        obs.append({'human_needed_notified': True, 'plain_language_guidance_verified': True,
+                    'zero_mutations_observed': True, 'expired_safely': True,
+                    'initial_sns_message_id': 'sns-1', 'initial_sqs_message_id': 'sqs-1',
+                    'renotify_sns_message_id': 'sns-2', 'renotify_sqs_message_id': 'sqs-2',
+                    'expiry_sns_message_id': 'sns-3', 'expiry_sqs_message_id': 'sqs-3'})
+    payload = {'row': row, 'executed': True, 'result': 'OBSERVED_EMAIL_AND_INBOX_VERIFICATION_REQUIRED',
+               'recovery_minutes': recovery, 'observations': obs}
+    if row in driver.UNATTENDED_ROWS:
+        payload['person_minutes'] = 0
+    return {**payload, **overrides}
 
 
 def _measurement(**overrides) -> ls_driver.ImageMeasurement:
-    base = {
+    return ls_driver.ImageMeasurement(**{
         'image_ref': IMAGE_REF, 'index_digest': DIGEST,
         'platform_digests': {'amd64': AMD64_DIGEST, 'arm64': ARM64_DIGEST},
         'platform_sizes': {'amd64': 250_000_000, 'arm64': 260_000_000},
-        'published_aot': True, 'default_image': 'postgis-only',
-    }
-    base.update(overrides)
-    return ls_driver.ImageMeasurement(**base)
+        'published_aot': True, 'default_image': 'postgis-only', **overrides,
+    })
 
 
 class FakeRunsItselfAws:
@@ -297,6 +293,10 @@ def test_notification_polling_retries_pending_metrics_until_ingested():
     now = dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc)
     evidence = driver._poll_row_notifications(STACK, (now, now + dt.timedelta(minutes=1)), _deps(aws, runner, sleep=delayed_sleep))
     assert evidence['notificationVerified'] is True and len(sleeps) == 2
+    missing_pm = {r: _receipt_for_row(r) for r in driver.UNATTENDED_ROWS}
+    missing_pm[1].pop('person_minutes')
+    with pytest.raises(ObservationError, match='Missing recorded person_minutes'):
+        driver.compute_unattended_person_minutes(missing_pm)
 
 
 @pytest.mark.parametrize('case', [

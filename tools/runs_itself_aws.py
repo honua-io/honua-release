@@ -74,15 +74,15 @@ def decode_watchdog_state(raw: str) -> dict:
 
 def _metric_sum(aws: Any, spec: dict, window: tuple[dt.datetime, dt.datetime]) -> float:
     start, end = window
-    padded_start = (start - dt.timedelta(seconds=METRIC_PADDING_SECONDS)).replace(microsecond=0)
-    padded_end = (end + dt.timedelta(seconds=METRIC_PADDING_SECONDS)).replace(microsecond=0)
+    query_start = start.replace(microsecond=0)
+    query_end = (end + dt.timedelta(seconds=METRIC_PADDING_SECONDS)).replace(microsecond=0)
     response = aws(
         'cloudwatch', 'get-metric-statistics',
         '--namespace', spec['namespace'],
         '--metric-name', spec['metric'],
         '--dimensions', f"Name={spec['dim_name']},Value={spec['dim_value']}",
-        '--start-time', padded_start.isoformat().replace('+00:00', 'Z'),
-        '--end-time', padded_end.isoformat().replace('+00:00', 'Z'),
+        '--start-time', query_start.isoformat().replace('+00:00', 'Z'),
+        '--end-time', query_end.isoformat().replace('+00:00', 'Z'),
         '--period', str(METRIC_PERIOD_SECONDS),
         '--statistics', 'Sum',
     )
