@@ -286,6 +286,36 @@ def test_latest_real_job_attempt_replaces_old_failure_only_with_same_run_and_sha
     assert bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)[0] == 'fail'
 
 
+def test_orphaned_unstarted_queued_ghost_rows_in_same_attempt_do_not_hide_completed_job():
+    payload = _full_matrix_payload()
+    payload['_workflow_runs'][0]['run_attempt'] = 2
+    evidence = payload['_matrix_execution']
+    evidence['runAttempt'] = 2
+    job = next(j for j in evidence['jobs'] if j['name'] == 'Server Tests (Mutation)')
+    job['run_attempt'] = 2
+    ghost = {
+        'id': 9001, 'name': 'Server Tests (Mutation)', 'status': 'queued', 'conclusion': None,
+        'completed_at': None, 'runner_id': None, 'head_sha': PINNED_SHA, 'run_id': 12345,
+        'run_attempt': 2, 'steps': [],
+    }
+    evidence['jobs'].insert(0, ghost)
+    assert bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)[0] == 'pass'
+    # Two real completed jobs in the same attempt still fail closed.
+    second = copy.deepcopy(job)
+    second['id'] = 9002
+    evidence['jobs'].append(second)
+    status, why = bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)
+    assert status == 'fail' and 'duplicate names in one attempt' in why
+
+
+def test_only_orphaned_queued_job_without_completed_job_still_fails():
+    payload = _full_matrix_payload()
+    evidence = payload['_matrix_execution']
+    job = next(j for j in evidence['jobs'] if j['name'] == 'Server Tests (Mutation)')
+    job.update(status='queued', conclusion=None, completed_at=None, runner_id=None, steps=[])
+    assert bt.classify_full_matrix(payload, FULL_MATRIX_POLICY, PINNED_SHA)[0] == 'fail'
+
+
 def test_default_adapter_collects_pinned_source_and_all_job_attempts(monkeypatch):
     payload = _full_matrix_payload()
     evidence = payload['_matrix_execution']

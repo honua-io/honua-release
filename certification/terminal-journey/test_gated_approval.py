@@ -295,3 +295,81 @@ def test_refused_human_session_records_only_the_calls_it_reached(human_approver)
     calls = _journey_calls()
     assert ("rest", "POST /api/v1/admin/auth/session") in calls
     assert not any("approval-review" in name for _, name in calls)
+
+
+REOPEN_PROPOSAL = {
+    "proposalId": "proposal-reopen-1",
+    "status": "AwaitingApproval",
+    "requestedBy": "bearer:subject:https%3A%2F%2Fterminal-journey.invalid:journey-author",
+    "summary": "Execute studio.content.reopen-version with its accepted typed payload.",
+}
+REOPEN_HANDLE = {
+    "data": {
+        "operationInstanceId": "opinst-reopen-1",
+        "operationId": "studio.content.reopen-version",
+        "correlationId": "00-corr-reopen",
+        "auditId": "audit-reopen-1",
+        "proposalId": "proposal-reopen-1",
+        "status": "Completed",
+        "resourceIds": {"draftId": "draft-reopened-1", "generation": "1"},
+    }
+}
+
+
+def test_gated_version_reopen_is_approved_by_a_person_and_binds_new_draft(human_approver):
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "operator": "private-operator"})
+    observation = stages.Observation(setup_view_present=True, setup_discovery={
+        "tools": [{"name": "honua_studio_reopen_version", "inputSchema": {"type": "object"}}],
+        "metadata": {"view": "setup"}})
+    execution = copy.deepcopy(LOCAL_TARGET["execution"])
+    engine = executor.JourneyExecutor({"workspaceId": "workspace"}, {"execution": execution}, observation, transport)
+    engine.resources.update(layerId=7, itemId="item-1", versionId="version-1", draftId="draft-old")
+    transport.tool.return_value = {"structuredContent": {
+        "operation": {"operationId": "studio.content.reopen-version", "operationInstanceId": "opinst-reopen-1",
+                      "correlationId": "00-corr-reopen", "auditId": "audit-reopen-1",
+                      "proposalId": "proposal-reopen-1", "status": "RequiresApproval"},
+        "draftId": None}}
+    reopened_draft = {"data": {"draftId": "draft-reopened-1", "baseVersionId": "version-1",
+                               "envelope": {"body": engine.expected_map_body()}}}
+    transport.get_json.side_effect = [
+        copy.deepcopy(REOPEN_PROPOSAL), copy.deepcopy(REOPEN_PROPOSAL),
+        {**REOPEN_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR},
+        copy.deepcopy(REOPEN_HANDLE), reopened_draft]
+    engine.execute(6, {"kind": "tool_call", "tool": "honua_studio_reopen_version",
+                       "arguments": {"itemId": "item-1", "versionId": "version-1"}})
+    transport.http.assert_called_once_with("POST", "/api/v1/admin/proposals/proposal-reopen-1/approve",
+                                           principal="proposer", expected=(403,))
+    assert human_approver.call_args.args[1] == "proposal-reopen-1"
+    assert engine.resources["draftId"] == "draft-reopened-1"
+    assert engine.evidence["checks"]["6"]["reopened-map"]["status"] == "pass"
+    assert engine.evidence["operatorApprovals"]["6"]["resolvedBy"] == HUMAN_ACTOR
+    assert "publicationOperation" not in engine.evidence
+
+
+def test_local_docker_reopen_and_features_scope_author_tenant(human_approver):
+    transport = mock.Mock(credentials={"proposer": "private-proposer", "operator": "private-operator"})
+    observation = stages.Observation(setup_view_present=True, setup_discovery={
+        "tools": [{"name": "honua_studio_reopen_version", "inputSchema": {"type": "object"}}],
+        "metadata": {"view": "setup"}})
+    engine = executor.JourneyExecutor({"workspaceId": "workspace"}, copy.deepcopy(LOCAL_TARGET), observation, transport)
+    engine.resources.update(layerId=7, itemId="item-1", versionId="version-1", draftId="draft-old")
+    transport.tool.return_value = {"structuredContent": {
+        "operation": {"operationId": "studio.content.reopen-version", "operationInstanceId": "opinst-reopen-1",
+                      "correlationId": "00-corr-reopen", "auditId": "audit-reopen-1",
+                      "proposalId": "proposal-reopen-1", "status": "RequiresApproval"},
+        "draftId": None}}
+    reopened_draft = {"data": {"draftId": "draft-reopened-1", "baseVersionId": "version-1",
+                               "envelope": {"body": engine.expected_map_body()}}}
+    transport.get_json.side_effect = [
+        copy.deepcopy(REOPEN_PROPOSAL), copy.deepcopy(REOPEN_PROPOSAL),
+        {**REOPEN_PROPOSAL, "status": "Succeeded", "resolvedBy": HUMAN_ACTOR},
+        copy.deepcopy(REOPEN_HANDLE), reopened_draft,
+        {"type": "FeatureCollection", "features": LOCAL_TARGET["execution"]["features"]}]
+    engine.execute(6, {"kind": "tool_call", "tool": "honua_studio_reopen_version",
+                       "arguments": {"itemId": "item-1", "versionId": "version-1"}})
+    assert human_approver.call_args.args[3] == gated_approval.human_approval.ApprovalOptions(
+        cafile="/run/tls.crt", tenant="public")
+    row = engine.check_features()
+    assert row.status == "pass"
+    assert transport.get_json.call_args.kwargs == {
+        "principal": "operator", "extra_headers": {"X-Honua-Tenant": "public"}}

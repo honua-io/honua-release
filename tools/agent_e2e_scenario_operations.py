@@ -165,16 +165,30 @@ def publication_request(*, connection, schema, table, service, geometry_type, sr
         'geometryType': geometry_type, 'srid': str(srid)}, 'fields': [], 'dryRun': False}
 
 
+MAX_INT32_LAYER_ID = 2_147_483_647
+
+
+def _publication_layer_id(ids):
+    has_storage = 'storageLayerId' in ids
+    has_legacy = 'layerId' in ids
+    if has_storage and has_legacy:
+        require(ids['storageLayerId'] == ids['layerId'], 'completed publication has conflicting layer bindings')
+    raw = ids['storageLayerId'] if has_storage else ids.get('layerId')
+    require(isinstance(raw, str) and re.fullmatch(r'0|[1-9][0-9]*', raw) and int(raw) <= MAX_INT32_LAYER_ID,
+            'completed publication lacks actual service/layer binding')
+    return int(raw)
+
+
 def publication_binding(handle, *, service, reference):
     require(handle.get('operationId') == 'service.publish', 'publication handle belongs to another operation')
     operation = token(handle.get('operationInstanceId'), 'publication operation identity')
     token(handle.get('correlationId'), 'publication correlation identity')
     require(handle.get('status') == 'Completed', 'publication is not independently observed completed')
     ids = handle.get('resourceIds')
-    require(isinstance(ids, dict) and ids.get('serviceName') == service and
-            isinstance(ids.get('layerId'), str) and re.fullmatch(r'0|[1-9][0-9]*', ids['layerId']) and
-            int(ids['layerId']) <= 2147483647, 'completed publication lacks actual service/layer binding')
-    return {'status': 'completed', 'service': service, 'layerId': int(ids['layerId']),
+    require(isinstance(ids, dict) and ids.get('serviceName') == service,
+            'completed publication lacks actual service/layer binding')
+    layer_id = _publication_layer_id(ids)
+    return {'status': 'completed', 'service': service, 'layerId': layer_id,
             'operationInstanceId': operation, 'reference': reference}
 
 

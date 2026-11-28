@@ -149,8 +149,8 @@
       "distance": 2
     },
     "mapBody": {
-      "mapPackageId": "journey-map",
-      "format": "honua_map_package.v1",
+      "mapId": "journey-map",
+      "format": "honua_map.v1",
       "sourceBindings": [
         {
           "sourceId": "journey",

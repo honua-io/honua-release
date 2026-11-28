@@ -28,6 +28,17 @@
 # Keyed by component name (must match platform-manifest.yaml components).
 
 honua-console:
+  - workflow: ".github/workflows/shipping-live.yml"
+    events: [schedule]
+    why: >-
+      Scheduled runs only (matched by workflow AND event, never by name; workflow_dispatch runs
+      stay core). Shipping Console live replay's scheduled leg resolves floating trunk/manifest
+      inputs from external repositories (the newest static-bundle artifact plus honua-release's
+      current platform-manifest.yaml) to replay against an external floating server image, and
+      failed in its schedule-only input resolver (`Resolve latest verified nightly inputs for
+      scheduled runs`, run 46037215366: `/usr/bin/python3: Argument list too long`) before
+      running any Console build or test. Console's own core build/test lanes (Validate Console,
+      Playwright smoke, and the pinned-image Testcontainers lane) remain authoritative and core.
   - workflow: ".github/workflows/console-live-journey.yml"
     events: [schedule]
     why: >-

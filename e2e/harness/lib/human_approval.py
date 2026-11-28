@@ -33,6 +33,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from pathlib import Path
@@ -40,7 +41,9 @@ from typing import Any
 
 CSRF_HEADER = "X-Honua-CSRF"
 CAPABILITY_HEADER = "X-Honua-Approval-Capability"
+TENANT_HEADER = "X-Honua-Tenant"
 SESSION_COOKIE = "honua_admin_session"
+MIN_PRINTABLE_ASCII = 0x20
 # The server's refusal for any approval that is not a live human session with a review capability.
 HUMAN_APPROVAL_REQUIRED = "Human approval requires a live interactive browser session and a valid review capability"
 TIMEOUT_SECONDS = 30
@@ -72,13 +75,26 @@ def is_human_approval_refusal(status: int, detail: str) -> bool:
     return status == HTTPStatus.FORBIDDEN and HUMAN_APPROVAL_REQUIRED in (detail or "")
 
 
+@dataclass(frozen=True)
+class ApprovalOptions:
+    cafile: str | None = None
+    tenant: str | None = None
+
+
+def _unpack_options(options: str | ApprovalOptions | None) -> ApprovalOptions:
+    if isinstance(options, ApprovalOptions):
+        return options
+    return ApprovalOptions(cafile=options)
+
+
 class HumanSession:
     """One browser-like session: cookies kept in memory, sent only to this origin."""
 
-    def __init__(self, base: str, cafile: str | None = None):
+    def __init__(self, base: str, cafile: str | None = None, tenant: str | None = None):
         if urllib.parse.urlsplit(base).scheme != "https":
             raise ValueError("human approval needs the server's HTTPS base URL")
         self.base = base.rstrip("/")
+        self.tenant = tenant
         context = ssl.create_default_context(cafile=cafile) if cafile else ssl.create_default_context()
         self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), _NoRedirect())
         self.cookies: dict[str, str] = {}
@@ -137,7 +153,8 @@ class HumanSession:
 
     def open_review(self, proposal_id: str) -> str:
         quoted = urllib.parse.quote(proposal_id, safe="")
-        _, payload = self.request("review", f"GET /api/v1/admin/proposals/{quoted}/approval-review")
+        headers = _tenant_headers(self.tenant)
+        _, payload = self.request("review", f"GET /api/v1/admin/proposals/{quoted}/approval-review", headers=headers)
         review = (json.loads(payload or b"{}") or {}).get("review") or {}
         capability = review.get("capability")
         if not capability:
@@ -147,16 +164,26 @@ class HumanSession:
     def approve(self, proposal_id: str) -> dict[str, Any]:
         capability = self.open_review(proposal_id)
         quoted = urllib.parse.quote(proposal_id, safe="")
-        status, payload = self.request("approve", f"POST /api/v1/admin/proposals/{quoted}/approve", {},
-                                       {CSRF_HEADER: self.csrf, CAPABILITY_HEADER: capability})
+        headers = {CSRF_HEADER: self.csrf, CAPABILITY_HEADER: capability, **_tenant_headers(self.tenant)}
+        status, payload = self.request("approve", f"POST /api/v1/admin/proposals/{quoted}/approve", {}, headers)
         detail = json.loads(payload or b"{}") or {}
         return {"result": "approved", "proposalId": proposal_id, "httpStatus": status,
                 **{key: detail.get(key) for key in ("status", "approvalChannel", "requestedBy", "resolvedBy")}}
 
 
-def approve_as_human(base: str, proposal_id: str, password: str, cafile: str | None = None) -> dict[str, Any]:
+def _tenant_headers(tenant: str | None) -> dict[str, str]:
+    if tenant is None or tenant == "":
+        return {}
+    if not isinstance(tenant, str) or any(ch.isspace() or ord(ch) < MIN_PRINTABLE_ASCII for ch in tenant):
+        raise ValueError("tenant header must be a single non-empty token without control characters")
+    return {TENANT_HEADER: tenant}
+
+
+def approve_as_human(base: str, proposal_id: str, password: str,
+                     options: str | ApprovalOptions | None = None) -> dict[str, Any]:
     """Sign in, open the review and approve. Returns the typed result; never raises Refused."""
-    session = HumanSession(base, cafile)
+    resolved = _unpack_options(options)
+    session = HumanSession(base, resolved.cafile, resolved.tenant)
     try:
         session.sign_in(password)
         return session.approve(proposal_id)
@@ -165,15 +192,20 @@ def approve_as_human(base: str, proposal_id: str, password: str, cafile: str | N
                 "detail": exc.detail}
 
 
-def approve_in_child(base: str, proposal_id: str, password: str, cafile: str | None = None) -> dict[str, Any]:
+def approve_in_child(base: str, proposal_id: str, password: str,
+                     options: str | ApprovalOptions | None = None) -> dict[str, Any]:
     """Run this helper as a child process that alone holds the password; returns its typed result.
 
     For drivers that make no HTTP request themselves: the approval is the helper's, as it is a
     person's in Console, and the password travels only in the child's environment.
     """
+    resolved = _unpack_options(options)
     argv = [sys.executable, str(Path(__file__).resolve()), "--base", base, "--proposal", proposal_id]
-    if cafile:
-        argv += ["--cafile", cafile]
+    if resolved.cafile:
+        argv += ["--cafile", resolved.cafile]
+    if resolved.tenant:
+        _tenant_headers(resolved.tenant)
+        argv += ["--tenant", resolved.tenant]
     env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_PASSWORD": password}
     proc = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=180, check=False)
     lines = proc.stdout.strip().splitlines()
@@ -188,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", required=True, help="the server's HTTPS base URL")
     parser.add_argument("--proposal", required=True, help="the proposal id to approve")
     parser.add_argument("--cafile", help="PEM bundle that verifies the server certificate")
+    parser.add_argument("--tenant", help="optional tenant id for X-Honua-Tenant multi-tenant admin review")
     parser.add_argument("--password-env", default="HONUA_ADMIN_PASSWORD",
                         help="environment variable holding the administrator password")
     args = parser.parse_args(argv)
@@ -196,7 +229,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"result": "error", "proposalId": args.proposal, "detail": f"{args.password_env} is not set"}))
         return 2
     try:
-        result = approve_as_human(args.base, args.proposal, password, args.cafile)
+        result = approve_as_human(args.base, args.proposal, password,
+                                  ApprovalOptions(cafile=args.cafile, tenant=args.tenant))
     except (OSError, ValueError) as exc:
         result = {"result": "error", "proposalId": args.proposal, "detail": f"{type(exc).__name__}: {exc}"[:300]}
     print(json.dumps(result))

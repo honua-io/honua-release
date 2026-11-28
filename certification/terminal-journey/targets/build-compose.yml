@@ -24,6 +24,11 @@ services:
       service: server
     environment:
       ConnectionStrings__Redis: "redis:6379"
+      MultiTenancy__Enabled: "true"
+      MultiTenancy__DefaultTenantId: ""
+      MultiTenancy__MultiTenantAdminRoles__0: "admin"
+      MultiTenancy__MultiTenantAdminRoles__1: "multi_tenant_admin"
+      MultiTenancy__MultiTenantAdminRoles__2: "platform_admin"
       Oidc__Enabled: "true"
       Studio__EndUserAuthorization__Enabled: "true"
       Oidc__Generic__Enabled: "true"
@@ -103,6 +108,11 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=honua;Username=honua;Password=honua"
       ConnectionStrings__Redis: "redis:6379"
+      MultiTenancy__Enabled: "true"
+      MultiTenancy__DefaultTenantId: ""
+      MultiTenancy__MultiTenantAdminRoles__0: "admin"
+      MultiTenancy__MultiTenantAdminRoles__1: "multi_tenant_admin"
+      MultiTenancy__MultiTenantAdminRoles__2: "platform_admin"
       Oidc__Enabled: "true"
       Studio__EndUserAuthorization__Enabled: "true"
       Oidc__Generic__Enabled: "true"

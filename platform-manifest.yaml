@@ -1708,11 +1708,9 @@ evidenceSources:
     # cannot follow, and the cut binds the Console at stage 1. Pinning the suite source here keeps it
     # immutable and review-visible: .github/workflows/e2e-local-docker.yml fails closed when its
     # literal checkout ref differs from producerSha (honua-release#1486).
-    # 2026-11-20: honua-console trunk 29c2f11a (#1048). CI, Console E2E and Live Integration are green
-    # on push, and the scheduled Console Live Publish Journey is green (runs on 19 and 20 Nov).
     repository: honua-io/honua-console
     workflowPath: .github/workflows/console-live-journey.yml
-    producerSha: "29c2f11a30e3ba99fa4fd9eef78915a6c47ded52"
+    producerSha: "8dee0227741fc69556ef1212fd5b4cd07eba096d"
     trustedEvents: [schedule, workflow_dispatch]
     trustedBranch: trunk
     artifactIdentity: console-live-suite

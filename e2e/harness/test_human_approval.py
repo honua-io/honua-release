@@ -20,8 +20,18 @@ HELPER = HERE / "lib" / "human_approval.py"
 def run_helper(fake: fake_candidate.FakeCandidate, proposal: str, password: str = fake_candidate.PASSWORD,
                base: str | None = None) -> tuple[int, dict, str]:
     env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_PASSWORD": password}
-    proc = subprocess.run([sys.executable, str(HELPER), "--base", base or fake.https_base, "--proposal", proposal,
-                           "--cafile", f"{fake.tls_dir}/tls.crt"], env=env, capture_output=True, text=True, timeout=60)
+    argv = [sys.executable, str(HELPER), "--base", base or fake.https_base, "--proposal", proposal,
+            "--cafile", f"{fake.tls_dir}/tls.crt"]
+    proc = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60)
+    return proc.returncode, json.loads(proc.stdout), proc.stdout + proc.stderr
+
+
+def run_helper_with_tenant(fake: fake_candidate.FakeCandidate, proposal: str,
+                           tenant: str) -> tuple[int, dict, str]:
+    env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_PASSWORD": fake_candidate.PASSWORD}
+    argv = [sys.executable, str(HELPER), "--base", fake.https_base, "--proposal", proposal,
+            "--cafile", f"{fake.tls_dir}/tls.crt", "--tenant", tenant]
+    proc = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=60)
     return proc.returncode, json.loads(proc.stdout), proc.stdout + proc.stderr
 
 
@@ -81,6 +91,38 @@ class HumanApprovalTest(unittest.TestCase):
         self.assertTrue(human_approval.is_human_approval_refusal(403, fake_candidate.HUMAN_REFUSAL))
         self.assertFalse(human_approval.is_human_approval_refusal(403, "The caller lacks admin:approve."))
         self.assertFalse(human_approval.is_human_approval_refusal(401, fake_candidate.HUMAN_REFUSAL))
+
+    def test_tenant_flag_sends_tenant_header_on_review_and_approve(self) -> None:
+        with fake_candidate.FakeCandidate() as fake:
+            proposal, _ = fake.state.new_proposal()
+            code, result, output = run_helper_with_tenant(fake, proposal, "public")
+            sent = [request for request in fake.state.requests if request["tls"]]
+        self.assertEqual(code, 0, output)
+        self.assertEqual(result["result"], "approved")
+        by_stage = {r["path"].rsplit("/", 1)[-1]: r["headers"].get("X-Honua-Tenant") for r in sent}
+        self.assertIsNone(by_stage["csrf"])
+        self.assertIsNone(by_stage["session"])
+        self.assertEqual(by_stage["approval-review"], "public")
+        self.assertEqual(by_stage["approve"], "public")
+
+    def test_malformed_tenant_is_rejected_without_sending_requests(self) -> None:
+        with fake_candidate.FakeCandidate() as fake:
+            proposal, _ = fake.state.new_proposal()
+            code, result, _ = run_helper_with_tenant(fake, proposal, "bad tenant")
+            sent = [r for r in fake.state.requests if r["path"].endswith(("approval-review", "approve"))]
+        self.assertEqual((code, result["result"]), (2, "error"))
+        self.assertEqual(sent, [])
+
+    def test_approve_in_child_forwards_approval_options_tenant(self) -> None:
+        with fake_candidate.FakeCandidate() as fake:
+            proposal, _ = fake.state.new_proposal()
+            options = human_approval.ApprovalOptions(cafile=f"{fake.tls_dir}/tls.crt", tenant="public")
+            result = human_approval.approve_in_child(fake.https_base, proposal, fake_candidate.PASSWORD, options)
+            sent = [request for request in fake.state.requests if request["tls"]]
+        self.assertEqual(result["result"], "approved")
+        by_stage = {r["path"].rsplit("/", 1)[-1]: r["headers"].get("X-Honua-Tenant") for r in sent}
+        self.assertEqual(by_stage["approval-review"], "public")
+        self.assertEqual(by_stage["approve"], "public")
 
 
 if __name__ == "__main__":

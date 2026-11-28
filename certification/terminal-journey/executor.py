@@ -295,12 +295,15 @@ class JourneyExecutor(GatedApprovals):
             self._check(4, "style-applied", name, lambda: {"styleId": identity(output["styleId"], name)})
         if name == "honua_publish_service":
             output = self.record_publication(output, arguments)
+        if (name == "honua_studio_reopen_version"
+                and (output.get("operation") or {}).get("status") == "RequiresApproval"):
+            output = self.approve_reopen(output)
         if number == 6 and name in {"honua_studio_create_draft", "honua_studio_update_draft",
                                      *stages.STUDIO_COMPOSITION_TOOLS}:
             self.record_map_draft(name, arguments, output)
         self._record(number, name, output)
         if name == "honua_render_map":
-            self.check_render(output, selected_arguments=arguments)
+            self.check_render(output, selected_arguments=arguments, content=result.get("content"))
             if (fault and fault["status"] == "observed"
                     and self.evidence["checks"].get("4", {}).get("pixel", {}).get("status") == "pass"):
                 fault["status"] = "recovered"
@@ -340,7 +343,7 @@ class JourneyExecutor(GatedApprovals):
                 return {"compositionContract": {"available": False,
                     "blockedBy": "independently observed published layer identity"}}
             return {"compositionContract": {
-                "family": "map", "bodyFormat": "honua_map_package.v1",
+                "family": "map", "bodyFormat": "honua_map.v1",
                 "schemaVersion": self.family_schema_version("map"),
                 "currentDraft": {key: value for key, value in (self.evidence.get("mapDraftReceipt") or {}).items()
                                  if key in {"draftId", "generation", "packageKey"}},
@@ -615,36 +618,51 @@ class JourneyExecutor(GatedApprovals):
             time.sleep(1)
 
     def check_features(self):
+        tenant = self._author_tenant()
+        kwargs = {"principal": self.principal(3)}
+        if tenant:
+            kwargs["extra_headers"] = {"X-Honua-Tenant": tenant}
         return self._check(3, "imported-content", "GET imported layer features", lambda: oracles.prove_features(
-            self.transport.get_json(self.fixture["featurePath"].format(**self.resources), principal=self.principal(3)),
+            self.transport.get_json(self.fixture["featurePath"].format(**self.resources), **kwargs),
             self.fixture["features"]))
 
-    def check_render(self, output, *, selected_arguments=None):
+    @staticmethod
+    def _media_type(value):
+        return value.split(";", 1)[0].strip().lower() if isinstance(value, str) else ""
+
+    def _resolve_render_bytes(self, image, content):
+        blocks = [item for item in (content if isinstance(content, list) else [])
+                  if isinstance(item, dict) and item.get("type") == "image"]
+        if len(blocks) > 1:
+            raise oracles.ProofError("render response returned multiple image content blocks")
+        spellings = {self._media_type(image.get(key)) for key in ("format", "mimeType") if key in image}
+        block_data = None
+        if len(blocks) == 1:
+            block = blocks[0]
+            if "mimeType" in block:
+                spellings.add(self._media_type(block.get("mimeType")))
+            block_data = block.get("data")
+            if not isinstance(block_data, str) or not block_data:
+                raise oracles.ProofError("render image content block omitted base64 payload")
+            if image.get("base64") is not None and image.get("base64") != block_data:
+                raise oracles.ProofError("render image payload conflicts with content block")
+        if len(spellings) > 1:
+            raise oracles.ProofError("render image declares conflicting media types")
+        declared = spellings.pop() if spellings else ""
+        inline_b64 = block_data if block_data is not None else image.get("base64")
+        if inline_b64:
+            return base64.b64decode(inline_b64, validate=True), declared
+        raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
+        fetched = self._media_type(self.transport.last_response_headers.get("content-type", ""))
+        if not fetched or (declared and declared != fetched):
+            raise oracles.ProofError("render response media type conflicts with the declared image type")
+        return raw, fetched
+
+    def check_render(self, output, *, selected_arguments=None, content=None):
         self.evidence.pop("renderDimensions", None)
 
-        def media_type_of(value):
-            if not isinstance(value, str):
-                return ""
-            return value.split(";", 1)[0].strip().lower()
-
         def prove():
-            image = output["image"]
-            # honua-server's McpRenderedImage names the media type `format` (RenderMapTool.cs);
-            # `mimeType` is the MCP content-block spelling. Both, when present, must agree.
-            spellings = {media_type_of(image.get(key)) for key in ("format", "mimeType") if key in image}
-            if len(spellings) > 1:
-                raise oracles.ProofError("render image declares conflicting media types")
-            declared = spellings.pop() if spellings else ""
-            if image.get("base64"):
-                raw = base64.b64decode(image["base64"], validate=True)
-                media_type = declared
-            else:
-                raw, _ = self.transport.http("GET", image["uri"], principal=self.principal(4))
-                fetched = media_type_of(self.transport.last_response_headers.get("content-type", ""))
-                # A declared image/png must match the bytes the client actually fetched.
-                if not fetched or (declared and declared != fetched):
-                    raise oracles.ProofError("render response media type conflicts with the declared image type")
-                media_type = fetched
+            raw, media_type = self._resolve_render_bytes(output["image"], content)
             # Record only independently decoded dimensions, never image-declared
             # width/height. This distinguishes a model-selected wrong size from
             # a renderer returning different bytes than the model requested.
@@ -1079,7 +1097,8 @@ class JourneyExecutor(GatedApprovals):
         # A CLI usage error is not a security denial. Independently exercise the
         # authenticated candidate endpoint and require its actual 403 response.
         self.transport.http("POST", path + "/approve", principal="proposer", expected=(403,))
-        final, resolution = self.resolve_by_human(proposal_id, before, "approver")
+        post_reader = "operator" if keys.get("operator") else "approver"
+        final, resolution = self.resolve_by_human(before, post_reader, tenant=self._author_tenant())
         self.require_publication_intent(final)
         self.evidence["approvalResolution"] = {key: resolution[key] for key in ("proposalId", "requestedBy", "resolvedBy")}
         self._check(8, "separation", "human session separate-principal approval", lambda: self.evidence["approvalResolution"])

@@ -92,12 +92,13 @@ def request():
                                service='case-shelters', geometry_type='Point')
 
 
-def completed_handle():
+def completed_handle(layer_key='storageLayerId'):
     return {'operationId': 'service.publish', 'operationInstanceId': 'opinst-42', 'correlationId': 'corr-42',
-            'status': 'Completed', 'resourceIds': {'layerId': '703', 'serviceName': 'case-shelters'}}
+            'status': 'Completed', 'resourceIds': {layer_key: '703', 'serviceName': 'case-shelters'}}
 
 
-def test_publication_uses_typed_operation_validate_submit_and_real_handle(adapter, server):
+@pytest.mark.parametrize('layer_key', ['storageLayerId', 'layerId'])
+def test_publication_uses_typed_operation_validate_submit_and_real_handle(adapter, server, layer_key):
     def respond(method, path, raw):
         assert method == 'POST'
         sent = json.loads(raw)
@@ -106,12 +107,24 @@ def test_publication_uses_typed_operation_validate_submit_and_real_handle(adapte
         if path.endswith('/validate'):
             return answer({'success': True, 'data': {'isValid': True}})
         assert path == '/api/v1/operations/service.publish/submit'
-        return answer({'success': True, 'data': completed_handle()})
+        return answer({'success': True, 'data': completed_handle(layer_key)})
     server.respond = respond
     result = submit_publication(adapter.http, request(), step='publish')
     assert result['status'] == 'completed' and result['layerId'] == 703
     assert result['operationInstanceId'] == 'opinst-42'
     assert len(server.seen) == 2
+
+
+def test_publication_rejects_conflicting_storage_and_legacy_layer_ids(adapter, server):
+    def respond(method, path, raw):
+        if path.endswith('/validate'):
+            return answer({'success': True, 'data': {'isValid': True}})
+        handle = completed_handle('storageLayerId')
+        handle['resourceIds']['layerId'] = '704'
+        return answer({'success': True, 'data': handle})
+    server.respond = respond
+    with pytest.raises(PackError, match='conflicting layer bindings'):
+        submit_publication(adapter.http, request(), step='publish')
 
 
 def pending():

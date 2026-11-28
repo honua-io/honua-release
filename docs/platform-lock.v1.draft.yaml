@@ -6,7 +6,7 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:078adfdbb0ec99cc2cce9578a69a3b921b3e9694ceb9105301c953ffdb4831fd
+    sha256: sha256:95d6d0e49424371535802150e85ec028314b61d4ef5b7b08e33bb7d439f76550
   compatibilityMatrix:
     path: compatibility-matrix.yaml
     sha256: sha256:7d167a628515f45a57c277636495200c147da02676c65ab0ccce7570e307ecc1

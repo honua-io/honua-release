@@ -121,6 +121,24 @@ def test_higher_id_queued_attempt_blocks_even_without_timestamps():
     assert bt.classify(payload)[0] == "blocked"
 
 
+def test_orphaned_queued_ghost_in_same_completed_run_does_not_block_or_hide_red():
+    completed_wf = {"id": 500, "workflow_id": 1, "path": ".github/workflows/ci.yml", "status": "completed"}
+    green = {"id": 20, "name": "Server Tests (OData)", "app": {"slug": "github-actions"},
+             "status": "completed", "conclusion": "success",
+             "details_url": "https://github.com/honua-io/honua-server/actions/runs/500/job/20"}
+    ghost = {"id": 30, "name": "Server Tests (OData)", "app": {"slug": "github-actions"},
+             "status": "queued", "conclusion": None,
+             "details_url": "https://github.com/honua-io/honua-server/actions/runs/500/job/30"}
+    enriched = enrich_action_workflow_ids({"check_runs": [green, ghost]}, {"workflow_runs": [completed_wf]})
+    assert bt.classify(enriched)[0] == "pass"
+    # A queued job on a NEWER in-progress workflow run still blocks.
+    newer_wf = {"id": 501, "workflow_id": 1, "path": ".github/workflows/ci.yml", "status": "in_progress"}
+    newer_queued = {**ghost, "details_url": "https://github.com/honua-io/honua-server/actions/runs/501/job/30"}
+    enriched_newer = enrich_action_workflow_ids({"check_runs": [green, newer_queued]},
+                                                {"workflow_runs": [completed_wf, newer_wf]})
+    assert bt.classify(enriched_newer)[0] == "blocked"
+
+
 def test_distinct_named_lanes_remain_independently_decisive():
     payload = _named(("Build", "success"), ("Unit Tests", "failure"))
     assert bt.classify(payload)[0] == "fail"
@@ -573,6 +591,16 @@ def test_event_gating_requires_workflow_and_event_and_is_console_only():
     other = _studio_check(3, "failure", event="schedule", title="x", branch="trunk", path=".github/workflows/ci.yml")
     assert bt.classify(_console_payload(other), ComponentPolicy(env_gated_events=_events()))[0] == "fail"
     assert {name for name, policy in POLICY.components.items() if policy.env_gated_events} == {"honua-console"}
+
+
+def test_scheduled_shipping_live_replay_is_env_gated_but_dispatch_stays_core():
+    scheduled = _studio_check(3, "failure", event="schedule", title="Shipping Console live replay", branch="trunk",
+                              path=".github/workflows/shipping-live.yml")
+    status, why = bt.classify(_console_payload(scheduled), ComponentPolicy(env_gated_events=_events()))
+    assert status == "pass" and "env-gated scheduled" in why
+    dispatched = _studio_check(4, "failure", event="workflow_dispatch", title="Shipping Console live replay",
+                               branch="trunk", path=".github/workflows/shipping-live.yml")
+    assert bt.classify(_console_payload(dispatched), ComponentPolicy(env_gated_events=_events()))[0] == "fail"
 
 
 @_pytest.mark.parametrize("component", ["honua-studio", "honua-server", ""])
