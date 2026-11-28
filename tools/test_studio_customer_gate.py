@@ -214,7 +214,8 @@ def test_suite_exception_admits_an_e2e_only_descendant_and_records_its_paths():
 
 @pytest.mark.parametrize("files", [
     ["e2e/agent-reflection/run-quickstart.py", "src/Honua.Console.Web/Program.cs"],
-    ["Dockerfile"], [".github/workflows/console-live-journey.yml"], ["e2e-tools/x.py"], ["e2e/../src/x"], []])
+    ["Dockerfile"], ["e2e/Dockerfile.legacy-host"], [".github/workflows/console-live-journey.yml"],
+    ["e2e-tools/x.py"], ["e2e/../src/x"], []])
 def test_suite_exception_refuses_any_path_outside_e2e(files):
     with pytest.raises(ValueError):
         g.suite_exception(PINNED, SUITE, compare(files))
@@ -282,3 +283,110 @@ def test_workflow_passes_the_optional_suite_sha_and_studio_job_is_advisory_for_b
     advisory = yaml.safe_load(Path('certification/advisory-checks.yaml').read_text()) or {}
     # Not a name-wide exclusion: only the gate's own replays are dropped (certification/check_build_test.py).
     assert "Studio customer journey on real images" not in [item['name'] for item in advisory.get('honua-console', [])]
+
+
+def static_bundle_pins():
+    return {
+        "honua-console": {
+            "repository": "https://github.com/honua-io/honua-console",
+            "artifact": "actions-artifact:console-static-release",
+            "sha": "a" * 40,
+            "artifactSourceRevision": "a" * 40,
+            "artifactSha256": "sha256:" + "a" * 64,
+            "artifactVersion": "0.0.0-trunk." + "a" * 12,
+        },
+        "honua-server": pins()["honua-server"],
+    }
+
+
+def static_bundle_evidence(*, suite_sha=None):
+    selected = g.resolve_pins({"components": static_bundle_pins()}, g.STUDIO_COMPONENTS)
+    console_sha = suite_sha or selected["console"]["sha"]
+    runtime = {
+        "console": {"requested": g.LEGACY_FIXTURE_IMAGE, "sourceRevision": console_sha},
+        "server": {"requested": selected["server"]["image"], "sourceRevision": selected["server"]["sha"]},
+        "consoleVersion": {"commit": console_sha},
+        "suiteSourceRevision": console_sha,
+    }
+    report = {"stats": {"expected": 2, "unexpected": 0, "flaky": 0, "skipped": 0}}
+    return selected, runtime, report, {"qualificationComplete": True, "completed": list(g.REQUIRED_STAGES)}
+
+
+def test_static_bundle_lock_and_evidence_pass():
+    manifest = b"candidate manifest bytes"
+    selected = g.resolve_pins({"components": static_bundle_pins()}, g.STUDIO_COMPONENTS)
+    lock = {
+        "sourceInputs": {"platformManifest": {"sha256": "sha256:" + hashlib.sha256(manifest).hexdigest()}},
+        "components": {
+            "honua-console": {"artifacts": [{
+                "kind": "static-bundle", "coordinate": selected["console"]["coordinate"],
+                "sha256": selected["console"]["digest"], "sourceRevision": selected["console"]["sha"],
+                "version": selected["console"]["version"],
+            }]},
+            "honua-server": {"artifacts": [{
+                "kind": "image", "coordinate": "ghcr.io/honua-io/honua-server",
+                "digest": selected["server"]["digest"], "sourceRevision": selected["server"]["sha"],
+            }]},
+        },
+    }
+    raw = json.dumps(lock).encode()
+    g.validate_lock(raw, "sha256:" + hashlib.sha256(raw).hexdigest(), g.PinnedCandidate(manifest, selected))
+    values = static_bundle_evidence()
+    g.validate_evidence(*values)
+    values[1]["console"]["sourceRevision"] = None
+    g.validate_evidence(*values)
+
+
+def test_static_bundle_evidence_rejects_mismatched_console_or_server_runtime():
+    for mutation in (
+        lambda r: r["console"].update(requested="ghcr.io/honua-io/honua-console@sha256:" + "a" * 64),
+        lambda r: r["console"].update(sourceRevision="c" * 40),
+        lambda r: r["console"].update(sourceRevision=""),
+        lambda r: r["consoleVersion"].update(commit="c" * 40),
+        lambda r: r.pop("consoleVersion"),
+        lambda r: r.update(suiteSourceRevision="c" * 40),
+        lambda r: r["server"].update(requested="wrong"),
+        lambda r: r["server"].update(sourceRevision="wrong"),
+    ):
+        values = deepcopy(static_bundle_evidence())
+        mutation(values[1])
+        with pytest.raises(ValueError):
+            g.validate_evidence(*values)
+
+
+def test_static_bundle_suite_exception_binds_console_fixture_revision():
+    values = static_bundle_evidence(suite_sha="c" * 40)
+    g.validate_evidence(*values, suite_sha="c" * 40)
+    with pytest.raises(ValueError):
+        g.validate_evidence(*values)
+    values[1]["consoleVersion"]["commit"] = values[0]["console"]["sha"]
+    with pytest.raises(ValueError, match="console runtime"):
+        g.validate_evidence(*values, suite_sha="c" * 40)
+
+
+def test_dispatch_with_static_bundle_console_sends_empty_console_image(monkeypatch):
+    refs = {}
+    dispatched = []
+    def fake_gh(*args, json_output=False):
+        if args[:2] == ('api', '--method'):
+            refs[next(x[4:] for x in args if x.startswith('ref='))] = next(x[4:] for x in args if x.startswith('sha='))
+            return ''
+        if args[0] == 'api':
+            return {'object': {'type': 'commit', 'sha': refs['refs/' + args[1].split('/git/ref/', 1)[1]]}}
+        if args[:2] == ('workflow', 'run'):
+            dispatched.append(args)
+            return ''
+        raise AssertionError(args)
+    monkeypatch.setattr(g, 'gh', fake_gh)
+    selected = g.resolve_pins({'components': static_bundle_pins()}, g.STUDIO_COMPONENTS)
+    g.dispatch_customer(selected, 'release-static')
+    assert refs['refs/tags/studio-customer-gate/release-static'] == selected['console']['sha']
+    assert 'console_image=' in dispatched[0]
+    assert f'server_image={selected["server"]["image"]}' in dispatched[0]
+    g.dispatch_customer(selected, 'release-static-suite', SUITE)
+    assert refs['refs/tags/studio-customer-gate/release-static-suite'] == SUITE
+    assert 'console_image=' in dispatched[1]
+    bad_server = deepcopy(selected)
+    bad_server['server']['kind'] = 'static-bundle'
+    with pytest.raises(ValueError, match='server must be an immutable image'):
+        g.dispatch_customer(bad_server, 'release-bad-server')
