@@ -63,6 +63,9 @@ CELLS = ("local-docker", "aws-ecs/redis-off", "aws-ecs/redis-on",
 LOCK_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 # Credential presentation -> receipt authentication mode.
 API_KEY_HEADERS = {"bearer": "bearer-env", "x-api-key": "x-api-key-env"}
+TENANT_HEADER = "X-Honua-Tenant"
+DEFAULT_API_KEY_TENANT = "public"
+MIN_PRINTABLE_ASCII = 0x20
 MODEL = "model"
 INFRASTRUCTURE = "infrastructure"
 UNDETERMINED = "undetermined"
@@ -471,6 +474,7 @@ class EndpointConfig:
     # the local-docker stack authenticates its bootstrap admin key only through X-API-Key, because
     # that stack enables OIDC and routes every bearer token to the JWT handler.
     api_key_header: str = "bearer"
+    tenant: str | None = None
 
     @classmethod
     def from_environment(
@@ -510,6 +514,7 @@ class EndpointConfig:
             )
             or None,
             allow_http_cell=allow_http_cell or None,
+            tenant=os.getenv("TERMINAL_MODEL_TENANT") or None,
         )
 
     @property
@@ -1157,6 +1162,24 @@ class CandidateProxyClient:
                 headers["Authorization"] = f"Bearer {self.config.api_key}"
         return headers
 
+    def _proxy_tenant(self) -> str | None:
+        tenant = self.config.tenant
+        if tenant is None and self.config.api_key and self.config.api_key_header == "x-api-key":
+            tenant = DEFAULT_API_KEY_TENANT
+        if tenant is None or tenant == "":
+            return None
+        if any(ch.isspace() or ord(ch) < MIN_PRINTABLE_ASCII for ch in tenant):
+            raise CanaryError("proxy tenant header must be a single token without control characters")
+        return tenant
+
+    def _proxy_headers(self, accept: str) -> dict[str, str]:
+        headers = self._auth_headers()
+        headers["Accept"] = accept
+        tenant = self._proxy_tenant()
+        if tenant is not None:
+            headers[TENANT_HEADER] = tenant
+        return headers
+
     def ensure_admission(self) -> list[dict[str, Any]]:
         """Initialize and resume the candidate's AI admission ledger; return the operation results."""
         api = self.config.proxy_chat_url().removesuffix("/v1/studio/ai/chat")
@@ -1284,12 +1307,7 @@ class CandidateProxyClient:
         if self.temperature is not None:
             request_body["temperature"] = self.temperature
         payload = json.dumps(request_body).encode("utf-8")
-        headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
-        if self.config.api_key:
-            if self.config.api_key_header == "x-api-key":
-                headers["X-API-Key"] = self.config.api_key
-            else:
-                headers["Authorization"] = f"Bearer {self.config.api_key}"
+        headers = self._proxy_headers("text/event-stream")
         manifest = self._manifest({key: value for key, value in headers.items() if key != "Content-Type"})
         request = urllib.request.Request(
             self.config.proxy_chat_url(), data=payload, headers=headers, method="POST"
