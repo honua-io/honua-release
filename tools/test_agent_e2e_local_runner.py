@@ -127,7 +127,11 @@ class Candidate:
         if method == 'initialize':
             return {'protocolVersion': '2025-03-26', 'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fake'}}
         if method == 'tools/list':
-            return {'tools': self.TOOLS + (self.EXTRA_TOOLS if self.extra_tools else [])}
+            result = {'tools': self.TOOLS + (self.EXTRA_TOOLS if self.extra_tools else [])}
+            view = (message.get('params') or {}).get('view')
+            if view is not None:
+                result['_meta'] = {'view': view}
+            return result
         if method == 'resources/read':
             return {'contents': [{'uri': message['params']['uri'], 'text': '{"processes":[]}'}]}
         if method == 'tools/call':
