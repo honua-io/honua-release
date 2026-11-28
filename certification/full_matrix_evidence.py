@@ -82,6 +82,27 @@ def pinned_shard_jobs(evidence, job_name):
     return required, set(jobs)
 
 
+def _is_orphaned_queued_job(job: dict) -> bool:
+    """An unstarted runner-queue ghost row GitHub Actions leaves behind on a completed rerun."""
+    return (job.get('status') == 'queued' and job.get('conclusion') is None
+            and job.get('completed_at') is None and job.get('runner_id') is None)
+
+
+def _merge_attempt_job(previous: dict | None, job: dict, *, in_expected: bool) -> dict | None:
+    """Return the winning job for a name, or None when two real jobs collide in one attempt."""
+    if previous is None or previous['run_attempt'] < job['run_attempt']:
+        return job
+    if previous['run_attempt'] > job['run_attempt']:
+        return previous
+    if not in_expected:
+        return previous
+    if _is_orphaned_queued_job(previous) and not _is_orphaned_queued_job(job):
+        return job
+    if _is_orphaned_queued_job(job):
+        return previous
+    return None
+
+
 def verify(payload, run, policy, sha):
     """Return bounded failures; every required job links to its authentic Actions check id."""
     evidence = payload.get('_matrix_execution')
@@ -110,11 +131,10 @@ def verify(payload, run, policy, sha):
             return ['actual Actions jobs have duplicate or wrong source/run/attempt identity']
         identities.add(job['id'])
         key = job['name']
-        previous = latest.get(key)
-        if previous and previous['run_attempt'] == job['run_attempt'] and key in expected:
+        merged = _merge_attempt_job(latest.get(key), job, in_expected=key in expected)
+        if merged is None:
             return ['actual Actions jobs have duplicate names in one attempt']
-        if previous is None or previous['run_attempt'] < job['run_attempt']:
-            latest[key] = job
+        latest[key] = merged
     missing = sorted(expected - latest.keys())
     if missing:
         return ['missing expected lanes ' + str(missing)]

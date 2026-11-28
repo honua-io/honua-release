@@ -104,6 +104,18 @@ def _validated_examples_note(payload: object, replaced: int) -> str:
             f"image {record.get('imageDigest')}, ruling {record.get('ruling')})")
 
 
+def _is_same_completed_run_ghost(candidate: dict, incumbent: dict) -> bool:
+    """True when `candidate` is an orphaned queued ghost row of the same completed Actions run as `incumbent`."""
+    c_wf = candidate.get("_workflow_run")
+    i_wf = incumbent.get("_workflow_run")
+    if not (isinstance(c_wf, dict) and isinstance(i_wf, dict)):
+        return False
+    return (c_wf.get("id") is not None and c_wf.get("id") == i_wf.get("id")
+            and c_wf.get("status") == "completed"
+            and candidate.get("status") == "queued" and candidate.get("conclusion") is None
+            and incumbent.get("status") == "completed")
+
+
 def _latest_named_runs(runs: list[dict]) -> list[dict]:
     """Keep the latest check-run attempt for each named app lane.
 
@@ -136,7 +148,13 @@ def _latest_named_runs(runs: list[dict]) -> list[dict]:
             run_id = 0
         marker = (run_id, timestamp, index)
         key = (name, app_slug, lane_scope)
-        if key not in latest or marker > latest[key][0]:
+        if key in latest:
+            incumbent_marker, incumbent = latest[key]
+            if _is_same_completed_run_ghost(run, incumbent):
+                continue
+            if _is_same_completed_run_ghost(incumbent, run) or marker > incumbent_marker:
+                latest[key] = (marker, run)
+        else:
             latest[key] = (marker, run)
 
     selected = unnamed + [(marker[2], run) for marker, run in latest.values()]

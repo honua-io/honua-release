@@ -40,6 +40,7 @@ from typing import Any
 
 CSRF_HEADER = "X-Honua-CSRF"
 CAPABILITY_HEADER = "X-Honua-Approval-Capability"
+TENANT_HEADER = "X-Honua-Tenant"
 SESSION_COOKIE = "honua_admin_session"
 # The server's refusal for any approval that is not a live human session with a review capability.
 HUMAN_APPROVAL_REQUIRED = "Human approval requires a live interactive browser session and a valid review capability"
@@ -135,37 +136,48 @@ class HumanSession:
         # The antiforgery token is bound to the identity it was issued for, so take a fresh one.
         self.refresh_csrf()
 
-    def open_review(self, proposal_id: str) -> str:
+    def open_review(self, proposal_id: str, tenant: str | None = None) -> str:
         quoted = urllib.parse.quote(proposal_id, safe="")
-        _, payload = self.request("review", f"GET /api/v1/admin/proposals/{quoted}/approval-review")
+        headers = _tenant_headers(tenant)
+        _, payload = self.request("review", f"GET /api/v1/admin/proposals/{quoted}/approval-review", headers=headers)
         review = (json.loads(payload or b"{}") or {}).get("review") or {}
         capability = review.get("capability")
         if not capability:
             raise Refused("review", 200, "the approval review carried no capability")
         return capability
 
-    def approve(self, proposal_id: str) -> dict[str, Any]:
-        capability = self.open_review(proposal_id)
+    def approve(self, proposal_id: str, tenant: str | None = None) -> dict[str, Any]:
+        capability = self.open_review(proposal_id, tenant=tenant)
         quoted = urllib.parse.quote(proposal_id, safe="")
-        status, payload = self.request("approve", f"POST /api/v1/admin/proposals/{quoted}/approve", {},
-                                       {CSRF_HEADER: self.csrf, CAPABILITY_HEADER: capability})
+        headers = {CSRF_HEADER: self.csrf, CAPABILITY_HEADER: capability, **_tenant_headers(tenant)}
+        status, payload = self.request("approve", f"POST /api/v1/admin/proposals/{quoted}/approve", {}, headers)
         detail = json.loads(payload or b"{}") or {}
         return {"result": "approved", "proposalId": proposal_id, "httpStatus": status,
                 **{key: detail.get(key) for key in ("status", "approvalChannel", "requestedBy", "resolvedBy")}}
 
 
-def approve_as_human(base: str, proposal_id: str, password: str, cafile: str | None = None) -> dict[str, Any]:
+def _tenant_headers(tenant: str | None) -> dict[str, str]:
+    if tenant is None or tenant == "":
+        return {}
+    if not isinstance(tenant, str) or any(ch.isspace() or ord(ch) < 0x20 for ch in tenant):
+        raise ValueError("tenant header must be a single non-empty token without control characters")
+    return {TENANT_HEADER: tenant}
+
+
+def approve_as_human(base: str, proposal_id: str, password: str, cafile: str | None = None,
+                     tenant: str | None = None) -> dict[str, Any]:
     """Sign in, open the review and approve. Returns the typed result; never raises Refused."""
     session = HumanSession(base, cafile)
     try:
         session.sign_in(password)
-        return session.approve(proposal_id)
+        return session.approve(proposal_id, tenant=tenant)
     except Refused as exc:
         return {"result": "refused", "proposalId": proposal_id, "stage": exc.stage, "httpStatus": exc.status,
                 "detail": exc.detail}
 
 
-def approve_in_child(base: str, proposal_id: str, password: str, cafile: str | None = None) -> dict[str, Any]:
+def approve_in_child(base: str, proposal_id: str, password: str, cafile: str | None = None,
+                     tenant: str | None = None) -> dict[str, Any]:
     """Run this helper as a child process that alone holds the password; returns its typed result.
 
     For drivers that make no HTTP request themselves: the approval is the helper's, as it is a
@@ -174,6 +186,9 @@ def approve_in_child(base: str, proposal_id: str, password: str, cafile: str | N
     argv = [sys.executable, str(Path(__file__).resolve()), "--base", base, "--proposal", proposal_id]
     if cafile:
         argv += ["--cafile", cafile]
+    if tenant:
+        _tenant_headers(tenant)
+        argv += ["--tenant", tenant]
     env = {"PATH": os.environ.get("PATH", ""), "HONUA_ADMIN_PASSWORD": password}
     proc = subprocess.run(argv, env=env, capture_output=True, text=True, timeout=180, check=False)
     lines = proc.stdout.strip().splitlines()
@@ -188,6 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", required=True, help="the server's HTTPS base URL")
     parser.add_argument("--proposal", required=True, help="the proposal id to approve")
     parser.add_argument("--cafile", help="PEM bundle that verifies the server certificate")
+    parser.add_argument("--tenant", help="optional tenant id for X-Honua-Tenant multi-tenant admin review")
     parser.add_argument("--password-env", default="HONUA_ADMIN_PASSWORD",
                         help="environment variable holding the administrator password")
     args = parser.parse_args(argv)
@@ -196,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"result": "error", "proposalId": args.proposal, "detail": f"{args.password_env} is not set"}))
         return 2
     try:
-        result = approve_as_human(args.base, args.proposal, password, args.cafile)
+        result = approve_as_human(args.base, args.proposal, password, args.cafile, tenant=args.tenant)
     except (OSError, ValueError) as exc:
         result = {"result": "error", "proposalId": args.proposal, "detail": f"{type(exc).__name__}: {exc}"[:300]}
     print(json.dumps(result))

@@ -1072,6 +1072,7 @@ jobs:
                 -e ConnectionStrings__DefaultConnection="Host=honua-gate-db;Port=5432;Database=honua;Username=honua;Password=${DB_PASSWORD}" \
                 -e HONUA_ADMIN_PASSWORD="Gate-Aa1!$(openssl rand -hex 12)" \
                 -e Security__ConnectionEncryption__MasterKey="$(openssl rand -hex 32)" \
+                -e Operations__SecretChannel__KeyRingSecret="$(openssl rand -hex 32)" \
                 -e HostValidation__AllowedHosts="*" -e AllowedHosts="*" \
                 "$IMG" >/tmp/docker-run.log 2>&1 || { STATUS=fail; WHY="container failed to start"; }
             fi

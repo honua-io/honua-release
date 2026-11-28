@@ -5,7 +5,7 @@
 2026.1 uses `Licensing__Mode=Disabled`: all catalog entitlements active; no edition gating,
 license enforcement or serving-unit metering. Maturity and safety limits still apply.
 
-Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:8539deb897971b010123a6788e8fa4f0c9e11613d8114081c4c63c0dde254f49`.
+Platform: `honua-2026.1-rc.2`. Lock canonical SHA-256: `sha256:48e46559dcc1c64442b1dc7b2c76022c51257fe91a8040c24e4a6475e000821a`.
 
 Lock completeness: **unqualified — incomplete draft; not a certified release lock.**
 

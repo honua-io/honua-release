@@ -323,7 +323,7 @@ before an observed connection and uploaded table returns an `invalid-action`
 response naming the missing bindings, without contacting the candidate. An upload
 cannot be repeated within a session.
 
-Stage 6 requires the unchanged authored portable `honua_map_package.v1` body,
+Stage 6 requires the unchanged authored portable `honua_map.v1` body,
 including its source bindings, initial view and complete map specification. The
 public `terminalSurface.compositionContract` makes this requirement explicit and
 binds only the already observed publication layer ID into the committed fixture.

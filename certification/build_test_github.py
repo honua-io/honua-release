@@ -89,7 +89,8 @@ def enrich_action_workflow_ids(payload: dict, workflow_payload: dict) -> dict:
         workflows[run_id] = str(run.get("workflow_id") or run.get("path") or "")
         if run.get("path"):
             paths[run_id] = str(run.get("path"))
-        replays[run_id] = {"event": str(run.get("event") or ""), "title": str(run.get("display_title") or ""),
+        replays[run_id] = {"id": run_id, "status": str(run.get("status") or ""),
+                           "event": str(run.get("event") or ""), "title": str(run.get("display_title") or ""),
                            "branch": str(run.get("head_branch") or "")}
     for run in payload.get("check_runs") or []:
         app = run.get("app") or {}
@@ -119,8 +120,8 @@ def fetch_check_runs(repo: str, sha: str, full_matrix: Mapping | None) -> object
     returned unenriched: the classifier then keys Actions runs by check suite and retains every suite."""
     headers = github_headers()
     try:
-        payload = fetch_paginated_collection(f"{API_ROOT}repos/{ORG}/{repo}/commits/{sha}/check-runs", headers,
-                                             "check_runs")
+        payload = fetch_paginated_collection(f"{API_ROOT}repos/{ORG}/{repo}/commits/{sha}/check-runs?filter=all",
+                                             headers, "check_runs")
     except urllib.error.HTTPError as e:
         if e.code in (404, 403, 422):
             return NOT_FOUND

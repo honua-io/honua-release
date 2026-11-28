@@ -170,6 +170,37 @@ honua-server:
       published SHA-bound image whose config labels and provenance name that sha. Build & Format
       Check, the full-matrix ci.yml lanes and the image build and manifest jobs stay core.
 
+  - name: "Baseline diff and gap report"
+    why: >-
+      Nightly cross-client interop gap report (`.github/workflows/client-interop-nightly.yml`,
+      "Real-Client Interop Matrix (Nightly)"), whose own workflow header declares it a
+      non-PR-blocking nightly observer ("Promote to gating once 30 consecutive nightly passes are
+      observed across all lanes"). On 786dc6e309 run 46088470636, all 10 client lanes (`pyqgis`,
+      `geopandas`, `owslib`, `duckdb`, `pystac`, `geoservices-rest-stub`, `r-sf`, `cesium`,
+      `openlayers`, `gdal`) passed; only this summary job exited 1 for one unbaselined PyQGIS
+      scratch-layer edit case (`desktop-qgis / featureserver / CERT-EDIT-01`). Build & Format
+      Check and the full-matrix `ci.yml` server test shards stay core.
+  - name: "PyQGIS OGC + WFS Compatibility"
+    why: >-
+      Nightly external desktop-client compatibility harness
+      (`.github/workflows/pyqgis-client-compat-nightly.yml`) that installs Ubuntu/QGIS packages
+      and exercises PyQGIS client scripts against a scratch layer. On 786dc6e309 run 46067851830,
+      45 of 46 checks passed and only `test_featureserver_round_trip_edit_on_scratch_layer`
+      failed on scratch-layer reload semantics while the full-matrix `ci.yml` suite (236 jobs)
+      passed. Build & Format Check and all full-matrix `ci.yml` lanes stay core.
+
+geospatial-mcp:
+  - name: "certify"
+    why: >-
+      Scheduled/self-hosted MCP protocol certification (`.github/workflows/protocol-certification.yml`,
+      job `certify`). Its scheduled run checks the workflow's hardcoded older server image
+      (`PINNED_SERVER_SOURCE_SHA=de512e8123`, `sha256:1eb5a482...` on 122b75f2 run 46085605973),
+      not the candidate server pinned in `platform-manifest.yaml`. That pin lag does not judge
+      `geospatial-mcp@122b75f2`'s own schema, corpus, or unit tests (all 9 core lanes and all 3
+      required lanes passed), and `honua-release`'s own protocol certification and installed-client
+      gates certify the pinned server candidate directly. Same pin-lag precedent as
+      `honua-sdk-dotnet` and `geospatial-grpc`.
+
 geospatial-grpc:
   - name: "certify"
     why: >-

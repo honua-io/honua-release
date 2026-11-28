@@ -82,21 +82,42 @@ class GatedApprovals:
         return {"status": handle.get("status"), "applied": handle.get("status") == "Completed",
                 "styleId": arguments.get("styleId"), **{key: handle.get(key) for key in HANDLE_IDS}}
 
-    def approve_gated(self, gate):
-        """A gated operator call: a person approves the exact proposal after the operator is refused.
+    def _author_tenant(self):
+        if self.target.get("kind") == "local-docker":
+            return local_fixture.TENANT_FIXTURE["authorTenant"]
+        return None
 
-        The proposal must name the gated call before anyone approves it, and the operator's refused
+    def approve_reopen(self, submitted):
+        """A gated version reopen: the author proposes, a person approves, and the handle names the new draft."""
+        operation = submitted.get("operation") or {}
+        gate = GatedCall(6, identity(operation.get("proposalId"), "honua_studio_reopen_version"),
+                         identity(operation.get("operationInstanceId"), "honua_studio_reopen_version"),
+                         re.compile(re.escape("Execute studio.content.reopen-version with its accepted typed payload.")))
+        handle = self.approve_gated(gate, reader=self.principal(8), tenant=self._author_tenant())
+        if handle.get("operationId") != "studio.content.reopen-version":
+            raise ExecutionError("GET approved reopen handle", "approved replay is not the version reopen")
+        if handle.get("status") != "Completed":
+            raise ExecutionError("GET approved reopen handle", "approved version reopen did not complete")
+        draft_id = identity((handle.get("resourceIds") or {}).get("draftId"), "GET approved reopen handle")
+        return {"status": handle.get("status"), "draftId": draft_id,
+                "operation": {key: handle.get(key) for key in HANDLE_IDS}}
+
+    def approve_gated(self, gate, *, reader=None, tenant=None):
+        """A gated call: a person approves the exact proposal after the caller is refused.
+
+        The proposal must name the gated call before anyone approves it, and the caller's refused
         attempt must leave it untouched. Returns the approved replay's settled handle.
         """
         path = "/api/v1/admin/proposals/" + gate.proposal_id
-        operator = self.principal(gate.stage)
-        pending = self.pending_gated_proposal(gate, operator)
-        self.transport.http("POST", path + "/approve", principal=operator, expected=(403,))
-        after = self.transport.get_json(path, principal=operator)
+        caller = self.principal(gate.stage)
+        observer = reader or caller
+        pending = self.pending_gated_proposal(gate, observer)
+        self.transport.http("POST", path + "/approve", principal=caller, expected=(403,))
+        after = self.transport.get_json(path, principal=observer)
         if any(after.get(key) != pending.get(key) for key in PROPOSAL_STATE):
             raise ExecutionError("approve as operator", "operator self-approval was not refused without mutation")
-        _, resolution = self.resolve_by_human(gate.proposal_id, pending, operator)
-        handle = self.settled_handle(gate.instance_id, operator)
+        _, resolution = self.resolve_by_human(gate.proposal_id, pending, observer, tenant=tenant)
+        handle = self.settled_handle(gate.instance_id, observer)
         if handle.get("proposalId") not in {None, gate.proposal_id}:
             raise ExecutionError("GET approved operation handle", "approved replay handle does not join the proposal")
         self.evidence.setdefault("operatorApprovals", {})[str(gate.stage)] = {
@@ -147,10 +168,10 @@ class GatedApprovals:
         handle = self.transport.get_json("/api/v1/operations/handles/" + instance_id, principal=principal)
         return handle.get("data", handle)
 
-    def resolve_by_human(self, proposal_id, before, reader):
+    def resolve_by_human(self, proposal_id, before, reader, *, tenant=None):
         """Approve through the human session and require a resolver distinct from the proposer."""
         path = "/api/v1/admin/proposals/" + proposal_id
-        outcome = self.human_approve(proposal_id)
+        outcome = self.human_approve(proposal_id, tenant=tenant)
         final = self.poll("GET approved proposal", lambda: self.transport.get_json(path, principal=reader),
                           lambda value: value.get("status") in PROPOSAL_RESOLVED)
         if (final.get("proposalId") != proposal_id or final.get("status") not in PROPOSAL_APPROVED
@@ -162,15 +183,16 @@ class GatedApprovals:
                        "resolvedBy": principal_identity(final["resolvedBy"], "GET approved proposal", "resolvedBy"),
                        "approvalChannel": _token(outcome.get("approvalChannel"))}
 
-    def human_approve(self, proposal_id):
+    def human_approve(self, proposal_id, *, tenant=None):
         """Approve as a person does in Console: a password session over HTTPS, in a child process."""
         command = "human approval session"
         channel = local_fixture.human_approval_channel(self.target, self.transport.workdir)
         if channel is None:
             raise ExecutionError(command, "target exposes no HTTPS human approval channel", blocked=True)
+        kwargs = {"tenant": tenant} if tenant else {}
         try:
             outcome = human_approval.approve_in_child(channel["baseUrl"], proposal_id, channel["password"],
-                                                      channel["cafile"])
+                                                      channel["cafile"], **kwargs)
         except subprocess.TimeoutExpired as exc:
             raise ExecutionError(command, "human approval session did not finish within its budget") from exc
         record_human_session_calls(proposal_id, outcome)

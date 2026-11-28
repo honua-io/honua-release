@@ -1575,6 +1575,24 @@ def test_render_reads_the_servers_format_field_and_refuses_conflicts():
         assert engine.check_render({"image": image, "layers": [{"styleId": "journey-solid-red"}]}).status == "fail"
 
 
+def test_render_reads_mcp_image_content_block_and_refuses_conflicts():
+    png = base64.b64encode(png_fixture()).decode()
+    output = {"image": {"format": "image/png", "width": 16, "height": 16, "inlined": True}, "layers": []}
+    content = [{"type": "text", "text": "Rendered 1 layer."},
+               {"type": "image", "mimeType": "image/png", "data": png}]
+    engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+    assert engine.check_render(output, content=content).status == "pass"
+    for bad_output, bad_content in (
+        (output, [{"type": "image", "mimeType": "image/png", "data": png},
+                  {"type": "image", "mimeType": "image/png", "data": png}]),
+        (output, [{"type": "image", "mimeType": "image/jpeg", "data": png}]),
+        (output, [{"type": "image", "mimeType": "image/png", "data": ""}]),
+        ({"image": {"format": "image/png", "base64": "AAAA", "inlined": True}, "layers": []}, content),
+    ):
+        engine = engine_for(mock.Mock(), execution=dict(RENDER_FIXTURE))
+        assert engine.check_render(bad_output, content=bad_content).status == "fail"
+
+
 def test_uri_render_rejects_a_conflicting_response_media_type():
     png = png_fixture()
     for header, status in (("image/jpeg", "fail"), ("application/octet-stream", "fail"),

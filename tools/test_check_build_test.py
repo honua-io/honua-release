@@ -440,3 +440,20 @@ def test_failed_capacity_soak_is_governance_and_does_not_evict_the_candidate():
     assert "Candidate capacity soak" in governance
     status, why = bt.classify(payload, ComponentPolicy(governance_names=governance))
     assert status == "pass", why
+
+
+def test_mcp_certify_and_server_nightly_client_compat_are_advisory_while_core_stays_decisive():
+    status, why = _classify("geospatial-mcp", _runs_named(
+        ("Validate Schemas", "success"), ("certify", "failure")))
+    assert status == "pass" and "certify" in why
+    assert _classify("geospatial-mcp", _runs_named(
+        ("Validate Schemas", "failure"), ("certify", "failure")))[0] == "fail"
+
+    status, why = _classify("honua-server", _runs_named(
+        ("Build & Format Check", "success"),
+        ("Baseline diff and gap report", "failure"),
+        ("PyQGIS OGC + WFS Compatibility", "failure")))
+    assert status == "pass" and "Baseline diff and gap report" in why and "PyQGIS OGC + WFS Compatibility" in why
+    assert _classify("honua-server", _runs_named(
+        ("Build & Format Check", "failure"),
+        ("Baseline diff and gap report", "failure")))[0] == "fail"
