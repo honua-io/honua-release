@@ -1951,7 +1951,9 @@ class LocalRuntime:
 
     def mcp_client(self, stack):
         from agent_e2e_mcp import Client
-        return Client(stack.base_url + '/mcp', credential_env=self.AGENT_ENV, credential_kind='api-key', timeout=120)
+        return Client(
+            stack.base_url + '/mcp', credential_env=self.AGENT_ENV,
+            credential_kind='api-key', workflow_view='setup', timeout=120)
 
     def tool_view(self, stack):
         """The customer surface: the agent credential's own tools/list, unfiltered."""

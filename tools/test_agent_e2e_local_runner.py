@@ -2767,3 +2767,12 @@ def test_fixture_case_does_not_trust_scenario_expected(candidate, tmp_path):
     assert receipt['status'] == 'pass', receipt
     assert receipt['fixtureId'] == 'town-A'
     assert [row['status'] for row in receipt['assertions']] == ['pass', 'pass']
+
+
+def test_local_runtime_mcp_client_selects_setup_workflow_view(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setenv(runner.LocalRuntime.AGENT_ENV, 'test-agent-key')
+    runtime = runner.LocalRuntime.__new__(runner.LocalRuntime)
+    client = runtime.mcp_client(SimpleNamespace(base_url='http://127.0.0.1:18080'))
+    assert client.workflow_view == 'setup'
+    assert client.endpoint == 'http://127.0.0.1:18080/mcp'
