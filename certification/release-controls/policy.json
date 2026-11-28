@@ -130,6 +130,22 @@
         "mikemcdougall"
       ]
     },
+    "honua-mobile": {
+      "release_refs": [
+        "refs/heads/release/*"
+      ],
+      "required_checks": [
+        "CI Gate"
+      ],
+      "tag_refs": [
+        "refs/tags/mobile-dotnet-v*"
+      ],
+      "check_qualification": "Existing required context on trunk; release-line execution audit pending.",
+      "tag_qualification": "Experimental Mobile NuGet tag namespace covered by the active Immutable Mobile publication tags ruleset. The central signing policy covers the .NET namespace.",
+      "code_owners": [
+        "mikemcdougall"
+      ]
+    },
     "honua-release": {
       "release_refs": [
         "refs/heads/release/*"

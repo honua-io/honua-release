@@ -21,8 +21,8 @@ signer this repository's trust policy names. Two kinds of signer exist:
     allowed-signers file that is never committed, and every principal in that file must already
     be named in the policy.
 
-honua-release's platform publication tags are signed by promote.yml's own OIDC identity. The
-other native-tag repositories still nominate no signer, so every command for them fails closed.
+The trust policy names promote.yml for platform publication tags and sign-dotnet-mobile.yml for
+Mobile .NET publication tags. Repositories without an authorized signer fail closed.
 """
 from __future__ import annotations
 

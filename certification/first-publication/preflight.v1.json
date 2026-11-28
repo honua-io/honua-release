@@ -260,7 +260,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -268,25 +269,25 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "honua.sdk.5.1.0.nupkg",
-          "sha256": "4efba6dd62da10df74de56caaeaf4fa939a224e91af62eb77b8586edb379e90d",
-          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/5.1.0/honua.sdk.5.1.0.nupkg"
+          "filename": "honua.sdk.5.2.0.nupkg",
+          "sha256": "1183ef2e13b2d2a1b6755feded4b13295c9b3160afbb0d7637509c7114b78c17",
+          "url": "https://api.nuget.org/v3-flatcontainer/honua.sdk/5.2.0/honua.sdk.5.2.0.nupkg"
         },
         {
-          "filename": "honua.sdk.5.1.0.snupkg",
-          "sha256": "e53f1f2c6166d4d889d3449ee9cc3957194391e7518282175c9c2849056081f5",
-          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.5.1.0.snupkg"
+          "filename": "honua.sdk.5.2.0.snupkg",
+          "sha256": "f1926f17c62c455007ced961d7b21db069cb957b5510de9502f4162002bb58d6",
+          "url": "https://globalcdn.nuget.org/symbol-packages/honua.sdk.5.2.0.snupkg"
         }
       ],
       "flat_container_snupkg_status": 404,
       "http_status": 200,
       "id": "nuget:Honua.Sdk-newest",
-      "publication": "nuget.org Honua.Sdk 5.1.0",
+      "publication": "nuget.org Honua.Sdk 5.2.0",
       "urls": [
-        "https://api.nuget.org/v3-flatcontainer/honua.sdk/5.1.0/honua.sdk.5.1.0.nupkg",
-        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.5.1.0.snupkg"
+        "https://api.nuget.org/v3-flatcontainer/honua.sdk/5.2.0/honua.sdk.5.2.0.nupkg",
+        "https://globalcdn.nuget.org/symbol-packages/honua.sdk.5.2.0.snupkg"
       ],
-      "version": "5.1.0"
+      "version": "5.2.0"
     },
     {
       "disposition": "listed",
@@ -318,7 +319,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -351,7 +353,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -384,7 +387,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -417,7 +421,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -450,7 +455,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -483,7 +489,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -516,7 +523,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -549,7 +557,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -582,7 +591,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -615,7 +625,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -648,7 +659,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -681,7 +693,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -714,7 +727,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -747,7 +761,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -780,7 +795,8 @@
         "4.0.0",
         "5.0.0",
         "5.0.1",
-        "5.1.0"
+        "5.1.0",
+        "5.2.0"
       ]
     },
     {
@@ -991,6 +1007,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-28T00:35:34Z",
+  "observed_at": "2026-11-28T03:43:56Z",
   "schema": "honua.first-publication-preflight/v1"
 }

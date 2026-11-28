@@ -275,7 +275,7 @@ def test_committed_inventory_covers_the_adopted_denominator_and_manifest():
     import yaml
     root = Path(__file__).resolve().parents[1]
     policy = json.loads((root / 'certification/release-controls/policy.json').read_text())
-    expected = set('honua-server honua-sdk-js honua-sdk-python honua-sdk-dotnet honua-studio honua-console honua-release honua-iac honua-devops honua-helm honua-site honua-demo-infra honua-evidence geospatial-grpc geospatial-mcp honua-support'.split())
+    expected = set('honua-server honua-sdk-js honua-sdk-python honua-sdk-dotnet honua-studio honua-console honua-release honua-iac honua-devops honua-helm honua-mobile honua-site honua-demo-infra honua-evidence geospatial-grpc geospatial-mcp honua-support'.split())
     assert set(policy['repositories']) == expected
     manifest = yaml.safe_load((root / 'platform-manifest.yaml').read_text())
     assert set(manifest['components']) <= expected

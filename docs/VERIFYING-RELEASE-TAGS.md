@@ -9,7 +9,7 @@ and every release gate have passed. Sigstore's Fulcio CA issues a short-lived ce
 for that workflow's OIDC identity, and the signature is recorded in the public Rekor
 transparency log.
 
-A tag is genuine only if all three of these hold:
+A platform release tag is genuine only if all three of these hold:
 
 | claim | expected value |
 |---|---|
@@ -18,7 +18,7 @@ A tag is genuine only if all three of these hold:
 | Rekor entry | present and matching the signature |
 
 A valid Sigstore signature by any other identity, such as another repository, another
-workflow, another branch, or a person's email address, is **not** a Honua release
+workflow, another branch, or a person's email address, is **not** a Honua platform release
 signature.
 
 ## With gitsign (recommended)
@@ -104,6 +104,21 @@ lock cannot be moved after it is published.
 
 The GitHub pre-release tags that `rc-release.yml` creates are lightweight and unsigned. They
 are not release artifacts.
+
+## Mobile .NET tags
+
+Experimental Honua Mobile NuGet releases use annotated `mobile-dotnet-v<version>`
+tags in `honua-io/honua-mobile`. Their authorized signer is the
+`sign-dotnet-mobile.yml` workflow on `trunk`. From a checkout of that repository,
+set `tag` to the version you want to verify and run the following commands:
+
+```sh
+tag=mobile-dotnet-v1.0.0
+git fetch origin tag "$tag" --no-tags
+gitsign verify-tag "$tag" \
+  --certificate-identity "https://github.com/honua-io/honua-mobile/.github/workflows/sign-dotnet-mobile.yml@refs/heads/trunk" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+```
 
 ## For maintainers
 
