@@ -142,11 +142,11 @@
       "id": "honua-sdk-js-install",
       "repo": "honua-io/honua-sdk-js",
       "path": "INSTALL.md",
-      "revision": "76842917bbd5bee3860ac3f6d355d44ac0a82c21",
+      "revision": "df8c6bbb3c1fb4ea228721f3e7446a975187c73d",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/76842917bbd5bee3860ac3f6d355d44ac0a82c21/INSTALL.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/df8c6bbb3c1fb4ea228721f3e7446a975187c73d/INSTALL.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -187,12 +187,13 @@
         },
         {
           "index": 3,
-          "line": 273,
+          "line": 272,
           "language": "typescript",
-          "infoString": "typescript doc-test=compile",
-          "intent": "compile",
+          "infoString": "typescript doc-test=skip reason=\"requires the optional @honua/honua-migrate package installed separately\"",
+          "intent": "excluded",
           "intentSource": "fence-attribute",
-          "sha256": "61183f0942ae6f321df9671837d0cc2e58f1f63a2e4f6ba0fed1ca54465e7aa8"
+          "sha256": "d676fbe8b943e4952207b04296cd6469cfde1f1fa884d2076d3cc1d1fbe6b7fe",
+          "reason": "requires the optional @honua/honua-migrate package installed separately"
         }
       ]
     },
@@ -200,11 +201,11 @@
       "id": "honua-sdk-js-docs-quickstart",
       "repo": "honua-io/honua-sdk-js",
       "path": "docs/quickstart.md",
-      "revision": "76842917bbd5bee3860ac3f6d355d44ac0a82c21",
+      "revision": "df8c6bbb3c1fb4ea228721f3e7446a975187c73d",
       "revisionRule": {
         "clientArtifact": "honua-sdk-js"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/76842917bbd5bee3860ac3f6d355d44ac0a82c21/docs/quickstart.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/df8c6bbb3c1fb4ea228721f3e7446a975187c73d/docs/quickstart.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -245,7 +246,7 @@
           "infoString": "bash",
           "intent": "run",
           "intentSource": "marker",
-          "sha256": "004e8fee50ac48042bf666eb36daab3c9743fddd55981ea9d74ab99b0244c8b1",
+          "sha256": "335f902c44bd1d2449c77333334cb7457bb1c9a8f2cec66f4da48493d2967009",
           "marker": {
             "run": "",
             "ready-url": "http://localhost:5173/"
@@ -275,11 +276,11 @@
       "id": "honua-sdk-js-mcp-readme",
       "repo": "honua-io/honua-sdk-js",
       "path": "mcp/README.md",
-      "revision": "b195086e6aabee9d048cdc7d324b82a51e7c79c3",
+      "revision": "856509d29eb13a12d245e84f30fc55b57c37a9d6",
       "revisionRule": {
         "clientArtifact": "honua-mcp-server"
       },
-      "url": "https://github.com/honua-io/honua-sdk-js/blob/b195086e6aabee9d048cdc7d324b82a51e7c79c3/mcp/README.md",
+      "url": "https://github.com/honua-io/honua-sdk-js/blob/856509d29eb13a12d245e84f30fc55b57c37a9d6/mcp/README.md",
       "runtime": "node",
       "docker": false,
       "session": null,
@@ -3286,8 +3287,8 @@
     "blocks": 249,
     "byIntent": {
       "alternative": 1,
-      "compile": 8,
-      "excluded": 9,
+      "compile": 7,
+      "excluded": 10,
       "file": 25,
       "illustrative": 19,
       "output": 6,

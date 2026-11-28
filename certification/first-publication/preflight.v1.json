@@ -1,7 +1,7 @@
 {
   "blockers": [
     {
-      "boundary": "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 404 to an unauthenticated request (a private repository is not distinguishable from a missing one) and https://plugins.qgis.org/plugins/honua_gis_assistant/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). No signing secret is recorded here.",
+      "boundary": "https://api.github.com/repos/honua-io/honua-qgis-plugin returned 403 to an unauthenticated request (not evidence the repository is private). https://github.com/honua-io/honua-qgis-plugin returned 404. https://plugins.qgis.org/plugins/honua_gis_assistant/ returned 404. honua-qgis-plugin CI builds a ZIP artifact only; it does not submit to the QGIS plugin repository. Publication still needs an operator visibility, history, and signing review, an exact release ZIP, and OSGeo submission (honua-qgis-plugin#29). No signing secret is recorded here.",
       "channels": [
         "qgis:honua-qgis-plugin"
       ],
@@ -9,7 +9,7 @@
       "publication": "QGIS plugin honua_gis_assistant"
     },
     {
-      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.4.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.4.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.4.0': 200}; the platform manifest pins @honua/sdk-js 0.5.1. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
+      "boundary": "The published tarball was downloaded, but its templates pin package/templates/react-ts/package.json @honua/sdk-js@0.4.0 maplibre-gl@6.4.1, package/templates/vanilla-ts/package.json @honua/sdk-js@0.4.0 maplibre-gl@6.4.1. npm version status for those @honua/sdk-js pins is {'0.4.0': 200}; the platform manifest pins @honua/sdk-js 0.5.2. MapLibre pins must be exact stable versions at least 6.4.1, the patched version for GHSA-jrc7-96c5-q579; unresolved ranges and prereleases need review. A replacement create-honua-app release has to come from honua-sdk-js. This repo cannot publish that tarball.",
       "channels": [
         "npm:create-honua-app"
       ],
@@ -87,42 +87,42 @@
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "mcp-server-0.6.2.tgz",
-          "registry_integrity": "sha512-8sgMLQekZZa2Qi+WNZu04nFGgtoXABVWEZHOUzYnd1IRj4ZBxUPHkHQklWt225JMZrz7SRW8X8zfn7rgZ0XOTA==",
-          "sha256": "54335885e8fcab212a34403407c819007b066f48b3c2785979d4aa07b1a5a530",
-          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.2.tgz"
+          "filename": "mcp-server-0.6.3.tgz",
+          "registry_integrity": "sha512-OMTVOqifZTMrv07Gu67omgJPZUrBQtNUuN/OHxvDe19rSX7umxGyf8BXRD7MbGCiqAjWBmMpgOaCwBfCsvFHcw==",
+          "sha256": "a1623f5d93c92294727693f073d097d4eb03237d46edaa112af0b3f79fb961b9",
+          "url": "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.3.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/mcp-server",
-      "publication": "npm @honua/mcp-server@0.6.2",
-      "source_sha": "b195086e6aabee9d048cdc7d324b82a51e7c79c3",
+      "publication": "npm @honua/mcp-server@0.6.3",
+      "source_sha": "856509d29eb13a12d245e84f30fc55b57c37a9d6",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fmcp-server/0.6.2",
-        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.2.tgz"
+        "https://registry.npmjs.org/@honua%2Fmcp-server/0.6.3",
+        "https://registry.npmjs.org/@honua/mcp-server/-/mcp-server-0.6.3.tgz"
       ],
-      "version": "0.6.2"
+      "version": "0.6.3"
     },
     {
       "disposition": "published",
       "evidence_class": "downloaded-bytes",
       "files": [
         {
-          "filename": "sdk-js-0.5.1.tgz",
-          "registry_integrity": "sha512-nBsIeDTnWYWkSEL3WkQfZ+4pUgWBJd1OawkmRElgx6DhsxVw8WCXCa3b+CCkJFg6GwGweM3fe1La7sN5q5SuDA==",
-          "sha256": "6ba4d862d6b2b5708126095bdd0c490c1a8ff73e16102db5ea8f96978dc1bde5",
-          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.5.1.tgz"
+          "filename": "sdk-js-0.5.2.tgz",
+          "registry_integrity": "sha512-niccxFOu4CauLM73AVDhzkLjK86IXVbI19MTiwPu/zDvyVIsLCTjs5d95xOAI64181Ef/i/qx92oCJdIkXKzYA==",
+          "sha256": "d6b39b083ea223bf50d8af2f6c475525b4d5f79a5b1f338ba6762c3d1205efcc",
+          "url": "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.5.2.tgz"
         }
       ],
       "http_status": 200,
       "id": "npm:@honua/sdk-js",
-      "publication": "npm @honua/sdk-js@0.5.1",
-      "source_sha": "76842917bbd5bee3860ac3f6d355d44ac0a82c21",
+      "publication": "npm @honua/sdk-js@0.5.2",
+      "source_sha": "df8c6bbb3c1fb4ea228721f3e7446a975187c73d",
       "urls": [
-        "https://registry.npmjs.org/@honua%2Fsdk-js/0.5.1",
-        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.5.1.tgz"
+        "https://registry.npmjs.org/@honua%2Fsdk-js/0.5.2",
+        "https://registry.npmjs.org/@honua/sdk-js/-/sdk-js-0.5.2.tgz"
       ],
-      "version": "0.5.1"
+      "version": "0.5.2"
     },
     {
       "disposition": "blocked-on-republish",
@@ -137,7 +137,7 @@
       ],
       "http_status": 200,
       "id": "npm:create-honua-app",
-      "manifest_sdk_pin": "0.5.1",
+      "manifest_sdk_pin": "0.5.2",
       "maplibre_pins": [
         "6.4.1"
       ],
@@ -969,9 +969,13 @@
       "version": "0.3.3"
     },
     {
+      "api_http_status": 403,
+      "canonical_url": "https://api.github.com/repos/honua-io/honua-qgis-plugin",
       "disposition": "blocked-on-operator",
-      "http_status": 404,
+      "http_status": 403,
       "id": "qgis:honua-qgis-plugin",
+      "observed_http_status": 404,
+      "observed_url": "https://github.com/honua-io/honua-qgis-plugin",
       "plugin_http_status": 404,
       "publication": "QGIS plugin honua_gis_assistant",
       "urls": [
@@ -1016,6 +1020,6 @@
   },
   "issue": "honua-io/honua-release#57",
   "method": "Anonymous HTTPS with no registry credential; the only Authorization header sent is a GHCR pull token issued to an unauthenticated request. published rows are sha256 of bytes this probe downloaded, except the BSR module archive, which buf.build re-encodes on request: its row is the sha256 of the sorted sha256sum listing of the archive files, and its protos must equal the byte-pinned Geospatial.Grpc 1.0.0 nupkg protos. listed rows are registry indexes only. Blocked rows name the publication and the operator boundary and do not carry package bytes. deferred-experimental rows are channels of a component the platform manifest lists under experimental:; they are not GA evidence and not release blockers. anonymous-oci-manifest rows are container images pulled with an anonymous GHCR token: the digest is the sha256 of the manifest bytes, a multi-arch index also resolves its linux/amd64 manifest, and manifest pins must match. A floating channel tag records observed_* digests that are not compared for drift.",
-  "observed_at": "2026-11-28T16:41:15Z",
+  "observed_at": "2026-11-28T17:07:19Z",
   "schema": "honua.first-publication-preflight/v1"
 }

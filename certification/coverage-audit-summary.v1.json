@@ -2,10 +2,10 @@
   "schema": "honua.coverage-audit-summary/v1",
   "meaning": "Inventory and source-review status only; never an executed pass rate or release verdict.",
   "requirements_revision": "2026-10-26-complete.26",
-  "requirements_digest": "sha256:cd8fffd773843fc50924858b7ebe0818ae0a964a161c4dffdba3b30cd9ae6bf6",
+  "requirements_digest": "sha256:5c4a67a5c2bc94da9228042dd66839cd5ab4a35a0613276ae3e0a29871bb550d",
   "production_digest": "sha256:8eb8b6de76f4c70a3cbb467871ea55ec1ccc05690fbeca12b6b663d07286d412",
   "audit_digest": "sha256:324ea9f8b8d6f9609ea97f49a49300bb1c12dcac458b46e3c8047e51c733f8e6",
-  "rows_digest": "sha256:c3fc30da2f2af41b88db821591601944e9c4941a290b800a7a1987b9b8f9f98f",
+  "rows_digest": "sha256:9fd479beb7ee355a559ab532fda7f00f32dd2604be06b0d86b8c6eb2f63af82e",
   "rows": 2010,
   "non_licensed_rows": 2010,
   "external_licensed_rows": 0,
@@ -120,7 +120,7 @@
       },
       "governed": {
         "repository": "honua-io/honua-sdk-js",
-        "commit": "9d078e17abf7c90cecd000df6fcda4f3d5d9548f"
+        "commit": "df8c6bbb3c1fb4ea228721f3e7446a975187c73d"
       },
       "same_revision": false
     },
