@@ -69,9 +69,9 @@ exactly one completeness proof, `total` or `next_page`. The pointer must exist i
 Created-role completeness comes only from a reviewed enumeration contract (`ENUMERATION_CONTRACTS` in
 `tools/agent_e2e_local_projections.py`, reviewed against honua-server a4bde4b8 with file:line citations).
 The reviewed contracts are:
-- unpaged: `GET /api/v1/admin/connections` (active connections only) and `GET /api/v1/admin/services` (one row per service name);
+- unpaged: `GET /api/v1/admin/connections` (active connections only);
 - cursor (`/nextCursor`): `GET /api/v1/admin/jobs`, and the MCP tool `honua_list_jobs` (`/result/structuredContent/nextCursor`);
-- total (`/data/total`): `GET /api/v1/studio/package-drafts`, `GET /api/v1/studio/content-items` and `GET /api/v1/console/content`;
+- total (`/data/total`): `GET /api/v1/admin/services`, `GET /api/v1/studio/package-drafts`, `GET /api/v1/studio/content-items` and `GET /api/v1/console/content`;
 - total (`totalCount`): the MCP tool `honua_list_layers`.
 
 These are deliberately not contracts: `GET /api/v1/admin/api-keys` hides some keys without a count, and the

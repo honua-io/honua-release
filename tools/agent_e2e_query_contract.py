@@ -84,7 +84,21 @@ def _normalize_coord_node(node):
 def _normalize_geometry(geometry):
     if 'coordinates' not in geometry:
         return geometry
-    return {**geometry, 'coordinates': _normalize_coord_node(geometry['coordinates'])}
+    coords = _normalize_coord_node(geometry['coordinates'])
+    if (geometry.get('type') == 'MultiPolygon' and isinstance(coords, list)
+            and len(coords) == 1 and isinstance(coords[0], list)):
+        return {**geometry, 'type': 'Polygon', 'coordinates': coords[0]}
+    return {**geometry, 'coordinates': coords}
+
+
+def service_list_items(body):
+    """Extract the complete paged items list from GET /api/v1/admin/services/."""
+    data = body.get('data') if isinstance(body, dict) else None
+    items = data.get('items') if isinstance(data, dict) else None
+    total = data.get('total') if isinstance(data, dict) else None
+    if not isinstance(items, list) or type(total) is not int or total != len(items):
+        raise ValueError('service inventory has an invalid or incomplete paged shape')
+    return items
 
 
 def _normalize_query_feature(feature, attr_key):

@@ -1453,7 +1453,7 @@
     {
       "role": "created:service:buffer",
       "step": "p11-services-after",
-      "items": "/data",
+      "items": "/data/items",
       "id": "/serviceName",
       "before": "p11-services-before",
       "created_by": {

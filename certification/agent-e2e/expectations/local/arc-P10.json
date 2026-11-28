@@ -23,7 +23,7 @@
     {
       "role": "created:service:shelters",
       "step": "arc-p10-services-after",
-      "items": "/data",
+      "items": "/data/items",
       "id": "/serviceName",
       "before": "arc-p10-services-before",
       "created_by": {

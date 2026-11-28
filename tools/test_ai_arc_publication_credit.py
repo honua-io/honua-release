@@ -49,9 +49,9 @@ def _resolve(results, live=('geoprocessing', 'kestrel', 'kestrel-svc', 'other'))
         'arc-p10-connection-create': _record('arc-p10-connection-create', 'seed', {'data': {'connectionId': CONN}},
                                              '/api/v1/admin/connections/'),
         'arc-p10-services-before': _record('arc-p10-services-before', 'seed',
-                                           {'success': True, 'data': [{'serviceName': 'geoprocessing'}]}),
+                                           {'success': True, 'data': {'items': [{'serviceName': 'geoprocessing'}], 'total': 1}}),
         'arc-p10-services-after': _record('arc-p10-services-after', 'observe',
-                                          {'success': True, 'data': [{'serviceName': s} for s in live]})}
+                                          {'success': True, 'data': {'items': [{'serviceName': s} for s in live], 'total': len(live)}})}
     return resolve_roles(bindings, records, agent_principal='agent', action_results=results)
 
 
@@ -101,8 +101,8 @@ def test_an_unreviewed_alternative_tool_is_refused():
     forged = RoleBinding(created.role, created.step, items=created.items, id=created.id, before=created.before,
                          created_by=spec)
     with pytest.raises(ValueError, match='unreviewed created_by alternative'):
-        resolve_roles([forged], {created.step: _record(created.step, 'observe', {'data': []}),
-                                 created.before: _record(created.before, 'seed', {'data': []})},
+        resolve_roles([forged], {created.step: _record(created.step, 'observe', {'data': {'items': [], 'total': 0}}),
+                                 created.before: _record(created.before, 'seed', {'data': {'items': [], 'total': 0}})},
                       agent_principal='agent', action_results=[])
 
 
