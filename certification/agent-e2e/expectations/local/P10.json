@@ -11,7 +11,7 @@
     {
       "role": "seeded:layer:shelters",
       "step": "publish-shelters-submit",
-      "pointer": "/data/resourceIds/layerId"
+      "pointer": "/data/resourceIds/storageLayerId"
     }
   ],
   "projections": {
@@ -25,7 +25,8 @@
             },
             "layer": {
               "role": "seeded:layer:shelters"
-            }
+            },
+            "oidSource": "p10-source-after"
           }
         }
       },
@@ -37,6 +38,13 @@
           "principal": "controller",
           "phase": "observe",
           "replayOfModelAction": true
+        },
+        "p10-source-after": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         }
       }
     },
@@ -60,7 +68,17 @@
                   "pathSegment": 4
                 }
               }
-            ]
+            ],
+            "content": {
+              "featureServerFeatures": "$step",
+              "booleanFields": [
+                "is_open"
+              ],
+              "booleanGeo": {
+                "p10-source-before": "p10-source-before-geo",
+                "p10-source-after": "p10-source-after-geo"
+              }
+            }
           }
         ]
       },
@@ -72,12 +90,26 @@
           "phase": "seed",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         },
+        "p10-source-before-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "seed",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
         "p10-source-after": {
           "kind": "http",
           "method": "GET",
           "principal": "controller",
           "phase": "observe",
           "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=json&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=3857&orderByFields=source_id\\+ASC&resultRecordCount=1000"
+        },
+        "p10-source-after-geo": {
+          "kind": "http",
+          "method": "GET",
+          "principal": "controller",
+          "phase": "observe",
+          "path": "/rest/services/[^/?]+/FeatureServer/[0-9]+/query\\?f=geojson&where=1%3D1&outFields=%2A&returnGeometry=true&outSR=4326&orderByFields=source_id\\+ASC&resultRecordCount=1000"
         }
       }
     }

@@ -524,3 +524,17 @@ def test_driver_run_import_survives_the_canary_receipt_validator(monkeypatch):
     terminal_model_canary._ga_single_tenant()
     driver = importlib.import_module("run")
     assert hasattr(driver, "observe")
+
+
+def test_live_driver_verify_subprocess_imports_canary_without_tools_on_sys_path():
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    payload = json.dumps({"protocol": live_driver.PROTOCOL, "operation": "verify",
+                          "workspaceId": "missing-workspace-id"})
+    proc = subprocess.run([sys.executable, str(live_driver.HERE / "live_driver.py")],
+                          input=payload, capture_output=True, text=True, env=env, timeout=30, check=False)
+    response = json.loads(proc.stdout)
+    assert response["status"] == "fail" and response["operation"] == "verify"
+    assert "ModuleNotFoundError" not in response.get("error", "")
+    assert "ImportError" not in response.get("error", "")
+    assert response.get("errorCategory") == "DriverError"

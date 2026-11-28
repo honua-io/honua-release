@@ -22,7 +22,7 @@ QUERY_TOOL = 'honua_query_features'
 SERVICE_ROLE, LAYER_ROLE = 'seeded:service:shelters', 'seeded:layer:shelters'
 # Where a completed service.publish handle names the published service and layer.
 PUBLISH_STEP = 'publish-shelters-submit'
-SERVICE_POINTER, LAYER_POINTER = '/data/resourceIds/serviceName', '/data/resourceIds/layerId'
+SERVICE_POINTER, LAYER_POINTER = '/data/resourceIds/serviceName', '/data/resourceIds/storageLayerId'
 
 
 class P10(Scenario):
@@ -31,7 +31,7 @@ class P10(Scenario):
 
     def seed(self, stack, variant):
         from agent_e2e_local_scenarios.w2g3_common import town_setup
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_p10_observer import source_geojson_path, source_path
         if variant not in self.supported_variants:
             raise ValueError('unsupported P10 variant')
         if 'p10Seed' in stack.extra:
@@ -47,6 +47,7 @@ class P10(Scenario):
             connection_id=stack.extra['connectionId'])
         binding = town['layers']['shelters']
         recorder.json('p10-source-before', 'GET', source_path(binding))
+        recorder.json('p10-source-before-geo', 'GET', source_geojson_path(binding))
         seed = {'variant': variant, 'service': binding['service'], 'layerId': binding['layerId']}
         stack.extra['p10Seed'] = seed
         return Seeded(seed)
@@ -58,21 +59,24 @@ class P10(Scenario):
     @staticmethod
     def selected_query(actions, seeded):
         """Only the last query is eligible, including failures and queries of other layers."""
+        from agent_e2e_local_projections import echoes_service, query_layer_id
         queries = [a for a in actions if a.kind == 'tool_call' and a.tool == QUERY_TOOL]
         if not queries:
             return None
         action = queries[-1]
         arguments = action.arguments if isinstance(action.arguments, dict) else {}
-        if (action.status == 'pass' and str(arguments.get('serviceId')) == str(seeded.state['service'])
-                and str(arguments.get('layerId')) == str(seeded.state['layerId'])):
+        layer = query_layer_id(arguments)
+        if (action.status == 'pass' and echoes_service(arguments.get('serviceId'), seeded.state['service'])
+                and layer is not None and str(layer) == str(seeded.state['layerId'])):
             return action
         return None
 
     def observe(self, stack, seeded, variant, run=None):
-        from agent_e2e_p10_observer import source_path
+        from agent_e2e_p10_observer import source_geojson_path, source_path
         recorder = stack.extra['recorder']
         binding = {'service': seeded.state['service'], 'layerId': seeded.state['layerId']}
         recorder.json('p10-source-after', 'GET', source_path(binding))
+        recorder.json('p10-source-after-geo', 'GET', source_geojson_path(binding))
         actions = recorder.actions()
         from agent_e2e_local_expectations import fixture_catalog
         count = sum(a.kind == 'tool_call' and a.tool == QUERY_TOOL for a in actions)
@@ -85,22 +89,36 @@ class P10(Scenario):
         service, layer = {'role': SERVICE_ROLE}, {'role': LAYER_ROLE}
         return [
             Observation('filter.exact', None, {'projection': 'extract/v1', 'spec': {'object': {'resourceIds': {
-                'featureQueryIds': 'p10-replay-query', 'service': service, 'layer': layer}}}}),
+                'featureQueryIds': 'p10-replay-query', 'service': service, 'layer': layer,
+                'oidSource': 'p10-source-after'}}}}),
             Observation('source-content.unchanged', None, {'projection': 'extract/v1', 'spec': {'protectedContent': [
                 {'label': 'shelters', 'before': 'p10-source-before', 'after': 'p10-source-after',
                  'resource': [{'role': SERVICE_ROLE, 'at': {'pathSegment': 2}},
-                              {'role': LAYER_ROLE, 'at': {'pathSegment': 4}}]}]}}),
+                              {'role': LAYER_ROLE, 'at': {'pathSegment': 4}}],
+                 'content': {'featureServerFeatures': '$step', 'booleanFields': ['is_open'],
+                             'booleanGeo': {'p10-source-before': 'p10-source-before-geo',
+                                            'p10-source-after': 'p10-source-after-geo'}}}]}}),
         ]
 
     def handoff(self, stack, seeded, variant, run=None):
         """Controller facts the customer's final answer is checked against."""
-        if 'p10-replay-query' not in stack.extra['recorder'].records:
+        from agent_e2e_local_recorder import ProjectionError
+        record = stack.extra['recorder'].records.get('p10-replay-query')
+        if record is None:
             return None
-        features = {'body': 'p10-replay-query', 'pointer': '/result/structuredContent/geojson/features'}
+        try:
+            parsed = record.json if isinstance(record.json, dict) else {}
+        except ProjectionError:
+            parsed = {}
+        structured = (parsed.get('result') or {}).get('structuredContent') if isinstance(parsed.get('result'), dict) else None
+        flat = isinstance(structured, dict) and 'features' in structured and 'geojson' not in structured
+        features = {'body': 'p10-replay-query',
+                    'pointer': '/result/structuredContent/' + ('features' if flat else 'geojson/features')}
         count = {'count': features}
         return {'object': {'resources': {'list': []},
                            'facts': {'object': {'counts': {'object': {'features': count, 'points': count}},
-                                                'names': {'map': features, 'to': {'item': '/properties/name'}}}}}}
+                                                'names': {'map': features,
+                                                          'to': {'item': '/attributes/name' if flat else '/properties/name'}}}}}}
 
 
 scenario = P10()

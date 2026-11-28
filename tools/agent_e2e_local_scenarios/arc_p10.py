@@ -13,6 +13,8 @@ def p10_response_ids(message, arguments=None):
     """The source_id set one honua_query_features response returned, or None unless it is a complete, successful list
     (no error, one page from offset and cursor zero, not truncated, within its own limit, distinct string ids, count
     matching the features)."""
+    from agent_e2e_local_recorder import ProjectionError
+    from agent_e2e_query_contract import query_features
     arguments = arguments if isinstance(arguments, dict) else {}
     if arguments.get('resultOffset', 0) != 0 or str(arguments.get('cursor', '0')) != '0':
         return None
@@ -21,12 +23,14 @@ def p10_response_ids(message, arguments=None):
     if (not isinstance(result, dict) or result.get('isError', False) is not False or not isinstance(value, dict)
             or value.get('exceededTransferLimit') is not False or value.get('resultOffset') != 0):
         return None
-    collection = value.get('geojson')
-    features = collection.get('features') if isinstance(collection, dict) else None
-    if not isinstance(features, list) or type(value.get('returnedCount')) is not int \
-            or value['returnedCount'] != len(features):
+    try:
+        features, attr_key = query_features(value)
+    except ProjectionError:
         return None
-    ids = [f.get('properties', {}).get('source_id') if isinstance(f, dict) else None for f in features]
+    if type(value.get('returnedCount')) is not int or value['returnedCount'] != len(features):
+        return None
+    ids = [(f.get(attr_key) or {}).get('source_id') if isinstance(f, dict) and isinstance(f.get(attr_key), dict)
+           else None for f in features]
     if not all(isinstance(i, str) and i for i in ids) or len(set(ids)) != len(ids):
         return None
     limit = arguments.get('limit')
@@ -47,14 +51,15 @@ class ArcP10(P10):
         expresses the selection and translates to exactly those source rows) is chosen for audit, else the earliest
         eligible one (the projection then fails or leaves it undetermined). Later verification reads never decide.
         ``reported`` is the frozenset from the closing checklist (ai_arc_safety.parse_reported_ids)."""
-        from agent_e2e_local_projections import echoes_service
+        from agent_e2e_local_projections import echoes_service, query_layer_id
         if reported is None or response_ids is None:
             return None
         eligible = []
         for action in (a for a in actions if a.kind == 'tool_call' and a.tool == 'honua_query_features'):
             arguments = action.arguments if isinstance(action.arguments, dict) else {}
+            layer = query_layer_id(arguments)
             if (action.status == 'pass' and echoes_service(arguments.get('serviceId'), seeded.state['service'])
-                    and str(arguments.get('layerId')) == str(seeded.state['layerId'])
+                    and layer is not None and str(layer) == str(seeded.state['layerId'])
                     and response_ids(action) == reported):
                 eligible.append(action)
         for action in eligible:
@@ -143,7 +148,8 @@ class ArcP10(P10):
             response = rec.action_result('arc-p10-publication-' + str(index), action)
             result = response.json.get('result', {})
             value = result.get('structuredContent', {})
-            service, layer = value.get('serviceName'), value.get('layerId')
+            from agent_e2e_query_contract import published_layer_value
+            service, layer = value.get('serviceName'), published_layer_value(value)
             if (result.get('isError', False) is False and value.get('status') == 'Completed'
                     and value.get('operationId') == 'service.publish'
                     and (not lost or str(lost[0].get('committedResourceId')) == str(service))
@@ -222,11 +228,21 @@ class ArcP10(P10):
         records = stack.extra['recorder'].records
         if (data_plane_denied(records.get('p10-replay-query')) and 'arc-p10-final-query' in records
                 and records['arc-p10-final-query'].origin == 'session-result'):
-            features = {'body': 'arc-p10-final-query', 'pointer': '/result/structuredContent/geojson/features'}
+            from agent_e2e_local_recorder import ProjectionError
+            try:
+                raw_json = records['arc-p10-final-query'].json
+                parsed = raw_json if isinstance(raw_json, dict) else {}
+            except ProjectionError:
+                parsed = {}
+            structured = (parsed.get('result') or {}).get('structuredContent') if isinstance(parsed.get('result'), dict) else None
+            flat = isinstance(structured, dict) and 'features' in structured and 'geojson' not in structured
+            features = {'body': 'arc-p10-final-query',
+                        'pointer': '/result/structuredContent/' + ('features' if flat else 'geojson/features')}
             count = {'count': features}
             return {'object': {'resources': {'list': []},
                                'facts': {'object': {'counts': {'object': {'features': count, 'points': count}},
-                                                    'names': {'map': features, 'to': {'item': '/properties/name'}}}}}}
+                                                    'names': {'map': features,
+                                                              'to': {'item': '/attributes/name' if flat else '/properties/name'}}}}}}
         return super().handoff(stack, seeded, variant, run=run)
 
 scenario = ArcP10()

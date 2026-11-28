@@ -18,6 +18,10 @@ def source_path(binding):
         'outSR': 3857, 'orderByFields': 'source_id ASC', 'resultRecordCount': 1000})
 
 
+def source_geojson_path(binding):
+    return source_path(binding).replace('f=json', 'f=geojson').replace('outSR=3857', 'outSR=4326')
+
+
 def source_content(answer):
     require(answer['observation']['httpStatus'] == 200, 'P10 independent source read failed')
     value = feature_server_points(answer['observation']['body'])
@@ -26,20 +30,27 @@ def source_content(answer):
 
 
 def query_ids(result, arguments, binding):
+    from agent_e2e_local_projections import echoes_service
+    from agent_e2e_local_recorder import ProjectionError
+    from agent_e2e_query_contract import query_features, query_layer_id
     require(isinstance(result, dict) and result.get('isError', False) is False,
             'P10 selected query failed')
     value = result.get('structuredContent')
-    require(isinstance(value, dict) and value.get('serviceId') == binding['service'] and
-            value.get('layerId') == binding['layerId'] and value.get('exceededTransferLimit') is False and
+    out_layer = query_layer_id(value)
+    require(isinstance(value, dict) and echoes_service(value.get('serviceId'), binding['service']) and
+            out_layer is not None and str(out_layer) == str(binding['layerId']) and
+            value.get('exceededTransferLimit') is False and
             value.get('resultOffset') == 0 and arguments.get('returnCountOnly', False) is False,
             'P10 query is foreign, count-only or incomplete')
-    collection = value.get('geojson')
-    require(isinstance(collection, dict) and collection.get('type') == 'FeatureCollection' and
-            isinstance(collection.get('features'), list), 'P10 selected query lacks feature evidence')
-    features = collection['features']
+    try:
+        features, attr_key = query_features(value)
+    except ProjectionError as exc:
+        raise PackError('P10 selected query lacks feature evidence') from exc
     require(type(value.get('returnedCount')) is int and value['returnedCount'] == len(features),
             'P10 query count differs from actual features')
-    ids = [feature.get('properties', {}).get('source_id') for feature in features]
+    ids = [(feature.get(attr_key) or {}).get('source_id')
+           if isinstance(feature, dict) and isinstance(feature.get(attr_key), dict) else None
+           for feature in features]
     require(all(isinstance(identifier, str) and identifier for identifier in ids) and len(set(ids)) == len(ids),
             'P10 selected query lacks complete distinct source IDs')
     return {'resourceIds': sorted(ids)}
@@ -55,11 +66,13 @@ class P10Observer:
         return {'snapshot': source_content(answer), 'rawReference': answer['reference']}
 
     def eligible(self, action):
+        from agent_e2e_local_projections import echoes_service, query_layer_id
         if action['name'] != 'mcp_call_tool' or action['input'].get('name') != 'honua_query_features':
             return False
         arguments = action['input']['arguments']
-        return (arguments.get('serviceId') == self.binding['service'] and
-                arguments.get('layerId') == self.binding['layerId'])
+        layer = query_layer_id(arguments)
+        return (echoes_service(arguments.get('serviceId'), self.binding['service']) and
+                layer is not None and str(layer) == str(self.binding['layerId']))
 
     def replay(self, action, dispatch, before, worker_result):
         """Only an existing model-selected read may reach the privileged observer."""
