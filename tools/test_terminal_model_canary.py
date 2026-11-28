@@ -1243,13 +1243,13 @@ def test_real_http_signed_studio_stream_and_replay_refusal():
             self.wfile.write(raw)
 
         def do_GET(self):
-            requests.append((self.path, None))
+            requests.append((self.path, None, {k.lower(): v for k, v in self.headers.items()}))
             self.reply(canonical({"providers": [{"provider": "bedrock", "kind": "bedrock", "configured": True}],
                                   "transcriptSigning": manifest}), "application/json")
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            requests.append((self.path, body))
+            requests.append((self.path, body, {k.lower(): v for k, v in self.headers.items()}))
             if not response_cache:
                 events = [{"type": "MessageStart", "model": body["model"]},
                           {"type": "TextDelta", "text": expected_action},
@@ -1287,15 +1287,42 @@ def test_real_http_signed_studio_stream_and_replay_refusal():
         assert content == expected_action
         assert usage == {"prompt_tokens": 13, "completion_tokens": 17, "total_tokens": 30}
         assert evidence["bindings"] == binding
-        assert [path for path, _ in requests] == ["/v1/studio/ai/capabilities", "/v1/studio/ai/chat"]
+        assert [path for path, _, _ in requests] == ["/v1/studio/ai/capabilities", "/v1/studio/ai/chat"]
         assert requests[1][1]["messages"] == [{"role": "user", "content": "inspect"}]
+        assert "x-honua-tenant" not in requests[0][2] and "x-honua-tenant" not in requests[1][2]
         assert "toolChoice" not in requests[1][1] and "tool_choice" not in requests[1][1]
         with pytest.raises(canary.CanaryError, match="replay"):
             client.complete([{"role": "user", "content": "inspect"}], binding)
+
+        api_key_endpoint = replace(endpoint, api_key="admin-secret", api_key_header="x-api-key")
+        api_key_client = canary.CandidateProxyClient(api_key_endpoint)
+        api_key_client.complete([{"role": "user", "content": "inspect"}], binding)
+        assert requests[-2][2].get("x-honua-tenant") == "public"
+        assert requests[-1][2].get("x-honua-tenant") == "public"
+        assert requests[-1][2].get("x-api-key") == "admin-secret"
     finally:
         server.shutdown()
         server.server_close()
         worker.join()
+
+
+def test_studio_proxy_headers_forward_tenant_for_api_key_and_omit_for_bearer():
+    api_key_endpoint = replace(_endpoint(), api_key="admin-secret", api_key_header="x-api-key")
+    api_key_headers = canary.CandidateProxyClient(api_key_endpoint)._proxy_headers("text/event-stream")
+    assert api_key_headers["X-API-Key"] == "admin-secret"
+    assert api_key_headers["X-Honua-Tenant"] == "public"
+
+    bearer_endpoint = replace(_endpoint(), api_key="bearer-secret", api_key_header="bearer")
+    bearer_headers = canary.CandidateProxyClient(bearer_endpoint)._proxy_headers("text/event-stream")
+    assert bearer_headers["Authorization"] == "Bearer bearer-secret"
+    assert "X-Honua-Tenant" not in bearer_headers
+
+    explicit_endpoint = replace(api_key_endpoint, tenant="tenant-alpha")
+    assert canary.CandidateProxyClient(explicit_endpoint)._proxy_headers("text/event-stream")["X-Honua-Tenant"] == "tenant-alpha"
+
+    malformed_endpoint = replace(api_key_endpoint, tenant="bad tenant")
+    with pytest.raises(canary.CanaryError, match="tenant header"):
+        canary.CandidateProxyClient(malformed_endpoint)._proxy_headers("text/event-stream")
 
 
 @pytest.mark.parametrize("url", ["https://bedrock-runtime.us-east-1.amazonaws.com",
