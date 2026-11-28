@@ -29,21 +29,10 @@ def source_content(answer):
     return {'resourceId': 'shelters', 'content': value}
 
 
-def _extract_features(value):
-    has_geo, has_flat = 'geojson' in value, 'features' in value
-    require(has_geo != has_flat, 'P10 selected query lacks feature evidence')
-    if has_geo:
-        collection = value.get('geojson')
-        require(isinstance(collection, dict) and collection.get('type') == 'FeatureCollection' and
-                isinstance(collection.get('features'), list), 'P10 selected query lacks feature evidence')
-        return collection['features'], 'properties'
-    features = value.get('features')
-    require(isinstance(features, list), 'P10 selected query lacks feature evidence')
-    return features, 'attributes'
-
-
 def query_ids(result, arguments, binding):
-    from agent_e2e_local_projections import echoes_service, query_layer_id
+    from agent_e2e_local_projections import echoes_service
+    from agent_e2e_local_recorder import ProjectionError
+    from agent_e2e_query_contract import query_features, query_layer_id
     require(isinstance(result, dict) and result.get('isError', False) is False,
             'P10 selected query failed')
     value = result.get('structuredContent')
@@ -53,7 +42,10 @@ def query_ids(result, arguments, binding):
             value.get('exceededTransferLimit') is False and
             value.get('resultOffset') == 0 and arguments.get('returnCountOnly', False) is False,
             'P10 query is foreign, count-only or incomplete')
-    features, attr_key = _extract_features(value)
+    try:
+        features, attr_key = query_features(value)
+    except ProjectionError as exc:
+        raise PackError('P10 selected query lacks feature evidence') from exc
     require(type(value.get('returnedCount')) is int and value['returnedCount'] == len(features),
             'P10 query count differs from actual features')
     ids = [(feature.get(attr_key) or {}).get('source_id')

@@ -9,23 +9,12 @@ from agent_e2e_local_expectations import fixture_catalog, load_roles
 from agent_e2e_local_scenarios.P10 import P10
 
 
-def _structured_features(value):
-    """Return (features, attr_key) for flat features or legacy geojson FeatureCollection, else (None, None)."""
-    has_geo, has_flat = 'geojson' in value, 'features' in value
-    if has_geo == has_flat:
-        return None, None
-    if has_geo:
-        collection = value.get('geojson')
-        features = collection.get('features') if isinstance(collection, dict) else None
-        return (features, 'properties') if isinstance(features, list) else (None, None)
-    features = value.get('features')
-    return (features, 'attributes') if isinstance(features, list) else (None, None)
-
-
 def p10_response_ids(message, arguments=None):
     """The source_id set one honua_query_features response returned, or None unless it is a complete, successful list
     (no error, one page from offset and cursor zero, not truncated, within its own limit, distinct string ids, count
     matching the features)."""
+    from agent_e2e_local_recorder import ProjectionError
+    from agent_e2e_query_contract import query_features
     arguments = arguments if isinstance(arguments, dict) else {}
     if arguments.get('resultOffset', 0) != 0 or str(arguments.get('cursor', '0')) != '0':
         return None
@@ -34,9 +23,11 @@ def p10_response_ids(message, arguments=None):
     if (not isinstance(result, dict) or result.get('isError', False) is not False or not isinstance(value, dict)
             or value.get('exceededTransferLimit') is not False or value.get('resultOffset') != 0):
         return None
-    features, attr_key = _structured_features(value)
-    if not isinstance(features, list) or type(value.get('returnedCount')) is not int \
-            or value['returnedCount'] != len(features):
+    try:
+        features, attr_key = query_features(value)
+    except ProjectionError:
+        return None
+    if type(value.get('returnedCount')) is not int or value['returnedCount'] != len(features):
         return None
     ids = [(f.get(attr_key) or {}).get('source_id') if isinstance(f, dict) and isinstance(f.get(attr_key), dict)
            else None for f in features]
@@ -46,16 +37,6 @@ def p10_response_ids(message, arguments=None):
     if limit is not None and (type(limit) is not int or len(ids) >= limit):
         return None                                        # a page that fills its limit may hide more rows
     return frozenset(ids)
-
-
-def _published_layer_value(value):
-    """Read storageLayerId or legacy layerId from honua_publish_service structuredContent; None on conflict."""
-    if not isinstance(value, dict):
-        return None
-    has_storage, has_layer = 'storageLayerId' in value, 'layerId' in value
-    if has_storage and has_layer and str(value['storageLayerId']) != str(value['layerId']):
-        return None
-    return value['storageLayerId'] if has_storage else value.get('layerId')
 
 
 class ArcP10(P10):
@@ -167,7 +148,8 @@ class ArcP10(P10):
             response = rec.action_result('arc-p10-publication-' + str(index), action)
             result = response.json.get('result', {})
             value = result.get('structuredContent', {})
-            service, layer = value.get('serviceName'), _published_layer_value(value)
+            from agent_e2e_query_contract import published_layer_value
+            service, layer = value.get('serviceName'), published_layer_value(value)
             if (result.get('isError', False) is False and value.get('status') == 'Completed'
                     and value.get('operationId') == 'service.publish'
                     and (not lost or str(lost[0].get('committedResourceId')) == str(service))

@@ -113,73 +113,82 @@ def test_p10_handoff_supports_flat_features_and_legacy_geojson(tmp_path):
     assert geo_spec['object']['facts']['object']['names']['to']['item'] == '/properties/name'
 
 
-def test_p10_projection_resolves_storage_layer_id_and_flat_oid_features():
+def _publish_record(resource_ids):
     import hashlib
+    from agent_e2e_local_recorder import Record
+    body = {'data': {'operationId': 'service.publish', 'status': 'Completed', 'resourceIds': resource_ids}}
+    raw = json.dumps(body, separators=(',', ':')).encode()
+    return Record('publish-shelters-submit', 'seed', 'http', 'controller', 'admin', 'POST',
+                  '/api/v1/operations/service.publish/submit', 200, raw,
+                  'sha256:' + hashlib.sha256(raw).hexdigest())
+
+
+def _source_after_record(features):
+    import hashlib
+    from agent_e2e_local_recorder import Record
+    body = {'objectIdFieldName': 'id', 'exceededTransferLimit': False, 'features': features}
+    raw = json.dumps(body, separators=(',', ':')).encode()
+    return Record('p10-source-after', 'observe', 'http', 'controller', 'admin', 'GET',
+                  '/rest/services/p10_abc-shelters/FeatureServer/3/query?f=json&where=1%3D1', 200, raw,
+                  'sha256:' + hashlib.sha256(raw).hexdigest())
+
+
+def _replay_record(body, query_args):
+    import hashlib
+    from agent_e2e_local_recorder import Record, action_bytes
+    raw = json.dumps(body, separators=(',', ':')).encode()
+    return Record('p10-replay-query', 'observe', 'mcp', 'controller', 'admin', 'POST', '/mcp#tools/call', 200, raw,
+                  'sha256:' + hashlib.sha256(raw).hexdigest(), 'occ:1',
+                  action_bytes({'tool': 'honua_query_features', 'arguments': query_args}))
+
+
+def test_p10_roles_resolve_storage_layer_id_and_reject_conflict():
     import agent_e2e_local_projections as projections
     from agent_e2e_local_expectations import load_roles
-    from agent_e2e_local_recorder import ProjectionError, Record, action_bytes
+    from agent_e2e_local_recorder import ProjectionError
 
-    def rec(step, phase, kind, method, path, body, *, args=None, replay=None):
-        raw = json.dumps(body, separators=(',', ':')).encode()
-        return Record(step, phase, kind, 'controller', 'admin', method, path, 200, raw,
-                      'sha256:' + hashlib.sha256(raw).hexdigest(), replay,
-                      action_bytes(args) if args is not None else None)
-
-    publish = rec('publish-shelters-submit', 'seed', 'http', 'POST', '/api/v1/operations/service.publish/submit',
-                  {'data': {'operationId': 'service.publish', 'status': 'Completed',
-                            'resourceIds': {'serviceName': 'p10_abc-shelters', 'storageLayerId': '3',
-                                            'serviceLayerIndex': '3'}}})
+    publish = _publish_record({'serviceName': 'p10_abc-shelters', 'storageLayerId': '3', 'serviceLayerIndex': '3'})
     roles = projections.resolve_roles(load_roles('P10'), {'publish-shelters-submit': publish}, agent_principal='a')
     assert roles == {'seeded:service:shelters': 'p10_abc-shelters', 'seeded:layer:shelters': '3'}
 
-    conflicting = rec('publish-shelters-submit', 'seed', 'http', 'POST', '/api/v1/operations/service.publish/submit',
-                      {'data': {'resourceIds': {'serviceName': 'p10_abc-shelters', 'storageLayerId': '3',
-                                                'layerId': '4'}}})
+    conflicting = _publish_record({'serviceName': 'p10_abc-shelters', 'storageLayerId': '3', 'layerId': '4'})
     with pytest.raises(ProjectionError, match='conflicting'):
         projections.resolve_roles(load_roles('P10'), {'publish-shelters-submit': conflicting}, agent_principal='a')
 
-    source_after = rec('p10-source-after', 'observe', 'http', 'GET',
-                       '/rest/services/p10_abc-shelters/FeatureServer/3/query?f=json&where=1%3D1',
-                       {'objectIdFieldName': 'id', 'exceededTransferLimit': False, 'features': [
-                           {'attributes': {'id': 1, 'source_id': 's101', 'name': 'A'}},
-                           {'attributes': {'id': 2, 'source_id': 's102', 'name': 'B'}},
-                           {'attributes': {'id': 4, 'source_id': 's104', 'name': 'C'}}]})
+
+def _flat_query_context(features):
+    import agent_e2e_local_projections as projections
+    source_after = _source_after_record([
+        {'attributes': {'id': 1, 'source_id': 's101', 'name': 'A'}},
+        {'attributes': {'id': 2, 'source_id': 's102', 'name': 'B'}},
+        {'attributes': {'id': 4, 'source_id': 's104', 'name': 'C'}},
+    ])
     query_args = {'serviceId': 'svc-publish-p10_abc-shelters', 'serviceLayerIndex': 3,
                   'where': 'is_open = true AND capacity > 50', 'outFields': ['id', 'name', 'capacity', 'is_open']}
-    flat_reply = {'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False, 'structuredContent': {
-        'serviceId': 'svc-publish-p10_abc-shelters', 'serviceLayerIndex': 3, 'returnedCount': 2,
-        'resultOffset': 0, 'exceededTransferLimit': False, 'features': [
-            {'id': 2, 'attributes': {'id': 2, 'name': 'B'}},
-            {'id': 4, 'attributes': {'id': 4, 'name': 'C'}}]}}}
-    replay = rec('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call', flat_reply,
-                 args={'tool': 'honua_query_features', 'arguments': query_args}, replay='occ:1')
-    spec = {'featureQueryIds': 'p10-replay-query', 'service': {'role': 'seeded:service:shelters'},
-            'layer': {'role': 'seeded:layer:shelters'}, 'oidSource': 'p10-source-after'}
-    ctx = projections.Context(
-        {'publish-shelters-submit': publish, 'p10-source-after': source_after, 'p10-replay-query': replay},
+    reply = {'jsonrpc': '2.0', 'id': 1, 'result': {'isError': False, 'structuredContent': {
+        'serviceId': 'svc-publish-p10_abc-shelters', 'serviceLayerIndex': 3, 'returnedCount': len(features),
+        'resultOffset': 0, 'exceededTransferLimit': False, 'features': features}}}
+    roles = {'seeded:service:shelters': 'p10_abc-shelters', 'seeded:layer:shelters': '3'}
+    return projections.Context(
+        {'p10-source-after': source_after, 'p10-replay-query': _replay_record(reply, query_args)},
         roles=roles, model_actions={'occ:1': {'kind': 'tool_call', 'tool': 'honua_query_features',
                                               'arguments': query_args}})
-    assert projections.evaluate(spec, ctx) == ['s102', 's104']
 
-    # Fail closed on unknown OID or mismatched direct source_id vs OID.
-    bad_oid = json.loads(json.dumps(flat_reply))
-    bad_oid['result']['structuredContent']['features'][1]['id'] = 99
-    bad_oid['result']['structuredContent']['features'][1]['attributes']['id'] = 99
-    ctx_bad = projections.Context(
-        {'p10-source-after': source_after,
-         'p10-replay-query': rec('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call', bad_oid,
-                                 args={'tool': 'honua_query_features', 'arguments': query_args}, replay='occ:1')},
-        roles=roles, model_actions=ctx.model_actions)
+
+def test_p10_projection_resolves_flat_oid_features_and_rejects_mismatch():
+    import agent_e2e_local_projections as projections
+    from agent_e2e_local_recorder import ProjectionError
+
+    spec = {'featureQueryIds': 'p10-replay-query', 'service': {'role': 'seeded:service:shelters'},
+            'layer': {'role': 'seeded:layer:shelters'}, 'oidSource': 'p10-source-after'}
+    valid = [{'id': 2, 'attributes': {'id': 2, 'name': 'B'}}, {'id': 4, 'attributes': {'id': 4, 'name': 'C'}}]
+    assert projections.evaluate(spec, _flat_query_context(valid)) == ['s102', 's104']
+
+    unknown_oid = [{'id': 2, 'attributes': {'id': 2, 'name': 'B'}}, {'id': 99, 'attributes': {'id': 99, 'name': 'C'}}]
     with pytest.raises(ProjectionError, match='absent from source layer'):
-        projections.evaluate(spec, ctx_bad)
+        projections.evaluate(spec, _flat_query_context(unknown_oid))
 
-    mismatch = json.loads(json.dumps(flat_reply))
-    mismatch['result']['structuredContent']['features'][0]['attributes']['source_id'] = 's101'
-    mismatch['result']['structuredContent']['features'][1]['attributes']['source_id'] = 's104'
-    ctx_mis = projections.Context(
-        {'p10-source-after': source_after,
-         'p10-replay-query': rec('p10-replay-query', 'observe', 'mcp', 'POST', '/mcp#tools/call', mismatch,
-                                 args={'tool': 'honua_query_features', 'arguments': query_args}, replay='occ:1')},
-        roles=roles, model_actions=ctx.model_actions)
+    mismatch = [{'id': 2, 'attributes': {'id': 2, 'source_id': 's101', 'name': 'B'}},
+                {'id': 4, 'attributes': {'id': 4, 'source_id': 's104', 'name': 'C'}}]
     with pytest.raises(ProjectionError, match='disagrees with source_id'):
-        projections.evaluate(spec, ctx_mis)
+        projections.evaluate(spec, _flat_query_context(mismatch))
