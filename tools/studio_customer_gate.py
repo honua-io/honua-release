@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch the manifest-pinned Console suite and validate its complete image-bound evidence."""
+"""Dispatch the manifest-pinned Console suite and validate its candidate-bound evidence."""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +15,7 @@ from pathlib import Path
 import yaml
 
 from candidate_lock import PinnedCandidate, resolve_pins, validate_lock
+import static_bundle
 
 REQUIRED_STAGES = frozenset({
     'publisher-auth', 'import-publish-customer-regions.geojson', 'import-publish-customer-sites.csv',
@@ -23,6 +24,8 @@ REQUIRED_STAGES = frozenset({
 })
 REPO = 'honua-io/honua-console'
 WORKFLOW = 'console-live-journey.yml'
+LEGACY_FIXTURE_IMAGE = 'honua-console-legacy-fixture:customer-pr'
+LEGACY_FIXTURE_DOCKERFILE_PREFIX = 'e2e/Dockerfile'
 # Release-session ruling 2026-11-03 (rc.2 redo; disclosed in the release notes): the suite may run at a
 # descendant of the pinned Console commit only when every changed path between the two is test harness
 # under e2e/. The Console image stays the lock's pinned digest and source; the receipt records both shas
@@ -30,6 +33,16 @@ WORKFLOW = 'console-live-journey.yml'
 SUITE_EXCEPTION_PREFIX = 'e2e/'
 STUDIO_COMPONENTS = ('console', 'server')
 SUITE_EXCEPTION_RULING = 'studio-suite-harness-exception-2026-11-03'
+MAX_COMPARE_FILES = 300
+MAX_COMPARE_COMMITS = 250
+
+
+def _validate_suite_path(name: object) -> str:
+    if not isinstance(name, str) or not name.startswith(SUITE_EXCEPTION_PREFIX) or '..' in name.split('/'):
+        raise ValueError('suite revision changes a path outside e2e/: ' + str(name))
+    if name.startswith(LEGACY_FIXTURE_DOCKERFILE_PREFIX):
+        raise ValueError('suite revision cannot change fixture Dockerfile: ' + name)
+    return name
 
 
 def suite_exception(pinned: str, suite: str, compare: dict) -> list[str]:
@@ -50,26 +63,52 @@ def suite_exception(pinned: str, suite: str, compare: dict) -> list[str]:
     if not commits or commits[-1].get('sha') != suite:
         raise ValueError('suite compare does not end at the requested suite revision')
     files = compare.get('files')
-    if not isinstance(files, list) or not files or len(files) >= 300 or compare.get('total_commits', 0) > 250:
+    if (not isinstance(files, list) or not files or len(files) >= MAX_COMPARE_FILES
+            or compare.get('total_commits', 0) > MAX_COMPARE_COMMITS):
         raise ValueError('suite diff file list is empty or truncated')
     paths = []
     for item in files:
-        for key in ('filename', 'previous_filename'):
-            name = item.get(key)
-            if name is None and key == 'previous_filename':
-                continue
-            if not isinstance(name, str) or not name.startswith(SUITE_EXCEPTION_PREFIX) or '..' in name.split('/'):
-                raise ValueError('suite revision changes a path outside e2e/: ' + str(name))
-            paths.append(name)
+        paths.append(_validate_suite_path(item.get('filename')))
+        if item.get('previous_filename') is not None:
+            paths.append(_validate_suite_path(item['previous_filename']))
     return sorted(set(paths))
 
 
+def _validate_image_runtime(component: str, selected: dict, observed: object) -> None:
+    if (not isinstance(observed, dict) or observed.get('requested') != selected['image']
+            or observed.get('sourceRevision') != selected['sha']):
+        raise ValueError(f'{component} runtime does not match the manifest')
+
+
+def _validate_static_bundle_runtime(runtime: dict, expected_sha: str) -> None:
+    observed = runtime.get('console')
+    version = runtime.get('consoleVersion')
+    if not isinstance(observed, dict) or observed.get('requested') != LEGACY_FIXTURE_IMAGE:
+        raise ValueError('console runtime does not match the manifest')
+    source_revision = observed.get('sourceRevision')
+    if source_revision is not None and source_revision != expected_sha:
+        raise ValueError('console runtime does not match the manifest')
+    if not isinstance(version, dict) or version.get('commit') != expected_sha:
+        raise ValueError('console runtime does not match the manifest')
+
+
+def _validate_component_runtime(component: str, selected: dict, observed_run: tuple[dict, str]) -> None:
+    runtime, expected_sha = observed_run
+    kind = selected.get('kind', 'image')
+    if kind == 'image':
+        _validate_image_runtime(component, selected, runtime.get(component))
+        return
+    if kind == static_bundle.KIND and component == 'console':
+        _validate_static_bundle_runtime(runtime, expected_sha)
+        return
+    raise ValueError(f'unsupported {component} artifact kind: {kind}')
+
+
 def validate_evidence(pins: dict, runtime: dict, results: dict, progress: dict, suite_sha: str | None = None) -> None:
+    expected_suite_sha = suite_sha or pins['console']['sha']
     for component, selected in pins.items():
-        observed = runtime.get(component, {})
-        if observed.get('requested') != selected['image'] or observed.get('sourceRevision') != selected['sha']:
-            raise ValueError(f'{component} runtime does not match the manifest')
-    if runtime.get('suiteSourceRevision') != (suite_sha or pins['console']['sha']):
+        _validate_component_runtime(component, selected, (runtime, expected_suite_sha))
+    if runtime.get('suiteSourceRevision') != expected_suite_sha:
         raise ValueError('suite did not run at the manifest-pinned Console revision'
                          + (' or the approved e2e-only suite revision' if suite_sha else ''))
     stats = results.get('stats', {})
@@ -86,9 +125,21 @@ def gh(*args: str, json_output: bool = False):
     return json.loads(result.stdout) if json_output else result.stdout
 
 
+def _console_dispatch_image(console_pin: dict) -> str:
+    kind = console_pin.get('kind', 'image')
+    if kind == 'image':
+        return console_pin['image']
+    if kind == static_bundle.KIND:
+        return ''
+    raise ValueError(f'unsupported console artifact kind: {kind}')
+
+
 def dispatch_customer(pins: dict, dispatch_id: str, suite_sha: str | None = None) -> None:
     # GitHub workflow dispatch accepts a branch or tag, not a raw commit SHA.
     # A fresh tag per dispatch avoids moving or trusting an existing ref.
+    if pins['server'].get('kind', 'image') != 'image':
+        raise ValueError('server must be an immutable image')
+    console_image = _console_dispatch_image(pins['console'])
     tag = f'studio-customer-gate/{dispatch_id}'
     ref = f'refs/tags/{tag}'
     sha = suite_sha or pins['console']['sha']
@@ -98,7 +149,7 @@ def dispatch_customer(pins: dict, dispatch_id: str, suite_sha: str | None = None
         raise ValueError('Console dispatch tag does not resolve to the pinned (or approved suite) commit')
     gh('workflow', 'run', WORKFLOW, '--repo', REPO, '--ref', ref,
        '-f', 'suite=studio-customer', '-f', f'dispatch_id={dispatch_id}',
-       '-f', f'console_image={pins["console"]["image"]}', '-f', f'server_image={pins["server"]["image"]}')
+       '-f', f'console_image={console_image}', '-f', f'server_image={pins["server"]["image"]}')
 
 
 def one_file(root: Path, name: str) -> dict:
