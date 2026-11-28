@@ -67,7 +67,7 @@ class FakeRunsItselfAws:
     """In-memory AWS control plane covering candidate binding, notifications, and cleanup."""
 
     def __init__(self) -> None:
-        self.confirmed, self.sns_published, self.sns_failed = True, 2.0, 0.0
+        self.confirmed, self.sub_protocol, self.sns_published, self.sns_failed = True, 'email', 2.0, 0.0
         self.sqs_sent, self.dlq_count, self.outbox = 2.0, 0, []
         self.watchdog_mode = {STACK: 'NotifyOnly', BUDGET_STACK: 'NotifyOnly'}
         self.fault = {STACK: 'None', BUDGET_STACK: 'None'}
@@ -153,7 +153,8 @@ class FakeRunsItselfAws:
 
     def _handle_ops(self, operation: str, args: tuple[str, ...]) -> dict:
         if operation == 'list-subscriptions-by-topic':
-            return {'Subscriptions': [{'SubscriptionArn': 'sub-confirmed' if self.confirmed else 'PendingConfirmation'}]}
+            arn = 'sub-confirmed' if self.confirmed else 'PendingConfirmation'
+            return {'Subscriptions': [{'Protocol': self.sub_protocol, 'SubscriptionArn': arn}]}
         if operation == 'get-metric-statistics':
             metric = args[args.index('--metric-name') + 1]
             vals = {'NumberOfMessagesPublished': self.sns_published,
@@ -215,13 +216,11 @@ def _fake_gate_runner(overrides: dict[int, dict] | None = None, fail_row: int | 
 
 def _deps(aws: FakeRunsItselfAws, runner, **overrides) -> driver.RunsItselfDeps:
     now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
-    base = {
+    return driver.RunsItselfDeps(**{
         'aws': aws, 'inspect_image': lambda _cfg: _measurement(), 'run_gate': runner,
         'verify_notifications': ri_aws.verify_row_notifications, 'utc_now': lambda: now,
-        'sleep': lambda _s: None,
-    }
-    base.update(overrides)
-    return driver.RunsItselfDeps(**base)
+        'sleep': lambda _s: None, **overrides,
+    })
 
 
 def test_round_trip_emits_proof_and_all_21_receipts_plus_release_notes(tmp_path, monkeypatch):
@@ -265,7 +264,8 @@ def test_mismatched_deployed_candidate_fails_before_running_gate(tmp_path, case)
 
 
 @pytest.mark.parametrize('case', [
-    ({'confirmed': False}, 'confirmed SNS subscription'),
+    ({'confirmed': False}, 'confirmed email SNS subscription'),
+    ({'sub_protocol': 'sqs'}, 'confirmed email SNS subscription'),
     ({'sns_published': 0.0}, 'No SNS notification published'),
     ({'sns_failed': 1.0}, 'failed notification delivery'),
     ({'sqs_sent': 0.0}, 'No ops-inbox event queued'),
@@ -293,10 +293,11 @@ def test_notification_polling_retries_pending_metrics_until_ingested():
     now = dt.datetime(2026, 11, 28, 10, 0, tzinfo=dt.timezone.utc)
     evidence = driver._poll_row_notifications(STACK, (now, now + dt.timedelta(minutes=1)), _deps(aws, runner, sleep=delayed_sleep))
     assert evidence['notificationVerified'] is True and len(sleeps) == 2
-    missing_pm = {r: _receipt_for_row(r) for r in driver.UNATTENDED_ROWS}
-    missing_pm[1].pop('person_minutes')
+    small_pm = {r: _receipt_for_row(r, person_minutes=0.004 if r == 1 else 0) for r in driver.UNATTENDED_ROWS}
+    assert driver.compute_unattended_person_minutes(small_pm) == pytest.approx(0.004)
+    small_pm[1].pop('person_minutes')
     with pytest.raises(ObservationError, match='Missing recorded person_minutes'):
-        driver.compute_unattended_person_minutes(missing_pm)
+        driver.compute_unattended_person_minutes(small_pm)
 
 
 @pytest.mark.parametrize('case', [
@@ -325,9 +326,7 @@ def test_unconfirmed_notification_or_failed_gate_exit_refuses_pass(tmp_path):
     runner, _ = _fake_gate_runner()
     config = _config(tmp_path)
     with pytest.raises(ObservationError, match='SNS/ops-inbox confirmation'):
-        driver.run_qualification(
-            config, _deps(aws, runner, verify_notifications=lambda *_a: {'notificationVerified': True, 'inboxVerified': False}),
-        )
+        driver.run_qualification(config, _deps(aws, runner, verify_notifications=lambda *_a: {'notificationVerified': True, 'inboxVerified': False}))
     assert not (config.output_dir / 'runs-itself-proof.json').exists()
     fail_runner, _ = _fake_gate_runner(fail_row=9)
     with pytest.raises(ObservationError, match='row 9'):

@@ -234,7 +234,7 @@ def compute_unattended_person_minutes(receipts: dict[int, dict]) -> int | float:
         require(type(minutes) in (int, float) and math.isfinite(minutes) and minutes >= 0,
                 f'Invalid person_minutes recorded on row {row}')
         total += float(minutes)
-    return 0 if total == 0.0 else round(total, 2)
+    return 0 if total == 0.0 else total
 
 
 def _verify_candidate_stacks(config: RunsItselfConfig, deps: RunsItselfDeps) -> None:

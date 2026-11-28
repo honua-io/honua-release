@@ -89,13 +89,17 @@ def _metric_sum(aws: Any, spec: dict, window: tuple[dt.datetime, dt.datetime]) -
     return float(sum(float(point.get('Sum', 0.0)) for point in response.get('Datapoints', [])))
 
 
+EMAIL_SUBSCRIPTION_PROTOCOLS = frozenset({'email', 'email-json'})
+
+
 def _verify_sns_channel(aws: Any, topic_arn: str, window: tuple[dt.datetime, dt.datetime]) -> dict:
     subs = aws('sns', 'list-subscriptions-by-topic', '--topic-arn', topic_arn).get('Subscriptions', [])
     confirmed = [
         item for item in subs
-        if str(item.get('SubscriptionArn') or '') not in UNCONFIRMED_SUBSCRIPTION_STATES
+        if item.get('Protocol') in EMAIL_SUBSCRIPTION_PROTOCOLS
+        and str(item.get('SubscriptionArn') or '') not in UNCONFIRMED_SUBSCRIPTION_STATES
     ]
-    require(len(confirmed) >= 1, 'OpsTopic has no confirmed SNS subscription')
+    require(len(confirmed) >= 1, 'OpsTopic has no confirmed email SNS subscription')
     topic_name = topic_arn.rsplit(':', 1)[-1]
     published = _metric_sum(
         aws, {'namespace': 'AWS/SNS', 'metric': 'NumberOfMessagesPublished',
