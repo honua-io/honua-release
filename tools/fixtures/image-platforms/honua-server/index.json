@@ -4,7 +4,7 @@
   "manifests": [
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:5139c6fe397450c56c15ab87d97f69162f507e2aa9cf75be55d3dc2b7649d33a",
+      "digest": "sha256:150b1466a429087341b7b0a7018a1376c15bb270279afdde3854e6526ada886c",
       "size": 2542,
       "platform": {
         "architecture": "amd64",
@@ -13,10 +13,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:d6b66706e153c91d511a526c61864d9da3de7448d678c51758564b4c7df2662a",
+      "digest": "sha256:574907938f5e5a680931d6941cb1ff39c4c7d488e60ae39367558f98748d2833",
       "size": 1110,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:5139c6fe397450c56c15ab87d97f69162f507e2aa9cf75be55d3dc2b7649d33a",
+        "vnd.docker.reference.digest": "sha256:150b1466a429087341b7b0a7018a1376c15bb270279afdde3854e6526ada886c",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -26,7 +26,7 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:e632877846b9f32393afdf622a6b1b9bb5443cea6fd71c8163639f22b7b86f6a",
+      "digest": "sha256:7de9774a0fde82cb45cf2bc826776b9817f5224eb9943f7c8069f05b87a69bee",
       "size": 2542,
       "platform": {
         "architecture": "arm64",
@@ -35,10 +35,10 @@
     },
     {
       "mediaType": "application/vnd.oci.image.manifest.v1+json",
-      "digest": "sha256:5c503d095fb4a35d3000db6e3a5d8abfe83edcece75a24dc0640a284a79b217e",
+      "digest": "sha256:70b724fc5bc87771618a89a079f217b4368353ae484cfa4507447a629dc9f688",
       "size": 1110,
       "annotations": {
-        "vnd.docker.reference.digest": "sha256:e632877846b9f32393afdf622a6b1b9bb5443cea6fd71c8163639f22b7b86f6a",
+        "vnd.docker.reference.digest": "sha256:7de9774a0fde82cb45cf2bc826776b9817f5224eb9943f7c8069f05b87a69bee",
         "vnd.docker.reference.type": "attestation-manifest"
       },
       "platform": {
@@ -49,7 +49,7 @@
   ],
   "annotations": {
     "org.opencontainers.image.licenses": "LicenseRef-FCL-1.0-ALv2",
-    "org.opencontainers.image.revision": "83127df70c06d4162fcc11b8d95a8ab466be49e2",
-    "org.opencontainers.image.version": "2026.1.0-nightly.g83127df"
+    "org.opencontainers.image.revision": "786dc6e3094dab77dd2a8c98d297524e97bd3980",
+    "org.opencontainers.image.version": "2026.1.0-nightly.g786dc6e"
   }
 }

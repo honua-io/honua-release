@@ -132,7 +132,7 @@ def test_plan_targets_published_sdk_pins_when_components_match(tmp_path):
         published = manifest["clientArtifacts"][artifact]["sourceSha"]
         assert pins[source] == (published, "manifest/frozen")
         assert manifest["components"][component]["sha"] == published
-    assert pins["server-certification"] == ("83127df70c06d4162fcc11b8d95a8ab466be49e2", "manifest/frozen")
+    assert pins["server-certification"] == ("786dc6e3094dab77dd2a8c98d297524e97bd3980", "manifest/frozen")
     assert plan["receipt_schema_min"] == {"current": "v2", "proposed": "v2"}
     assert plan["bindings"]["PROTOCOL_CERTIFICATION_MATRIX_COMMIT"]["current"] == "pending"
     assert manifest["protocolCertification"]["ledger"]["status"] == "pending"
@@ -1175,6 +1175,16 @@ def test_grpc_ruling_is_rechecked_at_the_2026_11_26_rc2_candidate():
     assert "byte-identical to 704e2f4a" in recheck and "dc94f23fb9" in recheck
 
 
+def test_grpc_ruling_is_rechecked_at_the_2026_11_28_rc2_candidate():
+    candidate = "786dc6e3094dab77dd2a8c98d297524e97bd3980"
+    document = json.loads((MODULE.ROOT / MODULE.GRPC_OPERATIONS).read_text(encoding="utf-8"))
+    ruling = next(r for r in document["rulings"] if r["id"] == MODULE.GRPC_RULING)
+    verified = ruling["verified_server_commits"]
+    assert verified[verified.index(candidate) - 1] == "83127df70c06d4162fcc11b8d95a8ab466be49e2"
+    recheck = ruling["evidence"].split("Re-checked at 786dc6e3", 1)[1]
+    assert "byte-identical to 83127df7" in recheck
+
+
 def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     """The 2026-11-20 rc.2 re-pin moves the server to de512e8. Its gRPC surface hash differs from
     532565b's (one HTTP attachment-download route mapped beside FeatureService, and FeatureService
@@ -1190,7 +1200,7 @@ def test_grpc_ruling_is_rechecked_at_the_rc2_final_candidate_server():
     assert commits[commits.index(candidate) - 1:commits.index(candidate) + 1] == [
         "532565bc7215d4b9ce9657bc110cbd0366076e31", candidate]
     manifest = yaml.safe_load((MODULE.ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
-    assert manifest["protocolCertification"]["serverCertificationProducerSha"] == "83127df70c06d4162fcc11b8d95a8ab466be49e2"
+    assert manifest["protocolCertification"]["serverCertificationProducerSha"] == "786dc6e3094dab77dd2a8c98d297524e97bd3980"
     recheck = ruling["evidence"].split("Re-checked at de512e8", 1)[1]
     assert "still returns UNIMPLEMENTED for ExecutePlan and ExecutePlanStream" in recheck
     assert "outside the 2026.1 gRPC denominator" in recheck
