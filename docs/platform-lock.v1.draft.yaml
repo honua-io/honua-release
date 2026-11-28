@@ -6,10 +6,10 @@ platform:
 sourceInputs:
   platformManifest:
     path: platform-manifest.yaml
-    sha256: sha256:3d08a9067c47ef5635c3da037f8c54278ddd0e6b42a5176114c7fea74263f699
+    sha256: sha256:d087b9e0312252e8801a39da2688499bb34869c65a94a05e39366991fb1db996
   compatibilityMatrix:
     path: compatibility-matrix.yaml
-    sha256: sha256:e574467eb9c73a448b7605b0d146f95dd293b19562881ff49b84b8c8e3bcbb3e
+    sha256: sha256:9be835417ce644fbdcf432282e20563cdbfe07d2586c4dc9b75f4d91a955157a
 components:
   honua-server:
     source:
@@ -154,7 +154,7 @@ components:
   honua-sdk-js:
     source:
       repository: https://github.com/honua-io/honua-sdk-js
-      revision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
+      revision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
     contractVersions:
       connect-parity: '1.0'
       connect-source-descriptor: '4.0'
@@ -166,34 +166,34 @@ components:
     artifacts:
     - kind: npm
       coordinate: '@honua/sdk-js'
-      version: 0.5.1
-      sourceRevision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
-      integrity: sha512-nBsIeDTnWYWkSEL3WkQfZ+4pUgWBJd1OawkmRElgx6DhsxVw8WCXCa3b+CCkJFg6GwGweM3fe1La7sN5q5SuDA==
+      version: 0.5.2
+      sourceRevision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
+      integrity: sha512-niccxFOu4CauLM73AVDhzkLjK86IXVbI19MTiwPu/zDvyVIsLCTjs5d95xOAI64181Ef/i/qx92oCJdIkXKzYA==
     - kind: npm
       coordinate: '@honua/mcp-server'
-      version: 0.6.2
-      sourceRevision: b195086e6aabee9d048cdc7d324b82a51e7c79c3
-      integrity: sha512-8sgMLQekZZa2Qi+WNZu04nFGgtoXABVWEZHOUzYnd1IRj4ZBxUPHkHQklWt225JMZrz7SRW8X8zfn7rgZ0XOTA==
+      version: 0.6.3
+      sourceRevision: 856509d29eb13a12d245e84f30fc55b57c37a9d6
+      integrity: sha512-OMTVOqifZTMrv07Gu67omgJPZUrBQtNUuN/OHxvDe19rSX7umxGyf8BXRD7MbGCiqAjWBmMpgOaCwBfCsvFHcw==
     - kind: npm
       coordinate: '@honua/sdk'
-      version: 0.5.1
-      sourceRevision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
-      integrity: sha512-I3/4oas2i43gXf+A9ZsdaP2mTiWQBZmy6NNg9M6w5jMVtuiHQqjFIFWsHQNpN8zEvYZZba5nkDincreqw/M+hA==
+      version: 0.5.2
+      sourceRevision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
+      integrity: sha512-8J9msUZE9iAnhXr+lR2zp/bUmE64TZXAeeRlmU3ij1UyhInYc8Lc24pbEvTdMktFrG0BU78zJYmaNOZsOuRNGQ==
     - kind: npm
       coordinate: '@honua/react'
-      version: 0.5.1
-      sourceRevision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
-      integrity: sha512-cPCU0ovDGTQhrSaZBpT1+8Nw/eSR7rLwTMXb0ldbw7sjxc6EAcD9+1DAIgT6Os8Qe8HfyObLzcpL3QVCJKf7XA==
+      version: 0.5.2
+      sourceRevision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
+      integrity: sha512-faDpG2QjyGVTgGdHRv19/RCWcqeJKn0Vm4VZyFT4Wdnq/WNEuJTExuXrxN2PxmPoFkJiEGhd/C4Rq9/0ZVA9Nw==
     - kind: npm
       coordinate: '@honua/geometry'
-      version: 0.5.1
-      sourceRevision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
-      integrity: sha512-Q0m8s7o6H46s/upJiDnLUXQhm0PpZlGcSGKTFxgiBMlqazkTPxQNb8bffJIqsUGsON+CpjYdrrGFyxV6b3NmLQ==
+      version: 0.5.2
+      sourceRevision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
+      integrity: sha512-s6vhRSvCmGln3m7Wj2S6LS1xK9sR9IYhm4ksEI4jyn5OnWNWYPaCJBZPJ5hkP7oEy84+vXgS2rwhuBjbIR/jvg==
     - kind: npm
       coordinate: '@honua/app-platform'
-      version: 0.5.1
-      sourceRevision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
-      integrity: sha512-FSgDBLPhZGbCvnJ0WgFt5pFhLht7q3Srew9BTgg4ZHCwtu10drPf9gTfpsXryPYVD9MfWsvvXOhHqPAfAdcOLg==
+      version: 0.5.2
+      sourceRevision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
+      integrity: sha512-YdeBrNwejxzxC7CX6BMeeCB2L6cjc+V/wUdGoC+ubCMjTNGuARcw2QADoTtydnpOswL4aV43XrCd4VbM4VWYsQ==
     - kind: npm
       coordinate: create-honua-app
       version: 0.2.6
@@ -205,7 +205,7 @@ components:
       manifests:
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
+          revision: 856509d29eb13a12d245e84f30fc55b57c37a9d6
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -277,7 +277,7 @@ components:
         - serve.ogc-api-features
       - source:
           repository: https://github.com/honua-io/honua-sdk-js
-          revision: b195086e6aabee9d048cdc7d324b82a51e7c79c3
+          revision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
           path: release/sdk-capability-baseline.json
         sha256: sha256:5b03a44d6d38db9880f0e9ba87207c58a919fd818cefe5c66a08bbc53c6da486
         content:
@@ -312,7 +312,7 @@ components:
         - serve.geoservices-featureserver
         - serve.ogc-api-features
       declarations:
-      - revision: 76842917bbd5bee3860ac3f6d355d44ac0a82c21
+      - revision: 856509d29eb13a12d245e84f30fc55b57c37a9d6
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
@@ -320,7 +320,7 @@ components:
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release
-      - revision: b195086e6aabee9d048cdc7d324b82a51e7c79c3
+      - revision: df8c6bbb3c1fb4ea228721f3e7446a975187c73d
         path: release/sdk-capability-baseline.json
         sha256: sha256:a84081b075e17759c09f602704fa462b39d5de4ce3fe1fc66d7b6e712483a325
         minimumServerVersion: first-release

@@ -180,10 +180,10 @@ async function runAdmin(state) {
   await step(state, scenario, "served", async () => rowCount(dataClient({ apiKey }).featureLayer(life.service, state.layer)), ["layer"]);
   await step(state, scenario, "unpublish", async () => {
     const summary = unwrap(await admin.call("setLayerEnabled", {
-      path: { id: state.connection, layerId: state.layer }, query: { serviceName: life.service }, body: { enabled: false },
+      path: { id: state.connection, storageLayerId: state.layer }, query: { serviceName: life.service }, body: { enabled: false },
     }));
     state.unpublished = true;
-    return { layerId: summary.layerId, enabled: summary.enabled };
+    return { layerId: summary.layerId ?? summary.storageLayerId, enabled: summary.enabled };
   }, ["layer"]);
   await step(state, scenario, "unpublished-refused", async () => {
     const response = await dataClient({ apiKey }).featureLayer(life.service, state.layer).queryFeatures({ where: "1=1" });

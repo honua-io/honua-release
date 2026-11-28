@@ -10,7 +10,7 @@
   "clients": [
     {
       "name": "@honua/sdk-js",
-      "version": "0.4.0",
+      "version": "0.5.2",
       "lane": "sdk-js-protocol",
       "source": "sdk-js",
       "auth_policy_revision": "anonymous-public-v1"
